@@ -18,6 +18,10 @@ jobs:
         run: |
           set -o pipefail
           swift build -c release 2>&1 | grep -v "^\[" | tail -n 300
+      - name: Test
+        run: |
+          set -o pipefail
+          swift test 2>&1 | grep -v "^\[" | tail -n 300
       - name: Bundle
         run: Scripts/build.sh
       - name: Upload app

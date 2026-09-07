@@ -19,6 +19,11 @@ let package = Package(
                 .linkedFramework("QuickLookThumbnailing"),
                 .linkedFramework("ServiceManagement"),
             ]
-        )
+        ),
+        .testTarget(
+            name: "MacNotchIslandTests",
+            dependencies: ["MacNotchIsland"],
+            path: "Tests/MacNotchIslandTests"
+        ),
     ]
 )

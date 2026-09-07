@@ -41,6 +41,21 @@ final class ActivityCenter: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Clears every piece of state. Used by the test suite.
+    func resetForTesting() {
+        alertWork?.cancel(); hoverWork?.cancel(); homeWork?.cancel(); forcedWork?.cancel()
+        activities = []
+        alert = nil
+        isHovering = false
+        isDragTargeted = false
+        manuallyExpanded = false
+        homeForced = false
+        forcedExpandedID = nil
+        pinnedID = nil
+        micInUse = false
+        cameraInUse = false
+    }
+
     // MARK: - Derived state
 
     var privacyIndicatorsVisible: Bool {

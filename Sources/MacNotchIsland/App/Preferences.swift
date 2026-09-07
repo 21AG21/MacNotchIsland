@@ -40,9 +40,12 @@ final class Preferences: ObservableObject {
     @Published var notchHeightOverride: Double { didSet { d.set(notchHeightOverride, forKey: "notchHeightOverride") } }
 
     // MARK: Launch at login (SMAppService)
+    /// SMAppService only makes sense for a real .app bundle (not `swift run` or the test host).
+    private static var isBundledApp: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+
     @Published var launchAtLogin: Bool {
         didSet {
-            guard oldValue != launchAtLogin else { return }
+            guard oldValue != launchAtLogin, Self.isBundledApp else { return }
             do {
                 if launchAtLogin { try SMAppService.mainApp.register() }
                 else { try SMAppService.mainApp.unregister() }
@@ -86,6 +89,6 @@ final class Preferences: ObservableObject {
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)
 
-        launchAtLogin = SMAppService.mainApp.status == .enabled
+        launchAtLogin = Self.isBundledApp && SMAppService.mainApp.status == .enabled
     }
 }
