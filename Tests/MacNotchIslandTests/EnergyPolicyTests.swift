@@ -81,7 +81,8 @@ final class EnergyPolicyTests: XCTestCase {
         let pauseOnBattery = Preferences.shared.pauseAnimationsOnBattery
         XCTAssertEqual(policy.animationsPaused,
                        EnergyPolicy.animationsPaused(asleep: policy.isAsleep, lowPower: policy.isLowPower,
-                                                      onBattery: policy.isOnBattery, pauseOnBattery: pauseOnBattery))
+                                                      onBattery: policy.isOnBattery, pauseOnBattery: pauseOnBattery,
+                                                    reduceMotion: IslandMotion.reduceMotion))
         XCTAssertEqual(policy.animationInterval,
                        EnergyPolicy.animationInterval(asleep: policy.isAsleep, lowPower: policy.isLowPower,
                                                        onBattery: policy.isOnBattery, pauseOnBattery: pauseOnBattery))

@@ -22,9 +22,9 @@ final class EnergyPolicy: ObservableObject {
     var animationsPaused: Bool {
         // Reduce Motion is a promise that nothing moves on its own, so it stops the marquee and
         // the visualizer loops too, not only the springs.
-        if IslandMotion.reduceMotion { return true }
         return Self.animationsPaused(asleep: isAsleep, lowPower: isLowPower, onBattery: isOnBattery,
-                               pauseOnBattery: Preferences.shared.pauseAnimationsOnBattery)
+                                     pauseOnBattery: Preferences.shared.pauseAnimationsOnBattery,
+                                     reduceMotion: IslandMotion.reduceMotion)
     }
 
     /// Minimum frame interval for continuous animations (visualizer, marquee).
@@ -41,7 +41,9 @@ final class EnergyPolicy: ObservableObject {
     // MARK: Pure rules (unit-testable without touching NSWorkspace/IOKit/Preferences)
 
     /// Pure form of `animationsPaused`.
-    static func animationsPaused(asleep: Bool, lowPower: Bool, onBattery: Bool, pauseOnBattery: Bool) -> Bool {
+    static func animationsPaused(asleep: Bool, lowPower: Bool, onBattery: Bool, pauseOnBattery: Bool,
+                                 reduceMotion: Bool = false) -> Bool {
+        if reduceMotion { return true }
         asleep || lowPower || (onBattery && pauseOnBattery)
     }
 
