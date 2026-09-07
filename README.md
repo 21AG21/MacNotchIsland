@@ -45,6 +45,11 @@ make install    # copies to /Applications
 
 The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the
 demo menu, and Quit. Turn on "Launch at login" in Settings once you're happy with it.
+Press ⌃⌥Space anywhere to summon the island.
+
+`Scripts/make-dmg.sh` builds a drag-to-Applications disk image; pushing a `v*` tag runs the
+Release workflow, which attaches the DMG and a zip to a GitHub Release. Every push also
+uploads a fresh `MacNotchIsland.app` as a build artifact on the Actions tab.
 
 ## Permissions
 

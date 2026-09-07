@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and package
+        run: |
+          set -o pipefail
+          Scripts/build.sh
+          Scripts/make-dmg.sh build/MacNotchIsland.dmg
+          cd build && zip -r -y MacNotchIsland.zip MacNotchIsland.app
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacNotchIsland-release
+          path: |
+            build/MacNotchIsland.dmg
+            build/MacNotchIsland.zip
+      - name: GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/MacNotchIsland.dmg
+            build/MacNotchIsland.zip
+          generate_release_notes: true
