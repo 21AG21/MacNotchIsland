@@ -20,20 +20,39 @@ final class EnergyPolicy: ObservableObject {
 
     /// True when continuous animation should stop entirely.
     var animationsPaused: Bool {
-        isAsleep || isLowPower || (isOnBattery && Preferences.shared.pauseAnimationsOnBattery)
+        Self.animationsPaused(asleep: isAsleep, lowPower: isLowPower, onBattery: isOnBattery,
+                               pauseOnBattery: Preferences.shared.pauseAnimationsOnBattery)
     }
 
     /// Minimum frame interval for continuous animations (visualizer, marquee).
     var animationInterval: TimeInterval {
-        if animationsPaused { return 1 }
-        return isOnBattery ? 1.0 / 20.0 : 1.0 / 30.0
+        Self.animationInterval(asleep: isAsleep, lowPower: isLowPower, onBattery: isOnBattery,
+                                pauseOnBattery: Preferences.shared.pauseAnimationsOnBattery)
     }
 
     /// Multiply timer intervals by this for polling work.
     var pollingMultiplier: Double {
-        if isAsleep { return 8 }
-        if isLowPower { return 4 }
-        return isOnBattery ? 2 : 1
+        Self.pollingMultiplier(asleep: isAsleep, lowPower: isLowPower, onBattery: isOnBattery)
+    }
+
+    // MARK: Pure rules (unit-testable without touching NSWorkspace/IOKit/Preferences)
+
+    /// Pure form of `animationsPaused`.
+    static func animationsPaused(asleep: Bool, lowPower: Bool, onBattery: Bool, pauseOnBattery: Bool) -> Bool {
+        asleep || lowPower || (onBattery && pauseOnBattery)
+    }
+
+    /// Pure form of `animationInterval`.
+    static func animationInterval(asleep: Bool, lowPower: Bool, onBattery: Bool, pauseOnBattery: Bool) -> TimeInterval {
+        if animationsPaused(asleep: asleep, lowPower: lowPower, onBattery: onBattery, pauseOnBattery: pauseOnBattery) { return 1 }
+        return onBattery ? 1.0 / 20.0 : 1.0 / 30.0
+    }
+
+    /// Pure form of `pollingMultiplier`.
+    static func pollingMultiplier(asleep: Bool, lowPower: Bool, onBattery: Bool) -> Double {
+        if asleep { return 8 }
+        if lowPower { return 4 }
+        return onBattery ? 2 : 1
     }
 
     func start() {

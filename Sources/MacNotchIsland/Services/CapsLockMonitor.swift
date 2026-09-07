@@ -1,20 +1,37 @@
 import AppKit
+import Combine
 
 /// Caps Lock on/off pill. Polls NSEvent.modifierFlags, which needs no permission at all.
 final class CapsLockMonitor {
+    private static let baseInterval: TimeInterval = 0.2
+
     private var timer: Timer?
     private var last = false
+    private var energyCancellable: AnyCancellable?
 
     func start() {
         guard timer == nil else { return }
         last = NSEvent.modifierFlags.contains(.capsLock)
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.tick() }
-        timer?.tolerance = 0.1
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        energyCancellable?.cancel()
+        energyCancellable = nil
+    }
+
+    /// Rebuilds the poll timer at the current policy interval. Base rate is 0.2s (5 Hz); the
+    /// heaviest multiplier (asleep, 8x) brings that to 1.6s — comfortably under the 2 Hz cap.
+    private func scheduleTimer() {
+        let interval = Self.baseInterval * EnergyPolicy.shared.pollingMultiplier
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+        timer?.tolerance = interval * 0.25
     }
 
     private func tick() {

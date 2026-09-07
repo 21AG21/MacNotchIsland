@@ -29,6 +29,10 @@ final class IslandTimer: ObservableObject {
         s.pausedRemaining = s.remaining(at: Date())
         state = s
         publish()
+        // Nothing changes while paused; stop ticking rather than waking up every 0.5s to
+        // compare a remaining time that never moves.
+        ticker?.invalidate()
+        ticker = nil
     }
 
     func resume() {
@@ -37,6 +41,8 @@ final class IslandTimer: ObservableObject {
         s.pausedRemaining = nil
         state = s
         publish()
+        ticker?.invalidate()
+        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.tick() }
     }
 
     func cancel() {
