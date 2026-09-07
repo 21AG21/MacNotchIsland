@@ -1,19 +1,26 @@
 import SwiftUI
 
-/// "Quick actions" settings section body: every installed Shortcut with a favourite toggle,
-/// a Refresh button, and a per-favourite SF Symbol override with a live preview. No window
-/// chrome of its own — SettingsView embeds this inside one of its `section(...)` blocks.
+/// The quick actions list: every installed Shortcut with a favourite switch, a Refresh button,
+/// and a per-favourite SF Symbol override. No chrome of its own — the Shortcuts pane drops
+/// these rows straight into a `Form` section.
 struct QuickActionsSettingsView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
+        Group {
+            LabeledContent {
+                Button("Refresh") { runner.refresh() }
+                    .help("Ask the Shortcuts app for the current list.")
+            } label: {
+                Text("Favourites")
+                Text("\(runner.favorites.count) of 8 chosen")
+            }
+
             if runner.available.isEmpty {
                 Text("No shortcuts found. Add some in the Shortcuts app, then refresh.")
-                    .font(.system(size: 13))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 10)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 ForEach(runner.available, id: \.self) { name in
                     row(for: name)
@@ -23,32 +30,11 @@ struct QuickActionsSettingsView: View {
         .onAppear { runner.refresh() }
     }
 
-    private var header: some View {
-        HStack {
-            Text("\(runner.favorites.count)/8 favourited")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("Refresh") { runner.refresh() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .padding(.bottom, 8)
-    }
-
     @ViewBuilder
     private func row(for name: String) -> some View {
         let isFavorite = runner.isFavorite(name)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: runner.symbol(for: name))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 20)
-                Text(name)
-                    .font(.system(size: 14))
-                    .lineLimit(1)
-                Spacer(minLength: 8)
+        LabeledContent {
+            HStack(spacing: 10) {
                 if isFavorite {
                     SymbolField(name: name)
                 }
@@ -57,35 +43,40 @@ struct QuickActionsSettingsView: View {
                     set: { _ in runner.toggleFavorite(name) }
                 ))
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(.primary)
                 .disabled(!isFavorite && runner.favorites.count >= 8)
+                .accessibilityLabel(Text(name))
             }
-            .padding(.vertical, 8)
-            Divider().opacity(0.5)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: runner.symbol(for: name))
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+                Text(name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
     }
 }
 
-/// Small SF Symbol name field with a live glyph preview, for overriding a favourite's icon.
+/// The SF Symbol name for one favourite. Empty means the automatic symbol.
 private struct SymbolField: View {
     let name: String
     @ObservedObject private var runner = ShortcutsRunner.shared
     @State private var text: String = ""
 
+    init(name: String) {
+        self.name = name
+    }
+
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: runner.symbol(for: name))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            TextField("SF Symbol", text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
-                .frame(width: 130)
-                .onSubmit { runner.setSymbol(text, for: name) }
-                .onChange(of: text) { _, newValue in runner.setSymbol(newValue, for: name) }
-        }
-        .onAppear { text = runner.symbolOverride(for: name) ?? "" }
+        TextField("Symbol", text: $text)
+            .frame(width: 130)
+            .font(.callout)
+            .help("An SF Symbol name, such as bolt.fill. Leave empty for the automatic symbol.")
+            .accessibilityLabel(Text("Symbol for \(name)"))
+            .onSubmit { runner.setSymbol(text, for: name) }
+            .onChange(of: text) { _, newValue in runner.setSymbol(newValue, for: name) }
+            .onAppear { text = runner.symbolOverride(for: name) ?? "" }
     }
 }
