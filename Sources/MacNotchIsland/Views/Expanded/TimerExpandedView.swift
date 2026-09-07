@@ -18,6 +18,11 @@ struct TimerExpandedView: View {
                             .foregroundStyle(.orange)
                             .contentTransition(.numericText(countsDown: true))
                             .symbolEffect(.pulse, isActive: state.isFinished)
+                            // While the matched frame is still pill-sized the 40 pt digits scale
+                            // down to fit instead of truncating, so they read as growing.
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.25)
+                            .islandMatched(IslandMatchedID.timerTime)
                     }
                 }
                 Spacer(minLength: 0)

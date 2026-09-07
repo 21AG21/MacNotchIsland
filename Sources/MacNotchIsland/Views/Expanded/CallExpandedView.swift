@@ -14,15 +14,18 @@ struct CallExpandedView: View {
         VStack(spacing: 0) {
             NotchClearance(geometry: geometry, extra: 6)
             HStack(spacing: 14) {
-                if let icon {
-                    Image(nsImage: icon).resizable().frame(width: 44, height: 44)
-                } else {
-                    ZStack {
+                // One stable container for both branches, so the matched group keeps its member
+                // whether or not the app icon resolves.
+                ZStack {
+                    if let icon {
+                        Image(nsImage: icon).resizable()
+                    } else {
                         Circle().fill(Color.green.opacity(0.25))
                         Image(systemName: "phone.fill").foregroundStyle(.green)
                     }
-                    .frame(width: 44, height: 44)
                 }
+                .frame(width: 44, height: 44)
+                .islandMatched(IslandMatchedID.callGlyph)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.appName).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     Text("Call in progress").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
@@ -32,7 +35,11 @@ struct CallExpandedView: View {
                     Text(ctx.date.timeIntervalSince(state.startedAt).mmss)
                         .font(.system(size: 20, weight: .medium, design: .rounded).monospacedDigit())
                         .foregroundStyle(.green)
+                        .contentTransition(.numericText(countsDown: false))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.4)
                 }
+                .islandMatched(IslandMatchedID.callTime)
                 CircleActionButton(symbol: "arrow.up.forward", tint: .green) { activity.openAction?.perform() }
             }
             .padding(.horizontal, 22)
