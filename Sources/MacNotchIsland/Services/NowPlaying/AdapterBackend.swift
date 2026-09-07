@@ -74,7 +74,12 @@ final class AdapterBackend {
 
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty, let self else { return }
+            guard !data.isEmpty else {
+                // EOF: stop the handler so it doesn't spin, the termination handler restarts us.
+                handle.readabilityHandler = nil
+                return
+            }
+            guard let self else { return }
             self.parseQueue.async { self.consume(data) }
         }
         p.terminationHandler = { [weak self] _ in
