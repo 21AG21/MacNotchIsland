@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The tabs across the top of the Home panel.
 private enum HomeTab: String, CaseIterable {
-    case music, shelf, clipboard, actions, mirror, stats
+    case music, shelf, clipboard, actions, mirror, stats, weather
 
     var title: String {
         switch self {
@@ -12,6 +12,7 @@ private enum HomeTab: String, CaseIterable {
         case .actions: return "Actions"
         case .mirror: return "Mirror"
         case .stats: return "Stats"
+        case .weather: return "Weather"
         }
     }
 }
@@ -54,6 +55,7 @@ struct HomeExpandedView: View {
             case .actions: return prefs.quickActionsEnabled
             case .mirror: return prefs.mirrorEnabled
             case .stats: return prefs.statsEnabled
+            case .weather: return prefs.weatherEnabled
             }
         }
     }
@@ -133,6 +135,8 @@ struct HomeExpandedView: View {
             MirrorView()
         case .stats:
             StatsView()
+        case .weather:
+            WeatherView()
         }
     }
 
