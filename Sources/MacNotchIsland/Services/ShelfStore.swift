@@ -169,6 +169,10 @@ final class ShelfStore: ObservableObject {
         guard !urls.isEmpty, let service = NSSharingService(named: .sendViaAirDrop) else { return }
         let objects: [Any] = urls
         guard service.canPerform(withItems: objects) else { return }
+        // The AirDrop window takes the pointer off the island; keep the panel up and make
+        // sure the picker gets focus even though this is a background app.
+        ActivityCenter.shared.holdOpen(for: 30)
+        NSApp.activate(ignoringOtherApps: true)
         service.perform(withItems: objects)
     }
 
@@ -184,6 +188,8 @@ final class ShelfStore: ObservableObject {
         let picker = NSSharingServicePicker(items: objects)
         sharingPicker = picker
         let anchor = rect == .zero ? view.bounds : rect
+        ActivityCenter.shared.holdOpen(for: 30)
+        NSApp.activate(ignoringOtherApps: true)
         picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
     }
 
@@ -197,14 +203,17 @@ final class ShelfStore: ObservableObject {
 
     func moveToTrash(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        for url in urls {
-            do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            } catch {
-                NSLog("Shelf: could not trash \(url.path): \(error.localizedDescription)")
+        remove(urls)
+        // Trashing can block on iCloud or network volumes; never do it on the main thread.
+        DispatchQueue.global(qos: .userInitiated).async {
+            for url in urls {
+                do {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                } catch {
+                    NSLog("Shelf: could not trash \(url.path): \(error.localizedDescription)")
+                }
             }
         }
-        remove(urls)
     }
 
     // MARK: - Drops

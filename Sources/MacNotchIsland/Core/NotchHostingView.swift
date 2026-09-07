@@ -11,6 +11,12 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     /// Controls inside the island react to the first click even when the panel isn't key.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// A context menu takes the pointer off the island; hold the panel open while it's up.
+    override func rightMouseDown(with event: NSEvent) {
+        ActivityCenter.shared.holdOpen(for: 15)
+        super.rightMouseDown(with: event)
+    }
+
     /// Trackpad gestures arrive here as scroll events. Anything the router does not claim is
     /// passed on, so scrollable SwiftUI content (clipboard list, shelf strip) still scrolls.
     override func scrollWheel(with event: NSEvent) {
