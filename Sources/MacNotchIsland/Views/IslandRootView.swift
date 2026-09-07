@@ -16,6 +16,7 @@ struct IslandRootView: View {
 
         ZStack(alignment: .top) {
             Color.clear
+            if !center.isSuppressed {
             HStack(alignment: .top, spacing: layout.bubbleGap) {
                 IslandBodyView(geometry: geometry, presentation: presentation, layout: layout, panelID: panelID)
                 if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
@@ -25,7 +26,10 @@ struct IslandRootView: View {
             }
             // Keep the main body centred on the notch when the bubble is present.
             .offset(x: layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0)
+            .transition(.opacity)
+            }
         }
+        .animation(IslandMotion.quick, value: center.isSuppressed)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(animation, value: layout)
         .onChange(of: layout, initial: true) { _, new in previousLayout = new }

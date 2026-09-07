@@ -27,6 +27,7 @@ struct SettingsView: View {
                     toggle("Keyboard shortcut  ⌃⌥Space", $prefs.hotkeyEnabled, note: "Opens the island (or the Home panel) from anywhere; press again to close.")
                     toggle("Show on every display", $prefs.showOnAllDisplays, note: "Displays without a notch get a simulated island.")
                     toggle("Check for updates", $prefs.updateChecksEnabled, note: "Once a day, against the GitHub releases page. Nothing is installed automatically.")
+                    toggle("Hide in full-screen apps", $prefs.hideInFullscreen, note: "Videos and games get the whole screen; the island comes back when you leave full screen.")
                     slider("Hover delay", $prefs.hoverDelay, range: 0...0.6, unit: "s")
                     slider("Alert duration", $prefs.alertDuration, range: 1...6, unit: "s")
                 }
@@ -49,6 +50,7 @@ struct SettingsView: View {
                     toggle("Timer sound", $prefs.timerSoundEnabled)
                     toggle("Caps Lock", $prefs.capsLockEnabled, note: "A brief pill when Caps Lock turns on or off.")
                     toggle("Lyrics", $prefs.lyricsEnabled, note: "Time-synced lyrics under Now Playing, from LRCLIB.")
+                    toggle("Audio-reactive visualizer", $prefs.reactiveVisualizerEnabled, note: "The bars follow the actual sound instead of a pattern. macOS asks for system audio capture access; nothing is recorded.")
                     toggle("Replace the system volume and brightness bezel", $prefs.hudReplacementEnabled, note: "The island becomes the only HUD for volume, mute and brightness. macOS asks for Accessibility access the first time. Hold Shift+Option for quarter steps; keyboard backlight keys are left to macOS.")
                 }
 
@@ -60,6 +62,7 @@ struct SettingsView: View {
                     toggle("Quick actions", $prefs.quickActionsEnabled, note: "Run your Shortcuts from the island.")
                     toggle("Camera mirror", $prefs.mirrorEnabled, note: "A Mirror tab in the Home panel to check yourself before a call. Asks for camera access when opened.")
                     toggle("System stats", $prefs.statsEnabled, note: "CPU, memory, network and battery health in the Home panel.")
+                    toggle("Weather", $prefs.weatherEnabled, note: "A Weather tab in the Home panel. Asks for your location when opened; data from Open-Meteo.")
                     toggle("Trackpad gestures on the island", $prefs.gesturesEnabled, note: "Swipe sideways to skip tracks or switch Home tabs; scroll up or down for volume.")
                 }
 

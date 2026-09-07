@@ -46,7 +46,10 @@ final class NotchPanel: NSPanel {
         view.panelID = panelID
         let geo = geometry
         let pid = panelID
-        view.hitSizeProvider = { IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo).hitSize }
+        view.hitSizeProvider = {
+            if ActivityCenter.shared.isSuppressed { return .zero }
+            return IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo).hitSize
+        }
         view.frame = NSRect(origin: .zero, size: frame.size)
         view.autoresizingMask = [.width, .height]
         contentView = view

@@ -48,6 +48,13 @@ final class Preferences: ObservableObject {
     @Published var statsEnabled: Bool { didSet { d.set(statsEnabled, forKey: "statsEnabled") } }
     @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
     @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
+    @Published var weatherEnabled: Bool { didSet { d.set(weatherEnabled, forKey: "weatherEnabled") } }
+    @Published var hideInFullscreen: Bool { didSet { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
+    @Published var reactiveVisualizerEnabled: Bool { didSet { d.set(reactiveVisualizerEnabled, forKey: "reactiveVisualizerEnabled") } }
+    @Published var hotkeyKeyCode: Double { didSet { d.set(hotkeyKeyCode, forKey: "hotkeyKeyCode") } }
+    @Published var hotkeyModifiers: Double { didSet { d.set(hotkeyModifiers, forKey: "hotkeyModifiers") } }
+    /// Unix time until which the island stays hidden (0 = not paused).
+    @Published var pausedUntil: Double { didSet { d.set(pausedUntil, forKey: "pausedUntil") } }
 
     // MARK: Geometry overrides (0 = auto-detect)
     @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
@@ -113,6 +120,12 @@ final class Preferences: ObservableObject {
         statsEnabled = bool("statsEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)
         gesturesEnabled = bool("gesturesEnabled", true)
+        weatherEnabled = bool("weatherEnabled", false)
+        hideInFullscreen = bool("hideInFullscreen", false)
+        reactiveVisualizerEnabled = bool("reactiveVisualizerEnabled", false)
+        hotkeyKeyCode = double("hotkeyKeyCode", 49)          // kVK_Space
+        hotkeyModifiers = double("hotkeyModifiers", 6144)     // controlKey | optionKey
+        pausedUntil = double("pausedUntil", 0)
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)

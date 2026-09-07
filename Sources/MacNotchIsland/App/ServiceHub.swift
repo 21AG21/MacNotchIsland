@@ -22,6 +22,8 @@ final class ServiceHub {
     let capsLock = CapsLockMonitor()
     let energy = EnergyPolicy.shared
     let updates = UpdateChecker.shared
+    let fullscreen = FullscreenMonitor()
+    let audioLevel = AudioLevelTap.shared
 
     private var cancellables = Set<AnyCancellable>()
     private var requestedShortcuts = false
@@ -61,5 +63,7 @@ final class ServiceHub {
             ShortcutsRunner.shared.refresh()
         }
         p.updateChecksEnabled ? updates.start() : updates.stop()
+        p.hideInFullscreen ? fullscreen.start() : fullscreen.stop()
+        (p.nowPlayingEnabled && p.reactiveVisualizerEnabled) ? audioLevel.start() : audioLevel.stop()
     }
 }

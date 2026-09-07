@@ -27,6 +27,15 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var pinnedID: String? = nil
     @Published var micInUse = false
     @Published var cameraInUse = false
+    /// True while a full-screen app is frontmost and the user asked to hide there.
+    @Published var fullscreenSuppressed = false
+
+    /// Nothing is drawn while suppressed (user pause or full-screen app).
+    var isSuppressed: Bool {
+        if fullscreenSuppressed { return true }
+        let until = Preferences.shared.pausedUntil
+        return until > 0 && Date().timeIntervalSince1970 < until
+    }
 
     private var alertWork: DispatchWorkItem?
     private var pendingAlerts: [(activity: IslandActivity, queuedAt: Date, duration: TimeInterval?)] = []
@@ -84,6 +93,15 @@ final class ActivityCenter: ObservableObject {
 
     /// Presentation independent of which screen is asking (tests, hit-testing fallbacks).
     var presentation: IslandPresentation { presentation(for: nil) }
+
+    /// Hide the island for a while (presentations, screen sharing). 0 clears the pause.
+    func pause(for seconds: TimeInterval) {
+        Preferences.shared.pausedUntil = seconds > 0 ? Date().timeIntervalSince1970 + seconds : 0
+        objectWillChange.send()
+        if seconds > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds + 0.5) { [weak self] in self?.objectWillChange.send() }
+        }
+    }
 
     /// Presentation for one panel. Hover and drag only affect the panel they happen on;
     /// alerts, live activities and programmatic expansion show everywhere.

@@ -41,6 +41,13 @@ final class StatusItemController: NSObject {
         stopwatch.target = self
         menu.addItem(stopwatch)
 
+        let hide = NSMenuItem(title: "Hide Island for an Hour", action: #selector(hideForHour), keyEquivalent: "")
+        hide.target = self
+        menu.addItem(hide)
+        let show = NSMenuItem(title: "Show Island Now", action: #selector(showNow), keyEquivalent: "")
+        show.target = self
+        menu.addItem(show)
+
         let clear = NSMenuItem(title: "Clear Shelf", action: #selector(clearShelf), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
@@ -104,6 +111,10 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func clearShelf() { ShelfStore.shared.clear() }
+
+    @objc private func hideForHour() { ActivityCenter.shared.pause(for: 3600) }
+
+    @objc private func showNow() { ActivityCenter.shared.pause(for: 0) }
 
     @objc private func openSettings() {
         NSApp.activate(ignoringOtherApps: true)
