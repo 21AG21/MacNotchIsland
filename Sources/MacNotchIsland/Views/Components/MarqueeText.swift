@@ -9,20 +9,24 @@ struct MarqueeText: View {
     var pause: Double = 1.6      // seconds before scrolling starts
     var gap: CGFloat = 36
 
+    @ObservedObject private var energy = EnergyPolicy.shared
     @State private var textWidth: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
             let overflow = textWidth > geo.size.width + 1
+            // Energy policy can pause scrolling even when the text doesn't fit; show the
+            // truncated first copy instead, exactly like the "fits already" case.
+            let scrolling = overflow && !energy.animationsPaused
             let distance = Double(textWidth + gap)
-            TimelineView(.animation(paused: !overflow)) { context in
+            TimelineView(.animation(minimumInterval: energy.animationInterval, paused: !scrolling)) { context in
                 let t = context.date.timeIntervalSinceReferenceDate
                 let cycle = distance / speed + pause
                 let phase = t.truncatingRemainder(dividingBy: cycle)
-                let offset = overflow ? (phase < pause ? 0 : min(distance, (phase - pause) * speed)) : 0
+                let offset = scrolling ? (phase < pause ? 0 : min(distance, (phase - pause) * speed)) : 0
                 HStack(spacing: gap) {
                     label
-                    if overflow { label }
+                    if scrolling { label }
                 }
                 .offset(x: -CGFloat(offset))
             }

@@ -1,14 +1,18 @@
 import AppKit
+import Combine
 
 /// Turns in-progress browser downloads in ~/Downloads into Live Activities
 /// (Safari `.download` bundles report exact progress; Chrome `.crdownload` and Firefox
 /// `.part` files report the bytes received so far) and shows a "Download complete" alert.
 final class DownloadMonitor {
+    private static let baseInterval: TimeInterval = 1
+
     private var source: DispatchSourceFileSystemObject?
     private var fd: Int32 = -1
     private var timer: Timer?
     private var active: [String: DownloadState] = [:]
     private var running = false
+    private var energyCancellable: AnyCancellable?
 
     private var downloads: URL {
         FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
@@ -33,6 +37,9 @@ final class DownloadMonitor {
             source = src
         }
         updateTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rescheduleTimer() }
     }
 
     func stop() {
@@ -42,6 +49,8 @@ final class DownloadMonitor {
         source = nil
         timer?.invalidate()
         timer = nil
+        energyCancellable?.cancel()
+        energyCancellable = nil
         for key in active.keys { ActivityCenter.shared.end(id: "download-" + key) }
         active.removeAll()
     }
@@ -51,8 +60,21 @@ final class DownloadMonitor {
             timer?.invalidate()
             timer = nil
         } else if timer == nil {
-            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.scan() }
+            scheduleTimer()
         }
+    }
+
+    /// Rebuilds the running timer at the current policy interval (e.g. after waking, or a
+    /// battery/Low Power change). A no-op when no downloads are in flight.
+    private func rescheduleTimer() {
+        guard running, timer != nil else { return }
+        scheduleTimer()
+    }
+
+    private func scheduleTimer() {
+        let interval = Self.baseInterval * EnergyPolicy.shared.pollingMultiplier
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.scan() }
     }
 
     private func scan() {

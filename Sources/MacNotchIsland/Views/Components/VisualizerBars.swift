@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The iPhone's animated audio bars, tinted from the album artwork.
 struct VisualizerBars: View {
+    @ObservedObject private var energy = EnergyPolicy.shared
+
     var isPlaying: Bool
     var color: Color
     var barCount: Int = 4
@@ -10,7 +12,7 @@ struct VisualizerBars: View {
     var minHeight: CGFloat = 3
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { context in
+        TimelineView(.animation(minimumInterval: energy.animationInterval, paused: !isPlaying || energy.animationsPaused)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: barWidth * 0.8) {
                 ForEach(0..<barCount, id: \.self) { index in
@@ -26,6 +28,10 @@ struct VisualizerBars: View {
 
     private func height(index: Int, time t: Double) -> CGFloat {
         guard isPlaying else { return minHeight }
+        // Playing but the policy has paused continuous animation (asleep, Low Power, or on
+        // battery per the user's setting): freeze at a gentle mid-height instead of the tiny
+        // "not playing" bars, so the pill still reads as "something is playing".
+        guard !energy.animationsPaused else { return (minHeight + maxHeight) / 2 }
         let f1 = 2.1 + Double(index) * 0.37
         let f2 = 3.3 + Double(index) * 0.53
         let phase = Double(index) * 1.7

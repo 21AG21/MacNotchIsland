@@ -1,18 +1,25 @@
 import Foundation
 import CoreMediaIO
+import Combine
 
 /// Camera-in-use privacy indicator via CoreMediaIO's "device is running somewhere" property.
 final class CameraMonitor {
+    private static let baseInterval: TimeInterval = 30
+
     private var devices: [CMIOObjectID] = []
     private var blocks: [(CMIOObjectID, CMIOObjectPropertyAddress, CMIOObjectPropertyListenerBlock)] = []
     private var running = false
     private var rescanTimer: Timer?
+    private var energyCancellable: AnyCancellable?
 
     func start() {
         guard !running else { return }
         running = true
         rescan()
-        rescanTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.rescan() }
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
     }
 
     func stop() {
@@ -20,8 +27,19 @@ final class CameraMonitor {
         running = false
         rescanTimer?.invalidate()
         rescanTimer = nil
+        energyCancellable?.cancel()
+        energyCancellable = nil
         removeListeners()
         ActivityCenter.shared.cameraInUse = false
+    }
+
+    /// Rebuilds the rescan timer at the current policy interval (device rescans are cheap but
+    /// pointless to run at full rate while asleep or in Low Power Mode).
+    private func scheduleTimer() {
+        guard running else { return }
+        let interval = Self.baseInterval * EnergyPolicy.shared.pollingMultiplier
+        rescanTimer?.invalidate()
+        rescanTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.rescan() }
     }
 
     private func rescan() {

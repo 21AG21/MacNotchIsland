@@ -51,7 +51,11 @@ final class NowPlayingService: ObservableObject {
 
     private func tick() {
         ticks += 1
-        if !adapter.isHealthy, !mediaRemote.isHealthy, ticks % 2 == 0 {
+        // AppleScript polling spawns a real process; keep it off entirely while asleep, and
+        // back off to every 4s (instead of 2s) on battery.
+        let energy = EnergyPolicy.shared
+        let pollEvery = energy.isOnBattery ? 4 : 2
+        if !energy.isAsleep, !adapter.isHealthy, !mediaRemote.isHealthy, ticks % pollEvery == 0 {
             appleScript.poll { [weak self] info in self?.handle(info, from: .appleScript) }
         } else if activeBackend == .mediaRemote {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
