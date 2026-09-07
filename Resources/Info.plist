@@ -50,6 +50,6 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notch Island only checks whether the microphone is in use to show the privacy indicator. It never records audio.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Notch Island only checks whether the camera is in use to show the privacy indicator. It never captures video.</string>
+	<string>Notch Island shows a live mirror in the Home panel when you open the Mirror tab, so you can check yourself before a call. The privacy indicator itself never captures video.</string>
 </dict>
 </plist>
