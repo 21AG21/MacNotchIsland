@@ -31,13 +31,13 @@ struct WelcomeView: View {
 
             VStack(alignment: .leading, spacing: 18) {
                 row("cursorarrow.rays", "Hover to expand",
-                    "Whatever is live opens under the notch: music, a timer, a call, a download. Click to jump to the app.")
+                    "See what is playing, counting down or downloading without opening the app. Click to jump to it.")
                 row("tray.and.arrow.down", "Drop files on the shelf",
                     "Drag anything onto the island and it waits there until you drag it out again.")
                 row("keyboard", "Press \(shortcut)",
                     "Summon the island from anywhere, even in full-screen apps.")
                 row("menubar.rectangle", "Find it in the menu bar",
-                    "Settings, timers and the stopwatch live under the capsule icon.")
+                    "Settings, timers and the stopwatch are a click away in the menu bar.")
             }
             .frame(maxWidth: 400, alignment: .leading)
             .padding(.top, 32)
@@ -52,7 +52,6 @@ struct WelcomeView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .tint(.primary)
                 .keyboardShortcut(.defaultAction)
                 .frame(width: 300)
 

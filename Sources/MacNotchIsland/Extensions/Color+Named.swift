@@ -1,22 +1,23 @@
 import SwiftUI
 
 extension Color {
-    /// iOS system colours by name, or a hex string ("#34C759" / "34C759").
+    /// The system colours by name (the same NSColor.system* values iOS and macOS use, so they
+    /// track the panel's dark appearance and Increase Contrast), or a hex string ("#34C759").
     static func named(_ name: String) -> Color {
         switch name.lowercased() {
-        case "red": return Color(red: 1, green: 0.27, blue: 0.23)
-        case "orange": return .orange
-        case "yellow": return Color(red: 1, green: 0.8, blue: 0)
-        case "green": return Color(red: 0.2, green: 0.84, blue: 0.29)
-        case "mint": return Color(red: 0, green: 0.78, blue: 0.75)
-        case "teal": return Color(red: 0.19, green: 0.69, blue: 0.78)
-        case "cyan": return Color(red: 0.2, green: 0.68, blue: 0.9)
-        case "blue": return Color(red: 0.04, green: 0.52, blue: 1)
-        case "indigo": return Color(red: 0.35, green: 0.34, blue: 0.84)
-        case "purple": return Color(red: 0.69, green: 0.32, blue: 0.87)
-        case "pink": return Color(red: 1, green: 0.22, blue: 0.37)
-        case "brown": return Color(red: 0.64, green: 0.52, blue: 0.37)
-        case "gray", "grey": return Color(white: 0.6)
+        case "red": return Color(nsColor: .systemRed)
+        case "orange": return Color(nsColor: .systemOrange)
+        case "yellow": return Color(nsColor: .systemYellow)
+        case "green": return Color(nsColor: .systemGreen)
+        case "mint": return Color(nsColor: .systemMint)
+        case "teal": return Color(nsColor: .systemTeal)
+        case "cyan": return Color(nsColor: .systemCyan)
+        case "blue": return Color(nsColor: .systemBlue)
+        case "indigo": return Color(nsColor: .systemIndigo)
+        case "purple": return Color(nsColor: .systemPurple)
+        case "pink": return Color(nsColor: .systemPink)
+        case "brown": return Color(nsColor: .systemBrown)
+        case "gray", "grey": return Color(nsColor: .systemGray)
         case "white", "": return .white
         default:
             if let c = Color(hex: name) { return c }

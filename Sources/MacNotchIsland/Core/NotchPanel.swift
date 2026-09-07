@@ -26,6 +26,9 @@ final class NotchPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear
+        // The island is always black, so system colours must resolve to their dark variants
+        // (the values iOS uses on the Dynamic Island) whatever the desktop appearance is.
+        appearance = NSAppearance(named: .darkAqua)
         hasShadow = false
         isMovable = false
         isMovableByWindowBackground = false

@@ -20,7 +20,10 @@ final class EnergyPolicy: ObservableObject {
 
     /// True when continuous animation should stop entirely.
     var animationsPaused: Bool {
-        Self.animationsPaused(asleep: isAsleep, lowPower: isLowPower, onBattery: isOnBattery,
+        // Reduce Motion is a promise that nothing moves on its own, so it stops the marquee and
+        // the visualizer loops too, not only the springs.
+        if IslandMotion.reduceMotion { return true }
+        return Self.animationsPaused(asleep: isAsleep, lowPower: isLowPower, onBattery: isOnBattery,
                                pauseOnBattery: Preferences.shared.pauseAnimationsOnBattery)
     }
 
