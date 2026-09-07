@@ -65,19 +65,30 @@ Release workflow, which attaches the DMG and a zip to a GitHub Release.
 
 ### Without a toolchain
 
-Every push also builds the app on GitHub. Open the latest run on the
-[Actions tab](https://github.com/21AG21/MacNotchIsland/actions), download the
-`MacNotchIsland` artifact, unzip it, and drag `MacNotchIsland.app` to `/Applications`.
+Every push also builds the app on GitHub, so nothing needs to be installed locally. Open the
+latest run on the [Actions tab](https://github.com/21AG21/MacNotchIsland/actions), download
+the `MacNotchIsland` artifact (sign-in required), then in Terminal:
+
+```sh
+cd ~/Downloads
+unzip -o MacNotchIsland.zip                          # GitHub's wrapper, yields MacNotchIsland.app.zip
+ditto -x -k MacNotchIsland.app.zip /Applications     # keeps permissions and the signature intact
+xattr -dr com.apple.quarantine /Applications/MacNotchIsland.app
+open /Applications/MacNotchIsland.app
+```
 
 ## First launch of a downloaded build
 
 Builds from the Actions tab and the Release page are ad-hoc signed, not notarized (that
-needs a paid Apple Developer ID). Gatekeeper will refuse to open them until you either
-right-click the app and choose Open, or clear the quarantine flag:
+needs a paid Apple Developer ID), so Gatekeeper refuses to open them. Since macOS 15,
+right-click and Open no longer bypasses that. Either clear the quarantine flag:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/MacNotchIsland.app
 ```
+
+or open the app once, dismiss the warning, then click Open Anyway under System Settings >
+Privacy & Security.
 
 Building from source with `make` has no such step.
 

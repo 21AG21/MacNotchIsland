@@ -35,10 +35,10 @@ jobs:
           Scripts/build.sh
           # Zip with ditto so the executable bit and code signature survive the artifact
           # upload, which otherwise flattens permissions.
-          ditto -c -k --keepParent build/MacNotchIsland.app build/MacNotchIsland.zip
+          ditto -c -k --keepParent build/MacNotchIsland.app build/MacNotchIsland.app.zip
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
           name: MacNotchIsland
-          path: build/MacNotchIsland.zip
+          path: build/MacNotchIsland.app.zip
           if-no-files-found: error

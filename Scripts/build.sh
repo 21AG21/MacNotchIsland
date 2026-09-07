@@ -63,8 +63,12 @@ SwiftUI's @State is a compiler macro whose plugin (SwiftUIMacros) ships only ins
   finds Xcode on its own.
 
   Or skip building: open the latest run at https://github.com/21AG21/MacNotchIsland/actions,
-  download the MacNotchIsland artifact, unzip it, and drag MacNotchIsland.app to /Applications.
-  Right-click it and choose Open the first time, since it is not notarized.
+  download the MacNotchIsland artifact, then in Terminal:
+
+      cd ~/Downloads && unzip -o MacNotchIsland.zip
+      ditto -x -k MacNotchIsland.app.zip /Applications
+      xattr -dr com.apple.quarantine /Applications/MacNotchIsland.app
+      open /Applications/MacNotchIsland.app
 
 MSG
     fi
