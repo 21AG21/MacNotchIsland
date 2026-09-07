@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = StatusItemController()
         hub = ServiceHub()
         hub?.start()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.showIfFirstLaunch() }
 
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(screensChanged),

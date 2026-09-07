@@ -71,6 +71,10 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
+        let welcome = NSMenuItem(title: "Welcome Tour", action: #selector(showWelcome), keyEquivalent: "")
+        welcome.target = self
+        menu.addItem(welcome)
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -103,6 +107,8 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+
+    @objc private func showWelcome() { WelcomeWindowController.shared.show() }
 
     // MARK: Demo
 

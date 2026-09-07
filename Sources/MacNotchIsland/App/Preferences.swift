@@ -35,6 +35,7 @@ final class Preferences: ObservableObject {
     @Published var addDownloadsToShelf: Bool { didSet { d.set(addDownloadsToShelf, forKey: "addDownloadsToShelf") } }
     @Published var lowPowerEnabled: Bool { didSet { d.set(lowPowerEnabled, forKey: "lowPowerEnabled") } }
     @Published var hotkeyEnabled: Bool { didSet { d.set(hotkeyEnabled, forKey: "hotkeyEnabled") } }
+    @Published var hasSeenWelcome: Bool { didSet { d.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
 
     // MARK: Geometry overrides (0 = auto-detect)
     @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
@@ -87,6 +88,7 @@ final class Preferences: ObservableObject {
         addDownloadsToShelf = bool("addDownloadsToShelf", false)
         lowPowerEnabled = bool("lowPowerEnabled", true)
         hotkeyEnabled = bool("hotkeyEnabled", true)
+        hasSeenWelcome = bool("hasSeenWelcome", false)
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)
