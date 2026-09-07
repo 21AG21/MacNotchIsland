@@ -62,8 +62,9 @@ final class NowPlayingService: ObservableObject {
             mediaRemote.refreshIfStale()
         }
         if let info, !info.isPlaying, let since = pausedSince {
+            // 0 means "clear as soon as playback pauses"; otherwise keep the paused track around.
             let limit = Preferences.shared.keepPausedMinutes * 60
-            if limit > 0, Date().timeIntervalSince(since) > limit { clear() }
+            if limit <= 0 || Date().timeIntervalSince(since) > limit { clear() }
         }
     }
 
