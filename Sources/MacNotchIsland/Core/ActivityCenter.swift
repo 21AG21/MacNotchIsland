@@ -43,6 +43,7 @@ final class ActivityCenter: ObservableObject {
     private var homeWork: DispatchWorkItem?
     private var forcedWork: DispatchWorkItem?
     private var expiryTimer: Timer?
+    private var lastSuppressed = false
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -200,6 +201,12 @@ final class ActivityCenter: ObservableObject {
     }
 
     private func pruneExpired() {
+        // A pause persisted across a relaunch has no timer of its own; notice when it ends.
+        let suppressed = isSuppressed
+        if suppressed != lastSuppressed {
+            lastSuppressed = suppressed
+            objectWillChange.send()
+        }
         let now = Date()
         let expired = activities.filter { ($0.expiresAt ?? .distantFuture) < now }
         for a in expired { end(id: a.id) }

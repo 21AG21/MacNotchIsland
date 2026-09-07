@@ -64,6 +64,14 @@ final class HotKeyService: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Recording a replacement: the live combo must not fire while the user presses keys.
+    func suspend() { unregister() }
+
+    func resume() {
+        guard handlerRef != nil else { return }
+        register()
+    }
+
     private func register() {
         guard handlerRef != nil else { return }
         unregister()

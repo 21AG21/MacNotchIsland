@@ -27,31 +27,46 @@ final class FullscreenMonitor {
     private func scheduleTimer() {
         timer?.invalidate()
         let interval = 2.0 * EnergyPolicy.shared.pollingMultiplier
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
-        timer?.tolerance = interval * 0.25
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+        t.tolerance = interval * 0.25
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     private func tick() {
-        let suppressed = Self.frontmostAppIsFullScreen()
+        // AppKit lookups on main; the window-list walk (every on-screen window) off it.
+        let app = NSWorkspace.shared.frontmostApplication
+        let screens = Self.screenRects()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let suppressed = Self.frontmostAppIsFullScreen(app: app, screens: screens)
+            DispatchQueue.main.async { self?.apply(suppressed) }
+        }
+    }
+
+    private func apply(_ suppressed: Bool) {
+        guard timer != nil else { return }
         if ActivityCenter.shared.fullscreenSuppressed != suppressed {
             ActivityCenter.shared.fullscreenSuppressed = suppressed
             if suppressed { ActivityCenter.shared.clearInteraction() }
         }
     }
 
+    /// Screen frames in CGWindowList's top-left coordinate space.
+    static func screenRects() -> [CGRect] {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return NSScreen.screens.map { screen in
+            CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height)
+        }
+    }
+
     /// True when the frontmost app (not us, not Finder) owns an on-screen window whose
     /// bounds equal a screen's full frame.
-    static func frontmostAppIsFullScreen() -> Bool {
-        guard let app = NSWorkspace.shared.frontmostApplication,
+    static func frontmostAppIsFullScreen(app: NSRunningApplication?, screens: [CGRect]) -> Bool {
+        guard let app,
               app.bundleIdentifier != Bundle.main.bundleIdentifier,
               app.bundleIdentifier != "com.apple.finder" else { return false }
         let pid = app.processIdentifier
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
-        let screens = NSScreen.screens.map { screen -> CGRect in
-            // CGWindowList uses a top-left origin; compare sizes and a flipped origin.
-            let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-            return CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height)
-        }
         for window in windows {
             guard (window[kCGWindowOwnerPID as String] as? pid_t) == pid,
                   (window[kCGWindowLayer as String] as? Int) == 0,

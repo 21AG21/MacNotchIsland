@@ -77,6 +77,7 @@ struct ShortcutRecorderView: View {
         guard !isRecording else { return }
         hint = nil
         isRecording = true
+        HotKeyService.shared.suspend()
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             self.handle(event)
         }
@@ -86,6 +87,7 @@ struct ShortcutRecorderView: View {
         isRecording = false
         if let monitor = monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        HotKeyService.shared.resume()
     }
 
     private func handle(_ event: NSEvent) -> NSEvent? {

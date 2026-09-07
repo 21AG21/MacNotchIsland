@@ -249,6 +249,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         locationRequestInFlight = false
+        guard isRunning else { return }   // the tab closed while the fix was in flight
         guard let location = locations.last else { return }
         lastCoordinate = location.coordinate
         reverseGeocodeIfNeeded(location)
@@ -257,6 +258,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         locationRequestInFlight = false
+        guard isRunning else { return }
         NSLog("Notch Island: location request failed (\(error.localizedDescription)).")
         if let coordinate = lastCoordinate {
             // A fix from earlier in the session beats no weather at all.
@@ -273,13 +275,17 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             let previousLocation = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
             if previousLocation.distance(from: location) < Self.geocodeDistanceThreshold { return }
         }
-        geocodedCoordinate = location.coordinate
         geocoder.cancelGeocode()
+        let coordinate = location.coordinate
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
             let placemark = placemarks?.first
             let resolved = placemark?.locality ?? placemark?.subAdministrativeArea ?? placemark?.administrativeArea
             guard let self, let name = resolved, !name.isEmpty else { return }
-            DispatchQueue.main.async { self.applyPlaceName(name) }
+            DispatchQueue.main.async {
+                // Only a successful lookup counts as "geocoded here"; a failed one must retry next time.
+                self.geocodedCoordinate = coordinate
+                self.applyPlaceName(name)
+            }
         }
     }
 

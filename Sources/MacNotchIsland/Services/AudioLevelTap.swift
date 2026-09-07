@@ -39,6 +39,20 @@ final class AudioLevelTap: ObservableObject {
     private var wanted = false
     private var cancellables = Set<AnyCancellable>()
     private var loggedFailure = false
+    private var settingUp = false
+    private var rebuildRequested = false
+    private var attempts = 0
+    private static let maxAttempts = 3
+    private var deviceListener: AudioObjectPropertyListenerBlock?
+    private var deviceAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                           mScope: kAudioObjectPropertyScopeGlobal,
+                                                           mElement: kAudioObjectPropertyElementMain)
+
+    // MARK: State (audioQueue only)
+
+    /// Every Core Audio call happens here: creating the first tap shows the system's
+    /// audio-capture consent sheet, which blocks the calling thread until it is answered.
+    private let audioQueue = DispatchQueue(label: "com.macnotchisland.audiotap", qos: .userInitiated)
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
@@ -57,6 +71,7 @@ final class AudioLevelTap: ObservableObject {
     func start() {
         guard !wanted else { return }
         wanted = true
+        attempts = 0
         // Both publishers fire *before* their value lands (Combine's willChange), so hop
         // through the main queue and re-read the state instead of trusting the payload.
         NowPlayingService.shared.$info
@@ -69,6 +84,7 @@ final class AudioLevelTap: ObservableObject {
             .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.evaluate() }
             .store(in: &cancellables)
+        listenForOutputDeviceChanges()
         evaluate()
     }
 
@@ -76,6 +92,8 @@ final class AudioLevelTap: ObservableObject {
     func stop() {
         wanted = false
         cancellables.removeAll()
+        stopListeningForOutputDeviceChanges()
+        attempts = 0
         teardown()
     }
 
@@ -89,18 +107,65 @@ final class AudioLevelTap: ObservableObject {
         }
     }
 
+    /// Builds the tap on `audioQueue`. After a few consecutive failures (a declined consent
+    /// sheet, no output device) it stops retrying until the feature is switched off and on.
     private func setUp() {
-        guard !isRunning else { return }
+        guard !isRunning, !settingUp, attempts < Self.maxAttempts else { return }
         // Process taps are macOS 14.2; on 14.0/14.1 the visualizer keeps its synthetic bars.
-        if #available(macOS 14.2, *) {
-            startTap()
+        guard #available(macOS 14.2, *) else { return }
+        settingUp = true
+        attempts += 1
+        audioQueue.async { [weak self] in
+            guard let self else { return }
+            let ok = self.startTap()
+            DispatchQueue.main.async {
+                self.settingUp = false
+                if ok {
+                    self.attempts = 0
+                    self.isRunning = true
+                }
+                // Playback may have stopped, the output may have changed, or the feature may
+                // have been turned off while the consent sheet was up: settle it now.
+                if self.rebuildRequested {
+                    self.rebuildRequested = false
+                    self.teardown()
+                }
+                self.evaluate()
+            }
         }
+    }
+
+    // MARK: Output device changes
+
+    private func listenForOutputDeviceChanges() {
+        guard deviceListener == nil else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.outputDeviceChanged() }
+        _ = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &deviceAddress, DispatchQueue.main, block)
+        deviceListener = block
+    }
+
+    private func stopListeningForOutputDeviceChanges() {
+        guard let block = deviceListener else { return }
+        _ = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &deviceAddress, DispatchQueue.main, block)
+        deviceListener = nil
+    }
+
+    /// The aggregate device clocks against the output that was current when the tap was
+    /// built; after a switch (AirPods on, a display with speakers) it must be rebuilt.
+    private func outputDeviceChanged() {
+        if settingUp {
+            rebuildRequested = true
+            return
+        }
+        guard isRunning else { return }
+        teardown()
+        evaluate()
     }
 
     // MARK: Core Audio
 
     @available(macOS 14.2, *)
-    private func startTap() {
+    private func startTap() -> Bool {
         // 1. A tap over the entire system mix. An empty process list means "everything";
         //    creating the first one is what makes macOS ask for audio-capture consent.
         let tapDescription = CATapDescription(stereoMixdownOfProcesses: [])
@@ -110,15 +175,13 @@ final class AudioLevelTap: ObservableObject {
         var tap = AudioObjectID(kAudioObjectUnknown)
         var status = AudioHardwareCreateProcessTap(tapDescription, &tap)
         guard status == noErr, tap != AudioObjectID(kAudioObjectUnknown) else {
-            failed("could not create the system audio tap (status \(status)).")
-            return
+            return failed("could not create the system audio tap (status \(status)).")
         }
         tapID = tap
 
         // 2. A private aggregate device that owns the tap and follows the default output.
         guard let outputUID = Self.defaultOutputDeviceUID() else {
-            failed("no default output device to attach the audio tap to.")
-            return
+            return failed("no default output device to attach the audio tap to.")
         }
         let subDevice: [String: Any] = [kAudioSubDeviceUIDKey: outputUID]
         let subTap: [String: Any] = [
@@ -137,8 +200,7 @@ final class AudioLevelTap: ObservableObject {
         var aggregate = AudioObjectID(kAudioObjectUnknown)
         status = AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &aggregate)
         guard status == noErr, aggregate != AudioObjectID(kAudioObjectUnknown) else {
-            failed("could not create the aggregate device for the audio tap (status \(status)).")
-            return
+            return failed("could not create the aggregate device for the audio tap (status \(status)).")
         }
         aggregateID = aggregate
 
@@ -151,21 +213,26 @@ final class AudioLevelTap: ObservableObject {
             self.consume(input)
         }
         guard status == noErr, let proc else {
-            failed("could not install the audio tap IO block (status \(status)).")
-            return
+            return failed("could not install the audio tap IO block (status \(status)).")
         }
         procID = proc
 
         status = AudioDeviceStart(aggregate, proc)
         guard status == noErr else {
-            failed("could not start the audio tap device (status \(status)).")
-            return
+            return failed("could not start the audio tap device (status \(status)).")
         }
-        isRunning = true
+        return true
     }
 
-    /// Undoes `startTap()` in the reverse order, skipping whatever was never created.
+    /// Main thread: publish the resting state, then release the Core Audio handles.
     private func teardown() {
+        if isRunning { isRunning = false }
+        if level != 0 { level = 0 }
+        audioQueue.async { [weak self] in self?.destroyHandles() }
+    }
+
+    /// audioQueue only: undoes `startTap()` in the reverse order, skipping whatever was never created.
+    private func destroyHandles() {
         if let proc = procID {
             if aggregateID != AudioObjectID(kAudioObjectUnknown) {
                 _ = AudioDeviceStop(aggregateID, proc)
@@ -185,18 +252,17 @@ final class AudioLevelTap: ObservableObject {
         }
         ioLevel = 0
         lastPublish = 0
-        if isRunning { isRunning = false }
-        if level != 0 { level = 0 }
     }
 
-    /// Logs the first failure only (a denied consent prompt would otherwise log forever),
-    /// then makes sure nothing half-built is left behind.
-    private func failed(_ message: String) {
+    /// audioQueue only: logs the first failure (a declined consent sheet would otherwise log
+    /// forever) and makes sure nothing half-built is left behind.
+    private func failed(_ message: String) -> Bool {
         if !loggedFailure {
             loggedFailure = true
             NSLog("Notch Island: \(message)")
         }
-        teardown()
+        destroyHandles()
+        return false
     }
 
     /// UID of the current default output device, which the aggregate device clocks against.
