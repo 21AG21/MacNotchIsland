@@ -26,8 +26,9 @@ struct IslandRootView: View {
                         .transition(IslandMotion.pop(scale: 0.2))
                 }
             }
-            // Keep the main body centred on the notch when the bubble is present.
-            .offset(x: layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0)
+            // Keep the notch gap on the notch: undo the bubble's share of the row's width, and
+            // shift the body by the difference between its two slots (see `bodyShift`).
+            .offset(x: layout.bodyShift + (layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0))
             // The bubble pops with its own, bouncier spring than the outline.
             .animation(IslandMotion.bubble, value: layout.hasBubble)
             .transition(.opacity)

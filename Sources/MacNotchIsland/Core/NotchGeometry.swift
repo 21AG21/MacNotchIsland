@@ -31,8 +31,11 @@ struct NotchGeometry: Equatable {
             width = 190
         }
 
-        if prefs.notchWidthOverride > 0 { width = prefs.notchWidthOverride }
-        if prefs.notchHeightOverride > 0 { height = prefs.notchHeightOverride }
+        // An override exists for a notch the system under-reports. It may only enlarge the
+        // island: a value below the measured cutout would put content under glass that is
+        // not there.
+        if prefs.notchWidthOverride > 0 { width = max(width, prefs.notchWidthOverride) }
+        if prefs.notchHeightOverride > 0 { height = max(height, prefs.notchHeightOverride) }
 
         return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch)
     }

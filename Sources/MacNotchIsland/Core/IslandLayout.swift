@@ -70,10 +70,27 @@ struct IslandLayout: Equatable {
     /// instead of the animated radius so corners never pop mid-spring.
     var isPillBottom: Bool { NotchShape.hasCapsuleBottom(height: bodyHeight, bottomRadius: bottomRadius) }
 
-    /// Rect (centred, top-anchored) that should receive mouse events.
+    /// How far the body's centre sits right of the notch's centre. The compact body is the
+    /// notch gap with a leading and a trailing slot either side, and those are rarely the
+    /// same width; centring the body on the notch would push the gap, and with it the wider
+    /// slot's content, into the physical cutout. The body is shifted instead so the gap stays
+    /// exactly on the notch and the island simply reaches further on the wider side. A
+    /// floating pill has no cutout to keep clear of and stays centred.
+    var bodyShift: CGFloat { floating ? 0 : (trailingWidth - leadingWidth) / 2 }
+
+    /// How far the island reaches left of the notch centre, with a little margin for the
+    /// anti-aliased edge.
+    var hitLeading: CGFloat { frameWidth / 2 - bodyShift + 4 }
+    /// How far it reaches right of the notch centre: the bubble hangs off this side only.
+    var hitTrailing: CGFloat { frameWidth / 2 + bodyShift + (hasBubble ? bubbleGap + bubbleDiameter : 0) + 4 }
+    var hitHeight: CGFloat { bodyHeight + topInset + 6 }
+
+    /// Rect (centred on the notch, top-anchored) that should receive mouse events. It is
+    /// symmetric so a hosting view centred on the notch can use it; the window itself is cut
+    /// asymmetrically from `hitLeading` and `hitTrailing`, so the part of this rect that has
+    /// nothing under it lies outside the window and never sees a click.
     var hitSize: CGSize {
-        let extra = hasBubble ? (bubbleGap + bubbleDiameter) * 2 : 0
-        return CGSize(width: frameWidth + extra + 8, height: bodyHeight + topInset + 6)
+        CGSize(width: 2 * max(hitLeading, hitTrailing), height: hitHeight)
     }
 
     static func make(presentation: IslandPresentation, geometry g: NotchGeometry, center: ActivityCenter = .shared,
@@ -89,7 +106,7 @@ struct IslandLayout: Equatable {
         switch presentation {
         case .idle:
             let tightest = [room.leading, room.trailing].compactMap { $0 }.min()
-            let pad: CGFloat = privacy > 0 ? MenuBarClearance.fitted(22, minimal: 22, free: tightest) : 0
+            let pad: CGFloat = privacy > 0 ? MenuBarClearance.fitted(privacy + 8, minimal: privacy + 8, free: tightest) : 0
             // Floating: a small resting pill rather than a slab as wide as the (absent) notch.
             let base = floating ? floatingIdleWidth : notchW
             let bottom = floating ? h / 2 : min(10, h / 2)

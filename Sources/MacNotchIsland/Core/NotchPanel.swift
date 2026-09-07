@@ -10,7 +10,6 @@ import SwiftUI
 /// moment after something closes. At rest it hugs the notch, so the menu bar and the windows
 /// beside it stay clickable; there is no invisible canvas to bump into.
 final class NotchPanel: NSPanel {
-    static let canvasWidth: CGFloat = 760
     static let canvasHeight: CGFloat = 340
     /// Room around the island at rest: enough for its anti-aliased edge, too little to cover
     /// anything next to the notch.
@@ -70,17 +69,17 @@ final class NotchPanel: NSPanel {
         view.panelID = panelID
         let geo = geometry
         let pid = panelID
-        view.hitSizeProvider = {
-            if ActivityCenter.shared.isSuppressed { return .zero }
-            return IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo).hitSize
+        view.hitExtentsProvider = {
+            if ActivityCenter.shared.isSuppressed { return (0, 0, 0) }
+            let layout = IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo)
+            return (layout.hitLeading, layout.hitTrailing, layout.hitHeight)
         }
         // The window decides its own size; SwiftUI must not resize it to the content's ideal.
         view.sizingOptions = []
         view.frame = NSRect(origin: .zero, size: frame.size)
-        view.autoresizingMask = [.width, .height]
         contentView = view
         hosting = view
-        setFrame(frame, display: true)
+        place(frame)
 
         Publishers.Merge3(ActivityCenter.shared.objectWillChange, Preferences.shared.objectWillChange,
                           MenuBarClearance.shared.objectWillChange)
@@ -98,8 +97,8 @@ final class NotchPanel: NSPanel {
     /// The resting frame for a screen before any state exists: the bare notch plus slack.
     static func frame(for screen: NSScreen) -> NSRect {
         let geometry = NotchGeometry.detect(on: screen)
-        let size = CGSize(width: geometry.notchWidth + restSlack * 2, height: geometry.notchHeight + restSlack)
-        return fit(size, in: screen.frame)
+        let half = geometry.notchWidth / 2
+        return frame(leading: half, trailing: half, height: geometry.notchHeight, slack: restSlack, in: screen.frame)
     }
 
     // MARK: - Frame tracking
@@ -111,23 +110,41 @@ final class NotchPanel: NSPanel {
             ?? geometry.screenFrame
     }
 
-    /// Top-anchored, centred on the notch, never wider than the canvas or the screen.
-    private static func fit(_ size: CGSize, in screen: CGRect) -> NSRect {
-        let w = min(canvasWidth, screen.width, size.width)
-        let h = min(canvasHeight, screen.height, size.height)
-        return NSRect(x: (screen.midX - w / 2).rounded(), y: screen.maxY - h, width: w, height: h)
+    /// A top-anchored rect reaching `leading` left and `trailing` right of the notch centre,
+    /// plus slack, kept inside the screen. Asymmetric on purpose: the bubble hangs off the
+    /// right, and the window must not cover anything on the left that has nothing under it.
+    private static func frame(leading: CGFloat, trailing: CGFloat, height: CGFloat, slack: CGFloat, in screen: CGRect) -> NSRect {
+        let minX = max(screen.minX, (screen.midX - leading - slack).rounded())
+        let maxX = min(screen.maxX, (screen.midX + trailing + slack).rounded())
+        let h = min(canvasHeight, screen.height, height + slack)
+        return NSRect(x: minX, y: screen.maxY - h, width: max(1, maxX - minX), height: h)
     }
 
-    /// What the island needs right now, before slack.
-    private func islandSize() -> CGSize {
+    /// The island's reach from the notch centre right now, before slack.
+    private func extents() -> (leading: CGFloat, trailing: CGFloat, height: CGFloat) {
         let center = ActivityCenter.shared
-        if center.isSuppressed { return geometry.notchSize }
-        return IslandLayout.make(presentation: center.presentation(for: panelID), geometry: geometry, center: center).hitSize
+        if center.isSuppressed {
+            return (geometry.notchWidth / 2, geometry.notchWidth / 2, geometry.notchHeight)
+        }
+        let layout = IslandLayout.make(presentation: center.presentation(for: panelID), geometry: geometry, center: center)
+        return (layout.hitLeading, layout.hitTrailing, layout.hitHeight)
     }
 
     private func restFrame() -> NSRect {
-        let size = islandSize()
-        return Self.fit(CGSize(width: size.width + Self.restSlack * 2, height: size.height + Self.restSlack), in: screenFrame)
+        let e = extents()
+        return Self.frame(leading: e.leading, trailing: e.trailing, height: e.height, slack: Self.restSlack, in: screenFrame)
+    }
+
+    /// Moves the window and keeps the hosting view centred on the notch. The view is as wide
+    /// as it must be to reach both window edges from the notch centre, so it overhangs the
+    /// narrower side; the overhang lies outside the window and is neither drawn nor clickable,
+    /// which is what lets the window be asymmetric while SwiftUI keeps centring on the notch.
+    private func place(_ rect: NSRect) {
+        setFrame(rect, display: true)
+        guard let hosting else { return }
+        let notchX = screenFrame.midX - rect.minX
+        let half = max(notchX, rect.width - notchX)
+        hosting.frame = NSRect(x: (notchX - half).rounded(), y: 0, width: (half * 2).rounded(), height: rect.height)
     }
 
     /// Several published changes land in one runloop turn; one refit covers them all, after the
@@ -150,23 +167,28 @@ final class NotchPanel: NSPanel {
         settleWork?.cancel()
         let target = restFrame()
         let current = frame
-        let needsRoom = target.width > current.width + 0.5 || target.height > current.height + 0.5
-            || abs(target.midX - current.midX) > 0.5 || abs(target.maxY - current.maxY) > 0.5
+        let needsRoom = target.minX < current.minX - 0.5 || target.maxX > current.maxX + 0.5
+            || target.height > current.height + 0.5 || abs(target.maxY - current.maxY) > 0.5
         if needsRoom {
-            var union = current.union(target)
+            // Both rects hang from the top edge, so growing the union sideways and downward
+            // keeps the top where it is.
+            let union = current.union(target)
             let slackX = max(Self.motionSlack, abs(target.width - current.width) * Self.overshootFraction)
             let slackY = max(Self.motionSlack, abs(target.height - current.height) * Self.overshootFraction)
-            union.origin.x -= slackX
-            union.size.width += slackX * 2
-            union.origin.y -= slackY
-            union.size.height += slackY
-            setFrame(Self.fit(union.size, in: screenFrame), display: true)
+            let grown = NSRect(x: union.minX - slackX, y: union.minY - slackY,
+                               width: union.width + slackX * 2, height: union.height + slackY)
+            place(grown.intersection(screenFrame))
         }
 
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            // A drag in progress must keep its drop target under the pointer; settle later.
+            if ActivityCenter.shared.dragPanel == self.panelID {
+                self.refit()
+                return
+            }
             let rest = self.restFrame()
-            if self.frame != rest { self.setFrame(rest, display: true) }
+            if self.frame != rest { self.place(rest) }
         }
         settleWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay, execute: work)

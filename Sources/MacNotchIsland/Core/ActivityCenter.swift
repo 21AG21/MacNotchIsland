@@ -216,6 +216,8 @@ final class ActivityCenter: ObservableObject {
         } else {
             activities.append(activity)
             Haptics.soft()
+            // The island is about to widen into the menu bar; measure it as it is right now.
+            MenuBarClearance.shared.refresh()
         }
     }
 
@@ -295,6 +297,7 @@ final class ActivityCenter: ObservableObject {
             return
         }
         alertWork?.cancel()
+        MenuBarClearance.shared.refresh()
         // The user may have opened the alert being replaced; that view has nothing to show now.
         if let previous = alert, previous.id != activity.id, openView == .activity(id: previous.id) { openView = nil }
         alert = activity

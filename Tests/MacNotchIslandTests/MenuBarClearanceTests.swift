@@ -65,4 +65,23 @@ final class MenuBarClearanceTests: XCTestCase {
         XCTAssertEqual(layout.leadingWidth, 40)
         XCTAssertEqual(layout.trailingWidth, 60)
     }
+
+    func testBandConversionForANotchedScreenBelowThePrimary() {
+        // An external 2560x1440 display is primary at the origin; the built-in notched screen
+        // sits directly below it, so its AppKit frame has a negative origin.
+        let builtin = CGRect(x: 524, y: -982, width: 1512, height: 982)
+        let band = MenuBarClearance.menuBarBand(screenFrame: builtin, primaryHeight: 1440, notchHeight: 32)
+        XCTAssertEqual(band.minY, 1440, "the built-in's top edge is the external's bottom edge, top-down")
+        XCTAssertEqual(band.minX, 524)
+        XCTAssertEqual(band.height, 32)
+    }
+
+    func testAWindowStraddlingTheNotchLeavesNoRoom() {
+        let band = CGRect(x: 0, y: 0, width: 1710, height: 32)
+        XCTAssertEqual(MenuBarClearance.statusItemClearance(windows: [window(x: 900, width: 100)], menuBar: band, notchMaxX: 955), 0)
+    }
+
+    func testMenuClearanceIsUnknownWithoutAnApp() {
+        XCTAssertNil(MenuBarClearance.menuClearance(app: nil, notchMinX: 755))
+    }
 }

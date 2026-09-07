@@ -30,6 +30,8 @@ final class MenuBarClearance: ObservableObject {
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var timer: Timer?
     private var pending: DispatchWorkItem?
+    /// A slow window-list walk must not overwrite the result of a later one.
+    private var generation = 0
 
     private init() {}
 
@@ -63,6 +65,7 @@ final class MenuBarClearance: ObservableObject {
     }
 
     func refresh(after delay: TimeInterval = 0) {
+        guard timer != nil else { return }
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.refreshNow() }
         pending = work
@@ -79,18 +82,26 @@ final class MenuBarClearance: ObservableObject {
         let notch = CGRect(x: frame.midX - geometry.notchWidth / 2, y: 0, width: geometry.notchWidth, height: geometry.notchHeight)
         let primaryHeight = NSScreen.screens.first?.frame.height ?? frame.height
         let app = NSWorkspace.shared.frontmostApplication
+        generation += 1
+        let ticket = generation
         // The window list walk and the Accessibility round trip both belong off the main thread.
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-            let band = CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: geometry.notchHeight)
+            let band = Self.menuBarBand(screenFrame: frame, primaryHeight: primaryHeight, notchHeight: geometry.notchHeight)
             let trailing = Self.statusItemClearance(windows: windows, menuBar: band, notchMaxX: notch.maxX)
             let leading = Self.menuClearance(app: app, notchMinX: notch.minX)
             let next = Limits(leading: leading, trailing: trailing)
             DispatchQueue.main.async {
-                guard let self, self.timer != nil, self.limits != next else { return }
+                guard let self, self.timer != nil, ticket == self.generation, self.limits != next else { return }
                 self.limits = next
             }
         }
+    }
+
+    /// The menu bar's band on a screen, in the window list's coordinate space: origin at the
+    /// top-left of the primary display, y growing downward.
+    static func menuBarBand(screenFrame: CGRect, primaryHeight: CGFloat, notchHeight: CGFloat) -> CGRect {
+        CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: notchHeight)
     }
 
     // MARK: - Pure measurements
@@ -106,8 +117,9 @@ final class MenuBarClearance: ObservableObject {
                   let bounds = CGRect(dictionaryRepresentation: dict),
                   bounds.width > 0,
                   bounds.minY >= menuBar.minY - 1, bounds.minY < menuBar.maxY,
-                  bounds.minX >= notchMaxX - 1, bounds.minX < menuBar.maxX else { continue }
-            nearest = min(nearest ?? .infinity, bounds.minX)
+                  bounds.maxX > notchMaxX, bounds.minX < menuBar.maxX else { continue }
+            // A window that starts left of the notch and reaches past it leaves no room at all.
+            nearest = min(nearest ?? .infinity, max(bounds.minX, notchMaxX))
         }
         return nearest.map { max(0, $0 - notchMaxX) }
     }

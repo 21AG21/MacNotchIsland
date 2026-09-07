@@ -4,7 +4,8 @@ import SwiftUI
 /// Hosting view that only accepts mouse events inside the island's current footprint so the
 /// transparent canvas around it stays click-through (menu bar, windows below keep working).
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
-    var hitSizeProvider: (() -> CGSize)?
+    /// The island's reach from the notch centre: left, right, and down from the top edge.
+    var hitExtentsProvider: (() -> (leading: CGFloat, trailing: CGFloat, height: CGFloat))?
     /// Which panel (screen) this view belongs to; gestures are routed per panel.
     var panelID: String = "main"
 
@@ -34,15 +35,17 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         super.scrollWheel(with: event)
     }
 
+    /// This view is kept centred on the notch by its panel, so `bounds.midX` is the notch.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let provider = hitSizeProvider else { return super.hitTest(point) }
-        let size = provider()
+        guard let provider = hitExtentsProvider else { return super.hitTest(point) }
+        let e = provider()
         let local = convert(point, from: superview)
+        let width = e.leading + e.trailing
         let rect: CGRect
         if isFlipped {
-            rect = CGRect(x: bounds.midX - size.width / 2, y: 0, width: size.width, height: size.height)
+            rect = CGRect(x: bounds.midX - e.leading, y: 0, width: width, height: e.height)
         } else {
-            rect = CGRect(x: bounds.midX - size.width / 2, y: bounds.maxY - size.height, width: size.width, height: size.height)
+            rect = CGRect(x: bounds.midX - e.leading, y: bounds.maxY - e.height, width: width, height: e.height)
         }
         guard rect.contains(local) else { return nil }
         return super.hitTest(point)

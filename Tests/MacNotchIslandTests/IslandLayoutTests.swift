@@ -112,4 +112,26 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertTrue(path.contains(CGPoint(x: 150, y: 16)))
         XCTAssertFalse(path.contains(CGPoint(x: 2, y: 30)), "outward top corner leaves the lower ear empty")
     }
+
+    func testCompactKeepsTheNotchGapOnTheNotch() {
+        // The volume HUD has the widest trailing slot; without the shift its bar would sit
+        // 22 pt inside the cutout.
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        let layout = IslandLayout.make(presentation: .compact(hud, bubble: nil), geometry: geometry, clearance: .unlimited)
+        XCTAssertEqual(layout.bodyShift, (layout.trailingWidth - layout.leadingWidth) / 2)
+        XCTAssertEqual(layout.bodyShift, 22)
+        // Gap centre measured from the body's left edge equals the body's centre, shifted back.
+        let notchCentreInBody = layout.leadingWidth + 200 / 2
+        XCTAssertEqual(notchCentreInBody, layout.bodyWidth / 2 - layout.bodyShift, accuracy: 0.001)
+        XCTAssertEqual(layout.hitLeading, layout.frameWidth / 2 - 22 + 4)
+        XCTAssertEqual(layout.hitTrailing, layout.frameWidth / 2 + 22 + 4)
+        XCTAssertEqual(layout.hitSize.width, 2 * layout.hitTrailing)
+    }
+
+    func testIdleReservesWhatThePrivacyDotsDraw() {
+        ActivityCenter.shared.micInUse = true
+        let layout = IslandLayout.make(presentation: .idle, geometry: geometry, clearance: .unlimited)
+        XCTAssertEqual(layout.trailingWidth, layout.privacyWidth + 8, "22 pt of dots plus 4 pt of padding")
+        ActivityCenter.shared.micInUse = false
+    }
 }

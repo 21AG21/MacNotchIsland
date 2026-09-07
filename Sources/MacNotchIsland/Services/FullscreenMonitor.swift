@@ -7,6 +7,7 @@ import Combine
 final class FullscreenMonitor {
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
+    private var spaceObserver: NSObjectProtocol?
 
     func start() {
         guard timer == nil else { return }
@@ -14,6 +15,12 @@ final class FullscreenMonitor {
         energyCancellable = EnergyPolicy.shared.objectWillChange
             .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.scheduleTimer() }
+        // Entering full screen creates a Space; check at once rather than on the next poll,
+        // so the island never lingers over a freshly full-screen app.
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.tick()
+        }
         tick()
     }
 
@@ -21,6 +28,8 @@ final class FullscreenMonitor {
         timer?.invalidate()
         timer = nil
         energyCancellable = nil
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
+        spaceObserver = nil
         if ActivityCenter.shared.fullscreenSuppressed { ActivityCenter.shared.fullscreenSuppressed = false }
     }
 

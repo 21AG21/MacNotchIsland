@@ -104,7 +104,9 @@ struct CompactLeadingView: View {
                     .foregroundStyle(.white)
             }
         }
-        .padding(.leading, 6)
+        // Padding on the notch side, so the glyph sits toward the open end of the slot and
+        // clear of the cutout's rounded corner.
+        .padding(.trailing, 6)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 }
@@ -212,7 +214,7 @@ struct CompactTrailingView: View {
                     .animation(IslandMotion.quick, value: s.count)
             }
         }
-        .padding(.trailing, 6)
+        .padding(.leading, 6)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 }
