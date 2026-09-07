@@ -64,10 +64,11 @@ final class GestureRouterTests: XCTestCase {
     }
 
     func testHomeTabsWrapAround() {
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .home(tab: "actions", available: allTabs)),
+        let last = allTabs.last!
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .home(tab: last, available: allTabs)),
                        Action.selectTab("music"))
         XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .home(tab: "music", available: allTabs)),
-                       Action.selectTab("actions"))
+                       Action.selectTab(last))
     }
 
     func testHomeTabsSkipDisabledFeatures() {
