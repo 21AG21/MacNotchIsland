@@ -37,6 +37,10 @@ final class StatusItemController: NSObject {
         timerItem.submenu = timerMenu
         menu.addItem(timerItem)
 
+        let stopwatch = NSMenuItem(title: "Stopwatch", action: #selector(toggleStopwatch), keyEquivalent: "")
+        stopwatch.target = self
+        menu.addItem(stopwatch)
+
         let clear = NSMenuItem(title: "Clear Shelf", action: #selector(clearShelf), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
@@ -86,6 +90,10 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func cancelTimer() { IslandTimer.shared.cancel() }
+
+    @objc private func toggleStopwatch() {
+        if IslandStopwatch.shared.state == nil { IslandStopwatch.shared.start() } else { IslandStopwatch.shared.reset() }
+    }
 
     @objc private func clearShelf() { ShelfStore.shared.clear() }
 

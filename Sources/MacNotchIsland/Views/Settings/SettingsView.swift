@@ -40,6 +40,9 @@ struct SettingsView: View {
                     toggle("Focus", $prefs.focusEnabled)
                     toggle("Upcoming calendar events", $prefs.calendarEnabled, note: "Asks for calendar access when turned on.")
                     toggle("Unlock", $prefs.unlockEnabled)
+                    toggle("Low Power Mode", $prefs.lowPowerEnabled)
+                    toggle("Downloads", $prefs.downloadsEnabled, note: "Safari, Chrome and Firefox downloads in ~/Downloads, with a Done alert.")
+                    toggle("Put finished downloads on the shelf", $prefs.addDownloadsToShelf)
                     toggle("Timer sound", $prefs.timerSoundEnabled)
                 }
 

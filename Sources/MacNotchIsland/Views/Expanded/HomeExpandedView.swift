@@ -65,6 +65,10 @@ struct HomeExpandedView: View {
             if IslandTimer.shared.state != nil {
                 PillButton(title: "Cancel", tint: .white.opacity(0.85)) { IslandTimer.shared.cancel() }
             }
+            Spacer(minLength: 0)
+            PillButton(title: IslandStopwatch.shared.state == nil ? "Stopwatch" : "Stop", symbol: "stopwatch.fill", tint: .orange) {
+                if IslandStopwatch.shared.state == nil { IslandStopwatch.shared.start() } else { IslandStopwatch.shared.reset() }
+            }
         }
     }
 }

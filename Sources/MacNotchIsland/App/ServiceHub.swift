@@ -13,6 +13,8 @@ final class ServiceHub {
     let focus = FocusMonitor()
     let calendar = CalendarMonitor()
     let screenLock = ScreenLockMonitor()
+    let downloads = DownloadMonitor()
+    let lowPower = LowPowerMonitor()
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -38,5 +40,7 @@ final class ServiceHub {
         p.focusEnabled ? focus.start() : focus.stop()
         p.calendarEnabled ? calendar.start() : calendar.stop()
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
+        p.downloadsEnabled ? downloads.start() : downloads.stop()
+        p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
     }
 }

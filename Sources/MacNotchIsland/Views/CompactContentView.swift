@@ -44,6 +44,10 @@ struct CompactLeadingView: View {
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.orange)
                     .symbolEffect(.pulse, isActive: t.isFinished)
+            case .stopwatch(let s):
+                Image(systemName: "stopwatch.fill")
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
             case .call:
                 Image(systemName: "phone.fill")
                     .font(.system(size: iconSize, weight: .semibold))
@@ -78,6 +82,11 @@ struct CompactLeadingView: View {
                 Image(systemName: "calendar")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(Color.named(c.tint))
+            case .download(let d):
+                Image(systemName: d.isComplete ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(d.isComplete ? Color(red: 0.2, green: 0.84, blue: 0.29) : Color(red: 0.04, green: 0.52, blue: 1))
+                    .contentTransition(.symbolEffect(.replace))
             case .custom(let c):
                 Image(systemName: c.symbol)
                     .font(.system(size: iconSize, weight: .semibold))
@@ -106,6 +115,12 @@ struct CompactTrailingView: View {
                         .font(textFont.monospacedDigit())
                         .foregroundStyle(.orange)
                         .contentTransition(.numericText(countsDown: true))
+                }
+            case .stopwatch(let s):
+                TimelineView(.periodic(from: .now, by: s.isRunning ? 1 : 3600)) { ctx in
+                    Text(s.elapsed(at: ctx.date).mmss)
+                        .font(textFont.monospacedDigit())
+                        .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
                 }
             case .call(let c):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -137,6 +152,16 @@ struct CompactTrailingView: View {
             case .calendar(let c):
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
                     Text(c.relativeStart(at: ctx.date)).font(textFont).foregroundStyle(.white)
+                }
+            case .download(let d):
+                if d.isComplete {
+                    Text("Done").font(textFont).foregroundStyle(Color(red: 0.2, green: 0.84, blue: 0.29))
+                } else if let p = d.progress {
+                    ProgressRing(progress: p, lineWidth: 2.5, tint: Color(red: 0.04, green: 0.52, blue: 1))
+                        .frame(width: height * 0.5, height: height * 0.5)
+                } else {
+                    Text(DownloadState.formatter.string(fromByteCount: d.bytes))
+                        .font(textFont.monospacedDigit()).foregroundStyle(.white).lineLimit(1)
                 }
             case .custom(let c):
                 if let p = c.progress, c.showsRing {

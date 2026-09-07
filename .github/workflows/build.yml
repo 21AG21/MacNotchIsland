@@ -15,7 +15,9 @@ jobs:
           xcodebuild -version
           swift --version
       - name: Build (release)
-        run: swift build -c release 2>&1 | grep -v "^\[" | tail -n 300
+        run: |
+          set -o pipefail
+          swift build -c release 2>&1 | grep -v "^\[" | tail -n 300
       - name: Bundle
         run: Scripts/build.sh
       - name: Upload app

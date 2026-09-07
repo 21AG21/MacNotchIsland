@@ -13,6 +13,8 @@ struct ExpandedContentView: View {
                 NowPlayingExpandedView(info: info, geometry: geometry)
             case .timer(let t):
                 TimerExpandedView(state: t, geometry: geometry)
+            case .stopwatch(let s):
+                StopwatchExpandedView(state: s, geometry: geometry)
             case .call(let c):
                 CallExpandedView(state: c, activity: activity, geometry: geometry)
             case .battery(let b):
@@ -25,6 +27,8 @@ struct ExpandedContentView: View {
                 HUDExpandedView(state: h, geometry: geometry)
             case .calendar(let c):
                 CalendarExpandedView(state: c, geometry: geometry)
+            case .download(let d):
+                DownloadExpandedView(state: d, activity: activity, geometry: geometry)
             case .custom(let c):
                 CustomExpandedView(state: c, activity: activity, geometry: geometry)
             case .unlock, .silent:

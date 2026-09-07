@@ -6,6 +6,9 @@ import SwiftUI
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
     var hitSizeProvider: (() -> CGSize)?
 
+    /// Controls inside the island react to the first click even when the panel isn't key.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let provider = hitSizeProvider else { return super.hitTest(point) }
         let size = provider()

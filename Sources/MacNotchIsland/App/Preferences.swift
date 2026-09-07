@@ -31,6 +31,9 @@ final class Preferences: ObservableObject {
     @Published var unlockEnabled: Bool { didSet { d.set(unlockEnabled, forKey: "unlockEnabled") } }
     @Published var shelfEnabled: Bool { didSet { d.set(shelfEnabled, forKey: "shelfEnabled") } }
     @Published var timerSoundEnabled: Bool { didSet { d.set(timerSoundEnabled, forKey: "timerSoundEnabled") } }
+    @Published var downloadsEnabled: Bool { didSet { d.set(downloadsEnabled, forKey: "downloadsEnabled") } }
+    @Published var addDownloadsToShelf: Bool { didSet { d.set(addDownloadsToShelf, forKey: "addDownloadsToShelf") } }
+    @Published var lowPowerEnabled: Bool { didSet { d.set(lowPowerEnabled, forKey: "lowPowerEnabled") } }
 
     // MARK: Geometry overrides (0 = auto-detect)
     @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
@@ -76,6 +79,9 @@ final class Preferences: ObservableObject {
         unlockEnabled = bool("unlockEnabled", true)
         shelfEnabled = bool("shelfEnabled", true)
         timerSoundEnabled = bool("timerSoundEnabled", true)
+        downloadsEnabled = bool("downloadsEnabled", true)
+        addDownloadsToShelf = bool("addDownloadsToShelf", false)
+        lowPowerEnabled = bool("lowPowerEnabled", true)
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)

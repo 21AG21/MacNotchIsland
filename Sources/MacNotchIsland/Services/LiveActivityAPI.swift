@@ -7,6 +7,7 @@ import AppKit
 ///   notchisland://activity/end?id=build
 ///   notchisland://alert?title=Deployed&symbol=checkmark.circle.fill&tint=green&duration=3
 ///   notchisland://timer?minutes=5&label=Tea       notchisland://timer/cancel | pause | resume
+///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
 ///   notchisland://home
 final class LiveActivityAPI {
@@ -81,6 +82,15 @@ final class LiveActivityAPI {
             IslandTimer.shared.pause()
         case ("timer", "resume"):
             IslandTimer.shared.resume()
+
+        case ("stopwatch", ""), ("stopwatch", "start"):
+            IslandStopwatch.shared.start()
+        case ("stopwatch", "lap"):
+            IslandStopwatch.shared.lap()
+        case ("stopwatch", "stop"), ("stopwatch", "pause"):
+            IslandStopwatch.shared.stop()
+        case ("stopwatch", "reset"), ("stopwatch", "cancel"):
+            IslandStopwatch.shared.reset()
 
         case ("shelf", "add"):
             if let p = q["path"] { ShelfStore.shared.add([URL(fileURLWithPath: (p as NSString).expandingTildeInPath)]) }

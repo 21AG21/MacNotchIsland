@@ -14,6 +14,7 @@ and the same content layout as iOS.
 | --- | --- |
 | Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same. Any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover to expand, click to open the app, drag the scrubber to seek. |
 | Timer countdown in orange, expanded pause / cancel, "timer done" state | Same, with 1–60 min presets in the Home panel and menu bar, or `notchctl timer 5`. |
+| Stopwatch Live Activity (iOS 17) with laps | Same: start from the Home panel, the menu bar, or `notchisland://stopwatch`. |
 | Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. |
 | Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. |
 | AirPods / Bluetooth connect with battery | IOBluetooth connection events, AirPods left / right / case battery rings from the IORegistry. |
@@ -24,6 +25,8 @@ and the same content layout as iOS.
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
 | Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap. |
 | Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. |
+| Low Power Mode | Alert when it turns on or off. |
+| — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert (optionally dropping the file on the shelf). |
 | Long-press to expand, tap to open | Hover to expand, click to open. Trackpad haptics on state changes. |
 | — | File shelf: drag files onto the notch to keep them within reach and drag them out again. |
 
@@ -75,6 +78,7 @@ notchisland://activity?id=…&title=…&subtitle=…&symbol=…&tint=…&progres
 notchisland://activity/end?id=…
 notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1
 notchisland://timer?minutes=5&label=Tea    notchisland://timer/cancel | pause | resume
+notchisland://stopwatch                    notchisland://stopwatch/lap | stop | reset
 notchisland://shelf/add?path=…             notchisland://shelf/clear
 notchisland://home | collapse | settings
 ```

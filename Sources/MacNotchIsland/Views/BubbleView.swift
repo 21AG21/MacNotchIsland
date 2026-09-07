@@ -29,6 +29,16 @@ struct BubbleView: View {
                     .frame(width: diameter * 0.55, height: diameter * 0.55)
                     .overlay(Image(systemName: "timer").font(.system(size: 8, weight: .bold)).foregroundStyle(.orange))
             }
+        case .stopwatch(let s):
+            Image(systemName: "stopwatch.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+        case .download(let d):
+            if let p = d.progress, !d.isComplete {
+                ProgressRing(progress: p, lineWidth: 2.5, tint: Color(red: 0.04, green: 0.52, blue: 1))
+                    .frame(width: diameter * 0.55, height: diameter * 0.55)
+            } else {
+                Image(systemName: d.isComplete ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1))
+            }
         case .call:
             Image(systemName: "phone.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(.green)
         case .calendar(let c):
