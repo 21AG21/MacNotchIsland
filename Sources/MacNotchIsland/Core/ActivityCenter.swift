@@ -432,8 +432,12 @@ final class ActivityCenter: ObservableObject {
     func cycleView(forward: Bool) {
         let ring = keyboardRing
         guard !ring.isEmpty else { return }
+        // A tab picked with a click changes the stored tab but not `openView`; step from the
+        // tab that is actually showing.
+        var current = openView
+        if case .home = current { current = .home(tab: Self.currentHomeTab) }
         let next: IslandView
-        if let current = openView, let i = ring.firstIndex(of: current) {
+        if let current, let i = ring.firstIndex(of: current) {
             next = ring[(i + (forward ? 1 : ring.count - 1)) % ring.count]
         } else {
             next = forward ? ring[0] : ring[ring.count - 1]

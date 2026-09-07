@@ -83,10 +83,13 @@ final class ShelfStore: ObservableObject {
         return IslandActivity(id: activityID, kind: .shelf, content: .shelf(state), priority: 30)
     }
 
+    /// Re-evaluates the activity, e.g. when the shelf is switched on or off in Settings.
+    func refreshActivity() { publishActivity() }
+
     private func publishActivity() {
         guard publishesActivity else { return }
         let center = ActivityCenter.shared
-        if let activity = Self.activity(for: items) {
+        if Preferences.shared.shelfEnabled, let activity = Self.activity(for: items) {
             center.upsert(activity)
         } else {
             center.end(id: Self.activityID)

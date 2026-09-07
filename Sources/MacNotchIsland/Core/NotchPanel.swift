@@ -79,7 +79,8 @@ final class NotchPanel: NSPanel {
         hosting = view
         setFrame(frame, display: true)
 
-        Publishers.Merge(ActivityCenter.shared.objectWillChange, Preferences.shared.objectWillChange)
+        Publishers.Merge3(ActivityCenter.shared.objectWillChange, Preferences.shared.objectWillChange,
+                          MenuBarClearance.shared.objectWillChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.scheduleRefit() }
             .store(in: &cancellables)

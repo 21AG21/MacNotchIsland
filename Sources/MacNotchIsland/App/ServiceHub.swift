@@ -58,6 +58,9 @@ final class ServiceHub {
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
         p.hotkeyEnabled ? hotkey.start() : hotkey.stop()
         p.keepClearOfMenuBar ? menuBar.start() : menuBar.stop()
+        // The shelf is loaded lazily; touching it here puts files kept from last time back
+        // on the island at launch, and drops the activity when the shelf is switched off.
+        ShelfStore.shared.refreshActivity()
         p.clipboardEnabled ? clipboard.start() : clipboard.stop()
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
         p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()

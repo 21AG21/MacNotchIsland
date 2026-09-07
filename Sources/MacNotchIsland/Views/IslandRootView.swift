@@ -7,11 +7,12 @@ struct IslandRootView: View {
     var panelID: String = "main"
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
+    @ObservedObject private var menuBar = MenuBarClearance.shared
     @State private var previousLayout: IslandLayout? = nil
 
     var body: some View {
         let presentation = center.presentation(for: panelID)
-        let layout = IslandLayout.make(presentation: presentation, geometry: geometry, center: center)
+        let layout = IslandLayout.make(presentation: presentation, geometry: geometry, center: center, clearance: menuBar.limits)
         let animation = IslandMotion.shape(from: previousLayout ?? layout, to: layout)
 
         ZStack(alignment: .top) {
