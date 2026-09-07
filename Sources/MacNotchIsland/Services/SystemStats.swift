@@ -306,7 +306,7 @@ final class SystemStats: ObservableObject {
             guard raw.isFinite, raw >= 0, raw < 1_000_000 else { return nil }
             return Int(raw)
         }
-        let temperature = number("Temperature").flatMap { celsius(fromHundredthsKelvin: $0) }
+        let temperature = number("Temperature").flatMap { celsius(fromRawTemperature: $0) }
         return (health, cycles, temperature)
     }
 
@@ -317,10 +317,13 @@ final class SystemStats: ObservableObject {
         return max / design * 100
     }
 
-    /// AppleSmartBattery reports "Temperature" in hundredths of a kelvin.
-    static func celsius(fromHundredthsKelvin raw: Double) -> Double? {
+    /// AppleSmartBattery reports "Temperature" in hundredths of a degree: Celsius on Apple
+    /// silicon (3062 → 30.62 °C), kelvin on some older firmware (30415 → 31 °C). No battery
+    /// runs above 200 °C, so anything that high is a kelvin reading.
+    static func celsius(fromRawTemperature raw: Double) -> Double? {
         guard raw > 0, raw.isFinite else { return nil }
-        return raw / 100 - 273.15
+        let degrees = raw / 100
+        return degrees > 200 ? degrees - 273.15 : degrees
     }
 
     // MARK: - Formatting

@@ -82,15 +82,17 @@ final class SystemStatsTests: XCTestCase {
 
     // MARK: - celsius
 
-    func testCelsiusFromHundredthsOfAKelvin() {
-        XCTAssertEqual(SystemStats.celsius(fromHundredthsKelvin: 30415) ?? -999, 31, accuracy: 0.0001)
-        XCTAssertEqual(SystemStats.celsius(fromHundredthsKelvin: 27315) ?? -999, 0, accuracy: 0.0001)
-        XCTAssertEqual(SystemStats.celsius(fromHundredthsKelvin: 30000) ?? -999, 26.85, accuracy: 0.0001)
+    func testCelsiusFromRawTemperature() {
+        XCTAssertEqual(SystemStats.celsius(fromRawTemperature: 30415) ?? -999, 31, accuracy: 0.0001)
+        XCTAssertEqual(SystemStats.celsius(fromRawTemperature: 27315) ?? -999, 0, accuracy: 0.0001)
+        XCTAssertEqual(SystemStats.celsius(fromRawTemperature: 30000) ?? -999, 26.85, accuracy: 0.0001)
+        // Apple silicon publishes hundredths of a degree Celsius.
+        XCTAssertEqual(SystemStats.celsius(fromRawTemperature: 3062) ?? -999, 30.62, accuracy: 0.0001)
     }
 
     func testCelsiusIsNilWhenTheBatteryReportsNothing() {
-        XCTAssertNil(SystemStats.celsius(fromHundredthsKelvin: 0))
-        XCTAssertNil(SystemStats.celsius(fromHundredthsKelvin: -100))
+        XCTAssertNil(SystemStats.celsius(fromRawTemperature: 0))
+        XCTAssertNil(SystemStats.celsius(fromRawTemperature: -100))
     }
 
     // MARK: - rateText
