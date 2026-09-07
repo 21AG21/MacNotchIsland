@@ -1,32 +1,132 @@
 import SwiftUI
 
-/// Shown when the island is idle and hovered: Now Playing mini-player, timer presets,
-/// and the file shelf. The Mac's equivalent of long-pressing an empty island.
+/// The tabs across the top of the Home panel.
+private enum HomeTab: String, CaseIterable {
+    case music, shelf, clipboard
+
+    var title: String {
+        switch self {
+        case .music: return "Music"
+        case .shelf: return "Shelf"
+        case .clipboard: return "Clipboard"
+        }
+    }
+}
+
+/// Shown when the island is idle and hovered: Now Playing mini-player and timer presets,
+/// with the file shelf and the clipboard history a tab away. The Mac's equivalent of
+/// long-pressing an empty island.
 struct HomeExpandedView: View {
     let geometry: NotchGeometry
     let layout: IslandLayout
     @ObservedObject private var music = NowPlayingService.shared
-    @ObservedObject private var shelf = ShelfStore.shared
+    @ObservedObject private var clipboard = ClipboardStore.shared
     @EnvironmentObject private var prefs: Preferences
+    @AppStorage("homeTab") private var storedTab: String = HomeTab.music.rawValue
+    @Namespace private var tabNamespace
 
     var body: some View {
         VStack(spacing: 0) {
-            NotchClearance(geometry: geometry, extra: 10)
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 14) {
-                    miniPlayer
-                    timerRow
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if prefs.shelfEnabled {
-                    ShelfStripView(isDropTarget: false)
-                        .frame(width: 200)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 14)
+            NotchClearance(geometry: geometry, extra: 4)
+            if availableTabs.count > 1 { tabBar }
+            content
+                .id(selection)
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
+    }
+
+    // MARK: - Tabs
+
+    private var availableTabs: [HomeTab] {
+        HomeTab.allCases.filter { tab in
+            switch tab {
+            case .music: return true
+            case .shelf: return prefs.shelfEnabled
+            case .clipboard: return prefs.clipboardEnabled
+            }
+        }
+    }
+
+    /// The stored tab, falling back to Music when its feature has been switched off.
+    private var selection: HomeTab {
+        let stored = HomeTab(rawValue: storedTab) ?? .music
+        return availableTabs.contains(stored) ? stored : .music
+    }
+
+    private func select(_ tab: HomeTab) {
+        guard tab != selection else { return }
+        Haptics.soft()
+        withAnimation(IslandMotion.quick) { storedTab = tab.rawValue }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 16) {
+            if selection == .clipboard && !clipboard.items.isEmpty {
+                Button(action: { clipboard.clear() }) {
+                    Text("Clear")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .padding(.bottom, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(IslandButtonStyle())
+            }
+            Spacer(minLength: 0)
+            ForEach(availableTabs, id: \.self) { tab in
+                tabButton(tab)
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 20)
+    }
+
+    private func tabButton(_ tab: HomeTab) -> some View {
+        let active = selection == tab
+        return Button(action: { select(tab) }) {
+            Text(tab.title)
+                .font(.system(size: 11, weight: active ? .semibold : .regular))
+                .foregroundStyle(active ? Color.white : Color.white.opacity(0.45))
+                .padding(.bottom, 4)
+                .overlay(alignment: .bottom) {
+                    if active {
+                        Capsule()
+                            .fill(Color.white.opacity(0.8))
+                            .frame(height: 1.5)
+                            .matchedGeometryEffect(id: "homeTabUnderline", in: tabNamespace)
+                    } else {
+                        Color.clear.frame(height: 1.5)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(IslandButtonStyle())
+    }
+
+    // MARK: - Tab content
+
+    @ViewBuilder
+    private var content: some View {
+        switch selection {
+        case .music:
+            musicTab
+        case .shelf:
+            ShelfStripView(isDropTarget: false)
+        case .clipboard:
+            ClipboardView()
+        }
+    }
+
+    private var musicTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            miniPlayer
+            timerRow
+            Spacer(minLength: 0)
+        }
     }
 
     @ViewBuilder
