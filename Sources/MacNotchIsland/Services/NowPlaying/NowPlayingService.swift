@@ -23,6 +23,29 @@ final class NowPlayingService: ObservableObject {
     private var pausedSince: Date?
     private var ticks = 0
     private(set) var activeBackend: Backend = .inactive
+    /// What the user just asked for, held against stale backend reports for a moment.
+    private var optimistic: Optimistic?
+
+    /// A transport command takes a few hundred milliseconds to round-trip through
+    /// MediaRemote, and the first report after it can still carry the old state (the playback
+    /// rate and the elapsed time arrive separately from the is-playing notification). Until
+    /// `until`, reports for the same track are read with this state instead, so the button
+    /// never flips back and forth.
+    struct Optimistic: Equatable {
+        var isPlaying: Bool?
+        /// Where the user put the playhead, as of `at`.
+        var elapsed: TimeInterval?
+        var at: Date
+        var until: Date
+
+        /// Where the playhead should be now if the backend had kept up.
+        func expectedPosition(at now: Date, playing: Bool) -> TimeInterval? {
+            guard let elapsed else { return nil }
+            return elapsed + (playing ? max(0, now.timeIntervalSince(at)) : 0)
+        }
+    }
+
+    static let optimisticWindow: TimeInterval = 1.2
 
     private init() {}
 
@@ -80,13 +103,50 @@ final class NowPlayingService: ObservableObject {
             return
         }
         activeBackend = backend
-        if new.isPlaying {
+        let now = Date()
+        let reconciled = Self.reconcile(incoming: new, current: info, optimistic: optimistic, now: now)
+        if let pending = optimistic, pending.until <= now || Self.agrees(new, with: pending, now: now) {
+            optimistic = nil
+        }
+        if reconciled.isPlaying {
             pausedSince = nil
         } else if pausedSince == nil {
-            pausedSince = Date()
+            pausedSince = now
         }
-        if info != new { info = new }
+        if info != reconciled { info = reconciled }
         publish()
+    }
+
+    /// The report the island should believe. Inside the optimistic window, a report about the
+    /// same track that contradicts what the user just did is corrected to the user's state; a
+    /// different track, or anything after the window, is taken as is.
+    static func reconcile(incoming: NowPlayingInfo, current: NowPlayingInfo?, optimistic: Optimistic?, now: Date) -> NowPlayingInfo {
+        guard let optimistic, now < optimistic.until, let current, sameTrack(incoming, current) else { return incoming }
+        var result = incoming
+        if let isPlaying = optimistic.isPlaying, incoming.isPlaying != isPlaying {
+            result.isPlaying = isPlaying
+            // Keep the clock the user is looking at, not the stale one the backend still holds.
+            result.elapsed = current.position(at: now)
+            result.timestamp = now
+        }
+        if let expected = optimistic.expectedPosition(at: now, playing: result.isPlaying),
+           abs(incoming.position(at: now) - expected) > 1.5 {
+            result.elapsed = expected
+            result.timestamp = now
+        }
+        return result
+    }
+
+    static func sameTrack(_ a: NowPlayingInfo, _ b: NowPlayingInfo) -> Bool {
+        a.title == b.title && a.artist == b.artist && a.bundleID == b.bundleID
+    }
+
+    /// True once the backend has caught up with the user's request.
+    static func agrees(_ report: NowPlayingInfo, with pending: Optimistic, now: Date) -> Bool {
+        if let isPlaying = pending.isPlaying, report.isPlaying != isPlaying { return false }
+        if let expected = pending.expectedPosition(at: now, playing: report.isPlaying),
+           abs(report.position(at: now) - expected) > 1.5 { return false }
+        return true
     }
 
     private func clear() {
@@ -138,9 +198,11 @@ final class NowPlayingService: ObservableObject {
         default: mediaRemote.seek(to: seconds)
         }
         if var i = info {
+            let now = Date()
             i.elapsed = seconds
-            i.timestamp = Date()
+            i.timestamp = now
             info = i
+            optimistic = Optimistic(isPlaying: optimistic?.isPlaying, elapsed: seconds, at: now, until: now + Self.optimisticWindow)
             publish()
         }
     }
@@ -156,6 +218,7 @@ final class NowPlayingService: ObservableObject {
         i.timestamp = now
         i.isPlaying.toggle()
         info = i
+        optimistic = Optimistic(isPlaying: i.isPlaying, elapsed: nil, at: now, until: now + Self.optimisticWindow)
         publish()
     }
 }

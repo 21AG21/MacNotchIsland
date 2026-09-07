@@ -69,6 +69,9 @@ struct NowPlayingExpandedView: View {
                 HStack(spacing: 30) {
                     GlyphButton(symbol: "backward.fill", size: 18) { service.previous() }
                     GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill", size: 26) { service.togglePlayPause() }
+                        // The state arrives through a publisher, outside any animation, so the
+                        // symbol would otherwise snap; this gives the replace effect a curve.
+                        .animation(IslandMotion.quick, value: info.isPlaying)
                     GlyphButton(symbol: "forward.fill", size: 18) { service.next() }
                 }
                 HStack {
