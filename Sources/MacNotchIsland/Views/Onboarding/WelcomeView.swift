@@ -65,7 +65,7 @@ struct WelcomeView: View {
 }
 
 /// Owns the welcome window; shown once, or from the menu bar.
-final class WelcomeWindowController {
+final class WelcomeWindowController: NSObject, NSWindowDelegate {
     static let shared = WelcomeWindowController()
     private var window: NSWindow?
 
@@ -89,6 +89,7 @@ final class WelcomeWindowController {
         w.titleVisibility = .hidden
         w.title = "Welcome to Notch Island"
         w.isReleasedWhenClosed = false
+        w.delegate = self
         w.center()
         window = w
         w.makeKeyAndOrderFront(nil)
@@ -98,5 +99,9 @@ final class WelcomeWindowController {
     private func close() {
         Preferences.shared.hasSeenWelcome = true
         window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        Preferences.shared.hasSeenWelcome = true
     }
 }

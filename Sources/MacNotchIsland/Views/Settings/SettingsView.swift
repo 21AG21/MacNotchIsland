@@ -1,4 +1,5 @@
 import SwiftUI
+import EventKit
 
 /// Settings window in the house monochrome style: flat ground, big type, no boxes,
 /// hairlines between rows, emphasis by weight and shade only.
@@ -67,6 +68,10 @@ struct SettingsView: View {
                     slider("Height override", $prefs.notchHeightOverride, range: 0...60, unit: "pt", zeroLabel: "Auto")
                 }
 
+                section("Status") {
+                    StatusRows()
+                }
+
                 section("Automation") {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Push your own Live Activities from scripts and Shortcuts.")
@@ -94,6 +99,53 @@ struct SettingsView: View {
     }
 
     // MARK: Rows
+
+    /// Live health of each data source, so a silently failing feature isn't a mystery.
+    private struct StatusRows: View {
+        @ObservedObject private var music = NowPlayingService.shared
+        @State private var tick = 0
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 0) {
+                row("Now Playing source", musicStatus)
+                row("Media helper", AdapterBackend.dylibURL != nil ? "Bundled" : "Missing (AppleScript fallback)")
+                row("Focus database", FocusMonitor.isReadable ? "Readable" : "Not readable")
+                row("Calendar access", calendarStatus)
+                row("Accessibility (HUD replacement)", MediaKeyInterceptor.isTrusted ? "Granted" : "Not granted")
+            }
+            .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in tick += 1 }
+        }
+
+        private var musicStatus: String {
+            switch music.activeBackend {
+            case .adapter: return "MediaRemote helper"
+            case .mediaRemote: return "MediaRemote"
+            case .appleScript: return "AppleScript (Music / Spotify)"
+            case .inactive: return "Nothing playing"
+            }
+        }
+
+        private var calendarStatus: String {
+            switch EKEventStore.authorizationStatus(for: .event) {
+            case .fullAccess, .authorized: return "Granted"
+            case .denied, .restricted: return "Denied"
+            case .writeOnly: return "Write only"
+            default: return "Not asked yet"
+            }
+        }
+
+        private func row(_ title: String, _ value: String) -> some View {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(title).font(.system(size: 15))
+                    Spacer()
+                    Text(value).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 9)
+                Divider().opacity(0.5)
+            }
+        }
+    }
 
     @ViewBuilder
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

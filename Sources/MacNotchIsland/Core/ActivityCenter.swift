@@ -15,8 +15,12 @@ final class ActivityCenter: ObservableObject {
 
     @Published private(set) var activities: [IslandActivity] = []
     @Published private(set) var alert: IslandActivity? = nil
-    @Published private(set) var isHovering = false
-    @Published private(set) var isDragTargeted = false
+    /// Which panel (screen) the pointer is hovering / dragging over. Interaction state is
+    /// per screen so an island on one display doesn't open the one on another.
+    @Published private(set) var hoverPanel: String? = nil
+    @Published private(set) var dragPanel: String? = nil
+    var isHovering: Bool { hoverPanel != nil }
+    var isDragTargeted: Bool { dragPanel != nil }
     @Published private(set) var manuallyExpanded = false
     @Published private(set) var homeForced = false
     @Published private(set) var forcedExpandedID: String? = nil
@@ -25,6 +29,7 @@ final class ActivityCenter: ObservableObject {
     @Published var cameraInUse = false
 
     private var alertWork: DispatchWorkItem?
+    private var pendingAlerts: [(activity: IslandActivity, queuedAt: Date, duration: TimeInterval?)] = []
     private var hoverWork: DispatchWorkItem?
     private var homeWork: DispatchWorkItem?
     private var forcedWork: DispatchWorkItem?
@@ -46,8 +51,9 @@ final class ActivityCenter: ObservableObject {
         alertWork?.cancel(); hoverWork?.cancel(); homeWork?.cancel(); forcedWork?.cancel()
         activities = []
         alert = nil
-        isHovering = false
-        isDragTargeted = false
+        pendingAlerts.removeAll()
+        hoverPanel = nil
+        dragPanel = nil
         manuallyExpanded = false
         homeForced = false
         forcedExpandedID = nil
@@ -76,13 +82,20 @@ final class ActivityCenter: ObservableObject {
     var primary: IslandActivity? { sortedActivities.first }
     var secondary: IslandActivity? { sortedActivities.dropFirst().first }
 
-    var presentation: IslandPresentation {
-        let prefs = Preferences.shared
+    /// Presentation independent of which screen is asking (tests, hit-testing fallbacks).
+    var presentation: IslandPresentation { presentation(for: nil) }
 
-        if isDragTargeted && prefs.shelfEnabled { return .shelf }
+    /// Presentation for one panel. Hover and drag only affect the panel they happen on;
+    /// alerts, live activities and programmatic expansion show everywhere.
+    func presentation(for panel: String?) -> IslandPresentation {
+        let prefs = Preferences.shared
+        let hovering = hoverPanel != nil && (panel == nil || hoverPanel == panel)
+        let dragging = dragPanel != nil && (panel == nil || dragPanel == panel)
+
+        if dragging && prefs.shelfEnabled { return .shelf }
 
         if let alert {
-            let wantsExpanded = alert.presentation == .expanded || isHovering || manuallyExpanded
+            let wantsExpanded = alert.presentation == .expanded || hovering || manuallyExpanded
             if wantsExpanded && alert.content.hasExpandedView { return .expanded(alert) }
             return .compact(alert, bubble: nil)
         }
@@ -91,7 +104,7 @@ final class ActivityCenter: ObservableObject {
 
         let live = sortedActivities
         if let primary = live.first {
-            let hoverExpand = isHovering && prefs.hoverToExpand
+            let hoverExpand = hovering && prefs.hoverToExpand
             let forced = forcedExpandedID == primary.id
             if (hoverExpand || manuallyExpanded || forced) && primary.content.hasExpandedView {
                 return .expanded(primary)
@@ -99,7 +112,7 @@ final class ActivityCenter: ObservableObject {
             return .compact(primary, bubble: live.dropFirst().first)
         }
 
-        if isHovering && prefs.expandOnIdleHover { return .home }
+        if hovering && prefs.expandOnIdleHover { return .home }
         return .idle
     }
 
@@ -164,7 +177,26 @@ final class ActivityCenter: ObservableObject {
 
     // MARK: - Alerts
 
+    /// How important an alert is; a lower-ranked alert never cuts off a higher-ranked one.
+    static func alertRank(_ activity: IslandActivity) -> Int {
+        switch activity.content {
+        case .hud: return 1
+        case .silent: return 2
+        case .custom: return activity.id == "capslock" ? 1 : 3
+        case .focus, .unlock: return 3
+        case .download, .bluetooth: return 4
+        case .battery(let b): return (b.event == .low || b.event == .critical) ? 6 : 5
+        default: return 3
+        }
+    }
+
     func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
+        if let current = alert, current.id != activity.id, Self.alertRank(current) > Self.alertRank(activity) {
+            // Queue behind the more important alert (a volume tick must not hide a low-battery warning).
+            pendingAlerts.removeAll { $0.activity.id == activity.id }
+            if pendingAlerts.count < 3 { pendingAlerts.append((activity, Date(), duration)) }
+            return
+        }
         alertWork?.cancel()
         alert = activity
         if haptic { Haptics.tap() }
@@ -179,37 +211,58 @@ final class ActivityCenter: ObservableObject {
                 self.scheduleAlertDismiss(id: id, after: 1.0)
             } else {
                 self.alert = nil
+                self.showNextPendingAlert()
             }
         }
         alertWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
+    private func showNextPendingAlert() {
+        let now = Date()
+        // Transient HUD-style alerts go stale quickly; anything else is still worth showing.
+        pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > (Self.alertRank($0.activity) <= 2 ? 2 : 15) }
+        guard !pendingAlerts.isEmpty else { return }
+        let next = pendingAlerts.removeFirst()
+        showAlert(next.activity, duration: next.duration, haptic: false)
+    }
+
     func dismissAlert() {
         alertWork?.cancel()
         alert = nil
+        pendingAlerts.removeAll()
     }
 
     // MARK: - Interaction
 
-    func setHovering(_ hovering: Bool) {
+    func setHovering(_ hovering: Bool, panel: String = "main") {
         hoverWork?.cancel()
         let delay = hovering ? Preferences.shared.hoverDelay : 0.35
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.isHovering != hovering else { return }
-            let before = self.presentation
-            self.isHovering = hovering
+            guard let self else { return }
+            if hovering {
+                guard self.hoverPanel != panel else { return }
+            } else {
+                guard self.hoverPanel == panel else { return }
+            }
+            let before = self.presentation(for: panel)
+            self.hoverPanel = hovering ? panel : nil
             if !hovering { self.manuallyExpanded = false }
-            if before.isExpanded != self.presentation.isExpanded { Haptics.tap() }
+            if before.isExpanded != self.presentation(for: panel).isExpanded { Haptics.tap() }
         }
         hoverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    func setDragTargeted(_ targeted: Bool) {
-        guard isDragTargeted != targeted else { return }
-        isDragTargeted = targeted
-        if targeted { Haptics.tap() }
+    func setDragTargeted(_ targeted: Bool, panel: String = "main") {
+        if targeted {
+            guard dragPanel != panel else { return }
+            dragPanel = panel
+            Haptics.tap()
+        } else {
+            guard dragPanel == panel || panel == "main" else { return }
+            dragPanel = nil
+        }
     }
 
     func tap() {

@@ -4,17 +4,20 @@ import SwiftUI
 /// plus the detached "minimal" bubble to its right when two activities are live.
 struct IslandRootView: View {
     let geometry: NotchGeometry
+    var panelID: String = "main"
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
+    @State private var previousLayout: IslandLayout? = nil
 
     var body: some View {
-        let presentation = center.presentation
+        let presentation = center.presentation(for: panelID)
         let layout = IslandLayout.make(presentation: presentation, geometry: geometry, center: center)
+        let animation = IslandMotion.shape(from: previousLayout ?? layout, to: layout)
 
         ZStack(alignment: .top) {
             Color.clear
             HStack(alignment: .top, spacing: layout.bubbleGap) {
-                IslandBodyView(geometry: geometry, presentation: presentation, layout: layout)
+                IslandBodyView(geometry: geometry, presentation: presentation, layout: layout, panelID: panelID)
                 if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
                     BubbleView(activity: bubble, diameter: layout.bubbleDiameter)
                         .transition(.scale(scale: 0.2).combined(with: .opacity))
@@ -24,7 +27,8 @@ struct IslandRootView: View {
             .offset(x: layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(layout.isExpanded ? IslandMotion.open : IslandMotion.close, value: layout)
+        .animation(animation, value: layout)
         .animation(IslandMotion.bubble, value: layout.hasBubble)
+        .onChange(of: layout) { _, new in previousLayout = new }
     }
 }

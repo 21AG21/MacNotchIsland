@@ -14,6 +14,7 @@ struct GlyphButton: View {
     let symbol: String
     var size: CGFloat = 18
     var tint: Color = .white
+    var label: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -26,6 +27,23 @@ struct GlyphButton: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(IslandButtonStyle())
+        .accessibilityLabel(label ?? Self.describe(symbol))
+    }
+
+    static func describe(_ symbol: String) -> String {
+        switch symbol {
+        case "play.fill": return "Play"
+        case "pause.fill": return "Pause"
+        case "forward.fill": return "Next track"
+        case "backward.fill": return "Previous track"
+        case "airplayaudio": return "Open player"
+        case "xmark": return "Cancel"
+        case "stop.fill": return "Stop"
+        case "flag.fill": return "Lap"
+        case "arrow.counterclockwise": return "Repeat"
+        case "arrow.up.forward": return "Open"
+        default: return symbol.replacingOccurrences(of: ".", with: " ")
+        }
     }
 }
 
@@ -35,6 +53,7 @@ struct CircleActionButton: View {
     var tint: Color = .white
     var size: CGFloat = 44
     var filled: Bool = false
+    var label: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -49,6 +68,7 @@ struct CircleActionButton: View {
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
+        .accessibilityLabel(label ?? GlyphButton.describe(symbol))
     }
 }
 

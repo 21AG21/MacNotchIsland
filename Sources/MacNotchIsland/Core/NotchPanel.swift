@@ -8,10 +8,13 @@ final class NotchPanel: NSPanel {
     static let canvasHeight: CGFloat = 340
 
     let geometry: NotchGeometry
+    let panelID: String
     private var hosting: NotchHostingView<AnyView>?
 
     init(screen: NSScreen, geometry: NotchGeometry) {
         self.geometry = geometry
+        let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? UUID().uuidString
+        self.panelID = "screen-" + number
         let frame = NotchPanel.frame(for: screen)
         super.init(contentRect: frame,
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -35,13 +38,14 @@ final class NotchPanel: NSPanel {
         animationBehavior = .none
 
         let root = AnyView(
-            IslandRootView(geometry: geometry)
+            IslandRootView(geometry: geometry, panelID: panelID)
                 .environmentObject(ActivityCenter.shared)
                 .environmentObject(Preferences.shared)
         )
         let view = NotchHostingView(rootView: root)
         let geo = geometry
-        view.hitSizeProvider = { IslandLayout.make(presentation: ActivityCenter.shared.presentation, geometry: geo).hitSize }
+        let pid = panelID
+        view.hitSizeProvider = { IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo).hitSize }
         view.frame = NSRect(origin: .zero, size: frame.size)
         view.autoresizingMask = [.width, .height]
         contentView = view
@@ -51,6 +55,11 @@ final class NotchPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Escape collapses whatever is open.
+    override func cancelOperation(_ sender: Any?) {
+        ActivityCenter.shared.collapse()
+    }
 
     static func frame(for screen: NSScreen) -> NSRect {
         let sf = screen.frame

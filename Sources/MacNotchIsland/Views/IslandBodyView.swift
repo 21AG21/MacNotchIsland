@@ -6,6 +6,7 @@ struct IslandBodyView: View {
     let geometry: NotchGeometry
     let presentation: IslandPresentation
     let layout: IslandLayout
+    var panelID: String = "main"
 
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
@@ -23,14 +24,14 @@ struct IslandBodyView: View {
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
         .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius))
-        .onHover { hovering in center.setHovering(hovering) }
+        .onHover { hovering in center.setHovering(hovering, panel: panelID) }
         .onTapGesture { center.tap() }
         .onDrop(of: [UTType.fileURL], isTargeted: $dropTargeted) { providers in
             guard prefs.shelfEnabled else { return false }
             return ShelfStore.shared.acceptDrop(providers)
         }
         .onChange(of: dropTargeted) { _, targeted in
-            center.setDragTargeted(targeted && prefs.shelfEnabled)
+            center.setDragTargeted(targeted && prefs.shelfEnabled, panel: panelID)
         }
     }
 

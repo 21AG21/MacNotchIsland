@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hub = ServiceHub()
         hub?.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.showIfFirstLaunch() }
+        for delay in [5.0, 30.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.rebuildPanelsIfGeometryChanged() }
+        }
 
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(screensChanged),
@@ -45,6 +48,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func screensChanged() {
         rebuildPanels()
+    }
+
+    private func rebuildPanelsIfGeometryChanged() {
+        let current = Set(panels.map { "\($0.panelID)|\($0.geometry.notchWidth)|\($0.geometry.notchHeight)" })
+        let fresh = Set(NSScreen.screens.map { screen -> String in
+            let g = NotchGeometry.detect(on: screen)
+            let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? ""
+            return "screen-\(number)|\(g.notchWidth)|\(g.notchHeight)"
+        })
+        if !current.isSubset(of: fresh) { rebuildPanels() }
     }
 
     private func rebuildPanels() {

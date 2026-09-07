@@ -76,7 +76,7 @@ final class Preferences: ObservableObject {
         hoverToExpand = bool("hoverToExpand", true)
         expandOnIdleHover = bool("expandOnIdleHover", true)
         hapticsEnabled = bool("hapticsEnabled", true)
-        hoverDelay = double("hoverDelay", 0.12)
+        hoverDelay = double("hoverDelay", 0.2)
         alertDuration = double("alertDuration", 2.8)
 
         nowPlayingEnabled = bool("nowPlayingEnabled", true)

@@ -24,6 +24,13 @@ final class LiveActivityAPI {
         }
     }
 
+    /// Third-party activities may only open web links, never file: or other schemes.
+    static func safeLink(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
+              ["http", "https", "mailto"].contains(scheme) else { return nil }
+        return url
+    }
+
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "notchisland",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
@@ -43,7 +50,7 @@ final class LiveActivityAPI {
             custom.progress = q["progress"].flatMap { Double($0) }.map { min(1, max(0, $0)) }
             custom.trailingText = q["trailing"]
             custom.body = q["body"]
-            custom.url = q["url"].flatMap { URL(string: $0) }
+            custom.url = Self.safeLink(q["url"])
             custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
             let priority = q["priority"].flatMap { Int($0) } ?? 70
             var activity = IslandActivity(id: "api-" + id, kind: .custom, content: .custom(custom), priority: priority)
@@ -64,7 +71,7 @@ final class LiveActivityAPI {
             custom.tint = q["tint"] ?? q["color"] ?? "white"
             custom.trailingText = q["trailing"] ?? q["title"]
             custom.body = q["body"]
-            custom.url = q["url"].flatMap { URL(string: $0) }
+            custom.url = Self.safeLink(q["url"])
             let expanded = ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased())
             var activity = IslandActivity(id: "api-alert", kind: .custom, content: .custom(custom), priority: 85,
                                           presentation: expanded ? .expanded : .compact)

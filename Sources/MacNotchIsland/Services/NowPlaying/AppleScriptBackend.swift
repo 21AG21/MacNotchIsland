@@ -5,8 +5,9 @@ import AppKit
 final class AppleScriptBackend {
     enum Command { case togglePlayPause, next, previous }
 
-    private let queue = DispatchQueue(label: "com.macnotchisland.applescript", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.macnotchisland.applescript", qos: .userInitiated, attributes: .concurrent)
     private var inFlight = false
+    private var generation = 0
     private var artworkKey = ""
     private var artwork: NSImage?
     private var artworkID = 0
@@ -25,13 +26,23 @@ final class AppleScriptBackend {
             return
         }
         inFlight = true
+        generation += 1
+        let myGeneration = generation
+        // Watchdog: a beach-balling player can block NSAppleScript indefinitely; give up on this poll after 3 s.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.generation == myGeneration, self.inFlight else { return }
+            self.inFlight = false
+        }
         queue.async { [self] in
             var candidates: [NowPlayingInfo] = []
             if hasSpotify, let s = query(spotify: true) { candidates.append(s) }
             if hasMusic, let m = query(spotify: false) { candidates.append(m) }
             let chosen = candidates.first(where: { $0.isPlaying }) ?? candidates.first
-            inFlight = false
-            DispatchQueue.main.async { completion(chosen) }
+            DispatchQueue.main.async {
+                guard self.generation == myGeneration else { return }
+                self.inFlight = false
+                completion(chosen)
+            }
         }
     }
 

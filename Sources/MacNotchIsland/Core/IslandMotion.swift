@@ -13,7 +13,9 @@ enum IslandMotion {
     static var bubble: Animation { reduceMotion ? .easeOut(duration: 0.18) : .spring(response: 0.48, dampingFraction: 0.66, blendDuration: 0) }
     static var quick: Animation { reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.22, dampingFraction: 0.86, blendDuration: 0) }
 
+    /// Growing (a new activity popping out of the notch, expanding) gets the bouncy open
+    /// spring; shrinking gets the firmer close spring.
     static func shape(from old: IslandLayout, to new: IslandLayout) -> Animation {
-        new.bodyWidth >= old.bodyWidth || new.bodyHeight > old.bodyHeight ? open : close
+        (new.bodyWidth > old.bodyWidth || new.bodyHeight > old.bodyHeight) ? open : close
     }
 }

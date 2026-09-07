@@ -92,7 +92,6 @@ final class MediaRemoteBackend {
             if isHealthy { onUpdate?(nil) }
             return
         }
-        isHealthy = true
 
         let title = d["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
         let artist = d["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? ""
@@ -121,9 +120,11 @@ final class MediaRemoteBackend {
                                   artwork: lastArtwork, artworkID: lastArtworkHash, accent: lastAccent)
 
         if title.isEmpty && artist.isEmpty {
-            onUpdate?(nil)
+            // macOS 15.4+ hands unentitled apps a payload with no usable fields; don't count that as healthy.
+            if isHealthy { onUpdate?(nil) }
             return
         }
+        isHealthy = true
 
         if let getPIDFn {
             getPIDFn(DispatchQueue.main) { [weak self] pid in

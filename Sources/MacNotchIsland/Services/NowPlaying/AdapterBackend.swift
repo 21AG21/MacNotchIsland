@@ -124,11 +124,11 @@ final class AdapterBackend {
         let title = obj["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
         let artist = obj["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? ""
         if title.isEmpty && artist.isEmpty {
+            artworkHash = ""
+            artwork = nil
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.artworkHash = ""
-                self.artwork = nil
-                if self.isHealthy { self.onUpdate?(nil) }
+                guard let self, self.isHealthy else { return }
+                self.onUpdate?(nil)
             }
             return
         }
@@ -141,32 +141,27 @@ final class AdapterBackend {
         let hash = obj["artworkHash"] as? String ?? ""
         let pid = (obj["pid"] as? NSNumber)?.int32Value ?? 0
 
-        var newImage: NSImage? = nil
-        var newAccent: NSColor? = nil
+        // Artwork cache lives on parseQueue; only the finished value crosses to the main thread.
         if !hash.isEmpty, hash != artworkHash, let b64 = obj["artworkBase64"] as? String, let data = Data(base64Encoded: b64) {
-            newImage = NSImage(data: data)
-            newAccent = newImage?.dominantColor() ?? .white
+            artworkHash = hash
+            artwork = NSImage(data: data)
+            accent = artwork?.dominantColor() ?? .white
+        } else if hash.isEmpty {
+            artworkHash = ""
+            artwork = nil
+            accent = .white
         }
+        let info = NowPlayingInfo(title: title, artist: artist, album: album,
+                                  duration: duration, elapsed: elapsed, timestamp: timestamp,
+                                  isPlaying: rate > 0, bundleID: nil,
+                                  artwork: artwork, artworkID: artworkHash.hashValue, accent: accent)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if let newImage {
-                self.artworkHash = hash
-                self.artwork = newImage
-                self.accent = newAccent ?? .white
-            } else if hash.isEmpty {
-                self.artworkHash = ""
-                self.artwork = nil
-                self.accent = .white
-            }
-            var bundleID: String? = nil
-            if pid > 0, let app = NSRunningApplication(processIdentifier: pid) { bundleID = app.bundleIdentifier }
+            var delivered = info
+            if pid > 0, let app = NSRunningApplication(processIdentifier: pid) { delivered.bundleID = app.bundleIdentifier }
             self.isHealthy = true
-            let info = NowPlayingInfo(title: title, artist: artist, album: album,
-                                      duration: duration, elapsed: elapsed, timestamp: timestamp,
-                                      isPlaying: rate > 0, bundleID: bundleID,
-                                      artwork: self.artwork, artworkID: self.artworkHash.hashValue, accent: self.accent)
-            self.onUpdate?(info)
+            self.onUpdate?(delivered)
         }
     }
 }

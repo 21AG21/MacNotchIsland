@@ -8,8 +8,16 @@ final class FocusMonitor {
     private var lastMode: String?
     private var started = false
 
-    private var dbDirectory: URL {
+    private var dbDirectory: URL { Self.dbDirectory }
+
+    static var dbDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/DoNotDisturb/DB", isDirectory: true)
+    }
+
+    /// Whether the Focus database can be read (it lives in the user's own Library, but a
+    /// future macOS could move it or gate it).
+    static var isReadable: Bool {
+        FileManager.default.isReadableFile(atPath: dbDirectory.appendingPathComponent("ModeConfigurations.json").path)
     }
 
     func start() {
