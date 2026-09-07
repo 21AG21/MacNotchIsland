@@ -149,10 +149,10 @@ final class ActivityCenter: ObservableObject {
 
     // MARK: - Alerts
 
-    func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil) {
+    func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
         alertWork?.cancel()
         alert = activity
-        Haptics.tap()
+        if haptic { Haptics.tap() }
         scheduleAlertDismiss(id: activity.id, after: duration ?? Preferences.shared.alertDuration)
     }
 

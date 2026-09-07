@@ -15,6 +15,7 @@ struct NowPlayingExpandedView: View {
                     .id(info.artworkID)
                     .transition(.scale(scale: 0.85).combined(with: .opacity))
                     .padding(.top, 12)
+                    .onTapGesture { service.openApp() }
                 Spacer(minLength: 0)
                 VisualizerBars(isPlaying: info.isPlaying, color: accent, barCount: 5, barWidth: 3.5, maxHeight: 22, minHeight: 4)
                     .padding(.top, max(6, (geometry.notchHeight - 22) / 2 + 2))

@@ -15,7 +15,6 @@ struct BubbleView: View {
         .frame(width: diameter, height: diameter)
         .contentShape(Circle())
         .onTapGesture { center.promote(id: activity.id) }
-        .onHover { hovering in center.setHovering(hovering) }
     }
 
     @ViewBuilder

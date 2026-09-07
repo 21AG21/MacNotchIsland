@@ -18,6 +18,7 @@ final class NowPlayingService: ObservableObject {
     private var running = false
     private var pollTimer: Timer?
     private var pausedSince: Date?
+    private var ticks = 0
     private(set) var activeBackend: Backend = .inactive
 
     private init() {}
@@ -43,7 +44,8 @@ final class NowPlayingService: ObservableObject {
     }
 
     private func tick() {
-        if !mediaRemote.isHealthy {
+        ticks += 1
+        if !mediaRemote.isHealthy, ticks % 2 == 0 {
             appleScript.poll { [weak self] info in self?.handle(info, from: .appleScript) }
         } else if activeBackend == .mediaRemote {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.

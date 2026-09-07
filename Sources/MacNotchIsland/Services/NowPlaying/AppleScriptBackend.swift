@@ -40,7 +40,12 @@ final class AppleScriptBackend {
         if spotify {
             source = """
             tell application "Spotify"
-                set s to player state as string
+                set s to "stopped"
+                if player state is playing then
+                    set s to "playing"
+                else if player state is paused then
+                    set s to "paused"
+                end if
                 if s is "playing" or s is "paused" then
                     set t to current track
                     return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & ((duration of t) / 1000) & linefeed & (player position) & linefeed & (id of t) & linefeed & (artwork url of t)
@@ -51,7 +56,12 @@ final class AppleScriptBackend {
         } else {
             source = """
             tell application "Music"
-                set s to player state as string
+                set s to "stopped"
+                if player state is playing then
+                    set s to "playing"
+                else if player state is paused then
+                    set s to "paused"
+                end if
                 if s is "playing" or s is "paused" then
                     set t to current track
                     return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (duration of t) & linefeed & (player position) & linefeed & (database ID of t) & linefeed & ""

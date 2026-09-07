@@ -76,7 +76,7 @@ final class AudioMonitor {
         guard abs(v - lastVolume) > 0.001 else { return }
         lastVolume = v
         let hud = LevelHUD(kind: .volume, level: Double(v), isMuted: muted)
-        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5)
+        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)
     }
 
     private func muteChanged() {

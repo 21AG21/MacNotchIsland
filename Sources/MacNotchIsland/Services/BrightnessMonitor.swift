@@ -49,6 +49,6 @@ final class BrightnessMonitor {
         guard abs(v - last) > 0.002 else { return }
         last = v
         let hud = LevelHUD(kind: .brightness, level: Double(v))
-        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5)
+        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)
     }
 }
