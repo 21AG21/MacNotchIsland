@@ -308,9 +308,10 @@ final class IslandTimer: ObservableObject {
         let running = timers.contains { !$0.state.isPaused && !$0.state.isFinished }
         if running {
             guard ticker == nil else { return }
-            let interval = min(2, EnergyPolicy.shared.pollingMultiplier)
-            let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
-            t.tolerance = interval * 0.2
+            // Always 1 Hz: a countdown that rings late is a fidelity bug, and one timer per
+            // second while a timer runs is well inside the energy budget.
+            let t = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
+            t.tolerance = 0.15
             ticker = t
         } else {
             ticker?.invalidate()
