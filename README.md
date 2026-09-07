@@ -12,23 +12,23 @@ and the same content layout as iOS.
 
 | iPhone Dynamic Island | Notch Island on the Mac |
 | --- | --- |
-| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same. Any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover to expand, click to open the app, drag the scrubber to seek. |
+| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover to expand, click to open the app, drag the scrubber to seek, swipe sideways on the island to skip tracks. Time-synced lyrics from LRCLIB under the title. |
 | Timer countdown in orange, expanded pause / cancel, "timer done" state | Same, with 1–60 min presets in the Home panel and menu bar, or `notchctl timer 5`. |
-| Stopwatch Live Activity (iOS 17) with laps | Same: start from the Home panel, the menu bar, or `notchisland://stopwatch`. |
+| Stopwatch Live Activity (iOS 17) with laps | Same: Home panel, menu bar, or `notchisland://stopwatch`. |
 | Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. |
-| Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. |
+| Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. Low Power Mode on/off too. |
 | AirPods / Bluetooth connect with battery | IOBluetooth connection events, AirPods left / right / case battery rings from the IORegistry. |
 | Focus on / off with the Focus symbol | Watches macOS's Focus assertion database. |
-| Silent / ring switch | Mute toggling shows the bell; volume and brightness changes show a level bar. |
+| Silent / ring switch, volume | Mute shows the bell; volume and brightness changes show a level bar. Optionally the island *replaces* the system bezel entirely (event tap, needs Accessibility). Scroll on the island to change volume. |
 | Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
 | Face ID unlock animation | "Unlocked" when the Mac unlocks. |
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
-| Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap. |
+| Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap. Alerts are ranked so a volume tick never hides a low-battery warning. |
 | Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. |
-| Low Power Mode | Alert when it turns on or off. |
-| — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert (optionally dropping the file on the shelf). |
-| Long-press to expand, tap to open | Hover to expand, click to open. Trackpad haptics on state changes. |
-| — | File shelf: drag files onto the notch to keep them within reach and drag them out again. |
+| Long-press to expand, tap to open | Hover to expand, click to open, ⌃⌥Space from anywhere, Escape to close. Trackpad haptics on state changes. |
+| — | Home panel when nothing is live: mini player and timer presets, a file shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history, quick actions that run your Shortcuts, camera mirror, and system stats. |
+| — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert. Caps Lock pill. |
+| — | Energy discipline: animations slow on battery and stop in Low Power Mode or sleep; every poller backs off; idle CPU stays near zero. |
 
 ## Build
 
