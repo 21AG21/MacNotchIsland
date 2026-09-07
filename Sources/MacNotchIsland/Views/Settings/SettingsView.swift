@@ -26,6 +26,7 @@ struct SettingsView: View {
                     toggle("Trackpad haptics", $prefs.hapticsEnabled)
                     toggle("Keyboard shortcut  ⌃⌥Space", $prefs.hotkeyEnabled, note: "Opens the island (or the Home panel) from anywhere; press again to close.")
                     toggle("Show on every display", $prefs.showOnAllDisplays, note: "Displays without a notch get a simulated island.")
+                    toggle("Check for updates", $prefs.updateChecksEnabled, note: "Once a day, against the GitHub releases page. Nothing is installed automatically.")
                     slider("Hover delay", $prefs.hoverDelay, range: 0...0.6, unit: "s")
                     slider("Alert duration", $prefs.alertDuration, range: 1...6, unit: "s")
                 }
@@ -57,6 +58,9 @@ struct SettingsView: View {
                     toggle("Clipboard history", $prefs.clipboardEnabled, note: "Recent copies in the Home panel. Password managers' concealed items are skipped.")
                     slider("Clipboard items kept", $prefs.clipboardLimit, range: 10...200, unit: "")
                     toggle("Quick actions", $prefs.quickActionsEnabled, note: "Run your Shortcuts from the island.")
+                    toggle("Camera mirror", $prefs.mirrorEnabled, note: "A Mirror tab in the Home panel to check yourself before a call. Asks for camera access when opened.")
+                    toggle("System stats", $prefs.statsEnabled, note: "CPU, memory, network and battery health in the Home panel.")
+                    toggle("Trackpad gestures on the island", $prefs.gesturesEnabled, note: "Swipe sideways to skip tracks or switch Home tabs; scroll up or down for volume.")
                 }
 
                 if prefs.quickActionsEnabled {

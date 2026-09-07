@@ -44,6 +44,10 @@ final class Preferences: ObservableObject {
     @Published var capsLockEnabled: Bool { didSet { d.set(capsLockEnabled, forKey: "capsLockEnabled") } }
     @Published var quickActionsEnabled: Bool { didSet { d.set(quickActionsEnabled, forKey: "quickActionsEnabled") } }
     @Published var pauseAnimationsOnBattery: Bool { didSet { d.set(pauseAnimationsOnBattery, forKey: "pauseAnimationsOnBattery") } }
+    @Published var mirrorEnabled: Bool { didSet { d.set(mirrorEnabled, forKey: "mirrorEnabled") } }
+    @Published var statsEnabled: Bool { didSet { d.set(statsEnabled, forKey: "statsEnabled") } }
+    @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
+    @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
 
     // MARK: Geometry overrides (0 = auto-detect)
     @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
@@ -105,6 +109,10 @@ final class Preferences: ObservableObject {
         capsLockEnabled = bool("capsLockEnabled", true)
         quickActionsEnabled = bool("quickActionsEnabled", true)
         pauseAnimationsOnBattery = bool("pauseAnimationsOnBattery", false)
+        mirrorEnabled = bool("mirrorEnabled", true)
+        statsEnabled = bool("statsEnabled", true)
+        updateChecksEnabled = bool("updateChecksEnabled", true)
+        gesturesEnabled = bool("gesturesEnabled", true)
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)

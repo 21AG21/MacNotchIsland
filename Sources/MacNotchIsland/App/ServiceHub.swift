@@ -21,6 +21,7 @@ final class ServiceHub {
     let mediaKeys = MediaKeyInterceptor()
     let capsLock = CapsLockMonitor()
     let energy = EnergyPolicy.shared
+    let updates = UpdateChecker.shared
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -55,5 +56,6 @@ final class ServiceHub {
         p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()
         p.capsLockEnabled ? capsLock.start() : capsLock.stop()
         if p.quickActionsEnabled && ShortcutsRunner.shared.available.isEmpty { ShortcutsRunner.shared.refresh() }
+        p.updateChecksEnabled ? updates.start() : updates.stop()
     }
 }
