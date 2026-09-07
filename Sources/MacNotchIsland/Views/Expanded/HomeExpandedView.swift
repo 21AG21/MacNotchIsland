@@ -26,6 +26,7 @@ struct HomeExpandedView: View {
     @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var clipboard = ClipboardStore.shared
     @EnvironmentObject private var prefs: Preferences
+    @EnvironmentObject private var center: ActivityCenter
     @AppStorage("homeTab") private var storedTab: String = HomeTab.music.rawValue
     @Namespace private var tabNamespace
 
@@ -35,7 +36,7 @@ struct HomeExpandedView: View {
             if availableTabs.count > 1 { tabBar }
             content
                 .id(selection)
-                .transition(.opacity)
+                .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.horizontal, IslandInsets.horizontal)
                 .padding(.top, 8)
@@ -69,7 +70,12 @@ struct HomeExpandedView: View {
     private func select(_ tab: HomeTab) {
         guard tab != selection else { return }
         Haptics.soft()
-        withAnimation(IslandMotion.quick) { storedTab = tab.rawValue }
+        // Slide the way the tab bar reads: rightward tabs push in from the right.
+        let tabs = availableTabs
+        let from = tabs.firstIndex(of: selection) ?? 0
+        let to = tabs.firstIndex(of: tab) ?? 0
+        center.setNavigationDirection(to > from ? 1 : -1)
+        withAnimation(IslandMotion.navigate) { storedTab = tab.rawValue }
     }
 
     private var tabBar: some View {

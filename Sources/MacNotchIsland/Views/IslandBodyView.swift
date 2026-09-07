@@ -63,7 +63,7 @@ struct IslandBodyView: View {
             }
         }
         .id(presentation.contentID)
-        .transition(.blurReplace)
+        .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
         .environment(\.islandNamespace, islandNamespace)
     }
 }

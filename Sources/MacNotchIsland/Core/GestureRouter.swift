@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 /// Trackpad gestures on the island.
 ///
@@ -282,7 +283,16 @@ final class GestureRouter {
             Haptics.tap()
             return true
         case .selectTab(let tab):
-            UserDefaults.standard.set(tab, forKey: Self.homeTabKey)
+            // Swiping left moves to the next tab, which slides in from the right, like the
+            // keyboard step does; wrapping from the last tab back to the first still reads
+            // as forward.
+            let tabs = availableHomeTabs
+            let current = UserDefaults.standard.string(forKey: Self.homeTabKey) ?? Self.defaultHomeTab
+            let from = tabs.firstIndex(of: Self.effectiveTab(current, available: tabs)) ?? 0
+            let to = tabs.firstIndex(of: tab) ?? 0
+            let forward = to > from || (to == 0 && from == tabs.count - 1)
+            ActivityCenter.shared.setNavigationDirection(forward ? 1 : -1)
+            withAnimation(IslandMotion.navigate) { UserDefaults.standard.set(tab, forKey: Self.homeTabKey) }
             Haptics.soft()
             return true
         case .volume(let delta):

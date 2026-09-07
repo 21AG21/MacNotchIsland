@@ -136,10 +136,13 @@ struct ShelfStripView: View {
                                   anchor: shareAnchor,
                                   targets: { targets(for: item.url) },
                                   onSelect: { click(item.url) })
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
+            // A dropped file pops into place and the rest shuffle over; a removed one shrinks away.
+            .animation(IslandMotion.content, value: shelf.items)
         }
     }
 

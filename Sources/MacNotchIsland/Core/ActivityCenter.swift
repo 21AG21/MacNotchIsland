@@ -32,6 +32,12 @@ final class ActivityCenter: ObservableObject {
     }
     /// The panel whose island is being held down, for the press-in feedback.
     @Published private(set) var pressedPanel: String? = nil
+    /// Which way the last change of view went: +1 forward, -1 back, 0 for a plain open or
+    /// close. Read by the views to pick a push or a cross-fade; not published, since it is
+    /// always set right before the change that is.
+    private(set) var navigationDirection = 0
+
+    func setNavigationDirection(_ direction: Int) { navigationDirection = direction }
     @Published private(set) var forcedExpandedID: String? = nil
     @Published private(set) var pinnedID: String? = nil
     @Published var micInUse = false
@@ -387,15 +393,19 @@ final class ActivityCenter: ObservableObject {
         }
     }
 
-    /// Opens a view and keeps it open until `collapse()`.
-    func open(_ view: IslandView) {
+    /// Opens a view and keeps it open until `collapse()`. Model changes made from AppKit
+    /// (a click, a hotkey) carry no animation of their own, so the ones that move the island
+    /// are wrapped here.
+    func open(_ view: IslandView, direction: Int = 0) {
         homeWork?.cancel()
         lastInteraction = Date()
-        if case .home(let tab) = view { Self.selectHomeTab(tab) }
-        if openView != view {
+        navigationDirection = direction
+        guard openView != view else { return }
+        withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
+            if case .home(let tab) = view { Self.selectHomeTab(tab) }
             openView = view
-            Haptics.tap()
         }
+        Haptics.tap()
     }
 
     /// The global shortcut: close whatever is open, else open the main activity, else Home.
@@ -428,15 +438,18 @@ final class ActivityCenter: ObservableObject {
         } else {
             next = forward ? ring[0] : ring[ring.count - 1]
         }
-        open(next)
+        open(next, direction: forward ? 1 : -1)
         Haptics.soft()
     }
 
     func collapse() {
         homeWork?.cancel()
-        openView = nil
-        forcedExpandedID = nil
-        if !isHovering { alert = nil }
+        navigationDirection = 0
+        withAnimation(IslandMotion.close) {
+            openView = nil
+            forcedExpandedID = nil
+            if !isHovering { alert = nil }
+        }
     }
 
     /// Menus and share sheets used to need this to survive the pointer leaving; an open island
