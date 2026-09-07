@@ -49,3 +49,10 @@ struct NotchClearance: View {
             .accessibilityHidden(true)
     }
 }
+
+/// Shared edge insets for the expanded panels, so every card's content lines up with the
+/// Home panel's rather than each view picking its own number.
+enum IslandInsets {
+    /// Leading / trailing inset of an expanded panel's content.
+    static let horizontal: CGFloat = 20
+}

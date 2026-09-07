@@ -32,7 +32,7 @@ struct BatteryExpandedView: View {
                     }
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 14)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(BatteryFormatting.accessibilityLabel(for: state))

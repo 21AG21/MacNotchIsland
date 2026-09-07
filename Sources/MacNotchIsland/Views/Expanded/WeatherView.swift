@@ -68,7 +68,7 @@ struct WeatherView: View {
                 }
                 Text(detailText)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -83,13 +83,13 @@ struct WeatherView: View {
                 if let wind = windText {
                     Text(wind)
                         .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.white.opacity(0.4))
                         .lineLimit(1)
                 }
                 if let updated = updatedText {
                     Text(updated)
                         .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.45))
+                        .foregroundStyle(.white.opacity(0.4))
                         .lineLimit(1)
                 }
             }
@@ -163,7 +163,7 @@ struct WeatherView: View {
     private func message(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12))
-            .foregroundStyle(.white.opacity(0.5))
+            .foregroundStyle(.white.opacity(0.4))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

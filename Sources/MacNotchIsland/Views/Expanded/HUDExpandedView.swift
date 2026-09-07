@@ -22,7 +22,7 @@ struct HUDExpandedView: View {
                     .foregroundStyle(.white.opacity(0.8))
                     .frame(width: 52, alignment: .trailing)
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 16)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")

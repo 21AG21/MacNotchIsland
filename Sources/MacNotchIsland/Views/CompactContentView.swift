@@ -77,7 +77,7 @@ struct CompactLeadingView: View {
             case .silent(let s):
                 Image(systemName: s.isSilent ? "bell.slash.fill" : "bell.fill")
                     .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(s.isSilent ? Color(red: 1, green: 0.27, blue: 0.23) : .white)
+                    .foregroundStyle(s.isSilent ? Color.named("red") : .white)
                     .symbolEffect(.bounce, value: s.isSilent)
             case .unlock:
                 Image(systemName: "lock.open.fill")
@@ -91,7 +91,7 @@ struct CompactLeadingView: View {
             case .download(let d):
                 Image(systemName: d.isComplete ? "checkmark.circle.fill" : "arrow.down.circle.fill")
                     .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(d.isComplete ? Color(red: 0.2, green: 0.84, blue: 0.29) : Color(red: 0.04, green: 0.52, blue: 1))
+                    .foregroundStyle(d.isComplete ? Color.named("green") : Color.named("blue"))
                     .contentTransition(.symbolEffect(.replace))
             case .custom(let c):
                 Image(systemName: c.symbol)
@@ -108,7 +108,11 @@ struct CompactTrailingView: View {
     let activity: IslandActivity
     let height: CGFloat
 
-    private var textFont: Font { .system(size: max(11, height * 0.4), weight: .semibold, design: .rounded) }
+    /// Words ("Connected", "On", "Unlocked", "in 5m") sit in the system face like every other
+    /// label in the island; only numerals get the rounded face and tabular digits, the way
+    /// the iPhone sets its countdowns and percentages.
+    private var wordFont: Font { .system(size: 13, weight: .semibold) }
+    private var numeralFont: Font { .system(size: max(11, height * 0.4), weight: .semibold, design: .rounded).monospacedDigit() }
 
     var body: some View {
         ZStack {
@@ -119,7 +123,7 @@ struct CompactTrailingView: View {
             case .timer(let t):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     Text(t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
-                        .font(textFont.monospacedDigit())
+                        .font(numeralFont)
                         .foregroundStyle(.orange)
                         .contentTransition(.numericText(countsDown: true))
                         .lineLimit(1)
@@ -128,7 +132,7 @@ struct CompactTrailingView: View {
             case .stopwatch(let s):
                 TimelineView(.periodic(from: .now, by: s.isRunning ? 1 : 3600)) { ctx in
                     Text(s.elapsed(at: ctx.date).mmss)
-                        .font(textFont.monospacedDigit())
+                        .font(numeralFont)
                         .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
                         .contentTransition(.numericText(countsDown: false))
                         .lineLimit(1)
@@ -137,7 +141,7 @@ struct CompactTrailingView: View {
             case .call(let c):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     Text(ctx.date.timeIntervalSince(c.startedAt).mmss)
-                        .font(textFont.monospacedDigit())
+                        .font(numeralFont)
                         .foregroundStyle(.green)
                         .contentTransition(.numericText(countsDown: false))
                         .lineLimit(1)
@@ -145,47 +149,47 @@ struct CompactTrailingView: View {
                 .islandMatched(IslandMatchedID.callTime)
             case .battery(let b):
                 Text("\(b.percent)%")
-                    .font(textFont.monospacedDigit())
+                    .font(numeralFont)
                     .foregroundStyle(b.tint)
             case .bluetooth(let d):
                 if let p = d.summaryPercent {
-                    Text("\(p)%").font(textFont.monospacedDigit()).foregroundStyle(.white)
+                    Text("\(p)%").font(numeralFont).foregroundStyle(.white)
                 } else {
-                    Text("Connected").font(textFont).foregroundStyle(.white)
+                    Text("Connected").font(wordFont).foregroundStyle(.white)
                 }
             case .focus(let f):
-                Text(f.isOn ? "On" : "Off").font(textFont).foregroundStyle(.white)
+                Text(f.isOn ? "On" : "Off").font(wordFont).foregroundStyle(.white)
             case .hud(let h):
                 LevelBar(level: h.isMuted ? 0 : h.level, tint: .white)
                     .frame(width: 62, height: 6)
             case .silent(let s):
                 Text(s.isSilent ? "Silent" : "Ring")
-                    .font(textFont)
-                    .foregroundStyle(s.isSilent ? Color(red: 1, green: 0.27, blue: 0.23) : .white)
+                    .font(wordFont)
+                    .foregroundStyle(s.isSilent ? Color.named("red") : .white)
             case .unlock:
-                Text("Unlocked").font(textFont).foregroundStyle(.white)
+                Text("Unlocked").font(wordFont).foregroundStyle(.white)
             case .calendar(let c):
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                    Text(c.relativeStart(at: ctx.date)).font(textFont).foregroundStyle(.white)
+                    Text(c.relativeStart(at: ctx.date)).font(wordFont).foregroundStyle(.white)
                 }
             case .download(let d):
                 if d.isComplete {
-                    Text("Done").font(textFont).foregroundStyle(Color(red: 0.2, green: 0.84, blue: 0.29))
+                    Text("Done").font(wordFont).foregroundStyle(Color.named("green"))
                 } else if let p = d.progress {
-                    ProgressRing(progress: p, lineWidth: 2.5, tint: Color(red: 0.04, green: 0.52, blue: 1))
+                    ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named("blue"))
                         .frame(width: height * 0.5, height: height * 0.5)
                 } else {
                     Text(DownloadState.formatter.string(fromByteCount: d.bytes))
-                        .font(textFont.monospacedDigit()).foregroundStyle(.white).lineLimit(1)
+                        .font(numeralFont).foregroundStyle(.white).lineLimit(1)
                 }
             case .custom(let c):
                 if let p = c.progress, c.showsRing {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named(c.tint))
                         .frame(width: height * 0.5, height: height * 0.5)
                 } else if let text = c.trailingText {
-                    Text(text).font(textFont).foregroundStyle(Color.named(c.tint)).lineLimit(1)
+                    Text(text).font(wordFont).foregroundStyle(Color.named(c.tint)).lineLimit(1)
                 } else {
-                    Image(systemName: "ellipsis").font(textFont).foregroundStyle(.white.opacity(0.6))
+                    Image(systemName: "ellipsis").font(wordFont).foregroundStyle(.white.opacity(0.6))
                 }
             }
         }
@@ -269,8 +273,8 @@ enum IslandAccessibility {
 
 extension BatteryState {
     var tint: Color {
-        if event == .low || event == .critical || (percent <= 20 && !isPluggedIn) { return Color(red: 1, green: 0.27, blue: 0.23) }
-        if isCharging || isPluggedIn || event == .full { return Color(red: 0.2, green: 0.84, blue: 0.29) }
+        if event == .low || event == .critical || (percent <= 20 && !isPluggedIn) { return Color.named("red") }
+        if isCharging || isPluggedIn || event == .full { return Color.named("green") }
         return .white
     }
 

@@ -5,7 +5,7 @@ struct DownloadExpandedView: View {
     let activity: IslandActivity
     let geometry: NotchGeometry
 
-    private var tint: Color { state.isComplete ? Color(red: 0.2, green: 0.84, blue: 0.29) : Color(red: 0.04, green: 0.52, blue: 1) }
+    private var tint: Color { state.isComplete ? Color.named("green") : Color.named("blue") }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,7 +24,7 @@ struct DownloadExpandedView: View {
                     Text(state.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                     Text(state.isComplete ? "Download complete · \(state.app)" : "\(state.sizeText) · \(state.app)")
                         .font(.system(size: 12).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.65))
+                        .foregroundStyle(.white.opacity(0.6))
                         .lineLimit(1)
                 }
                 Spacer()
@@ -37,13 +37,13 @@ struct DownloadExpandedView: View {
                     CircleActionButton(symbol: "arrow.up.forward", tint: tint, size: 36) { activity.openAction?.perform() }
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilitySummary)
             if let p = state.progress, !state.isComplete {
                 LevelBar(level: p, tint: tint)
                     .frame(height: 5)
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, IslandInsets.horizontal)
                     .padding(.top, 10)
                     .accessibilityHidden(true)
             }

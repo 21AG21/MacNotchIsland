@@ -85,4 +85,17 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertEqual(IslandAccessibility.playbackValue(position: 65, duration: 200), "1:05 of 3:20")
         XCTAssertEqual(IslandAccessibility.playbackValue(position: 65, duration: 0), "1:05")
     }
+
+    func testSpokenDuration() {
+        XCTAssertEqual(IslandAccessibility.spokenDuration(0), "0 seconds")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(1), "1 second")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(60), "1 minute")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(65), "1 minute 5 seconds")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(252), "4 minutes 12 seconds")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(299.4), "4 minutes 59 seconds")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(3600), "1 hour")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(3725), "1 hour 2 minutes 5 seconds")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(-5), "0 seconds")
+        XCTAssertEqual(IslandAccessibility.spokenDuration(.infinity), "0 seconds")
+    }
 }

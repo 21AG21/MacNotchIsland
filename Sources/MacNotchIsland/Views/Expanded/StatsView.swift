@@ -81,7 +81,7 @@ struct StatsView: View {
             if let detail = batteryDetail {
                 Text(detail)
                     .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
             }
         }
@@ -118,7 +118,7 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.white.opacity(0.4))
             content()
             Spacer(minLength: 0)
         }

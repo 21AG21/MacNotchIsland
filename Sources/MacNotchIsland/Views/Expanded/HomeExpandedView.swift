@@ -37,7 +37,7 @@ struct HomeExpandedView: View {
                 .id(selection)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, IslandInsets.horizontal)
                 .padding(.top, 8)
                 .padding(.bottom, 12)
         }
@@ -78,8 +78,11 @@ struct HomeExpandedView: View {
                 Button(action: { clipboard.clear() }) {
                     Text("Clear")
                         .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.45))
+                        .foregroundStyle(.white.opacity(0.4))
                         .padding(.bottom, 4)
+                        // The bar is a fixed 20 pt; a 24 pt hit area overhangs it by 2 pt top
+                        // and bottom without changing its layout height.
+                        .frame(minHeight: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(IslandButtonStyle())
@@ -89,7 +92,7 @@ struct HomeExpandedView: View {
                 tabButton(tab)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, IslandInsets.horizontal)
         .frame(height: 20)
     }
 
@@ -98,7 +101,7 @@ struct HomeExpandedView: View {
         return Button(action: { select(tab) }) {
             Text(tab.title)
                 .font(.system(size: 11, weight: active ? .semibold : .regular))
-                .foregroundStyle(active ? Color.white : Color.white.opacity(0.45))
+                .foregroundStyle(active ? Color.white : Color.white.opacity(0.4))
                 .padding(.bottom, 4)
                 .overlay(alignment: .bottom) {
                     if active {
@@ -110,6 +113,7 @@ struct HomeExpandedView: View {
                         Color.clear.frame(height: 1.5)
                     }
                 }
+                .frame(minHeight: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
@@ -170,8 +174,8 @@ struct HomeExpandedView: View {
                 ArtworkView(image: nil, size: 44, radius: 9)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Nothing playing").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    Text("Play something in Music, Spotify or Safari").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                    Text("Not Playing").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text("Play something in Music, Spotify or Safari").font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
                 }
                 .accessibilityElement(children: .combine)
                 Spacer(minLength: 0)

@@ -32,7 +32,7 @@ struct NowPlayingExpandedView: View {
                 MarqueeText(text: info.title.isEmpty ? "Not Playing" : info.title,
                             font: .system(size: 15, weight: .semibold), color: .white)
                 MarqueeText(text: info.artist.isEmpty ? info.appName : info.artist,
-                            font: .system(size: 13, weight: .regular), color: .white.opacity(0.62))
+                            font: .system(size: 13, weight: .regular), color: .white.opacity(0.6))
             }
             .padding(.top, 4)
 
@@ -60,7 +60,7 @@ struct NowPlayingExpandedView: View {
                         Text(duration > 0 ? "-" + max(0, duration - position).mmss : "")
                     }
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.4))
                 }
             }
             .padding(.top, prefs.lyricsEnabled ? 6 : 8)

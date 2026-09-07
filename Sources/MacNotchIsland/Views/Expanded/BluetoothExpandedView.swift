@@ -26,19 +26,39 @@ struct BluetoothExpandedView: View {
                     if state.batteryLeft == nil, state.batteryRight == nil, let s = state.batterySingle { ring(s, label: "") }
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 14)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilitySummary)
         }
+    }
+
+    /// "AirPods Pro connected, left 92 percent, right 88 percent, case 64 percent", built from
+    /// whichever batteries the device actually reports.
+    private var accessibilitySummary: String {
+        var parts = [state.isConnected ? "\(state.name) connected" : "\(state.name) disconnected"]
+        if let l = state.batteryLeft { parts.append("left \(l) percent") }
+        if let r = state.batteryRight { parts.append("right \(r) percent") }
+        if let c = state.batteryCase { parts.append("case \(c) percent") }
+        if state.batteryLeft == nil, state.batteryRight == nil, let s = state.batterySingle {
+            parts.append("\(s) percent battery")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func ring(_ percent: Int, label: String) -> some View {
         VStack(spacing: 3) {
-            ProgressRing(progress: Double(percent) / 100, lineWidth: 3, tint: percent <= 20 ? Color(red: 1, green: 0.27, blue: 0.23) : Color(red: 0.2, green: 0.84, blue: 0.29))
+            ProgressRing(progress: Double(percent) / 100, lineWidth: 3, tint: percent <= 20 ? Color.named("red") : Color.named("green"))
                 .frame(width: 30, height: 30)
-                .overlay(Text("\(percent)").font(.system(size: 9, weight: .bold).monospacedDigit()).foregroundStyle(.white))
+                .overlay(
+                    Text("\(percent)%")
+                        .font(.system(size: 9, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                )
             if !label.isEmpty {
-                Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+                Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.white.opacity(0.6))
             }
         }
     }
