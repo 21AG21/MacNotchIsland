@@ -7,6 +7,7 @@ import AppKit
 ///   notchisland://activity/end?id=build
 ///   notchisland://alert?title=Deployed&symbol=checkmark.circle.fill&tint=green&duration=3
 ///   notchisland://timer?minutes=5&label=Tea       notchisland://timer/cancel | pause | resume
+///   notchisland://timer/pomodoro?work=25&rest=5&cycles=4&long=15
 ///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
 ///   notchisland://home
@@ -83,6 +84,11 @@ final class LiveActivityAPI {
             let seconds = q["seconds"].flatMap { Double($0) } ?? 0
             let total = minutes * 60 + seconds
             if total > 0 { IslandTimer.shared.start(seconds: total, label: q["label"] ?? "Timer") }
+        case ("timer", "pomodoro"):
+            IslandTimer.shared.startPomodoro(work: (q["work"].flatMap { Double($0) } ?? 25) * 60,
+                                             rest: (q["rest"].flatMap { Double($0) } ?? 5) * 60,
+                                             cycles: q["cycles"].flatMap { Int($0) } ?? 4,
+                                             longRest: (q["long"].flatMap { Double($0) } ?? 15) * 60)
         case ("timer", "cancel"), ("timer", "stop"):
             IslandTimer.shared.cancel()
         case ("timer", "pause"):

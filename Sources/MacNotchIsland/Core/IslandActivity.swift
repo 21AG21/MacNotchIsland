@@ -216,7 +216,7 @@ enum ActivityContent: Equatable {
         let h = notch.notchHeight
         switch self {
         case .nowPlaying: return CGSize(width: 540, height: h + (Preferences.shared.lyricsEnabled ? 212 : 188))
-        case .timer: return CGSize(width: 440, height: h + 84)
+        case .timer: return CGSize(width: 440, height: h + 84 + IslandTimer.extraRowsHeight)
         case .stopwatch: return CGSize(width: 460, height: h + 84)
         case .call: return CGSize(width: 440, height: h + 84)
         case .battery: return CGSize(width: 420, height: h + 78)
