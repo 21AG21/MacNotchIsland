@@ -29,10 +29,12 @@ final class ActivityCenter: ObservableObject {
     @Published var cameraInUse = false
     /// True while a full-screen app is frontmost and the user asked to hide there.
     @Published var fullscreenSuppressed = false
+    /// True while an app the user listed under "hide for these apps" is frontmost.
+    @Published var appSuppressed = false
 
     /// Nothing is drawn while suppressed (user pause or full-screen app).
     var isSuppressed: Bool {
-        if fullscreenSuppressed { return true }
+        if fullscreenSuppressed || appSuppressed { return true }
         let until = Preferences.shared.pausedUntil
         return until > 0 && Date().timeIntervalSince1970 < until
     }

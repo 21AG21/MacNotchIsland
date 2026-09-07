@@ -53,6 +53,8 @@ final class Preferences: ObservableObject {
     @Published var reactiveVisualizerEnabled: Bool { didSet { d.set(reactiveVisualizerEnabled, forKey: "reactiveVisualizerEnabled") } }
     @Published var hotkeyKeyCode: Double { didSet { d.set(hotkeyKeyCode, forKey: "hotkeyKeyCode") } }
     @Published var hotkeyModifiers: Double { didSet { d.set(hotkeyModifiers, forKey: "hotkeyModifiers") } }
+    /// Bundle identifiers of apps that hide the island while they are frontmost.
+    @Published var hiddenAppBundleIDs: [String] { didSet { d.set(hiddenAppBundleIDs, forKey: "hiddenAppBundleIDs") } }
     /// Unix time until which the island stays hidden (0 = not paused).
     @Published var pausedUntil: Double { didSet { d.set(pausedUntil, forKey: "pausedUntil") } }
 
@@ -126,6 +128,7 @@ final class Preferences: ObservableObject {
         hotkeyKeyCode = double("hotkeyKeyCode", 49)          // kVK_Space
         hotkeyModifiers = double("hotkeyModifiers", 6144)     // controlKey | optionKey
         pausedUntil = double("pausedUntil", 0)
+        hiddenAppBundleIDs = UserDefaults.standard.stringArray(forKey: "hiddenAppBundleIDs") ?? []
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)
