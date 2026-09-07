@@ -296,6 +296,19 @@ final class ActivityCenter: ObservableObject {
         if !isHovering { alert = nil }
     }
 
+    /// Keep the current panel open while a menu or share sheet is in flight (the pointer
+    /// leaves the island when a menu opens, which would otherwise collapse it).
+    func holdOpen(for seconds: TimeInterval = 10) {
+        homeWork?.cancel()
+        homeForced = true
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.isHovering { self.holdOpen(for: 1) } else { self.homeForced = false }
+        }
+        homeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
     /// Open the Home panel programmatically (menu bar, URL scheme).
     func showHome(for seconds: TimeInterval = 5) {
         homeWork?.cancel()

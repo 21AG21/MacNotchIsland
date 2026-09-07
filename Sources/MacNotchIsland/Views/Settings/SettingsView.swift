@@ -48,7 +48,7 @@ struct SettingsView: View {
                     toggle("Timer sound", $prefs.timerSoundEnabled)
                     toggle("Caps Lock", $prefs.capsLockEnabled, note: "A brief pill when Caps Lock turns on or off.")
                     toggle("Lyrics", $prefs.lyricsEnabled, note: "Time-synced lyrics under Now Playing, from LRCLIB.")
-                    toggle("Replace the system volume and brightness bezel", $prefs.hudReplacementEnabled, note: "The island becomes the only HUD. macOS asks for Accessibility access the first time.")
+                    toggle("Replace the system volume and brightness bezel", $prefs.hudReplacementEnabled, note: "The island becomes the only HUD for volume, mute and brightness. macOS asks for Accessibility access the first time. Hold Shift+Option for quarter steps; keyboard backlight keys are left to macOS.")
                 }
 
                 section("Shelf and clipboard") {
