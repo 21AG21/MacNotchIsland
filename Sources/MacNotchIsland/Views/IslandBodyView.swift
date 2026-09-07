@@ -15,7 +15,7 @@ struct IslandBodyView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius)
+            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating)
                 .fill(Color.black)
 
             content
@@ -24,7 +24,9 @@ struct IslandBodyView: View {
                 .padding(.horizontal, layout.topRadius)
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
-        .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius))
+        .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating))
+        // A floating pill hangs below the top edge instead of fusing into it; zero otherwise.
+        .offset(y: layout.topInset)
         .onHover { hovering in center.setHovering(hovering, panel: panelID) }
         .onTapGesture { center.tap() }
         .onDrop(of: [UTType.fileURL], isTargeted: $dropTargeted) { providers in
