@@ -31,6 +31,9 @@ and the same content layout as iOS.
 | — | Hide the island for an hour from the menu bar, or automatically while a full-screen app is in front. A daily check against GitHub releases tells you when a new version is out. |
 | — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert. Caps Lock pill. |
 | — | Energy discipline: animations slow on battery and stop in Low Power Mode or sleep; every poller backs off; idle CPU stays near zero. |
+| — | Hide the island automatically while chosen apps are in front (Keynote, a game, a screen-sharing client). Screenshots land on the shelf with a brief thumbnail alert. |
+| — | Full VoiceOver support: every state, tab, control and shelf item is labelled and reads naturally. |
+| — | On a Mac without a notch, or on an external display, the island floats at the top centre with the same morphs. |
 
 ## Build
 
@@ -120,9 +123,10 @@ blue, indigo, purple, pink, brown, gray, white) or a hex value. `symbol` is any 
   apps; `NotchHostingView` keeps everything outside the island click-through.
 - `Services/` holds one monitor per data source. Each is independent and toggled from
   Settings.
-- The Settings window follows the house monochrome style: flat ground, big type, hairlines,
-  no accent colour. The island itself keeps iOS's semantic colours (orange timer, green call
-  and charging, artwork-tinted visualizer) because that is what it is cloning.
+- Windows follow native macOS conventions (a System Settings-style sidebar, grouped forms,
+  standard controls, an Apple-style welcome) in a monochrome palette. The island itself keeps
+  iOS's semantic colours (orange timer, green call and charging, artwork-tinted visualizer)
+  because that is what it is cloning. See `ARCHITECTURE.md` for the full map.
 
 ## Notes
 
