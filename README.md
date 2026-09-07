@@ -26,7 +26,9 @@ and the same content layout as iOS.
 | Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap. Alerts are ranked so a volume tick never hides a low-battery warning. |
 | Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. |
 | Long-press to expand, tap to open | Hover to expand, click to open, ⌃⌥Space from anywhere, Escape to close. Trackpad haptics on state changes. |
-| — | Home panel when nothing is live: mini player and timer presets, a file shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history, quick actions that run your Shortcuts, camera mirror, and system stats. |
+| — | Home panel when nothing is live: mini player and timer presets, a file shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history, quick actions that run your Shortcuts, camera mirror, system stats, and weather. |
+| — | Trackpad gestures: swipe sideways on the island to skip tracks or switch Home tabs, scroll for volume. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
+| — | Hide the island for an hour from the menu bar, or automatically while a full-screen app is in front. A daily check against GitHub releases tells you when a new version is out. |
 | — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert. Caps Lock pill. |
 | — | Energy discipline: animations slow on battery and stop in Low Power Mode or sleep; every poller backs off; idle CPU stays near zero. |
 

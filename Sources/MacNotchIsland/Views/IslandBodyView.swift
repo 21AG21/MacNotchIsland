@@ -11,6 +11,7 @@ struct IslandBodyView: View {
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
     @State private var dropTargeted = false
+    @Namespace private var islandNamespace
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -53,6 +54,7 @@ struct IslandBodyView: View {
         }
         .id(presentation.contentID)
         .transition(.blurReplace)
+        .environment(\.islandNamespace, islandNamespace)
     }
 }
 
