@@ -43,8 +43,7 @@ final class EnergyPolicy: ObservableObject {
     /// Pure form of `animationsPaused`.
     static func animationsPaused(asleep: Bool, lowPower: Bool, onBattery: Bool, pauseOnBattery: Bool,
                                  reduceMotion: Bool = false) -> Bool {
-        if reduceMotion { return true }
-        asleep || lowPower || (onBattery && pauseOnBattery)
+        reduceMotion || asleep || lowPower || (onBattery && pauseOnBattery)
     }
 
     /// Pure form of `animationInterval`.
