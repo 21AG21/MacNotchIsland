@@ -98,10 +98,15 @@ final class AdapterBackend {
     private func processEnded() {
         process = nil
         input = nil
+        let wasHealthy = isHealthy
+        isHealthy = false   // let MediaRemote / AppleScript take over until the helper is back
         guard !stopped else { return }
-        if isHealthy { onUpdate?(nil) }
+        if wasHealthy { onUpdate?(nil) }
         restartAttempts += 1
-        guard restartAttempts <= 5, let dylib = Self.dylibURL else { return }
+        guard restartAttempts <= 5, let dylib = Self.dylibURL else {
+            NSLog("MediaRemoteAdapter gave up after \(restartAttempts - 1) restarts")
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(restartAttempts) * 2) { [weak self] in
             guard let self, !self.stopped, self.process == nil else { return }
             self.launch(dylib)

@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
     private var hub: ServiceHub?
     private var cancellables = Set<AnyCancellable>()
+    private var screenRebuildWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -47,7 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screensChanged() {
-        rebuildPanels()
+        // didChangeScreenParameters fires several times per physical event; rebuild once.
+        screenRebuildWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.rebuildPanels() }
+        screenRebuildWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     private func rebuildPanelsIfGeometryChanged() {

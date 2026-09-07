@@ -53,7 +53,9 @@ final class NotchPanel: NSPanel {
         setFrame(frame, display: true)
     }
 
-    override var canBecomeKey: Bool { true }
+    /// The island has no text input, so it never takes key-window status away from the app the
+    /// user is working in (clicks still land thanks to acceptsFirstMouse on the hosting view).
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
     /// Escape collapses whatever is open.

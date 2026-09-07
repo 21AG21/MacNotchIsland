@@ -5,7 +5,11 @@ import AppKit
 final class AppleScriptBackend {
     enum Command { case togglePlayPause, next, previous }
 
-    private let queue = DispatchQueue(label: "com.macnotchisland.applescript", qos: .userInitiated, attributes: .concurrent)
+    /// Polls run one at a time on a serial queue: `query` mutates the artwork cache, so two
+    /// concurrent polls would race. Transport commands use their own queue so a slow poll
+    /// never delays a play/pause click.
+    private let queue = DispatchQueue(label: "com.macnotchisland.applescript.poll", qos: .userInitiated)
+    private let commandQueue = DispatchQueue(label: "com.macnotchisland.applescript.command", qos: .userInitiated)
     private var inFlight = false
     private var generation = 0
     private var artworkKey = ""
@@ -28,10 +32,13 @@ final class AppleScriptBackend {
         inFlight = true
         generation += 1
         let myGeneration = generation
-        // Watchdog: a beach-balling player can block NSAppleScript indefinitely; give up on this poll after 3 s.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        // Watchdog: a beach-balling player can block NSAppleScript for a long time (it times out
+        // on its own after two minutes). Report "nothing" after 6 s so the island doesn't hold a
+        // stale track; the serial queue keeps the stuck poll from racing the next one.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             guard let self, self.generation == myGeneration, self.inFlight else { return }
             self.inFlight = false
+            completion(nil)
         }
         queue.async { [self] in
             var candidates: [NowPlayingInfo] = []
@@ -136,7 +143,7 @@ final class AppleScriptBackend {
             semaphore.signal()
         }
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 4)
+        _ = semaphore.wait(timeout: .now() + 2.5)
         return image
     }
 
@@ -163,11 +170,11 @@ final class AppleScriptBackend {
         case .next: verb = "next track"
         case .previous: verb = "previous track"
         }
-        queue.async { _ = self.run("tell application \"\(app)\" to \(verb)") }
+        commandQueue.async { _ = self.run("tell application \"\(app)\" to \(verb)") }
     }
 
     func seek(to seconds: TimeInterval, bundleID: String?) {
         let app = bundleID == Self.spotifyID ? "Spotify" : "Music"
-        queue.async { _ = self.run("tell application \"\(app)\" to set player position to \(Int(seconds))") }
+        commandQueue.async { _ = self.run("tell application \"\(app)\" to set player position to \(Int(seconds))") }
     }
 }

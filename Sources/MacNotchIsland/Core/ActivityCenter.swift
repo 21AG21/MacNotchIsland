@@ -160,6 +160,8 @@ final class ActivityCenter: ObservableObject {
     func forceExpanded(id: String, for seconds: TimeInterval = 6) {
         forcedWork?.cancel()
         forcedExpandedID = id
+        // A forced activity must be the primary one, or nothing visible happens.
+        if activities.contains(where: { $0.id == id }) { pinnedID = id }
         Haptics.tap()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.forcedExpandedID == id else { return }
@@ -223,6 +225,7 @@ final class ActivityCenter: ObservableObject {
         // Transient HUD-style alerts go stale quickly; anything else is still worth showing.
         pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > (Self.alertRank($0.activity) <= 2 ? 2 : 15) }
         guard !pendingAlerts.isEmpty else { return }
+        pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
         let next = pendingAlerts.removeFirst()
         showAlert(next.activity, duration: next.duration, haptic: false)
     }

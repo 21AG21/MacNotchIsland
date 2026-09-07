@@ -29,6 +29,6 @@ struct IslandRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(animation, value: layout)
         .animation(IslandMotion.bubble, value: layout.hasBubble)
-        .onChange(of: layout) { _, new in previousLayout = new }
+        .onChange(of: layout, initial: true) { _, new in previousLayout = new }
     }
 }
