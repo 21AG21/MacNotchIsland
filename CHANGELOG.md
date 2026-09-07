@@ -6,6 +6,15 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- The island is driven by clicks and the keyboard, never by the pointer passing by: a click
+  opens what the island shows (or Home when idle), a click anywhere else, Escape or the
+  shortcut closes it, and the shortcut's modifiers with Tab (and Shift + Tab) step through
+  every view. The island shrinks slightly while pressed.
+- The shelf is a live activity while it holds files: a tray glyph and a count in the island,
+  its strip on click, the bubble while something else is live.
+- The compact island keeps clear of menu bar text: it only widens into space that is free
+  beside the notch, measured from the status items and, with Accessibility granted, the
+  frontmost app's menus.
 - Several timers at once, stacked in the expanded view with the soonest-to-finish owning the
   island, and a Pomodoro mode (focus, break, long break every fourth session) from the Home
   panel, the menu bar and `notchisland://timer/pomodoro`.
@@ -28,6 +37,11 @@ the unreleased section is what the next tag will ship.
 - `ARCHITECTURE.md`.
 
 ### Fixed
+- The panel was a fixed 760 by 340 point canvas that swallowed clicks around the notch; it
+  now hugs the island, so menu bar items and windows beside the notch stay clickable.
+- Play/pause flipped twice while MediaRemote caught up; the user's state now wins for 1.2 s.
+- Live activities are ordered like the iPhone's: newest kind first, a call or a ringing
+  timer always first, the shelf last.
 - Building with the Command Line Tools alone failed on current SDKs because SwiftUI's `@State`
   macro plugin ships only inside Xcode. The build script now uses an installed Xcode
   automatically and explains the fix when none is present.

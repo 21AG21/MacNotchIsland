@@ -12,7 +12,7 @@ and the same content layout as iOS.
 
 | iPhone Dynamic Island | Notch Island on the Mac |
 | --- | --- |
-| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover to expand, click to open the app, drag the scrubber to seek, swipe sideways on the island to skip tracks. Time-synced lyrics from LRCLIB under the title. |
+| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Click to expand, drag the scrubber to seek, swipe sideways on the island to skip tracks. Time-synced lyrics from LRCLIB under the title. |
 | Timer countdown in orange, expanded pause / cancel, "timer done" state | Same, with 1–60 min presets in the Home panel and menu bar, or `notchctl timer 5`. |
 | Stopwatch Live Activity (iOS 17) with laps | Same: Home panel, menu bar, or `notchisland://stopwatch`. |
 | Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. |
@@ -23,10 +23,10 @@ and the same content layout as iOS.
 | Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
 | Face ID unlock animation | "Unlocked" when the Mac unlocks. |
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
-| Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap. Alerts are ranked so a volume tick never hides a low-battery warning. |
+| Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap: the most recently started activity owns the island, a call or a timer that just rang always does, and the shelf waits in the bubble while something plays. Alerts are ranked so a volume tick never hides a low-battery warning. |
 | Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. |
-| Long-press to expand, tap to open | Hover to expand, click to open, a global shortcut (⌃⌥Space by default) to summon or dismiss from anywhere. Trackpad haptics on state changes. |
-| — | Home panel when nothing is live: mini player and timer presets, a file shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history, quick actions that run your Shortcuts, camera mirror, system stats, and weather. |
+| Long-press to expand, tap to open | Click the island to open it, click anywhere else (or press Escape) to close it; nothing reacts to the pointer merely passing by. A global shortcut (⌃⌥Space by default) toggles it, the same modifiers with Tab step through every view and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
+| — | Home panel (click the empty island): mini player and timer presets, a file shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history, quick actions that run your Shortcuts, camera mirror, system stats, and weather. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
 | — | Trackpad gestures: swipe sideways on the island to skip tracks or switch Home tabs, scroll for volume. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
 | — | Hide the island for an hour from the menu bar, or automatically while a full-screen app is in front. A daily check against GitHub releases tells you when a new version is out. |
 | — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert. Caps Lock pill. |

@@ -14,12 +14,23 @@ Services/*  ──►  ActivityCenter  ──►  IslandLayout  ──►  Islan
 
 - **`Core/ActivityCenter.swift`** — the source of truth. It holds *live activities*
   (things with a lifetime: Now Playing, a timer, a call, a download, a Live Activity posted
-  through the URL scheme) ranked by priority, plus a queue of *transient alerts* (a volume
-  tick, "AirPods connected", a low-battery warning) ranked by `alertRank` so a louder alert
-  never hides a quieter one that matters more. Per-panel hover and drag state, "hold open",
-  forced expansion, and the pause / full-screen / hidden-app suppression flags all live
-  here. `presentation(for:)` reduces all of that to one of: idle, compact (optionally with
-  a detached bubble), expanded, home, shelf.
+  through the URL scheme) ordered the way the iPhone orders them (`ordered`: pinned, then
+  urgent, then the most recently started kind, ambient things like the shelf last), plus a
+  queue of *transient alerts* (a volume tick, "AirPods connected", a low-battery warning)
+  ranked by `alertRank` so a louder alert never hides a quieter one that matters more. The
+  user's *open view* (`IslandView`: an activity's expanded view or a Home tab, set by a click
+  or by the keyboard ring and cleared by a click elsewhere, Escape or the shortcut), press and
+  drag state per panel, forced expansion, and the pause / full-screen / hidden-app suppression
+  flags all live here. `presentation(for:)` reduces all of that to one of: idle, compact
+  (optionally with a detached bubble), expanded, home, shelf.
+- **`Core/NotchPanel.swift`** — the transparent, non-activating panel over the notch. Its
+  frame follows the island's footprint (`refit`): it grows the instant something opens, with
+  room for the spring to overshoot, and shrinks back after the closing animation, so at rest
+  there is no invisible canvas over the menu bar or the windows beside the notch.
+- **`Services/MenuBarClearance.swift`** — how much of the menu bar is free either side of the
+  notch: status items from the window list, the frontmost app's menu titles through
+  Accessibility when granted. `IslandLayout` only widens the compact island into free room,
+  falling back to a glyph, a ring or a count, and drops the bubble when it would not fit.
 - **`Core/IslandLayout.swift`** — `IslandLayout.make(presentation:geometry:)` is a pure
   function from a presentation and the screen's notch geometry to sizes, corner radii, ear
   width, top inset and the hit-test rectangle. Because it is pure it is unit-tested on
