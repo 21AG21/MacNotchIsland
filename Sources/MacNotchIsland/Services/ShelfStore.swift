@@ -18,8 +18,13 @@ struct ShelfItem: Identifiable, Equatable, Hashable {
 final class ShelfStore: ObservableObject {
     static let shared = ShelfStore()
 
-    @Published private(set) var items: [ShelfItem] = []
+    @Published private(set) var items: [ShelfItem] = [] {
+        didSet { if items != oldValue { publishActivity() } }
+    }
     @Published private var thumbnails: [URL: NSImage] = [:]
+    /// Whether this store owns the island's "shelf" activity. Only the shared store does;
+    /// the stores the tests build must not touch the real ActivityCenter unless asked.
+    var publishesActivity: Bool
 
     /// Hours after which an item is swept off the shelf (0 = never). Injectable for tests.
     var expiryHoursProvider: () -> Double = { Preferences.shared.shelfExpiryHours }
@@ -42,11 +47,13 @@ final class ShelfStore: ObservableObject {
          key: String = "shelfItems",
          maxItems: Int = 24,
          backgroundWork: Bool = true,
-         expiryHours: (() -> Double)? = nil) {
+         expiryHours: (() -> Double)? = nil,
+         publishesActivity: Bool? = nil) {
         self.defaults = defaults
         self.key = key
         self.maxItems = max(1, maxItems)
         self.backgroundWork = backgroundWork
+        self.publishesActivity = publishesActivity ?? backgroundWork
         if let expiryHours { expiryHoursProvider = expiryHours }
 
         var loaded = Self.load(from: defaults, key: key)
@@ -58,6 +65,32 @@ final class ShelfStore: ObservableObject {
         persist()
         for item in items { requestThumbnail(item.url) }
         rescheduleSweep()
+        // `didSet` does not run during init; announce whatever was loaded.
+        publishActivity()
+    }
+
+    // MARK: - Island activity
+
+    /// The shelf activity: the island's way of showing that files are waiting. It lives while
+    /// the shelf holds anything and ends when the last file leaves.
+    static let activityID = "shelf"
+
+    static func activity(for items: [ShelfItem]) -> IslandActivity? {
+        guard let latest = items.first else { return nil }
+        let type = UTType(filenameExtension: latest.url.pathExtension)
+        let state = ShelfState(count: items.count, latestName: latest.name,
+                               latestIsImage: type?.conforms(to: .image) ?? false)
+        return IslandActivity(id: activityID, kind: .shelf, content: .shelf(state), priority: 30)
+    }
+
+    private func publishActivity() {
+        guard publishesActivity else { return }
+        let center = ActivityCenter.shared
+        if let activity = Self.activity(for: items) {
+            center.upsert(activity)
+        } else {
+            center.end(id: Self.activityID)
+        }
     }
 
     // MARK: - Contents

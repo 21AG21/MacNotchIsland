@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum ActivityKind: String {
-    case nowPlaying, timer, stopwatch, call, battery, bluetooth, focus, hud, silent, unlock, calendar, download, custom
+    case nowPlaying, timer, stopwatch, call, battery, bluetooth, focus, hud, silent, unlock, calendar, download, custom, shelf
 }
 
 enum InitialPresentation: Equatable { case compact, expanded }
@@ -55,6 +55,14 @@ struct TimerState: Equatable {
         guard total > 0 else { return 0 }
         return 1 - remaining(at: date) / total
     }
+}
+
+/// The file shelf while it holds something. Files stay on the shelf until they expire or are
+/// cleared, so this is a live activity for as long as they do.
+struct ShelfState: Equatable {
+    var count: Int
+    var latestName: String?
+    var latestIsImage = false
 }
 
 struct StopwatchState: Equatable {
@@ -187,6 +195,7 @@ enum ActivityContent: Equatable {
     case calendar(CalendarState)
     case download(DownloadState)
     case custom(CustomActivity)
+    case shelf(ShelfState)
 
     /// Leading / trailing widths used in the compact (pill) state, in points.
     var compactWidths: (leading: CGFloat, trailing: CGFloat) {
@@ -208,6 +217,7 @@ enum ActivityContent: Equatable {
             let text = c.trailingText ?? ""
             let w = min(120, max(44, CGFloat(text.count) * 8 + 20))
             return (40, w)
+        case .shelf(let s): return (40, s.count > 9 ? 48 : 40)
         }
     }
 
@@ -239,6 +249,7 @@ enum ActivityContent: Equatable {
             if c.progress != nil { extra += 14 }
             return CGSize(width: 460, height: h + extra)
         case .unlock, .silent: return CGSize(width: 320, height: h + 40)
+        case .shelf: return CGSize(width: IslandLayout.homeSize.width, height: h + IslandLayout.homeSize.height)
         }
     }
 }

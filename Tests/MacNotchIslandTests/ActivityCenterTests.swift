@@ -139,6 +139,12 @@ final class ActivityCenterTests: XCTestCase {
         call.startedAt = Date(timeIntervalSinceNow: -600)
         XCTAssertEqual(ActivityCenter.ordered([timer, music, call], pinnedID: nil).first?.id, "call")
         XCTAssertEqual(ActivityCenter.ordered([timer, music], pinnedID: "timer").first?.id, "timer")
+
+        var shelf = IslandActivity(id: "shelf", kind: .shelf, content: .shelf(ShelfState(count: 2)), priority: 30)
+        shelf.startedAt = Date(timeIntervalSinceNow: 10)
+        XCTAssertEqual(ActivityCenter.ordered([music, shelf], pinnedID: nil).map(\.id), ["music", "shelf"],
+                       "the shelf is ambient: newest or not, it waits in the bubble while something plays")
+        XCTAssertEqual(ActivityCenter.ordered([shelf], pinnedID: nil).first?.id, "shelf")
     }
 
     func testActivitiesOfOneKindKeepTheirOwnPriorityOrder() {

@@ -98,4 +98,9 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertEqual(IslandAccessibility.spokenDuration(-5), "0 seconds")
         XCTAssertEqual(IslandAccessibility.spokenDuration(.infinity), "0 seconds")
     }
+
+    func testShelf() {
+        XCTAssertEqual(label(.shelf(ShelfState(count: 1, latestName: "a.png"))), "Shelf, 1 item")
+        XCTAssertEqual(label(.shelf(ShelfState(count: 3, latestName: "a.png"))), "Shelf, 3 items")
+    }
 }

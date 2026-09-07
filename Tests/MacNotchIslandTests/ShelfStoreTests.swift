@@ -197,4 +197,41 @@ final class ShelfStoreTests: XCTestCase {
 
         XCTAssertEqual(makeStore(maxItems: 2).items.count, 2)
     }
+
+    // MARK: - Island activity
+
+    func testShelfPublishesALiveActivityWhileItHoldsFiles() throws {
+        let center = ActivityCenter.shared
+        center.resetForTesting()
+        let store = ShelfStore(defaults: defaults, key: key, maxItems: 24, backgroundWork: false,
+                               expiryHours: { 0 }, publishesActivity: true)
+        XCTAssertNil(center.activity(id: ShelfStore.activityID), "an empty shelf shows nothing")
+
+        let a = try makeFile("a.png")
+        store.add([a])
+        guard case .shelf(let one)? = center.activity(id: ShelfStore.activityID)?.content else { return XCTFail("shelf activity missing") }
+        XCTAssertEqual(one.count, 1)
+        XCTAssertEqual(one.latestName, "a.png")
+        XCTAssertTrue(one.latestIsImage)
+
+        let b = try makeFile("notes.txt")
+        store.add([b])
+        guard case .shelf(let two)? = center.activity(id: ShelfStore.activityID)?.content else { return XCTFail("shelf activity missing") }
+        XCTAssertEqual(two.count, 2)
+        XCTAssertEqual(two.latestName, "notes.txt")
+        XCTAssertFalse(two.latestIsImage)
+
+        store.remove(b)
+        store.clear()
+        XCTAssertNil(center.activity(id: ShelfStore.activityID), "the activity ends with the last file")
+        center.resetForTesting()
+    }
+
+    func testStoresBuiltForTestsStayOffTheIsland() throws {
+        let center = ActivityCenter.shared
+        center.resetForTesting()
+        let store = makeStore()
+        store.add([try makeFile("quiet.txt")])
+        XCTAssertNil(center.activity(id: ShelfStore.activityID))
+    }
 }

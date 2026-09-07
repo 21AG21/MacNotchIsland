@@ -33,6 +33,7 @@ struct BubbleView: View {
         case .call: return "Call"
         case .calendar(let c): return c.title
         case .custom(let c): return c.title
+        case .shelf(let s): return s.count == 1 ? "Shelf, 1 item" : "Shelf, \(s.count) items"
         default: return "Activity"
         }
     }
@@ -69,6 +70,8 @@ struct BubbleView: View {
             } else {
                 Image(systemName: c.symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.named(c.tint))
             }
+        case .shelf:
+            Image(systemName: "tray.full.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
         default:
             Circle().fill(Color.white.opacity(0.8)).frame(width: 6, height: 6)
         }

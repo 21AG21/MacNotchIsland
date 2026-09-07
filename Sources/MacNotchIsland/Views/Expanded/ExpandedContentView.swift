@@ -31,6 +31,8 @@ struct ExpandedContentView: View {
                 DownloadExpandedView(state: d, activity: activity, geometry: geometry)
             case .custom(let c):
                 CustomExpandedView(state: c, activity: activity, geometry: geometry)
+            case .shelf:
+                ShelfExpandedView(geometry: geometry, layout: layout, isDropTarget: false)
             case .unlock, .silent:
                 EmptyView()
             }

@@ -103,6 +103,9 @@ final class ActivityCenter: ObservableObject {
 
     /// Priority at or above this always takes the island, whatever started later.
     static let urgentPriority = 100
+    /// Priority below this is ambient (the shelf holding files): it shows when nothing else is
+    /// live and otherwise waits in the bubble, however recently it started.
+    static let backgroundPriority = 40
 
     static func ordered(_ activities: [IslandActivity], pinnedID: String?) -> [IslandActivity] {
         var newestByKind: [ActivityKind: Date] = [:]
@@ -116,6 +119,8 @@ final class ActivityCenter: ObservableObject {
             }
             let urgentA = a.priority >= urgentPriority, urgentB = b.priority >= urgentPriority
             if urgentA != urgentB { return urgentA }
+            let ambientA = a.priority < backgroundPriority, ambientB = b.priority < backgroundPriority
+            if ambientA != ambientB { return ambientB }
             if a.kind != b.kind {
                 let ra = newestByKind[a.kind] ?? a.startedAt, rb = newestByKind[b.kind] ?? b.startedAt
                 if ra != rb { return ra > rb }

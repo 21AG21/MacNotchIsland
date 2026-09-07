@@ -97,6 +97,10 @@ struct CompactLeadingView: View {
                 Image(systemName: c.symbol)
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(Color.named(c.tint))
+            case .shelf:
+                Image(systemName: "tray.full.fill")
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(.white)
             }
         }
         .padding(.leading, 6)
@@ -191,6 +195,12 @@ struct CompactTrailingView: View {
                 } else {
                     Image(systemName: "ellipsis").font(wordFont).foregroundStyle(.white.opacity(0.6))
                 }
+            case .shelf(let s):
+                Text("\(s.count)")
+                    .font(numeralFont)
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.quick, value: s.count)
             }
         }
         .padding(.trailing, 6)
@@ -257,6 +267,9 @@ enum IslandAccessibility {
         case .custom(let c):
             if let sub = c.subtitle ?? c.trailingText, !sub.isEmpty { return "\(c.title), \(sub)" }
             return c.title
+
+        case .shelf(let s):
+            return s.count == 1 ? "Shelf, 1 item" : "Shelf, \(s.count) items"
         }
     }
 

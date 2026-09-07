@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import SwiftUI
 
 /// First-launch welcome, laid out the way Apple's own apps introduce themselves:
@@ -10,6 +11,10 @@ struct WelcomeView: View {
     private var shortcut: String {
         HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
                                     carbonModifiers: HotKeyService.currentModifiers)
+    }
+
+    private var tabShortcut: String {
+        HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers)
     }
 
     var body: some View {
@@ -30,12 +35,12 @@ struct WelcomeView: View {
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 18) {
-                row("cursorarrow.rays", "Hover to expand",
-                    "See what is playing, counting down or downloading without opening the app. Click to jump to it.")
+                row("cursorarrow.click.2", "Click to open",
+                    "The island shows what is playing, counting down or downloading. Click it for the full view; click anywhere else to close it.")
                 row("tray.and.arrow.down", "Drop files on the shelf",
-                    "Drag anything onto the island and it waits there until you drag it out again.")
+                    "Drag anything onto the island and it waits there, with a count, until you drag it out again.")
                 row("keyboard", "Press \(shortcut)",
-                    "Summon the island from anywhere, even in full-screen apps.")
+                    "Opens the island from anywhere. \(tabShortcut) steps through every view; Escape closes.")
                 row("menubar.rectangle", "Find it in the menu bar",
                     "Settings, timers and the stopwatch are a click away in the menu bar.")
             }
