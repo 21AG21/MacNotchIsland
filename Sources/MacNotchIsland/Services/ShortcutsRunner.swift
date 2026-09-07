@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 /// Runs the user's Shortcuts from the island — NotchNook's most-cited feature, with zero
 /// extra permissions: it only ever shells out to Apple's own `/usr/bin/shortcuts` CLI.

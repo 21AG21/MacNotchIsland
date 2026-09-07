@@ -54,5 +54,6 @@ final class ServiceHub {
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
         p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()
         p.capsLockEnabled ? capsLock.start() : capsLock.stop()
+        if p.quickActionsEnabled && ShortcutsRunner.shared.available.isEmpty { ShortcutsRunner.shared.refresh() }
     }
 }

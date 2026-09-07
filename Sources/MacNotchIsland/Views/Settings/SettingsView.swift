@@ -59,6 +59,12 @@ struct SettingsView: View {
                     toggle("Quick actions", $prefs.quickActionsEnabled, note: "Run your Shortcuts from the island.")
                 }
 
+                if prefs.quickActionsEnabled {
+                    section("Quick actions") {
+                        QuickActionsSettingsView()
+                    }
+                }
+
                 section("Energy") {
                     toggle("Pause animations on battery", $prefs.pauseAnimationsOnBattery, note: "The visualizer and marquee already slow down on battery and stop in Low Power Mode and during sleep.")
                 }
