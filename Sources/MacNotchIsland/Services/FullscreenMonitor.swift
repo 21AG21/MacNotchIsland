@@ -35,6 +35,7 @@ final class FullscreenMonitor {
         let suppressed = Self.frontmostAppIsFullScreen()
         if ActivityCenter.shared.fullscreenSuppressed != suppressed {
             ActivityCenter.shared.fullscreenSuppressed = suppressed
+            if suppressed { ActivityCenter.shared.clearInteraction() }
         }
     }
 

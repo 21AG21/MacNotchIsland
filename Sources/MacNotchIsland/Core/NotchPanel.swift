@@ -62,10 +62,6 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    /// Escape collapses whatever is open.
-    override func cancelOperation(_ sender: Any?) {
-        ActivityCenter.shared.collapse()
-    }
 
     static func frame(for screen: NSScreen) -> NSRect {
         let sf = screen.frame

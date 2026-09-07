@@ -8,7 +8,7 @@ final class GestureRouterTests: XCTestCase {
     private typealias Action = GestureRouter.Action
     private typealias Context = GestureRouter.Context
 
-    private let allTabs = ["music", "shelf", "clipboard", "actions"]
+    private let allTabs = ["music", "shelf", "clipboard", "actions", "mirror", "stats", "weather"]
 
     /// Comfortably past the swipe threshold; negative is a swipe to the left.
     private let left: CGFloat = -80

@@ -166,6 +166,11 @@ final class CameraPreview: ObservableObject {
     private func teardown() {
         queue.async { [weak self] in
             guard let self else { return }
+            // Switching tabs away and straight back queues stop then start; if a client has
+            // re-claimed the camera by the time this runs, leave the session alone.
+            var reclaimed = false
+            DispatchQueue.main.sync { reclaimed = self.clients > 0 }
+            if reclaimed { return }
             if self.session.isRunning { self.session.stopRunning() }
             guard self.configured else { return }
             self.session.beginConfiguration()

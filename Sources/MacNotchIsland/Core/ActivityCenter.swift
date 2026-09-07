@@ -94,8 +94,18 @@ final class ActivityCenter: ObservableObject {
     /// Presentation independent of which screen is asking (tests, hit-testing fallbacks).
     var presentation: IslandPresentation { presentation(for: nil) }
 
+    /// Forget hover / drag / manual expansion, e.g. when the island is hidden under the pointer
+    /// so it doesn't reappear expanded later with no pointer near it.
+    func clearInteraction() {
+        hoverWork?.cancel()
+        hoverPanel = nil
+        dragPanel = nil
+        manuallyExpanded = false
+    }
+
     /// Hide the island for a while (presentations, screen sharing). 0 clears the pause.
     func pause(for seconds: TimeInterval) {
+        if seconds > 0 { clearInteraction() }
         Preferences.shared.pausedUntil = seconds > 0 ? Date().timeIntervalSince1970 + seconds : 0
         objectWillChange.send()
         if seconds > 0 {

@@ -63,7 +63,8 @@ final class GestureRouter {
     /// UserDefaults key shared with `HomeExpandedView`.
     static let homeTabKey = "homeTab"
     /// Raw values of `HomeExpandedView`'s `HomeTab`, in tab-bar order.
-    static let homeTabOrder = ["music", "shelf", "clipboard", "actions"]
+    /// Must match HomeExpandedView.HomeTab order; the tab bar hides tabs whose feature is off.
+    static let homeTabOrder = ["music", "shelf", "clipboard", "actions", "mirror", "stats", "weather"]
     /// The tab Home falls back to; it can never be switched off.
     static let defaultHomeTab = "music"
 
@@ -251,6 +252,9 @@ final class GestureRouter {
             case "shelf": return prefs.shelfEnabled
             case "clipboard": return prefs.clipboardEnabled
             case "actions": return prefs.quickActionsEnabled
+            case "mirror": return prefs.mirrorEnabled
+            case "stats": return prefs.statsEnabled
+            case "weather": return prefs.weatherEnabled
             default: return true
             }
         }
