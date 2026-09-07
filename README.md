@@ -51,6 +51,18 @@ Press ⌃⌥Space anywhere to summon the island.
 Release workflow, which attaches the DMG and a zip to a GitHub Release. Every push also
 uploads a fresh `MacNotchIsland.app` as a build artifact on the Actions tab.
 
+## First launch of a downloaded build
+
+Builds from the Actions tab and the Release page are ad-hoc signed, not notarized (that
+needs a paid Apple Developer ID). Gatekeeper will refuse to open them until you either
+right-click the app and choose Open, or clear the quarantine flag:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/MacNotchIsland.app
+```
+
+Building from source with `make` has no such step.
+
 ## Permissions
 
 Nothing is required up front. macOS asks for these lazily:
