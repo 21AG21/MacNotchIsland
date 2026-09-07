@@ -208,8 +208,9 @@ final class ActivityCenter: ObservableObject {
     private func scheduleAlertDismiss(id: String, after seconds: TimeInterval) {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.alert?.id == id else { return }
-            // Keep the alert up while the pointer is on it, like holding a finger on the island.
-            if self.isHovering || self.isDragTargeted {
+            // Keep a real alert up while the pointer is on it, like holding a finger on the island;
+            // very short confirmations ("Copied") expire regardless, since a click leaves the pointer there.
+            if (self.isHovering || self.isDragTargeted) && seconds > 1.5 {
                 self.scheduleAlertDismiss(id: id, after: 1.0)
             } else {
                 self.alert = nil
