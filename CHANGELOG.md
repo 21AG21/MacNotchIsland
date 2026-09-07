@@ -27,6 +27,11 @@ the unreleased section is what the next tag will ship.
 - Daily update check against GitHub releases.
 - `ARCHITECTURE.md`.
 
+### Fixed
+- Building with the Command Line Tools alone failed on current SDKs because SwiftUI's `@State`
+  macro plugin ships only inside Xcode. The build script now uses an installed Xcode
+  automatically and explains the fix when none is present.
+
 ### Changed
 - Compact content morphs into its expanded counterpart through a shared matched-geometry
   namespace; the shape picks its capsule or rounded bottom from the target layout so it never

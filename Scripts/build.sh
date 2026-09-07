@@ -10,9 +10,48 @@ APP="MacNotchIsland"
 OUT="build/$APP.app"
 CONFIG="release"
 
-swift build -c "$CONFIG"
+# --- Toolchain ---------------------------------------------------------------
+# On current SDKs SwiftUI implements @State as a compiler macro (SwiftUIMacros), and the
+# macro plugin ships only inside Xcode. A Command Line Tools-only install therefore cannot
+# compile the app. Prefer a full Xcode when one is present, without touching the
+# system-wide xcode-select setting; an explicit DEVELOPER_DIR always wins.
+CLT="/Library/Developer/CommandLineTools"
+if [[ -z "${DEVELOPER_DIR:-}" && "$(xcode-select -p 2>/dev/null || true)" == "$CLT"* ]]; then
+  for candidate in /Applications/Xcode.app /Applications/Xcode-beta.app; do
+    if [[ -d "$candidate/Contents/Developer" ]]; then
+      export DEVELOPER_DIR="$candidate/Contents/Developer"
+      echo "Using $candidate instead of the Command Line Tools."
+      break
+    fi
+  done
+fi
+
+explain_toolchain_failure() {
+  cat >&2 <<'MSG'
+
+The Command Line Tools cannot compile this app: on this SDK, SwiftUI's @State is a
+compiler macro whose plugin (SwiftUIMacros) ships only inside Xcode. Install Xcode from
+the App Store (or the beta that matches this macOS from developer.apple.com), point the
+toolchain at it, and build again:
+
+    sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+    make clean && make install
+
+MSG
+}
+
+# --- Build -------------------------------------------------------------------
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/macnotchisland-build.XXXXXX")"
+trap 'rm -f "$BUILD_LOG"' EXIT
+if ! swift build -c "$CONFIG" 2>&1 | tee "$BUILD_LOG"; then
+  if grep -q "plugin for module 'SwiftUIMacros' not found" "$BUILD_LOG"; then
+    explain_toolchain_failure
+  fi
+  exit 1
+fi
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/$APP"
 
+# --- Bundle ------------------------------------------------------------------
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/$APP"

@@ -37,8 +37,16 @@ and the same content layout as iOS.
 
 ## Build
 
-Requires macOS 14 Sonoma or later and Xcode 15+ (or the Command Line Tools with a Swift 5.9
-toolchain).
+Requires macOS 14 Sonoma or later and Xcode 15 or later. The Command Line Tools on their own
+are not enough on current SDKs: SwiftUI's `@State` is a compiler macro there, and the macro
+plugin ships only inside Xcode. The build script uses an installed Xcode automatically; if
+the build stops with `plugin for module 'SwiftUIMacros' not found`, install Xcode and
+select it:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+make clean
+```
 
 ```sh
 git clone https://github.com/21AG21/MacNotchIsland.git
