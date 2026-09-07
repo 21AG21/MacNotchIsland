@@ -72,9 +72,17 @@ private extension Path {
 /// edge exactly like the physical notch; the bottom corners are rounded with Apple's continuous
 /// curvature rather than plain circular arcs. The rect passed in includes the outward "ears":
 /// the visible body spans `rect.minX + topRadius ... rect.maxX - topRadius`.
+///
+/// On a screen with no notch there is nothing for those ears to blend into, so `floating` swaps
+/// the outline for the iPhone's free-floating pill: the whole rect, continuous corners of
+/// `bottomRadius` on all four of them.
 struct NotchShape: Shape {
     var topRadius: CGFloat
     var bottomRadius: CGFloat
+    /// Whether to draw the free-floating pill instead of the notch outline. A property of the
+    /// screen, not of the presentation, so it never changes mid-animation and stays out of
+    /// `animatableData`.
+    var floating: Bool = false
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(topRadius, bottomRadius) }
@@ -90,6 +98,7 @@ struct NotchShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
+        if floating { return floatingPath(in: rect) }
         let t = max(0, min(topRadius, rect.height / 2, rect.width / 2))
         let leftX = rect.minX + t
         let rightX = rect.maxX - t
@@ -139,6 +148,40 @@ struct NotchShape: Shape {
                                                   exit: CGVector(dx: 1, dy: 0),
                                                   span: t))
         }
+        p.closeSubpath()
+        return p
+    }
+
+    /// The floating pill: the whole rect with a continuous corner of `bottomRadius` on each of
+    /// its four corners, all turning inward. Every corner uses the same span, so the outline is
+    /// symmetric about both axes however hard the radius has to be clamped.
+    private func floatingPath(in rect: CGRect) -> Path {
+        var p = Path()
+        let r = max(0, min(bottomRadius, rect.width / 2, rect.height / 2))
+        let span = SmoothCorner.span(radius: r, along: rect.height, across: rect.width)
+        guard span > 0 else {
+            p.addRect(rect)
+            return p
+        }
+        // Down the left edge, along the bottom, up the right edge, back along the top: each
+        // `addSmoothCorner` draws the straight edge that leads into its corner.
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY + span))
+        p.addSmoothCorner(SmoothCorner.points(vertex: CGPoint(x: rect.minX, y: rect.maxY),
+                                              entry: CGVector(dx: 0, dy: -1),
+                                              exit: CGVector(dx: 1, dy: 0),
+                                              span: span))
+        p.addSmoothCorner(SmoothCorner.points(vertex: CGPoint(x: rect.maxX, y: rect.maxY),
+                                              entry: CGVector(dx: -1, dy: 0),
+                                              exit: CGVector(dx: 0, dy: -1),
+                                              span: span))
+        p.addSmoothCorner(SmoothCorner.points(vertex: CGPoint(x: rect.maxX, y: rect.minY),
+                                              entry: CGVector(dx: 0, dy: 1),
+                                              exit: CGVector(dx: -1, dy: 0),
+                                              span: span))
+        p.addSmoothCorner(SmoothCorner.points(vertex: CGPoint(x: rect.minX, y: rect.minY),
+                                              entry: CGVector(dx: 1, dy: 0),
+                                              exit: CGVector(dx: 0, dy: 1),
+                                              span: span))
         p.closeSubpath()
         return p
     }

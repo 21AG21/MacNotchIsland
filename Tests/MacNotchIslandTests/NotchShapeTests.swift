@@ -205,4 +205,79 @@ final class NotchShapeTests: XCTestCase {
         XCTAssertEqual(shape.animatableData.first, 20)
         XCTAssertEqual(shape.animatableData.second, 30)
     }
+
+    // MARK: - the floating pill (screens with no notch)
+
+    /// The idle pill on an external display: 120 x 30, rounded on every corner.
+    private var floatingIdleRect: CGRect { CGRect(x: 0, y: 0, width: 120, height: 30) }
+
+    func testFloatingPillFillsItsRectAndCutsAllFourCorners() {
+        let rect = floatingIdleRect
+        let path = NotchShape(topRadius: 15, bottomRadius: 15, floating: true).path(in: rect)
+        let bounds = path.boundingRect
+        XCTAssertEqual(bounds.minX, rect.minX, accuracy: 0.01, "no ears: the shape is exactly its rect")
+        XCTAssertEqual(bounds.maxX, rect.maxX, accuracy: 0.01)
+        XCTAssertEqual(bounds.minY, rect.minY, accuracy: 0.01)
+        XCTAssertEqual(bounds.maxY, rect.maxY, accuracy: 0.01)
+        // Every corner of the bounding box is cut away — the top two as well, which is what
+        // separates the free-floating pill from the notch outline and its outward ears.
+        XCTAssertFalse(path.contains(CGPoint(x: 2, y: 2)), "top-left corner")
+        XCTAssertFalse(path.contains(CGPoint(x: rect.width - 2, y: 2)), "top-right corner")
+        XCTAssertFalse(path.contains(CGPoint(x: 2, y: rect.height - 2)), "bottom-left corner")
+        XCTAssertFalse(path.contains(CGPoint(x: rect.width - 2, y: rect.height - 2)), "bottom-right corner")
+        XCTAssertTrue(path.contains(CGPoint(x: 60, y: 15)), "the middle of the pill")
+        XCTAssertTrue(path.contains(CGPoint(x: 60, y: 0.5)), "the top edge is straight between the corners")
+        XCTAssertTrue(path.contains(CGPoint(x: 60, y: 29.5)), "and so is the bottom edge")
+        XCTAssertTrue(path.contains(CGPoint(x: 1, y: 15)), "the corners meet at the middle of each end")
+        XCTAssertTrue(path.contains(CGPoint(x: 6, y: 6)), "just inside the top-left corner")
+    }
+
+    func testFloatingPillIsSymmetricAboutBothAxes() {
+        let rect = floatingIdleRect
+        let path = NotchShape(topRadius: 15, bottomRadius: 15, floating: true).path(in: rect)
+        var x: CGFloat = 2.35
+        while x < rect.width - 1 {
+            var y: CGFloat = 1.1
+            while y < rect.height - 1 {
+                let here = path.contains(CGPoint(x: x, y: y))
+                XCTAssertEqual(here, path.contains(CGPoint(x: rect.width - x, y: y)),
+                               "(\(x), \(y)) and its left/right mirror disagree")
+                XCTAssertEqual(here, path.contains(CGPoint(x: x, y: rect.height - y)),
+                               "(\(x), \(y)) and its top/bottom mirror disagree")
+                y += 3.7
+            }
+            x += 7.1
+        }
+    }
+
+    func testFloatingCornersAllUseTheBottomRadius() {
+        let rect = CGRect(x: 0, y: 0, width: 300, height: 120)
+        // `topRadius` is what the ears are cut from, and a floating pill has none: the outline is
+        // the same whatever it says.
+        let wide = NotchShape(topRadius: 6, bottomRadius: 30, floating: true).path(in: rect)
+        let same = NotchShape(topRadius: 30, bottomRadius: 30, floating: true).path(in: rect)
+        for point in [CGPoint(x: 22, y: 2), CGPoint(x: 2, y: 22), CGPoint(x: 60, y: 1), CGPoint(x: 150, y: 60)] {
+            XCTAssertEqual(wide.contains(point), same.contains(point), "\(point) depends on topRadius")
+        }
+        XCTAssertFalse(wide.contains(CGPoint(x: 3, y: 3)), "a 30pt corner is cut back well past here")
+        XCTAssertTrue(wide.contains(CGPoint(x: 150, y: 1)), "but the top edge itself is straight")
+        // A continuous corner leaves the edge early, exactly as the bottom corners do.
+        XCTAssertFalse(wide.contains(CGPoint(x: 1, y: 15)), "corner leaves the side early")
+        XCTAssertTrue(wide.contains(CGPoint(x: 1, y: 60)), "and the side is straight below it")
+    }
+
+    func testFloatingPillWithoutRadiusIsThePlainRect() {
+        let rect = floatingIdleRect
+        let path = NotchShape(topRadius: 0, bottomRadius: 0, floating: true).path(in: rect)
+        XCTAssertEqual(path.boundingRect.width, rect.width, accuracy: 0.01)
+        XCTAssertEqual(path.boundingRect.height, rect.height, accuracy: 0.01)
+        XCTAssertTrue(path.contains(CGPoint(x: 1, y: 1)), "nothing to round off")
+    }
+
+    func testFloatingIsNotAnimated() {
+        var shape = NotchShape(topRadius: 15, bottomRadius: 15, floating: true)
+        shape.animatableData = AnimatablePair<CGFloat, CGFloat>(20, 30)
+        XCTAssertTrue(shape.floating, "floating is a property of the screen, not of the animation")
+        XCTAssertFalse(NotchShape(topRadius: 8, bottomRadius: 16).floating, "notched screens are the default")
+    }
 }
