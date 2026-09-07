@@ -149,4 +149,115 @@ final class AudioMonitor {
         guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else { return false }
         return value != 0
     }
+
+    // MARK: Direct control
+
+    /// Volume of the default output device, 0...1, or nil when it has no volume control.
+    /// The device is resolved on every call, so this also works before `start()`.
+    func currentVolume() -> Float32? { AudioMonitor.readOutputVolume() }
+
+    /// Mute state of the default output device, or nil when it cannot be muted.
+    func isMuted() -> Bool? { AudioMonitor.readOutputMute() }
+
+    /// Sets the volume of the default output device. Returns false when the write failed.
+    @discardableResult
+    func setVolume(_ level: Float32) -> Bool { AudioMonitor.writeOutputVolume(level) }
+
+    /// Mutes / unmutes the default output device. Returns false when the write failed.
+    @discardableResult
+    func setMuted(_ muted: Bool) -> Bool { AudioMonitor.writeOutputMute(muted) }
+
+    // MARK: Static device access (used by the media-key interceptor)
+
+    /// The current default output device, or 0 when there is none.
+    static func defaultOutputDevice() -> AudioDeviceID {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device)
+        return status == noErr ? device : 0
+    }
+
+    static func readOutputVolume() -> Float32? {
+        let device = defaultOutputDevice()
+        guard device != 0 else { return nil }
+        if let v = scalarVolume(device: device, element: kAudioObjectPropertyElementMain) { return v }
+        // Some aggregate / USB devices only expose per-channel volume.
+        return scalarVolume(device: device, element: 1)
+    }
+
+    @discardableResult
+    static func writeOutputVolume(_ level: Float32) -> Bool {
+        let device = defaultOutputDevice()
+        guard device != 0 else { return false }
+        let value = max(0, min(1, level))
+        if setScalarVolume(value, device: device, element: kAudioObjectPropertyElementMain) { return true }
+        var ok = false
+        for channel in UInt32(1)...UInt32(2) {
+            if setScalarVolume(value, device: device, element: channel) { ok = true }
+        }
+        if !ok { NSLog("Notch Island: could not set the output volume on device \(device).") }
+        return ok
+    }
+
+    static func readOutputMute() -> Bool? {
+        let device = defaultOutputDevice()
+        guard device != 0 else { return nil }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                                 mScope: kAudioDevicePropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(device, &address) else { return nil }
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else { return nil }
+        return value != 0
+    }
+
+    @discardableResult
+    static func writeOutputMute(_ muted: Bool) -> Bool {
+        let device = defaultOutputDevice()
+        guard device != 0 else { return false }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                                 mScope: kAudioDevicePropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        guard isSettable(device: device, address: &address) else { return false }
+        var value: UInt32 = muted ? 1 : 0
+        let status = AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+        if status != noErr { NSLog("Notch Island: could not set mute on device \(device) (status \(status)).") }
+        return status == noErr
+    }
+
+    private static func volumeAddress(element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
+        let selector: AudioObjectPropertySelector = element == kAudioObjectPropertyElementMain
+            ? kAudioHardwareServiceDeviceProperty_VirtualMainVolume
+            : kAudioDevicePropertyVolumeScalar
+        return AudioObjectPropertyAddress(mSelector: selector,
+                                          mScope: kAudioDevicePropertyScopeOutput,
+                                          mElement: element)
+    }
+
+    private static func scalarVolume(device: AudioDeviceID, element: AudioObjectPropertyElement) -> Float32? {
+        var address = volumeAddress(element: element)
+        guard AudioObjectHasProperty(device, &address) else { return nil }
+        var value: Float32 = 0
+        var size = UInt32(MemoryLayout<Float32>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else { return nil }
+        return value
+    }
+
+    private static func setScalarVolume(_ value: Float32, device: AudioDeviceID, element: AudioObjectPropertyElement) -> Bool {
+        var address = volumeAddress(element: element)
+        guard isSettable(device: device, address: &address) else { return false }
+        var v = value
+        return AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Float32>.size), &v) == noErr
+    }
+
+    private static func isSettable(device: AudioDeviceID, address: inout AudioObjectPropertyAddress) -> Bool {
+        guard AudioObjectHasProperty(device, &address) else { return false }
+        var settable: DarwinBoolean = false
+        guard AudioObjectIsPropertySettable(device, &address, &settable) == noErr else { return false }
+        return settable.boolValue
+    }
 }
