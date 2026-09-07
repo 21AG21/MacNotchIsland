@@ -5,9 +5,18 @@ import SwiftUI
 /// transparent canvas around it stays click-through (menu bar, windows below keep working).
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
     var hitSizeProvider: (() -> CGSize)?
+    /// Which panel (screen) this view belongs to; gestures are routed per panel.
+    var panelID: String = "main"
 
     /// Controls inside the island react to the first click even when the panel isn't key.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Trackpad gestures arrive here as scroll events. Anything the router does not claim is
+    /// passed on, so scrollable SwiftUI content (clipboard list, shelf strip) still scrolls.
+    override func scrollWheel(with event: NSEvent) {
+        guard !GestureRouter.shared.handle(event, panel: panelID) else { return }
+        super.scrollWheel(with: event)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let provider = hitSizeProvider else { return super.hitTest(point) }

@@ -43,6 +43,7 @@ final class NotchPanel: NSPanel {
                 .environmentObject(Preferences.shared)
         )
         let view = NotchHostingView(rootView: root)
+        view.panelID = panelID
         let geo = geometry
         let pid = panelID
         view.hitSizeProvider = { IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo).hitSize }
