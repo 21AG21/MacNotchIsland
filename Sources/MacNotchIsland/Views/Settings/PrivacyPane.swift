@@ -1,0 +1,121 @@
+import AVFoundation
+import CoreLocation
+import EventKit
+import SwiftUI
+
+/// "Privacy & Permissions": what Notch Island is allowed to see, why it asks, and a way
+/// straight to the matching pane in System Settings. Also the live health of each data
+/// source, so a silently failing feature is never a mystery.
+struct PrivacyPane: View {
+    @State private var locationManager = CLLocationManager()
+    @State private var tick = 0
+
+    var body: some View {
+        Form {
+            Section {
+                permission(
+                    "Accessibility",
+                    detail: "Needed only to replace the system volume and brightness bezel.",
+                    status: MediaKeyInterceptor.isTrusted ? "Granted" : "Not granted",
+                    pane: .accessibility
+                )
+                permission(
+                    "Camera",
+                    detail: "Used by the Mirror tab. The camera indicator itself never captures video.",
+                    status: Self.captureStatus(for: .video),
+                    pane: .camera
+                )
+                permission(
+                    "Microphone",
+                    detail: "Only checked to show the microphone indicator. Nothing is recorded.",
+                    status: Self.captureStatus(for: .audio),
+                    pane: .microphone
+                )
+                permission(
+                    "Location",
+                    detail: "Used by the Weather tab for your approximate location.",
+                    status: locationStatus,
+                    pane: .location
+                )
+                permission(
+                    "Calendars",
+                    detail: "Used to show your next event shortly before it starts.",
+                    status: Self.calendarStatus,
+                    pane: .calendars
+                )
+                permission(
+                    "Automation",
+                    detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet.",
+                    status: "Asked when needed",
+                    pane: .automation
+                )
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("Every permission is optional, and asked for only when the feature that needs it is turned on. Nothing Notch Island reads ever leaves your Mac.")
+            }
+
+            Section {
+                LabeledContent("Focus database", value: FocusMonitor.isReadable ? "Readable" : "Not readable")
+            } header: {
+                Text("Status")
+            } footer: {
+                Text("Focus is read from a local file that macOS keeps in your home folder. Playback sources are listed in Media.")
+            }
+        }
+        .formStyle(.grouped)
+        .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in
+            tick += 1
+        }
+    }
+
+    // MARK: Rows
+
+    private func permission(_ title: String, detail: String, status: String,
+                            pane: SystemSettingsPane) -> some View {
+        LabeledContent {
+            HStack(spacing: 10) {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Button("Open") { pane.open() }
+                    .help("Open the \(title) pane in System Settings.")
+                    .accessibilityLabel(Text("Open \(title) in System Settings"))
+            }
+        } label: {
+            Text(title)
+            Text(detail)
+        }
+    }
+
+    // MARK: Status
+
+    private static func captureStatus(for type: AVMediaType) -> String {
+        switch AVCaptureDevice.authorizationStatus(for: type) {
+        case .authorized: return "Granted"
+        case .denied: return "Denied"
+        case .restricted: return "Restricted"
+        case .notDetermined: return "Not asked yet"
+        @unknown default: return "Unknown"
+        }
+    }
+
+    private static var calendarStatus: String {
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess, .authorized: return "Granted"
+        case .denied, .restricted: return "Denied"
+        case .writeOnly: return "Write only"
+        default: return "Not asked yet"
+        }
+    }
+
+    /// The authorized cases differ across platforms and SDK versions, so only the three
+    /// stable ones are named and everything else counts as granted.
+    private var locationStatus: String {
+        switch locationManager.authorizationStatus {
+        case .denied, .restricted: return "Denied"
+        case .notDetermined: return "Not asked yet"
+        default: return "Granted"
+        }
+    }
+}

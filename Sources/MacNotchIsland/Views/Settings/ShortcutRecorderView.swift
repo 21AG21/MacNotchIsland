@@ -2,9 +2,9 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// Settings row for the global shortcut: the current combo, a "Change" button that records a
-/// new one, and a "Reset" button back to ⌃⌥Space. No window chrome of its own — SettingsView
-/// embeds it under the "Keyboard shortcut" toggle.
+/// The global shortcut row: the current combination, a button that records a new one, and a
+/// button back to the shipping default. No chrome of its own — the Island pane drops it into
+/// a `Form` section under the "Use a keyboard shortcut" toggle.
 struct ShortcutRecorderView: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var hotkey = HotKeyService.shared
@@ -13,47 +13,30 @@ struct ShortcutRecorderView: View {
     @State private var hint: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Shortcut").font(.system(size: 15))
-                    if let note = note {
-                        Text(note)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent("Shortcut") {
+                HStack(spacing: 8) {
+                    Text(isRecording ? "Press keys…" : comboText)
+                        .font(.body)
+                        .foregroundStyle(isRecording ? Color.secondary : Color.primary)
+                    Button(isRecording ? "Cancel" : "Change") {
+                        if isRecording { endRecording() } else { beginRecording() }
                     }
+                    .help("Record a new shortcut.")
+                    Button("Reset") { reset() }
+                        .help("Go back to the shipping shortcut.")
                 }
-                Spacer(minLength: 8)
-                combo
-                Button(isRecording ? "Cancel" : "Change") {
-                    if isRecording { endRecording() } else { beginRecording() }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                Button("Reset") { reset() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
+            }
+            if let note {
+                Text(note)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 9)
-            Divider().opacity(0.5)
         }
         .onDisappear { endRecording() }
     }
 
     // MARK: Pieces
-
-    @ViewBuilder
-    private var combo: some View {
-        if isRecording {
-            Text("Press keys…")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-        } else {
-            Text(comboText)
-                .font(.system(size: 13, weight: .semibold))
-        }
-    }
 
     private var comboText: String {
         HotKeyService.displayString(
@@ -62,10 +45,10 @@ struct ShortcutRecorderView: View {
         )
     }
 
-    /// The small grey line under the label: a nudge while recording, otherwise the conflict warning.
+    /// The small grey line under the row: a nudge while recording, otherwise the conflict warning.
     private var note: String? {
         if let hint = hint { return hint }
-        if hotkey.registrationFailed { return "Shortcut taken by another app" }
+        if hotkey.registrationFailed { return "Another app is already using this shortcut." }
         return nil
     }
 
@@ -101,7 +84,7 @@ struct ShortcutRecorderView: View {
         }
         let modifiers = HotKeyService.carbonModifiers(from: event.modifierFlags)
         guard modifiers != 0 else {
-            self.hint = "Add ⌃, ⌥, ⇧ or ⌘"
+            self.hint = "Add Control, Option, Shift or Command."
             return nil
         }
         Preferences.shared.hotkeyKeyCode = Double(event.keyCode)
