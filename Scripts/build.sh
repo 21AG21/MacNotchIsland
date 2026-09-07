@@ -16,37 +16,66 @@ CONFIG="release"
 # compile the app. Prefer a full Xcode when one is present, without touching the
 # system-wide xcode-select setting; an explicit DEVELOPER_DIR always wins.
 CLT="/Library/Developer/CommandLineTools"
-if [[ -z "${DEVELOPER_DIR:-}" && "$(xcode-select -p 2>/dev/null || true)" == "$CLT"* ]]; then
-  for candidate in /Applications/Xcode.app /Applications/Xcode-beta.app; do
-    if [[ -d "$candidate/Contents/Developer" ]]; then
-      export DEVELOPER_DIR="$candidate/Contents/Developer"
-      echo "Using $candidate instead of the Command Line Tools."
-      break
-    fi
+find_xcode() {
+  local candidate
+  for candidate in /Applications/Xcode.app /Applications/Xcode-beta.app \
+                   /Applications/Xcode*.app "$HOME"/Applications/Xcode*.app; do
+    if [[ -d "$candidate/Contents/Developer" ]]; then echo "$candidate"; return 0; fi
   done
+  candidate="$(mdfind "kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$candidate" && -d "$candidate/Contents/Developer" ]]; then echo "$candidate"; return 0; fi
+  return 1
+}
+XCODE=""
+if [[ -z "${DEVELOPER_DIR:-}" && "$(xcode-select -p 2>/dev/null || true)" == "$CLT"* ]]; then
+  if XCODE="$(find_xcode)"; then
+    export DEVELOPER_DIR="$XCODE/Contents/Developer"
+    echo "Using $XCODE instead of the Command Line Tools."
+  fi
 fi
 
-explain_toolchain_failure() {
-  cat >&2 <<'MSG'
+explain_failure() {
+  if grep -q "xcodebuild -license" "$BUILD_LOG"; then
+    cat >&2 <<'MSG'
 
-The Command Line Tools cannot compile this app: on this SDK, SwiftUI's @State is a
-compiler macro whose plugin (SwiftUIMacros) ships only inside Xcode. Install Xcode from
-the App Store (or the beta that matches this macOS from developer.apple.com), point the
-toolchain at it, and build again:
+Xcode needs its license accepted once before it can build anything:
 
-    sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-    make clean && make install
+    sudo xcodebuild -license accept
 
 MSG
+  elif grep -q "plugin for module 'SwiftUIMacros' not found" "$BUILD_LOG"; then
+    if [[ -n "$XCODE" ]]; then
+      cat >&2 <<MSG
+
+The build used $XCODE, but its toolchain lacks the SwiftUI macro plugin this
+SDK needs. Update Xcode to the version that matches this macOS (App Store, or the beta
+from developer.apple.com/download) and run "make clean && make install" again.
+
+MSG
+    else
+      cat >&2 <<'MSG'
+
+Xcode is not installed, and the Command Line Tools cannot compile this app: on this SDK,
+SwiftUI's @State is a compiler macro whose plugin (SwiftUIMacros) ships only inside Xcode.
+
+  Either install Xcode from the App Store (or the beta that matches this macOS from
+  developer.apple.com/download) and run "make clean && make install" again; the script
+  finds Xcode on its own.
+
+  Or skip building: open the latest run at https://github.com/21AG21/MacNotchIsland/actions,
+  download the MacNotchIsland artifact, unzip it, and drag MacNotchIsland.app to /Applications.
+  Right-click it and choose Open the first time, since it is not notarized.
+
+MSG
+    fi
+  fi
 }
 
 # --- Build -------------------------------------------------------------------
 BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/macnotchisland-build.XXXXXX")"
 trap 'rm -f "$BUILD_LOG"' EXIT
 if ! swift build -c "$CONFIG" 2>&1 | tee "$BUILD_LOG"; then
-  if grep -q "plugin for module 'SwiftUIMacros' not found" "$BUILD_LOG"; then
-    explain_toolchain_failure
-  fi
+  explain_failure
   exit 1
 fi
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/$APP"

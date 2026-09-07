@@ -61,8 +61,13 @@ demo menu, and Quit. Turn on "Launch at login" in Settings once you're happy wit
 Press ⌃⌥Space anywhere to summon the island.
 
 `Scripts/make-dmg.sh` builds a drag-to-Applications disk image; pushing a `v*` tag runs the
-Release workflow, which attaches the DMG and a zip to a GitHub Release. Every push also
-uploads a fresh `MacNotchIsland.app` as a build artifact on the Actions tab.
+Release workflow, which attaches the DMG and a zip to a GitHub Release.
+
+### Without a toolchain
+
+Every push also builds the app on GitHub. Open the latest run on the
+[Actions tab](https://github.com/21AG21/MacNotchIsland/actions), download the
+`MacNotchIsland` artifact, unzip it, and drag `MacNotchIsland.app` to `/Applications`.
 
 ## First launch of a downloaded build
 

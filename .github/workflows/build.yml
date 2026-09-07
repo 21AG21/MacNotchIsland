@@ -14,6 +14,14 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
+          echo "SDK $(xcrun --show-sdk-version)"
+          echo "Installed Xcodes:"; ls /Applications | grep -i xcode || true
+          echo "Platform macro plugins:"
+          ls "$(xcode-select -p)/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins" 2>/dev/null || true
+          echo "SwiftUI wrappers implemented as macros on this SDK:"
+          grep -oh 'macro [A-Za-z]*([^)]*) = #externalMacro(module: "SwiftUIMacros"[^)]*)' \
+            "$(xcrun --show-sdk-path)/System/Library/Frameworks/SwiftUI.framework/Modules/SwiftUI.swiftmodule/"*.swiftinterface \
+            | sort -u || true
       - name: Build (release)
         run: |
           set -o pipefail
@@ -23,10 +31,14 @@ jobs:
           set -o pipefail
           swift test 2>&1 | grep -v "^\[" | tail -n 300
       - name: Bundle
-        run: Scripts/build.sh
+        run: |
+          Scripts/build.sh
+          # Zip with ditto so the executable bit and code signature survive the artifact
+          # upload, which otherwise flattens permissions.
+          ditto -c -k --keepParent build/MacNotchIsland.app build/MacNotchIsland.zip
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
-          name: MacNotchIsland.app
-          path: build/MacNotchIsland.app
+          name: MacNotchIsland
+          path: build/MacNotchIsland.zip
           if-no-files-found: error
