@@ -24,6 +24,7 @@ final class ServiceHub {
     let updates = UpdateChecker.shared
     let fullscreen = FullscreenMonitor()
     let hiddenApps = HiddenAppsMonitor()
+    let screenshots = ScreenshotMonitor()
     let audioLevel = AudioLevelTap.shared
 
     private var cancellables = Set<AnyCancellable>()
@@ -66,6 +67,7 @@ final class ServiceHub {
         p.updateChecksEnabled ? updates.start() : updates.stop()
         p.hideInFullscreen ? fullscreen.start() : fullscreen.stop()
         p.hiddenAppBundleIDs.isEmpty ? hiddenApps.stop() : hiddenApps.start()
+        (p.shelfEnabled && p.screenshotsToShelfEnabled) ? screenshots.start() : screenshots.stop()
         (p.nowPlayingEnabled && p.reactiveVisualizerEnabled) ? audioLevel.start() : audioLevel.stop()
     }
 }

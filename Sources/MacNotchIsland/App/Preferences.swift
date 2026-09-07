@@ -33,6 +33,7 @@ final class Preferences: ObservableObject {
     @Published var timerSoundEnabled: Bool { didSet { d.set(timerSoundEnabled, forKey: "timerSoundEnabled") } }
     @Published var downloadsEnabled: Bool { didSet { d.set(downloadsEnabled, forKey: "downloadsEnabled") } }
     @Published var addDownloadsToShelf: Bool { didSet { d.set(addDownloadsToShelf, forKey: "addDownloadsToShelf") } }
+    @Published var screenshotsToShelfEnabled: Bool { didSet { d.set(screenshotsToShelfEnabled, forKey: "screenshotsToShelfEnabled") } }
     @Published var lowPowerEnabled: Bool { didSet { d.set(lowPowerEnabled, forKey: "lowPowerEnabled") } }
     @Published var hotkeyEnabled: Bool { didSet { d.set(hotkeyEnabled, forKey: "hotkeyEnabled") } }
     @Published var hasSeenWelcome: Bool { didSet { d.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
@@ -107,6 +108,7 @@ final class Preferences: ObservableObject {
         timerSoundEnabled = bool("timerSoundEnabled", true)
         downloadsEnabled = bool("downloadsEnabled", true)
         addDownloadsToShelf = bool("addDownloadsToShelf", false)
+        screenshotsToShelfEnabled = bool("screenshotsToShelfEnabled", true)
         lowPowerEnabled = bool("lowPowerEnabled", true)
         hotkeyEnabled = bool("hotkeyEnabled", true)
         hasSeenWelcome = bool("hasSeenWelcome", false)

@@ -107,6 +107,14 @@ struct BatteryState: Equatable {
     var isCharging: Bool
     var isPluggedIn: Bool
     var event: BatteryEvent
+    /// Minutes until empty (on battery) or until full (charging); nil while macOS is still estimating.
+    var timeRemainingMinutes: Int? = nil
+    /// Signed charge/discharge power in watts (positive = charging), from the IORegistry battery entry.
+    var wattage: Double? = nil
+    var cycleCount: Int? = nil
+    /// Maximum capacity relative to design capacity, 0–100.
+    var healthPercent: Int? = nil
+    var temperatureCelsius: Double? = nil
 }
 
 struct BluetoothState: Equatable {
