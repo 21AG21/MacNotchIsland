@@ -37,8 +37,14 @@ the unreleased section is what the next tag will ship.
 - `ARCHITECTURE.md`.
 
 ### Fixed
+- Compact content could sit under the physical notch: the island's body was centred on the
+  screen although its trailing slot is wider than its leading one, which pushed the notch
+  gap sideways by up to 22 pt (the volume bar, "Unlocked"). The gap now stays on the notch,
+  glyphs sit toward the open end of their slot, and a width or height override can only
+  enlarge the island.
 - The panel was a fixed 760 by 340 point canvas that swallowed clicks around the notch; it
-  now hugs the island, so menu bar items and windows beside the notch stay clickable.
+  now hugs the island, so menu bar items and windows beside the notch stay clickable, and
+  it is cut asymmetrically so the bubble never leaves an invisible strip left of the notch.
 - Play/pause flipped twice while MediaRemote caught up; the user's state now wins for 1.2 s.
 - Live activities are ordered like the iPhone's: newest kind first, a call or a ringing
   timer always first, the shelf last.
