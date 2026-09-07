@@ -12,6 +12,7 @@ struct BluetoothExpandedView: View {
                     .font(.system(size: 30, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(width: 48)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                     Text(state.isConnected ? "Connected" : "Disconnected")
@@ -27,6 +28,7 @@ struct BluetoothExpandedView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 14)
+            .accessibilityElement(children: .combine)
         }
     }
 

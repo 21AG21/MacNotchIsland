@@ -43,5 +43,9 @@ struct ExpandedContentView: View {
 struct NotchClearance: View {
     let geometry: NotchGeometry
     var extra: CGFloat = 8
-    var body: some View { Color.clear.frame(height: geometry.notchHeight + extra) }
+    var body: some View {
+        Color.clear
+            .frame(height: geometry.notchHeight + extra)
+            .accessibilityHidden(true)
+    }
 }

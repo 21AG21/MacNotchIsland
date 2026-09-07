@@ -35,7 +35,11 @@ struct StatsView: View {
                 .frame(height: 16)
                 .padding(.top, 3)
                 .padding(.trailing, 14)
+                .accessibilityHidden(true)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("CPU")
+        .accessibilityValue("\(Int(stats.sample.cpuPercent.rounded())) percent")
     }
 
     private var memoryCell: some View {
@@ -46,6 +50,9 @@ struct StatsView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Memory")
+        .accessibilityValue(SystemStats.memoryText(used: stats.sample.memoryUsedBytes, total: stats.sample.memoryTotalBytes))
     }
 
     private var networkCell: some View {
@@ -61,6 +68,9 @@ struct StatsView: View {
             .lineLimit(1)
             .padding(.top, 2)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Network")
+        .accessibilityValue("Download \(SystemStats.rateText(stats.sample.networkDownBytesPerSec)), upload \(SystemStats.rateText(stats.sample.networkUpBytesPerSec))")
     }
 
     private var batteryCell: some View {
@@ -75,6 +85,17 @@ struct StatsView: View {
                     .lineLimit(1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Battery")
+        .accessibilityValue(batteryAccessibilityValue)
+    }
+
+    /// "92 percent, 214 cycles · 31°", or "Not available" on a Mac with no battery.
+    private var batteryAccessibilityValue: String {
+        guard let health = stats.sample.batteryHealthPercent else { return "Not available" }
+        var value = "\(Int(health.rounded())) percent"
+        if let detail = batteryDetail { value += ", \(detail)" }
+        return value
     }
 
     /// Battery health, or an em dash on a Mac that has no battery to ask.
@@ -109,6 +130,7 @@ struct StatsView: View {
             .fill(Color.white.opacity(0.08))
             .frame(width: 1, height: 52)
             .padding(.trailing, 12)
+            .accessibilityHidden(true)
     }
 
     private static func percentText(_ value: Double) -> String {

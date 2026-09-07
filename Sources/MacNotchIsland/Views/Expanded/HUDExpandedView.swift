@@ -13,8 +13,10 @@ struct HUDExpandedView: View {
                     .foregroundStyle(.white)
                     .frame(width: 28)
                     .contentTransition(.symbolEffect(.replace))
+                    .accessibilityHidden(true)
                 LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
                     .frame(height: 8)
+                    .accessibilityHidden(true)
                 Text(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%")
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.white.opacity(0.8))
@@ -22,6 +24,9 @@ struct HUDExpandedView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 16)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")
+            .accessibilityValue(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent")
         }
     }
 }

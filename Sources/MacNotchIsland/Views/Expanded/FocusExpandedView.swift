@@ -15,6 +15,7 @@ struct FocusExpandedView: View {
                         .foregroundStyle(state.isOn ? Color.named(state.tint) : .white.opacity(0.6))
                 }
                 .frame(width: 40, height: 40)
+                .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     Text(state.isOn ? "On" : "Off").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
@@ -23,6 +24,7 @@ struct FocusExpandedView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 14)
+            .accessibilityElement(children: .combine)
         }
     }
 }

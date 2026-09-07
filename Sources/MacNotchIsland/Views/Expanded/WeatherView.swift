@@ -97,6 +97,29 @@ struct WeatherView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    /// "21 degrees, partly cloudy, high 24 low 15, Springfield" — the whole reading as one
+    /// sentence, dropping whichever pieces the service hasn't reported yet.
+    private var accessibilitySummary: String {
+        var parts: [String] = []
+        if weather.temperatureC != nil {
+            parts.append(temperatureText.replacingOccurrences(of: "°", with: " degrees"))
+        }
+        if !weather.conditionText.isEmpty {
+            parts.append(weather.conditionText)
+        }
+        var range: [String] = []
+        if let high = weather.highC {
+            range.append("high " + WeatherService.formatTemperature(high, usesMetric: usesMetric).replacingOccurrences(of: "°", with: ""))
+        }
+        if let low = weather.lowC {
+            range.append("low " + WeatherService.formatTemperature(low, usesMetric: usesMetric).replacingOccurrences(of: "°", with: ""))
+        }
+        if !range.isEmpty { parts.append(range.joined(separator: " ")) }
+        if let place = weather.placeName { parts.append(place) }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: - Text
