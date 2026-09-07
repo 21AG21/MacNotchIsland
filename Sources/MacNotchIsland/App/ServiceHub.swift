@@ -15,7 +15,7 @@ final class ServiceHub {
     let screenLock = ScreenLockMonitor()
     let downloads = DownloadMonitor()
     let lowPower = LowPowerMonitor()
-    let hotkey = HotKeyService()
+    let hotkey = HotKeyService.shared
     let clipboard = ClipboardStore.shared
     let lyrics = LyricsService.shared
     let mediaKeys = MediaKeyInterceptor()
