@@ -50,9 +50,12 @@ demo menu, and Quit. Turn on "Launch at login" in Settings once you're happy wit
 
 Nothing is required up front. macOS asks for these lazily:
 
-- **Automation (Music, Spotify)**: on macOS 15.4 and later Apple stopped delivering
-  system-wide Now Playing data to third-party apps. Notch Island falls back to asking Music
-  and Spotify directly with AppleScript, which prompts once per app.
+- **Automation (Music, Spotify)**: only if the MediaRemote helper can't run. On macOS 15.4
+  and later Apple stopped delivering system-wide Now Playing data to third-party apps, so
+  the build bundles a tiny helper (`Adapter/MediaRemoteAdapter.m`) that runs inside
+  `/usr/bin/perl`, an Apple-signed host, and streams Now Playing data to the app. If that
+  ever fails, Notch Island falls back to asking Music and Spotify directly with AppleScript,
+  which prompts once per app.
 - **Calendars**: only if you turn on "Upcoming calendar events".
 
 The microphone and camera indicators read the devices' *in-use* state; no audio or video is

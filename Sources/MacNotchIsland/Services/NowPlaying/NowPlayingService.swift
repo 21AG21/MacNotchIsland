@@ -3,16 +3,19 @@ import Combine
 
 /// Publishes what's playing system-wide and exposes transport controls.
 ///
-/// Two backends: the private MediaRemote framework (covers every app, but Apple stopped
-/// delivering data to third-party apps in macOS 15.4) and an AppleScript poller for Music
-/// and Spotify. The poller only runs while MediaRemote hasn't produced anything.
+/// Three backends, best first:
+/// 1. MediaRemoteAdapter running inside /usr/bin/perl (works on every macOS version and
+///    for every app, because the host process is Apple-signed).
+/// 2. MediaRemote called directly (works before macOS 15.4).
+/// 3. An AppleScript poller for Music and Spotify, only while nothing else delivers.
 final class NowPlayingService: ObservableObject {
     static let shared = NowPlayingService()
 
-    enum Backend { case inactive, mediaRemote, appleScript }
+    enum Backend { case inactive, adapter, mediaRemote, appleScript }
 
     @Published private(set) var info: NowPlayingInfo?
 
+    private let adapter = AdapterBackend()
     private let mediaRemote = MediaRemoteBackend()
     private let appleScript = AppleScriptBackend()
     private var running = false
@@ -26,6 +29,8 @@ final class NowPlayingService: ObservableObject {
     func start() {
         guard !running else { return }
         running = true
+        adapter.onUpdate = { [weak self] info in self?.handle(info, from: .adapter) }
+        adapter.start()
         mediaRemote.onUpdate = { [weak self] info in
             DispatchQueue.main.async { self?.handle(info, from: .mediaRemote) }
         }
@@ -39,13 +44,14 @@ final class NowPlayingService: ObservableObject {
         running = false
         pollTimer?.invalidate()
         pollTimer = nil
+        adapter.stop()
         mediaRemote.stop()
         clear()
     }
 
     private func tick() {
         ticks += 1
-        if !mediaRemote.isHealthy, ticks % 2 == 0 {
+        if !adapter.isHealthy, !mediaRemote.isHealthy, ticks % 2 == 0 {
             appleScript.poll { [weak self] info in self?.handle(info, from: .appleScript) }
         } else if activeBackend == .mediaRemote {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
@@ -58,8 +64,9 @@ final class NowPlayingService: ObservableObject {
     }
 
     private func handle(_ new: NowPlayingInfo?, from backend: Backend) {
-        // Ignore the fallback once MediaRemote is delivering.
-        if backend == .appleScript && mediaRemote.isHealthy { return }
+        // Lower-ranked backends stay quiet once a better one is delivering.
+        if backend == .appleScript && (adapter.isHealthy || mediaRemote.isHealthy) { return }
+        if backend == .mediaRemote && adapter.isHealthy { return }
 
         guard let new else {
             if activeBackend == backend || activeBackend == .inactive { clear() }
@@ -95,6 +102,7 @@ final class NowPlayingService: ObservableObject {
     func togglePlayPause() {
         switch activeBackend {
         case .appleScript: appleScript.command(.togglePlayPause, bundleID: info?.bundleID)
+        case .adapter: adapter.send("toggle")
         default: mediaRemote.send(.togglePlayPause)
         }
         optimisticallyToggle()
@@ -103,6 +111,7 @@ final class NowPlayingService: ObservableObject {
     func next() {
         switch activeBackend {
         case .appleScript: appleScript.command(.next, bundleID: info?.bundleID)
+        case .adapter: adapter.send("next")
         default: mediaRemote.send(.nextTrack)
         }
     }
@@ -110,6 +119,7 @@ final class NowPlayingService: ObservableObject {
     func previous() {
         switch activeBackend {
         case .appleScript: appleScript.command(.previous, bundleID: info?.bundleID)
+        case .adapter: adapter.send("previous")
         default: mediaRemote.send(.previousTrack)
         }
     }
@@ -117,6 +127,7 @@ final class NowPlayingService: ObservableObject {
     func seek(to seconds: TimeInterval) {
         switch activeBackend {
         case .appleScript: appleScript.seek(to: seconds, bundleID: info?.bundleID)
+        case .adapter: adapter.send("seek \(Int(seconds))")
         default: mediaRemote.seek(to: seconds)
         }
         if var i = info {

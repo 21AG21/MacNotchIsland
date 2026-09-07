@@ -21,11 +21,15 @@ struct NotchShape: Shape {
         p.addQuadCurve(to: CGPoint(x: rect.minX + t, y: rect.minY + t),
                        control: CGPoint(x: rect.minX + t, y: rect.minY))
         p.addLine(to: CGPoint(x: rect.minX + t, y: rect.maxY - b))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + t + b, y: rect.maxY),
-                       control: CGPoint(x: rect.minX + t, y: rect.maxY))
+        if b > 0 {
+            p.addArc(tangent1End: CGPoint(x: rect.minX + t, y: rect.maxY),
+                     tangent2End: CGPoint(x: rect.minX + t + b, y: rect.maxY), radius: b)
+        }
         p.addLine(to: CGPoint(x: rect.maxX - t - b, y: rect.maxY))
-        p.addQuadCurve(to: CGPoint(x: rect.maxX - t, y: rect.maxY - b),
-                       control: CGPoint(x: rect.maxX - t, y: rect.maxY))
+        if b > 0 {
+            p.addArc(tangent1End: CGPoint(x: rect.maxX - t, y: rect.maxY),
+                     tangent2End: CGPoint(x: rect.maxX - t, y: rect.maxY - b), radius: b)
+        }
         p.addLine(to: CGPoint(x: rect.maxX - t, y: rect.minY + t))
         p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
                        control: CGPoint(x: rect.maxX - t, y: rect.minY))
