@@ -24,7 +24,12 @@ struct SettingsView: View {
                     toggle("Expand when hovered", $prefs.hoverToExpand, note: "Hovering is the Mac's long press.")
                     toggle("Open Home panel when idle and hovered", $prefs.expandOnIdleHover)
                     toggle("Trackpad haptics", $prefs.hapticsEnabled)
-                    toggle("Keyboard shortcut  ⌃⌥Space", $prefs.hotkeyEnabled, note: "Opens the island (or the Home panel) from anywhere; press again to close.")
+                    VStack(alignment: .leading, spacing: 0) {
+                        toggle("Keyboard shortcut", $prefs.hotkeyEnabled, note: "Opens the island (or the Home panel) from anywhere; press again to close.")
+                        if prefs.hotkeyEnabled {
+                            ShortcutRecorderView().padding(.leading, 16)
+                        }
+                    }
                     toggle("Show on every display", $prefs.showOnAllDisplays, note: "Displays without a notch get a simulated island.")
                     toggle("Check for updates", $prefs.updateChecksEnabled, note: "Once a day, against the GitHub releases page. Nothing is installed automatically.")
                     toggle("Hide in full-screen apps", $prefs.hideInFullscreen, note: "Videos and games get the whole screen; the island comes back when you leave full screen.")
