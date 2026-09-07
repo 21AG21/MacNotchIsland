@@ -12,13 +12,17 @@ struct NowPlayingExpandedView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Top band: artwork left, visualizer right, either side of the notch.
             HStack(alignment: .top, spacing: 0) {
-                ArtworkView(image: info.artwork, size: 60, radius: 12)
+                ArtworkView(image: info.artwork, size: 60, radius: 12, flexible: true)
                     .id(info.artworkID)
                     .transition(.scale(scale: 0.85).combined(with: .opacity))
+                    // Matched outside `.id` (stable across track changes) but inside `.padding`,
+                    // so the group frame tracks the cover itself, not its padded slot.
+                    .islandMatched(IslandMatchedID.nowPlayingArtwork)
                     .padding(.top, 12)
                     .onTapGesture { service.openApp() }
                 Spacer(minLength: 0)
                 VisualizerBars(isPlaying: info.isPlaying, color: accent, barCount: 5, barWidth: 3.5, maxHeight: 22, minHeight: 4)
+                    .islandMatched(IslandMatchedID.nowPlayingVisualizer)
                     .padding(.top, max(6, (geometry.notchHeight - 22) / 2 + 2))
                     .padding(.trailing, 4)
             }
@@ -47,6 +51,9 @@ struct NowPlayingExpandedView: View {
                     ScrubberView(progress: duration > 0 ? position / duration : 0) { fraction in
                         service.seek(to: fraction * duration)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Playback position")
+                    .accessibilityValue(IslandAccessibility.playbackValue(position: position, duration: duration))
                     HStack {
                         Text(position.mmss)
                         Spacer()

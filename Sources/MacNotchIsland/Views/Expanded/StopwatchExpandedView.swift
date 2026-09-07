@@ -22,6 +22,12 @@ struct StopwatchExpandedView: View {
                         Text(Self.format(state.elapsed(at: context.date), showTenths: !coarse))
                             .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
                             .foregroundStyle(state.isRunning ? .orange : .white)
+                            .contentTransition(.numericText(countsDown: false))
+                            // Scales down rather than truncating while the matched frame is
+                            // still the size of the compact pill's digits.
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.25)
+                            .islandMatched(IslandMatchedID.stopwatchTime)
                     }
                 }
                 Spacer(minLength: 0)

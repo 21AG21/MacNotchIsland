@@ -23,6 +23,8 @@ struct CompactContentView: View {
             .frame(width: layout.trailingWidth, height: layout.bodyHeight)
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(IslandAccessibility.compactLabel(for: activity.content))
     }
 }
 
@@ -36,9 +38,12 @@ struct CompactLeadingView: View {
         ZStack {
             switch activity.content {
             case .nowPlaying(let info):
-                ArtworkView(image: info.artwork, size: height - 10, radius: 5)
+                ArtworkView(image: info.artwork, size: height - 10, radius: 5, flexible: true)
                     .id(info.artworkID)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    // Outside `.id` so a track change swaps the cover without tearing the
+                    // element out of the matched group mid-expansion.
+                    .islandMatched(IslandMatchedID.nowPlayingArtwork)
             case .timer(let t):
                 Image(systemName: t.isFinished ? "bell.fill" : "timer")
                     .font(.system(size: iconSize, weight: .semibold))
@@ -52,6 +57,7 @@ struct CompactLeadingView: View {
                 Image(systemName: "phone.fill")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.green)
+                    .islandMatched(IslandMatchedID.callGlyph)
             case .battery(let b):
                 BatteryGlyph(percent: b.percent, charging: b.isCharging || b.isPluggedIn, tint: b.tint)
                     .frame(width: 26, height: 12)
@@ -109,25 +115,34 @@ struct CompactTrailingView: View {
             switch activity.content {
             case .nowPlaying(let info):
                 VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent))
+                    .islandMatched(IslandMatchedID.nowPlayingVisualizer)
             case .timer(let t):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     Text(t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
                         .font(textFont.monospacedDigit())
                         .foregroundStyle(.orange)
                         .contentTransition(.numericText(countsDown: true))
+                        .lineLimit(1)
                 }
+                .islandMatched(IslandMatchedID.timerTime)
             case .stopwatch(let s):
                 TimelineView(.periodic(from: .now, by: s.isRunning ? 1 : 3600)) { ctx in
                     Text(s.elapsed(at: ctx.date).mmss)
                         .font(textFont.monospacedDigit())
                         .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+                        .contentTransition(.numericText(countsDown: false))
+                        .lineLimit(1)
                 }
+                .islandMatched(IslandMatchedID.stopwatchTime)
             case .call(let c):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     Text(ctx.date.timeIntervalSince(c.startedAt).mmss)
                         .font(textFont.monospacedDigit())
                         .foregroundStyle(.green)
+                        .contentTransition(.numericText(countsDown: false))
+                        .lineLimit(1)
                 }
+                .islandMatched(IslandMatchedID.callTime)
             case .battery(let b):
                 Text("\(b.percent)%")
                     .font(textFont.monospacedDigit())
@@ -176,6 +191,79 @@ struct CompactTrailingView: View {
         }
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+/// Spoken descriptions for island content.
+///
+/// The compact pill is a pile of tiny glyphs and monospaced digits, so it is combined into a
+/// single accessibility element and given a sentence a screen reader can actually read out.
+enum IslandAccessibility {
+    /// e.g. "Now Playing, Alright by Kendrick Lamar", "Timer, 4:59 remaining",
+    /// "Call with FaceTime, 2:10".
+    static func compactLabel(for content: ActivityContent, at date: Date = Date()) -> String {
+        switch content {
+        case .nowPlaying(let info):
+            let title = info.title.isEmpty ? "Not Playing" : info.title
+            if info.artist.isEmpty { return "Now Playing, \(title)" }
+            return "Now Playing, \(title) by \(info.artist)"
+
+        case .timer(let t):
+            if t.isFinished { return "Timer, done" }
+            let remaining = t.remaining(at: date).timerString
+            return t.isPaused ? "Timer, \(remaining) remaining, paused" : "Timer, \(remaining) remaining"
+
+        case .stopwatch(let s):
+            let elapsed = s.elapsed(at: date).mmss
+            return s.isRunning ? "Stopwatch, \(elapsed) elapsed" : "Stopwatch, \(elapsed) elapsed, paused"
+
+        case .call(let c):
+            return "Call with \(c.appName), \(date.timeIntervalSince(c.startedAt).mmss)"
+
+        case .battery(let b):
+            let charging = b.isCharging || b.isPluggedIn
+            return charging ? "Battery charging, \(b.percent) percent" : "Battery, \(b.percent) percent"
+
+        case .bluetooth(let d):
+            guard d.isConnected else { return "\(d.name) disconnected" }
+            if let p = d.summaryPercent { return "\(d.name) connected, \(p) percent battery" }
+            return "\(d.name) connected"
+
+        case .focus(let f):
+            return f.isOn ? "\(f.name) Focus on" : "\(f.name) Focus off"
+
+        case .hud(let h):
+            if h.kind == .volume && h.isMuted { return "Volume muted" }
+            return "\(h.title), \(percent(h.level)) percent"
+
+        case .silent(let s):
+            return s.isSilent ? "Silent mode on" : "Silent mode off"
+
+        case .unlock:
+            return "Mac unlocked"
+
+        case .calendar(let c):
+            return "\(c.title), \(c.relativeStart(at: date))"
+
+        case .download(let d):
+            if d.isComplete { return "\(d.name) downloaded" }
+            if let p = d.progress { return "Downloading \(d.name), \(percent(p)) percent" }
+            return "Downloading \(d.name)"
+
+        case .custom(let c):
+            if let sub = c.subtitle ?? c.trailingText, !sub.isEmpty { return "\(c.title), \(sub)" }
+            return c.title
+        }
+    }
+
+    /// "1:05 of 3:20" — the scrubber's spoken value.
+    static func playbackValue(position: TimeInterval, duration: TimeInterval) -> String {
+        guard duration > 0 else { return position.mmss }
+        return "\(position.mmss) of \(duration.mmss)"
+    }
+
+    private static func percent(_ fraction: Double) -> Int {
+        Int((max(0, min(1, fraction)) * 100).rounded())
     }
 }
 
