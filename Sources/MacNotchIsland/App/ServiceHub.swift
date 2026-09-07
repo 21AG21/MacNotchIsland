@@ -15,6 +15,7 @@ final class ServiceHub {
     let screenLock = ScreenLockMonitor()
     let downloads = DownloadMonitor()
     let lowPower = LowPowerMonitor()
+    let hotkey = HotKeyService()
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -42,5 +43,6 @@ final class ServiceHub {
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
         p.downloadsEnabled ? downloads.start() : downloads.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
+        p.hotkeyEnabled ? hotkey.start() : hotkey.stop()
     }
 }

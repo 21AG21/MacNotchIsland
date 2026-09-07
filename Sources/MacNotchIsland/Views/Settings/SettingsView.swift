@@ -23,6 +23,7 @@ struct SettingsView: View {
                     toggle("Expand when hovered", $prefs.hoverToExpand, note: "Hovering is the Mac's long press.")
                     toggle("Open Home panel when idle and hovered", $prefs.expandOnIdleHover)
                     toggle("Trackpad haptics", $prefs.hapticsEnabled)
+                    toggle("Keyboard shortcut  ⌃⌥Space", $prefs.hotkeyEnabled, note: "Opens the island (or the Home panel) from anywhere; press again to close.")
                     toggle("Show on every display", $prefs.showOnAllDisplays, note: "Displays without a notch get a simulated island.")
                     slider("Hover delay", $prefs.hoverDelay, range: 0...0.6, unit: "s")
                     slider("Alert duration", $prefs.alertDuration, range: 1...6, unit: "s")
