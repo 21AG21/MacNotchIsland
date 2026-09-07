@@ -54,5 +54,6 @@ private struct QuickActionButton: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(IslandMotion.quick, value: hovering)
+        .accessibilityLabel("Run shortcut \(name)")
     }
 }

@@ -10,6 +10,7 @@ struct BatteryExpandedView: View {
             HStack(spacing: 16) {
                 BatteryGlyph(percent: state.percent, charging: state.isCharging || state.isPluggedIn, tint: state.tint)
                     .frame(width: 52, height: 24)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(state.tint)
                     Text("\(state.percent)%")
@@ -25,6 +26,7 @@ struct BatteryExpandedView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 14)
+            .accessibilityElement(children: .combine)
         }
     }
 }

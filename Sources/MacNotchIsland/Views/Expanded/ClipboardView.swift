@@ -35,6 +35,7 @@ struct ClipboardView: View {
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 0.5)
                             .padding(.leading, 34)
+                            .accessibilityHidden(true)
                     }
                 }
             }
@@ -46,11 +47,24 @@ struct ClipboardView: View {
             Image(systemName: "doc.on.clipboard")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.3))
+                .accessibilityHidden(true)
             Text("Nothing copied yet")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.5))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Sentence-case name for a clipboard entry's kind, used only for VoiceOver.
+private extension ClipboardItem.Kind {
+    var accessibilityName: String {
+        switch self {
+        case .text: return "text"
+        case .url: return "link"
+        case .file: return "file"
+        case .image: return "image"
+        }
     }
 }
 
@@ -63,12 +77,21 @@ private struct ClipboardRowView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            glyph
-            Text(item.preview)
-                .font(.system(size: 12))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            HStack(spacing: 10) {
+                glyph
+                Text(item.preview)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.age())")
+            .accessibilityHint("Click to copy again")
+            .accessibilityAction { copyBack() }
+            .accessibilityAction(named: Text(item.pinned ? "Unpin" : "Pin")) { store.togglePin(item: item) }
+            .accessibilityAction(named: Text("Delete")) { store.remove(item: item) }
             Spacer(minLength: 8)
             trailing
         }
@@ -104,8 +127,11 @@ private struct ClipboardRowView: View {
         HStack(spacing: 2) {
             if isHovered {
                 ClipboardRowButton(symbol: item.pinned ? "pin.fill" : "pin") { store.togglePin(item: item) }
+                    .accessibilityLabel(item.pinned ? "Unpin" : "Pin")
                 ClipboardRowButton(symbol: "doc.on.doc") { copyBack() }
+                    .accessibilityLabel("Copy")
                 ClipboardRowButton(symbol: "xmark") { store.remove(item: item) }
+                    .accessibilityLabel("Delete")
             } else {
                 if item.pinned {
                     Image(systemName: "pin.fill")
@@ -119,6 +145,10 @@ private struct ClipboardRowView: View {
             }
         }
         .frame(width: 76, alignment: .trailing)
+        // The row's own accessibility label already states the age (and the pin/copy/delete
+        // actions above cover the hover buttons), so this half of the tree stays silent
+        // rather than doubling up on what VoiceOver just read.
+        .accessibilityHidden(true)
     }
 
     private func copyBack() {

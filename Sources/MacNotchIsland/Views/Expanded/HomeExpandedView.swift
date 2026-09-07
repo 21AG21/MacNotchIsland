@@ -113,6 +113,8 @@ struct HomeExpandedView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
+        .accessibilityLabel("\(tab.title) tab")
+        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: - Tab content
@@ -153,10 +155,12 @@ struct HomeExpandedView: View {
         if let info = music.info {
             HStack(spacing: 12) {
                 ArtworkView(image: info.artwork, size: 44, radius: 9)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     MarqueeText(text: info.title, font: .system(size: 13, weight: .semibold), color: .white)
                     MarqueeText(text: info.artist, font: .system(size: 11), color: .white.opacity(0.6))
                 }
+                .accessibilityElement(children: .combine)
                 GlyphButton(symbol: "backward.fill", size: 13) { music.previous() }
                 GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill", size: 18) { music.togglePlayPause() }
                 GlyphButton(symbol: "forward.fill", size: 13) { music.next() }
@@ -164,10 +168,12 @@ struct HomeExpandedView: View {
         } else {
             HStack(spacing: 12) {
                 ArtworkView(image: nil, size: 44, radius: 9)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Nothing playing").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     Text("Play something in Music, Spotify or Safari").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
                 }
+                .accessibilityElement(children: .combine)
                 Spacer(minLength: 0)
             }
         }
@@ -175,11 +181,15 @@ struct HomeExpandedView: View {
 
     private var timerRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "timer").font(.system(size: 12, weight: .semibold)).foregroundStyle(.orange)
+            Image(systemName: "timer")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
             ForEach([1, 5, 10, 25], id: \.self) { minutes in
                 PillButton(title: "\(minutes)m", tint: .orange) {
                     IslandTimer.shared.start(seconds: TimeInterval(minutes * 60), label: "Timer")
                 }
+                .accessibilityLabel("Start \(minutes) minute timer")
             }
             if IslandTimer.shared.state != nil {
                 PillButton(title: "Cancel", tint: .white.opacity(0.85)) { IslandTimer.shared.cancel() }

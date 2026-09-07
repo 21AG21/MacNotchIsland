@@ -12,12 +12,30 @@ struct MirrorView: View {
             CameraPreviewLayerView(previewLayer: camera.previewLayer)
                 .opacity(camera.state == .running ? 1 : 0)
                 .animation(IslandMotion.quick, value: camera.state)
+                .accessibilityHidden(true)
             overlay
         }
         .frame(maxWidth: .infinity)
         .frame(height: 100)
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
+        // `.contain` rather than `.ignore`: the Camera access prompt's "Open Settings" button
+        // still needs to be individually reachable, just under this one group summary.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Camera mirror")
+        .accessibilityValue(accessibilityStateText)
+    }
+
+    /// Sentence-case description of `camera.state`, reusing the same words the overlay
+    /// shows on screen wherever there's a matching Text.
+    private var accessibilityStateText: String {
+        switch camera.state {
+        case .idle: return "Idle"
+        case .starting: return "Starting camera"
+        case .running: return "Live"
+        case .denied: return "Camera access is off"
+        case .unavailable: return "No camera"
+        }
     }
 
     @ViewBuilder

@@ -209,6 +209,19 @@ struct ShelfItemView: View {
         .onTapGesture { onSelect() }
         .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
         .contextMenu { menu }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("File \(url.lastPathComponent), added \(accessibilityAge)")
+        .accessibilityValue(isSelected ? "selected" : "")
+        .accessibilityHint("Double-click to open, right-click for actions")
+        .accessibilityAction { onSelect() }
+        .accessibilityAction(named: Text("Open")) { shelf.open([url]) }
+    }
+
+    /// "2h" / "3d" / "just now" — the same age used on screen, spelled out for a reading
+    /// that never lands on an empty string.
+    private var accessibilityAge: String {
+        ageText.isEmpty ? "just now" : ageText
     }
 
     private var thumbnail: some View {

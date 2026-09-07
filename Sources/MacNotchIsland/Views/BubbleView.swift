@@ -15,6 +15,26 @@ struct BubbleView: View {
         .frame(width: diameter, height: diameter)
         .contentShape(Circle())
         .onTapGesture { center.promote(id: activity.id) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Second activity: \(kindDescription)")
+        .accessibilityHint("Click to swap into the island")
+        .accessibilityAction { center.promote(id: activity.id) }
+    }
+
+    /// Sentence-case name for the activity this bubble represents, reusing its own title
+    /// where it has one rather than inventing new copy.
+    private var kindDescription: String {
+        switch activity.content {
+        case .nowPlaying: return "Now Playing"
+        case .timer: return "Timer"
+        case .stopwatch: return "Stopwatch"
+        case .download: return "Download"
+        case .call: return "Call"
+        case .calendar(let c): return c.title
+        case .custom(let c): return c.title
+        default: return "Activity"
+        }
     }
 
     @ViewBuilder
