@@ -37,6 +37,8 @@ struct IslandPane: View {
                     .help("A light tap when the island expands or an alert arrives.")
                 Toggle("Trackpad gestures", isOn: $prefs.gesturesEnabled)
                     .help("Swipe and scroll on the island to control playback and volume.")
+                Toggle("Keep clear of menu bar items", isOn: $prefs.keepClearOfMenuBar)
+                    .help("The island only widens into menu bar space that is free, so it never covers a menu title or a status item. Grant Accessibility under Privacy to include app menus.")
             } header: {
                 Text("Alerts and gestures")
             } footer: {

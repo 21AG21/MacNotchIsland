@@ -76,16 +76,20 @@ struct IslandLayout: Equatable {
         return CGSize(width: frameWidth + extra + 8, height: bodyHeight + topInset + 6)
     }
 
-    static func make(presentation: IslandPresentation, geometry g: NotchGeometry, center: ActivityCenter = .shared) -> IslandLayout {
+    static func make(presentation: IslandPresentation, geometry g: NotchGeometry, center: ActivityCenter = .shared,
+                     clearance: MenuBarClearance.Limits = MenuBarClearance.shared.limits) -> IslandLayout {
         let notchW = g.notchWidth
         let h = g.notchHeight
         let privacy: CGFloat = center.privacyIndicatorsVisible ? 18 : 0
         let floating = !g.hasPhysicalNotch
         let inset: CGFloat = floating ? floatingTopInset : 0
+        // A floating island sits below the menu bar and covers nothing in it.
+        let room = floating ? MenuBarClearance.Limits.unlimited : clearance
 
         switch presentation {
         case .idle:
-            let pad: CGFloat = privacy > 0 ? 22 : 0
+            let tightest = [room.leading, room.trailing].compactMap { $0 }.min()
+            let pad: CGFloat = privacy > 0 ? MenuBarClearance.fitted(22, minimal: 22, free: tightest) : 0
             // Floating: a small resting pill rather than a slab as wide as the (absent) notch.
             let base = floating ? floatingIdleWidth : notchW
             let bottom = floating ? h / 2 : min(10, h / 2)
@@ -96,13 +100,22 @@ struct IslandLayout: Equatable {
                                 floating: floating, topInset: inset)
 
         case .compact(let a, let bubble):
-            let w = a.content.compactWidths
-            let trailing = w.trailing + privacy
+            let full = a.content.compactWidths
+            let minimal = a.content.compactMinimalWidths
+            let leading = MenuBarClearance.fitted(full.leading, minimal: minimal.leading, free: room.leading)
+            // The privacy dots come first on the right; the content gets what is left.
+            let content = MenuBarClearance.fitted(full.trailing, minimal: minimal.trailing,
+                                                  free: room.trailing.map { $0 - privacy })
+            let trailing = content + privacy
+            // The bubble hangs off the right, so it needs its own room beyond the trailing side.
+            let bubbleRoom = h + 8
+            let hasBubble = bubble != nil
+                && (room.trailing.map { $0 - MenuBarClearance.margin >= trailing + bubbleRoom } ?? true)
             let bottom = h / 2
-            return IslandLayout(bodyWidth: notchW + w.leading + trailing, bodyHeight: h,
+            return IslandLayout(bodyWidth: notchW + leading + trailing, bodyHeight: h,
                                 topRadius: floating ? bottom : 8, bottomRadius: bottom,
-                                leadingWidth: w.leading, trailingWidth: trailing, privacyWidth: privacy,
-                                bubbleDiameter: h, bubbleGap: 8, hasBubble: bubble != nil, isExpanded: false,
+                                leadingWidth: leading, trailingWidth: trailing, privacyWidth: privacy,
+                                bubbleDiameter: h, bubbleGap: 8, hasBubble: hasBubble, isExpanded: false,
                                 floating: floating, topInset: inset)
 
         case .expanded(let a):

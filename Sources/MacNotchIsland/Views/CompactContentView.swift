@@ -14,7 +14,8 @@ struct CompactContentView: View {
                 .frame(width: layout.leadingWidth, height: layout.bodyHeight)
             Color.clear.frame(width: geometry.notchWidth, height: layout.bodyHeight)
             HStack(spacing: 0) {
-                CompactTrailingView(activity: activity, height: layout.bodyHeight)
+                CompactTrailingView(activity: activity, height: layout.bodyHeight,
+                                    minimal: layout.trailingWidth - layout.privacyWidth < activity.content.compactWidths.trailing)
                     .frame(width: layout.trailingWidth - layout.privacyWidth, height: layout.bodyHeight)
                 if layout.privacyWidth > 0 {
                     PrivacyDots().frame(width: layout.privacyWidth, height: layout.bodyHeight)
@@ -111,6 +112,9 @@ struct CompactLeadingView: View {
 struct CompactTrailingView: View {
     let activity: IslandActivity
     let height: CGFloat
+    /// The menu bar left less room than the full trailing width: show only what still reads
+    /// at a glance (bars, a ring, a count) and skip the words.
+    var minimal: Bool = false
 
     /// Words ("Connected", "On", "Unlocked", "in 5m") sit in the system face like every other
     /// label in the island; only numerals get the rounded face and tabular digits, the way
@@ -122,15 +126,20 @@ struct CompactTrailingView: View {
         ZStack {
             switch activity.content {
             case .nowPlaying(let info):
-                VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent))
+                VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent), barCount: minimal ? 3 : 4)
                     .islandMatched(IslandMatchedID.nowPlayingVisualizer)
             case .timer(let t):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text(t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
-                        .font(numeralFont)
-                        .foregroundStyle(.orange)
-                        .contentTransition(.numericText(countsDown: true))
-                        .lineLimit(1)
+                    if minimal {
+                        ProgressRing(progress: t.progress(at: ctx.date), lineWidth: 2.5, tint: .orange)
+                            .frame(width: height * 0.5, height: height * 0.5)
+                    } else {
+                        Text(t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
+                            .font(numeralFont)
+                            .foregroundStyle(.orange)
+                            .contentTransition(.numericText(countsDown: true))
+                            .lineLimit(1)
+                    }
                 }
                 .islandMatched(IslandMatchedID.timerTime)
             case .stopwatch(let s):
@@ -165,7 +174,7 @@ struct CompactTrailingView: View {
                 Text(f.isOn ? "On" : "Off").font(wordFont).foregroundStyle(.white)
             case .hud(let h):
                 LevelBar(level: h.isMuted ? 0 : h.level, tint: .white)
-                    .frame(width: 62, height: 6)
+                    .frame(width: minimal ? 28 : 62, height: 6)
             case .silent(let s):
                 Text(s.isSilent ? "Silent" : "Ring")
                     .font(wordFont)

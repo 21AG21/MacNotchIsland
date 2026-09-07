@@ -221,6 +221,28 @@ enum ActivityContent: Equatable {
         }
     }
 
+    /// The narrowest each side can go when the menu bar leaves little room: a glyph on the
+    /// left, and on the right only what still reads at a glance (bars, a ring, a count).
+    /// Zero means the side is dropped rather than squeezed.
+    var compactMinimalWidths: (leading: CGFloat, trailing: CGFloat) {
+        switch self {
+        case .nowPlaying: return (30, 28)
+        case .timer: return (28, 28)
+        case .stopwatch: return (28, 0)
+        case .call: return (28, 0)
+        case .battery: return (36, 0)
+        case .bluetooth: return (28, 0)
+        case .focus: return (28, 0)
+        case .hud: return (28, 40)
+        case .silent: return (28, 0)
+        case .unlock: return (28, 0)
+        case .calendar: return (28, 0)
+        case .download(let d): return (28, d.progress != nil && !d.isComplete ? 28 : 0)
+        case .custom(let c): return (28, c.progress != nil && c.showsRing ? 28 : 0)
+        case .shelf: return (28, 28)
+        }
+    }
+
     /// Whether this content has a dedicated expanded (large) view.
     var hasExpandedView: Bool {
         switch self {

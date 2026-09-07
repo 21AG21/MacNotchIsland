@@ -49,6 +49,8 @@ final class Preferences: ObservableObject {
     @Published var statsEnabled: Bool { didSet { d.set(statsEnabled, forKey: "statsEnabled") } }
     @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
     @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
+    /// Only widen the compact island into menu bar space that is actually free.
+    @Published var keepClearOfMenuBar: Bool { didSet { d.set(keepClearOfMenuBar, forKey: "keepClearOfMenuBar") } }
     @Published var weatherEnabled: Bool { didSet { d.set(weatherEnabled, forKey: "weatherEnabled") } }
     @Published var hideInFullscreen: Bool { didSet { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
     @Published var reactiveVisualizerEnabled: Bool { didSet { d.set(reactiveVisualizerEnabled, forKey: "reactiveVisualizerEnabled") } }
@@ -124,6 +126,7 @@ final class Preferences: ObservableObject {
         statsEnabled = bool("statsEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)
         gesturesEnabled = bool("gesturesEnabled", true)
+        keepClearOfMenuBar = bool("keepClearOfMenuBar", true)
         weatherEnabled = bool("weatherEnabled", false)
         hideInFullscreen = bool("hideInFullscreen", false)
         reactiveVisualizerEnabled = bool("reactiveVisualizerEnabled", false)

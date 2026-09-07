@@ -26,6 +26,7 @@ final class ServiceHub {
     let hiddenApps = HiddenAppsMonitor()
     let screenshots = ScreenshotMonitor()
     let audioLevel = AudioLevelTap.shared
+    let menuBar = MenuBarClearance.shared
 
     private var cancellables = Set<AnyCancellable>()
     private var requestedShortcuts = false
@@ -56,6 +57,7 @@ final class ServiceHub {
         p.downloadsEnabled ? downloads.start() : downloads.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
         p.hotkeyEnabled ? hotkey.start() : hotkey.stop()
+        p.keepClearOfMenuBar ? menuBar.start() : menuBar.stop()
         p.clipboardEnabled ? clipboard.start() : clipboard.stop()
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
         p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()
