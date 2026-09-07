@@ -1,0 +1,85 @@
+import Foundation
+import Combine
+import ServiceManagement
+
+/// User preferences. Every property persists to UserDefaults on write and publishes
+/// a change so views and services can react immediately.
+final class Preferences: ObservableObject {
+    static let shared = Preferences()
+
+    private let d = UserDefaults.standard
+
+    // MARK: General
+    @Published var showOnAllDisplays: Bool { didSet { d.set(showOnAllDisplays, forKey: "showOnAllDisplays") } }
+    @Published var hoverToExpand: Bool { didSet { d.set(hoverToExpand, forKey: "hoverToExpand") } }
+    @Published var expandOnIdleHover: Bool { didSet { d.set(expandOnIdleHover, forKey: "expandOnIdleHover") } }
+    @Published var hapticsEnabled: Bool { didSet { d.set(hapticsEnabled, forKey: "hapticsEnabled") } }
+    @Published var hoverDelay: Double { didSet { d.set(hoverDelay, forKey: "hoverDelay") } }
+    @Published var alertDuration: Double { didSet { d.set(alertDuration, forKey: "alertDuration") } }
+
+    // MARK: Activities
+    @Published var nowPlayingEnabled: Bool { didSet { d.set(nowPlayingEnabled, forKey: "nowPlayingEnabled") } }
+    @Published var keepPausedMinutes: Double { didSet { d.set(keepPausedMinutes, forKey: "keepPausedMinutes") } }
+    @Published var batteryEnabled: Bool { didSet { d.set(batteryEnabled, forKey: "batteryEnabled") } }
+    @Published var bluetoothEnabled: Bool { didSet { d.set(bluetoothEnabled, forKey: "bluetoothEnabled") } }
+    @Published var volumeHUDEnabled: Bool { didSet { d.set(volumeHUDEnabled, forKey: "volumeHUDEnabled") } }
+    @Published var brightnessHUDEnabled: Bool { didSet { d.set(brightnessHUDEnabled, forKey: "brightnessHUDEnabled") } }
+    @Published var privacyIndicatorsEnabled: Bool { didSet { d.set(privacyIndicatorsEnabled, forKey: "privacyIndicatorsEnabled") } }
+    @Published var callDetectionEnabled: Bool { didSet { d.set(callDetectionEnabled, forKey: "callDetectionEnabled") } }
+    @Published var focusEnabled: Bool { didSet { d.set(focusEnabled, forKey: "focusEnabled") } }
+    @Published var calendarEnabled: Bool { didSet { d.set(calendarEnabled, forKey: "calendarEnabled") } }
+    @Published var unlockEnabled: Bool { didSet { d.set(unlockEnabled, forKey: "unlockEnabled") } }
+    @Published var shelfEnabled: Bool { didSet { d.set(shelfEnabled, forKey: "shelfEnabled") } }
+    @Published var timerSoundEnabled: Bool { didSet { d.set(timerSoundEnabled, forKey: "timerSoundEnabled") } }
+
+    // MARK: Geometry overrides (0 = auto-detect)
+    @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
+    @Published var notchHeightOverride: Double { didSet { d.set(notchHeightOverride, forKey: "notchHeightOverride") } }
+
+    // MARK: Launch at login (SMAppService)
+    @Published var launchAtLogin: Bool {
+        didSet {
+            guard oldValue != launchAtLogin else { return }
+            do {
+                if launchAtLogin { try SMAppService.mainApp.register() }
+                else { try SMAppService.mainApp.unregister() }
+            } catch {
+                NSLog("Launch at login change failed: \(error)")
+            }
+        }
+    }
+
+    private init() {
+        func bool(_ key: String, _ def: Bool) -> Bool {
+            UserDefaults.standard.object(forKey: key) == nil ? def : UserDefaults.standard.bool(forKey: key)
+        }
+        func double(_ key: String, _ def: Double) -> Double {
+            UserDefaults.standard.object(forKey: key) == nil ? def : UserDefaults.standard.double(forKey: key)
+        }
+        showOnAllDisplays = bool("showOnAllDisplays", false)
+        hoverToExpand = bool("hoverToExpand", true)
+        expandOnIdleHover = bool("expandOnIdleHover", true)
+        hapticsEnabled = bool("hapticsEnabled", true)
+        hoverDelay = double("hoverDelay", 0.12)
+        alertDuration = double("alertDuration", 2.8)
+
+        nowPlayingEnabled = bool("nowPlayingEnabled", true)
+        keepPausedMinutes = double("keepPausedMinutes", 5)
+        batteryEnabled = bool("batteryEnabled", true)
+        bluetoothEnabled = bool("bluetoothEnabled", true)
+        volumeHUDEnabled = bool("volumeHUDEnabled", true)
+        brightnessHUDEnabled = bool("brightnessHUDEnabled", true)
+        privacyIndicatorsEnabled = bool("privacyIndicatorsEnabled", true)
+        callDetectionEnabled = bool("callDetectionEnabled", true)
+        focusEnabled = bool("focusEnabled", true)
+        calendarEnabled = bool("calendarEnabled", false)
+        unlockEnabled = bool("unlockEnabled", true)
+        shelfEnabled = bool("shelfEnabled", true)
+        timerSoundEnabled = bool("timerSoundEnabled", true)
+
+        notchWidthOverride = double("notchWidthOverride", 0)
+        notchHeightOverride = double("notchHeightOverride", 0)
+
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+}

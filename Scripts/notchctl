@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# notchctl — drive Notch Island from the command line (wraps the notchisland:// URL scheme).
+#
+#   notchctl activity <id> --title "Building" [--subtitle "xcodebuild"] [--symbol hammer.fill]
+#                          [--tint blue] [--progress 0.4] [--trailing "40%"] [--body "…"]
+#                          [--url https://…] [--ttl 600] [--expanded] [--ring] [--priority 70]
+#   notchctl end <id>
+#   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
+#   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
+#   notchctl shelf add <path>                   notchctl shelf clear
+#   notchctl home | collapse | settings
+set -euo pipefail
+
+urlencode() {
+  local s="$1" out="" c i
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) out+=$(printf '%%%02X' "'$c") ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+query=()
+add() { query+=("$1=$(urlencode "$2")"); }
+
+open_url() {
+  local base="$1" q=""
+  if (( ${#query[@]} )); then q="?$(IFS='&'; echo "${query[*]}")"; fi
+  open -g "notchisland://${base}${q}"
+}
+
+parse_flags() {
+  while (( $# )); do
+    case "$1" in
+      --title) add title "$2"; shift 2 ;;
+      --subtitle) add subtitle "$2"; shift 2 ;;
+      --symbol|--icon) add symbol "$2"; shift 2 ;;
+      --tint|--color) add tint "$2"; shift 2 ;;
+      --progress) add progress "$2"; shift 2 ;;
+      --trailing) add trailing "$2"; shift 2 ;;
+      --body) add body "$2"; shift 2 ;;
+      --url) add url "$2"; shift 2 ;;
+      --ttl) add ttl "$2"; shift 2 ;;
+      --duration) add duration "$2"; shift 2 ;;
+      --priority) add priority "$2"; shift 2 ;;
+      --label) add label "$2"; shift 2 ;;
+      --expanded) add expanded 1; shift ;;
+      --ring) add ring 1; shift ;;
+      *) echo "unknown flag: $1" >&2; exit 2 ;;
+    esac
+  done
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  activity)
+    id="${1:?activity id required}"; shift
+    add id "$id"; parse_flags "$@"; open_url "activity" ;;
+  end)
+    add id "${1:?activity id required}"; open_url "activity/end" ;;
+  alert)
+    add title "${1:?alert title required}"; shift; parse_flags "$@"; open_url "alert" ;;
+  timer)
+    case "${1:-}" in
+      cancel|pause|resume) open_url "timer/$1" ;;
+      *) add minutes "${1:?minutes required}"; shift; parse_flags "$@"; open_url "timer" ;;
+    esac ;;
+  shelf)
+    case "${1:-}" in
+      add) add path "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; open_url "shelf/add" ;;
+      clear) open_url "shelf/clear" ;;
+      *) echo "usage: notchctl shelf add <path> | clear" >&2; exit 2 ;;
+    esac ;;
+  home|collapse|settings)
+    open_url "$cmd" ;;
+  *)
+    sed -n '2,12p' "$0"; exit 2 ;;
+esac

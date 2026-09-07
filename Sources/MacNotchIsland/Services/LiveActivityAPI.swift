@@ -1,0 +1,101 @@
+import AppKit
+
+/// Third-party Live Activities and alerts through the `notchisland://` URL scheme
+/// (works from Shortcuts' "Open URLs", scripts, CI hooks) and a distributed notification.
+///
+///   notchisland://activity?id=build&title=Building&subtitle=xcodebuild&symbol=hammer.fill&tint=blue&progress=0.4&trailing=40%25&ttl=600&expanded=1&ring=1&url=https://…
+///   notchisland://activity/end?id=build
+///   notchisland://alert?title=Deployed&symbol=checkmark.circle.fill&tint=green&duration=3
+///   notchisland://timer?minutes=5&label=Tea       notchisland://timer/cancel | pause | resume
+///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
+///   notchisland://home
+final class LiveActivityAPI {
+    static let shared = LiveActivityAPI()
+    static let notificationName = Notification.Name("com.macnotchisland.api")
+
+    private var token: NSObjectProtocol?
+
+    func start() {
+        guard token == nil else { return }
+        token = DistributedNotificationCenter.default().addObserver(forName: Self.notificationName, object: nil, queue: .main) { [weak self] note in
+            if let s = note.userInfo?["url"] as? String, let url = URL(string: s) { self?.handle(url) }
+            else if let s = note.object as? String, let url = URL(string: s) { self?.handle(url) }
+        }
+    }
+
+    func handle(_ url: URL) {
+        guard url.scheme?.lowercased() == "notchisland",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        let host = (components.host ?? "").lowercased()
+        let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        var q: [String: String] = [:]
+        for item in components.queryItems ?? [] { q[item.name.lowercased()] = item.value ?? "" }
+
+        let center = ActivityCenter.shared
+        switch (host, path) {
+        case ("activity", ""), ("activity", "start"), ("activity", "update"):
+            let id = q["id"] ?? "custom"
+            var custom = CustomActivity(title: q["title"] ?? "Activity")
+            custom.subtitle = q["subtitle"]
+            custom.symbol = q["symbol"] ?? q["icon"] ?? "app.fill"
+            custom.tint = q["tint"] ?? q["color"] ?? "white"
+            custom.progress = q["progress"].flatMap { Double($0) }.map { min(1, max(0, $0)) }
+            custom.trailingText = q["trailing"]
+            custom.body = q["body"]
+            custom.url = q["url"].flatMap { URL(string: $0) }
+            custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
+            let priority = q["priority"].flatMap { Int($0) } ?? 70
+            var activity = IslandActivity(id: "api-" + id, kind: .custom, content: .custom(custom), priority: priority)
+            if let ttl = q["ttl"].flatMap({ Double($0) }), ttl > 0 { activity.expiresAt = Date().addingTimeInterval(ttl) }
+            if let u = custom.url { activity.openAction = .url(u) }
+            center.upsert(activity)
+            if ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased()) {
+                center.forceExpanded(id: activity.id, for: q["duration"].flatMap { Double($0) } ?? 4)
+            }
+
+        case ("activity", "end"), ("activity", "stop"):
+            if let id = q["id"] { center.end(id: "api-" + id) } else { center.end(kind: .custom) }
+
+        case ("alert", _):
+            var custom = CustomActivity(title: q["title"] ?? "Alert")
+            custom.subtitle = q["subtitle"]
+            custom.symbol = q["symbol"] ?? q["icon"] ?? "bell.fill"
+            custom.tint = q["tint"] ?? q["color"] ?? "white"
+            custom.trailingText = q["trailing"] ?? q["title"]
+            custom.body = q["body"]
+            custom.url = q["url"].flatMap { URL(string: $0) }
+            let expanded = ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased())
+            var activity = IslandActivity(id: "api-alert", kind: .custom, content: .custom(custom), priority: 85,
+                                          presentation: expanded ? .expanded : .compact)
+            if let u = custom.url { activity.openAction = .url(u) }
+            center.showAlert(activity, duration: q["duration"].flatMap { Double($0) })
+
+        case ("timer", ""), ("timer", "start"):
+            let minutes = q["minutes"].flatMap { Double($0) } ?? 0
+            let seconds = q["seconds"].flatMap { Double($0) } ?? 0
+            let total = minutes * 60 + seconds
+            if total > 0 { IslandTimer.shared.start(seconds: total, label: q["label"] ?? "Timer") }
+        case ("timer", "cancel"), ("timer", "stop"):
+            IslandTimer.shared.cancel()
+        case ("timer", "pause"):
+            IslandTimer.shared.pause()
+        case ("timer", "resume"):
+            IslandTimer.shared.resume()
+
+        case ("shelf", "add"):
+            if let p = q["path"] { ShelfStore.shared.add([URL(fileURLWithPath: (p as NSString).expandingTildeInPath)]) }
+        case ("shelf", "clear"):
+            ShelfStore.shared.clear()
+
+        case ("home", _):
+            center.showHome()
+        case ("collapse", _):
+            center.collapse()
+        case ("settings", _):
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        default:
+            NSLog("Unknown notchisland URL: \(url)")
+        }
+    }
+}

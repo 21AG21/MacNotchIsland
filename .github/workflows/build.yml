@@ -1,0 +1,26 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Build (release)
+        run: swift build -c release -v 2>&1 | tail -n 200
+      - name: Bundle
+        run: Scripts/build.sh
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacNotchIsland.app
+          path: build/MacNotchIsland.app
+          if-no-files-found: error

@@ -1,0 +1,42 @@
+import Foundation
+import Combine
+
+/// Starts and stops every monitor according to preferences.
+final class ServiceHub {
+    let nowPlaying = NowPlayingService.shared
+    let battery = BatteryMonitor()
+    let bluetooth = BluetoothMonitor()
+    let audio = AudioMonitor()
+    let brightness = BrightnessMonitor()
+    let camera = CameraMonitor()
+    let calls = CallDetector()
+    let focus = FocusMonitor()
+    let calendar = CalendarMonitor()
+    let screenLock = ScreenLockMonitor()
+
+    private var cancellables = Set<AnyCancellable>()
+
+    func start() {
+        apply()
+        LiveActivityAPI.shared.start()
+        Preferences.shared.objectWillChange
+            .debounce(for: .milliseconds(150), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.apply() }
+            .store(in: &cancellables)
+    }
+
+    private func apply() {
+        let p = Preferences.shared
+        p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
+        p.batteryEnabled ? battery.start() : battery.stop()
+        p.bluetoothEnabled ? bluetooth.start() : bluetooth.stop()
+        // The audio monitor feeds the volume HUD, silent-mode alert, mic indicator and call detection.
+        (p.volumeHUDEnabled || p.privacyIndicatorsEnabled || p.callDetectionEnabled) ? audio.start() : audio.stop()
+        p.brightnessHUDEnabled ? brightness.start() : brightness.stop()
+        p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
+        p.callDetectionEnabled ? calls.start() : calls.stop()
+        p.focusEnabled ? focus.start() : focus.stop()
+        p.calendarEnabled ? calendar.start() : calendar.stop()
+        p.unlockEnabled ? screenLock.start() : screenLock.stop()
+    }
+}

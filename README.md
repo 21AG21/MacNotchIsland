@@ -1,0 +1,107 @@
+# Notch Island
+
+The iPhone's Dynamic Island, rebuilt for the MacBook notch. Built and tuned for the
+15-inch MacBook Air (M5) but it detects the notch on any notched MacBook and can simulate
+an island on external displays.
+
+The island lives in a transparent panel over the notch. Idle, it *is* the notch. When
+something happens it grows out of the notch with the same spring, the same three states,
+and the same content layout as iOS.
+
+## What it does
+
+| iPhone Dynamic Island | Notch Island on the Mac |
+| --- | --- |
+| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same. Any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover to expand, click to open the app, drag the scrubber to seek. |
+| Timer countdown in orange, expanded pause / cancel, "timer done" state | Same, with 1–60 min presets in the Home panel and menu bar, or `notchctl timer 5`. |
+| Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. |
+| Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. |
+| AirPods / Bluetooth connect with battery | IOBluetooth connection events, AirPods left / right / case battery rings from the IORegistry. |
+| Focus on / off with the Focus symbol | Watches macOS's Focus assertion database. |
+| Silent / ring switch | Mute toggling shows the bell; volume and brightness changes show a level bar. |
+| Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
+| Face ID unlock animation | "Unlocked" when the Mac unlocks. |
+| Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
+| Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap. |
+| Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. |
+| Long-press to expand, tap to open | Hover to expand, click to open. Trackpad haptics on state changes. |
+| — | File shelf: drag files onto the notch to keep them within reach and drag them out again. |
+
+## Build
+
+Requires macOS 14 Sonoma or later and Xcode 15+ (or the Command Line Tools with a Swift 5.9
+toolchain).
+
+```sh
+git clone https://github.com/21AG21/MacNotchIsland.git
+cd MacNotchIsland
+make            # builds build/MacNotchIsland.app
+make run        # builds and launches
+make install    # copies to /Applications
+```
+
+The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the
+demo menu, and Quit. Turn on "Launch at login" in Settings once you're happy with it.
+
+## Permissions
+
+Nothing is required up front. macOS asks for these lazily:
+
+- **Automation (Music, Spotify)**: on macOS 15.4 and later Apple stopped delivering
+  system-wide Now Playing data to third-party apps. Notch Island falls back to asking Music
+  and Spotify directly with AppleScript, which prompts once per app.
+- **Calendars**: only if you turn on "Upcoming calendar events".
+
+The microphone and camera indicators read the devices' *in-use* state; no audio or video is
+ever captured.
+
+## Automation
+
+Any script or Shortcut (via "Open URLs") can push a Live Activity:
+
+```sh
+Scripts/notchctl activity build --title "Building" --subtitle "xcodebuild" --symbol hammer.fill --tint blue --progress 0.4 --ring
+Scripts/notchctl activity build --title "Building" --progress 0.9           # update in place
+Scripts/notchctl end build
+Scripts/notchctl alert "Deployed" --symbol checkmark.circle.fill --tint green
+Scripts/notchctl timer 25 --label Focus
+Scripts/notchctl shelf add ~/Downloads/report.pdf
+```
+
+The underlying URLs:
+
+```
+notchisland://activity?id=…&title=…&subtitle=…&symbol=…&tint=…&progress=0–1&trailing=…&body=…&url=…&ttl=seconds&expanded=1&ring=1&priority=70
+notchisland://activity/end?id=…
+notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1
+notchisland://timer?minutes=5&label=Tea    notchisland://timer/cancel | pause | resume
+notchisland://shelf/add?path=…             notchisland://shelf/clear
+notchisland://home | collapse | settings
+```
+
+`tint` accepts the iOS system colour names (red, orange, yellow, green, mint, teal, cyan,
+blue, indigo, purple, pink, brown, gray, white) or a hex value. `symbol` is any SF Symbol.
+
+## How it's put together
+
+- `Core/ActivityCenter.swift` owns live activities and transient alerts and derives the
+  current presentation (idle, compact with optional bubble, expanded, home, shelf).
+- `Core/IslandLayout.swift` turns a presentation plus the screen's notch geometry into
+  concrete sizes and corner radii; the same function drives the click-through hit test.
+- `Shapes/NotchShape.swift` is the outline with outward-curving top corners so the black
+  blends into the bezel like the physical notch.
+- `Core/NotchPanel.swift` is the non-activating panel above the menu bar and full-screen
+  apps; `NotchHostingView` keeps everything outside the island click-through.
+- `Services/` holds one monitor per data source. Each is independent and toggled from
+  Settings.
+- The Settings window follows the house monochrome style: flat ground, big type, hairlines,
+  no accent colour. The island itself keeps iOS's semantic colours (orange timer, green call
+  and charging, artwork-tinted visualizer) because that is what it is cloning.
+
+## Notes
+
+- macOS still shows its own volume / brightness bezel; suppressing it requires disabling a
+  system service, which this app does not do.
+- The island stays above full-screen apps and on every Space. On a Mac without a notch (or
+  an external display with "Show on every display" on) a simulated island is drawn at the
+  top centre.
