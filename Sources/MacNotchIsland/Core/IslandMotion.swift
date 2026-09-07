@@ -22,7 +22,7 @@ enum IslandMotion {
     /// The content swap for a change of view: a directional push when the user stepped
     /// sideways (keyboard, tab bar), a blur cross-fade otherwise.
     static func contentTransition(direction: Int) -> AnyTransition {
-        guard direction != 0, !reduceMotion else { return .blurReplace }
+        guard direction != 0, !reduceMotion else { return AnyTransition(BlurReplaceTransition.blurReplace) }
         let distance = direction > 0 ? slideDistance : -slideDistance
         return .asymmetric(insertion: .offset(x: distance).combined(with: .opacity),
                            removal: .offset(x: -distance).combined(with: .opacity))

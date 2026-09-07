@@ -33,6 +33,7 @@ jobs:
       - name: Failures
         if: failure()
         run: |
+          [ -f test.log ] || { echo "The build failed before the tests ran; see the build step."; exit 0; }
           echo "Failing assertions and errors:"
           grep -nE "error:|: failed|failed \(" test.log | grep -v "passed" | head -n 60 || true
       - name: Bundle
