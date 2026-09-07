@@ -245,9 +245,12 @@ final class GestureRouter {
     }
 
     /// Mirrors `HomeExpandedView.availableTabs`.
-    private var availableHomeTabs: [String] {
-        let prefs = Preferences.shared
-        return Self.homeTabOrder.filter { tab in
+    private var availableHomeTabs: [String] { Self.availableHomeTabs(Preferences.shared) }
+
+    /// The Home tabs the preferences currently allow, in tab-bar order. Shared with the
+    /// keyboard ring in ActivityCenter so both agree on what "next tab" means.
+    static func availableHomeTabs(_ prefs: Preferences) -> [String] {
+        return homeTabOrder.filter { tab in
             switch tab {
             case "shelf": return prefs.shelfEnabled
             case "clipboard": return prefs.clipboardEnabled

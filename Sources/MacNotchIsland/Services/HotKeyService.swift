@@ -3,9 +3,11 @@ import Carbon.HIToolbox
 import Combine
 import Foundation
 
-/// Global shortcut that summons the island without touching the trackpad. The combo lives in
-/// preferences (⌃⌥Space out of the box) and is re-registered whenever the user records a new one.
-/// Uses Carbon's RegisterEventHotKey, which works for background apps with no permissions.
+/// Global shortcuts that drive the island without touching the trackpad. The main combo lives
+/// in preferences (⌃⌥Space out of the box) and toggles the island; the same modifiers with Tab
+/// step forward through every view, with Shift+Tab backward; Escape closes whatever is open and
+/// is only registered while something is. Uses Carbon's RegisterEventHotKey, which works for
+/// background apps with no permissions.
 final class HotKeyService: ObservableObject {
     /// One owner for the registration, so Settings can watch it while ServiceHub drives it.
     static let shared = HotKeyService()
@@ -18,8 +20,11 @@ final class HotKeyService: ObservableObject {
     static let defaultKeyCode = kVK_Space
     static let defaultModifiers = controlKey | optionKey
 
-    private var hotKeyRef: EventHotKeyRef?
+    private enum Slot: UInt32 { case toggle = 1, next = 2, previous = 3, escape = 4 }
+
+    private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
+    private var escapeArmed = false
     private var cancellables = Set<AnyCancellable>()
     private static let signature: OSType = 0x4E4F5443 // "NOTC"
 
@@ -30,8 +35,12 @@ final class HotKeyService: ObservableObject {
     func start() {
         guard handlerRef == nil else { return }
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        let status = InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { HotKeyService.toggleIsland() }
+        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+            var hotKeyID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                              nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            let slot = Slot(rawValue: hotKeyID.id) ?? .toggle
+            DispatchQueue.main.async { HotKeyService.handle(slot) }
             return noErr
         }, 1, &eventType, nil, &handlerRef)
         guard status == noErr else {
@@ -75,23 +84,41 @@ final class HotKeyService: ObservableObject {
     private func register() {
         guard handlerRef != nil else { return }
         unregister()
-        let keyCode = UInt32(Self.currentKeyCode)
-        let modifiers = UInt32(Self.currentModifiers)
-        let id = EventHotKeyID(signature: Self.signature, id: 1)
+        let modifiers = Self.currentModifiers
+        registrationFailed = !register(.toggle, keyCode: Self.currentKeyCode, modifiers: modifiers)
+        // Tab with the same modifiers cycles views; adding Shift reverses. When the main combo
+        // already holds Shift the two coincide, and only the forward step registers.
+        register(.next, keyCode: kVK_Tab, modifiers: modifiers)
+        if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
+        if escapeArmed { register(.escape, keyCode: kVK_Escape, modifiers: 0) }
+    }
+
+    @discardableResult
+    private func register(_ slot: Slot, keyCode: Int, modifiers: Int) -> Bool {
+        let id = EventHotKeyID(signature: Self.signature, id: slot.rawValue)
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &ref)
-        if status == noErr, ref != nil {
-            hotKeyRef = ref
-            registrationFailed = false
-        } else {
-            hotKeyRef = nil
-            registrationFailed = true
-        }
+        let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id, GetApplicationEventTarget(), 0, &ref)
+        guard status == noErr, let ref else { return false }
+        hotKeyRefs[slot] = ref
+        return true
     }
 
     private func unregister() {
-        if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
-        hotKeyRef = nil
+        for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
+        hotKeyRefs.removeAll()
+    }
+
+    private func unregister(_ slot: Slot) {
+        if let ref = hotKeyRefs.removeValue(forKey: slot) { UnregisterEventHotKey(ref) }
+    }
+
+    /// Escape is claimed only while the island has something open, so it never interferes
+    /// with other apps the rest of the time.
+    func setEscapeArmed(_ armed: Bool) {
+        guard armed != escapeArmed else { return }
+        escapeArmed = armed
+        guard handlerRef != nil else { return }
+        if armed { register(.escape, keyCode: kVK_Escape, modifiers: 0) } else { unregister(.escape) }
     }
 
     static var currentKeyCode: Int {
@@ -109,18 +136,19 @@ final class HotKeyService: ObservableObject {
         return Int(value)
     }
 
-    // MARK: - Action
+    // MARK: - Actions
 
-    static func toggleIsland() {
+    private static func handle(_ slot: Slot) {
         let center = ActivityCenter.shared
-        if center.presentation.isExpanded {
-            center.collapse()
-        } else if let primary = center.primary, primary.content.hasExpandedView {
-            center.forceExpanded(id: primary.id, for: 8)
-        } else {
-            center.showHome(for: 8)
+        switch slot {
+        case .toggle: center.toggle()
+        case .next: center.cycleView(forward: true)
+        case .previous: center.cycleView(forward: false)
+        case .escape: center.collapse()
         }
     }
+
+    static func toggleIsland() { ActivityCenter.shared.toggle() }
 
     // MARK: - Display
 

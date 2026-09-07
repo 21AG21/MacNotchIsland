@@ -124,4 +124,114 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(center.privacyIndicatorsVisible)
         Preferences.shared.privacyIndicatorsEnabled = true
     }
+
+    // MARK: - Ordering
+
+    func testNewestKindTakesTheIslandAndUrgentAlwaysWins() {
+        var timer = custom("timer", priority: 90)
+        timer.startedAt = Date(timeIntervalSinceNow: -60)
+        var music = custom("music", priority: 50)
+        music.startedAt = Date()
+        let ordered = ActivityCenter.ordered([timer, music], pinnedID: nil)
+        XCTAssertEqual(ordered.map(\.id), ["music", "timer"], "the activity that started last owns the island")
+
+        var call = custom("call", priority: 100)
+        call.startedAt = Date(timeIntervalSinceNow: -600)
+        XCTAssertEqual(ActivityCenter.ordered([timer, music, call], pinnedID: nil).first?.id, "call")
+        XCTAssertEqual(ActivityCenter.ordered([timer, music], pinnedID: "timer").first?.id, "timer")
+    }
+
+    func testActivitiesOfOneKindKeepTheirOwnPriorityOrder() {
+        var soon = IslandActivity(id: "timer", kind: .timer,
+                                  content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 91)
+        soon.startedAt = Date(timeIntervalSinceNow: -120)
+        var later = IslandActivity(id: "timer-2", kind: .timer,
+                                   content: .timer(TimerState(label: "Roast", total: 3600, endDate: Date(timeIntervalSinceNow: 3600))), priority: 90)
+        later.startedAt = Date()
+        var music = custom("music", priority: 50)
+        music.startedAt = Date(timeIntervalSinceNow: -30)
+        let ordered = ActivityCenter.ordered([music, later, soon], pinnedID: nil)
+        XCTAssertEqual(ordered.map(\.id), ["timer", "timer-2", "music"],
+                       "a newer timer keeps the timers first, but the soonest one leads them")
+    }
+
+    // MARK: - Clicks and keyboard
+
+    func testClickOpensAndClosesWithoutAnyHover() {
+        Preferences.shared.hoverToExpand = false
+        Preferences.shared.expandOnIdleHover = false
+        center.upsert(IslandActivity(id: "timer", kind: .timer,
+                                     content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
+        guard case .compact = center.presentation else { return XCTFail("compact at rest") }
+        center.tap()
+        guard case .expanded(let a) = center.presentation else { return XCTFail("a click opens the activity") }
+        XCTAssertEqual(a.id, "timer")
+        XCTAssertTrue(center.isOpen)
+        center.tap()
+        guard case .compact = center.presentation else { return XCTFail("a second click closes it") }
+        XCTAssertFalse(center.isOpen)
+
+        center.end(id: "timer")
+        center.tap()
+        XCTAssertEqual(center.presentation, .home, "clicking the empty island opens Home")
+        center.collapse()
+        XCTAssertEqual(center.presentation, .idle)
+    }
+
+    func testEndingAnOpenActivityClosesIt() {
+        center.upsert(IslandActivity(id: "timer", kind: .timer,
+                                     content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
+        center.open(.activity(id: "timer"))
+        center.end(id: "timer")
+        XCTAssertFalse(center.isOpen)
+        XCTAssertEqual(center.presentation, .idle)
+    }
+
+    func testKeyboardRingCyclesActivitiesThenHomeTabsAndWraps() {
+        Preferences.shared.shelfEnabled = false
+        Preferences.shared.clipboardEnabled = false
+        Preferences.shared.quickActionsEnabled = false
+        Preferences.shared.mirrorEnabled = false
+        Preferences.shared.statsEnabled = false
+        Preferences.shared.weatherEnabled = false
+        center.upsert(IslandActivity(id: "timer", kind: .timer,
+                                     content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
+        XCTAssertEqual(center.keyboardRing, [.activity(id: "timer"), .home(tab: "music")])
+
+        center.cycleView(forward: true)
+        XCTAssertEqual(center.openView, .activity(id: "timer"))
+        center.cycleView(forward: true)
+        XCTAssertEqual(center.openView, .home(tab: "music"))
+        XCTAssertEqual(center.presentation, .home)
+        center.cycleView(forward: true)
+        XCTAssertEqual(center.openView, .activity(id: "timer"), "wraps around")
+        center.cycleView(forward: false)
+        XCTAssertEqual(center.openView, .home(tab: "music"))
+        center.collapse()
+        center.cycleView(forward: false)
+        XCTAssertEqual(center.openView, .home(tab: "music"), "backwards from closed lands on the last view")
+        center.collapse()
+        Preferences.shared.shelfEnabled = true
+    }
+
+    func testToggleOpensPrimaryThenCloses() {
+        center.upsert(IslandActivity(id: "timer", kind: .timer,
+                                     content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
+        center.toggle()
+        guard case .expanded = center.presentation else { return XCTFail("shortcut opens the main activity") }
+        center.toggle()
+        guard case .compact = center.presentation else { return XCTFail("shortcut closes it again") }
+    }
+
+    func testDismissedAlertDropsItsOpenView() {
+        let alert = IslandActivity(id: "bt", kind: .bluetooth,
+                                   content: .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods", batteryLeft: 50)),
+                                   priority: 85)
+        center.showAlert(alert, duration: 5)
+        center.tap()
+        guard case .expanded = center.presentation else { return XCTFail("clicking an alert opens its large view") }
+        center.dismissAlert()
+        XCTAssertFalse(center.isOpen)
+        XCTAssertEqual(center.presentation, .idle)
+    }
 }

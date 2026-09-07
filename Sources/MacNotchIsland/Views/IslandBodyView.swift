@@ -25,10 +25,14 @@ struct IslandBodyView: View {
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
         .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom))
+        // Press-in feedback while the whole island is the button (compact and idle); the
+        // expanded panels have controls of their own that give their own feedback.
+        .scaleEffect(pressed ? 0.97 : 1, anchor: .top)
+        .animation(IslandMotion.quick, value: pressed)
         // A floating pill hangs below the top edge instead of fusing into it; zero otherwise.
         .offset(y: layout.topInset)
         .onHover { hovering in center.setHovering(hovering, panel: panelID) }
-        .onTapGesture { center.tap() }
+        .onTapGesture { center.tap(panel: panelID) }
         .onDrop(of: [UTType.fileURL], isTargeted: $dropTargeted) { providers in
             guard prefs.shelfEnabled else { return false }
             return ShelfStore.shared.acceptDrop(providers)
@@ -36,6 +40,10 @@ struct IslandBodyView: View {
         .onChange(of: dropTargeted) { _, targeted in
             center.setDragTargeted(targeted && prefs.shelfEnabled, panel: panelID)
         }
+    }
+
+    private var pressed: Bool {
+        center.pressedPanel == panelID && !layout.isExpanded
     }
 
     @ViewBuilder

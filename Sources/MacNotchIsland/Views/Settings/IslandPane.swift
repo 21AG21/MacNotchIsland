@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import SwiftUI
 
 /// "Island": how the island reacts to the pointer, the trackpad and the keyboard.
@@ -7,15 +8,27 @@ struct IslandPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Expand when hovered", isOn: $prefs.hoverToExpand)
-                    .help("Hovering the notch is the Mac's equivalent of a long press.")
-                Toggle("Open Home panel when idle and hovered", isOn: $prefs.expandOnIdleHover)
-                    .help("With nothing live, hovering opens the Home panel instead of an empty island.")
-                SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
+                LabeledContent("Toggle island", value: HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode, carbonModifiers: HotKeyService.currentModifiers))
+                LabeledContent("Next view", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
+                LabeledContent("Previous view", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
+                LabeledContent("Close", value: "Escape")
             } header: {
-                Text("Hover")
+                Text("Keyboard")
             } footer: {
-                Text("A longer delay keeps the island out of the way while you reach for the menu bar.")
+                Text("Change the shortcut under Shortcuts. Clicking the island opens it as well; clicking anywhere else closes it.")
+            }
+
+            Section {
+                Toggle("Expand when the pointer rests on the island", isOn: $prefs.hoverToExpand)
+                    .help("Off by default: the island reacts to clicks and the keyboard, never to the pointer passing by.")
+                Toggle("Open Home panel when the empty island is hovered", isOn: $prefs.expandOnIdleHover)
+                if prefs.hoverToExpand || prefs.expandOnIdleHover {
+                    SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
+                }
+            } header: {
+                Text("Pointer")
+            } footer: {
+                Text("Both are off unless you want them. With them off, nothing opens until you click or use the keyboard.")
             }
 
             Section {

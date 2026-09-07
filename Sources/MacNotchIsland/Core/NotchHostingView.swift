@@ -11,6 +11,16 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     /// Controls inside the island react to the first click even when the panel isn't key.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override func mouseDown(with event: NSEvent) {
+        ActivityCenter.shared.setPressed(true, panel: panelID)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        ActivityCenter.shared.setPressed(false, panel: panelID)
+    }
+
     /// A context menu takes the pointer off the island; hold the panel open while it's up.
     override func rightMouseDown(with event: NSEvent) {
         ActivityCenter.shared.holdOpen(for: 15)

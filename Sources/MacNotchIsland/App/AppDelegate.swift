@@ -24,6 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification,
                                                object: nil)
+        // The island belongs to the notch, not to a Space or an app: whenever the desktop
+        // underneath changes, put every panel back on top and over its notch.
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(spaceChanged),
+                              name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(frontAppChanged),
+                              name: NSWorkspace.didActivateApplicationNotification, object: nil)
 
         let prefs = Preferences.shared
         Publishers.Merge3(
@@ -45,6 +52,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         ActivityCenter.shared.showHome()
         return false
+    }
+
+    /// Switching desktops closes anything the user had open, like a popover would, and makes
+    /// sure the panel is on top of the new Space.
+    @objc private func spaceChanged() {
+        ActivityCenter.shared.collapse()
+        for panel in panels {
+            panel.orderFrontRegardless()
+            panel.refit()
+        }
+    }
+
+    @objc private func frontAppChanged() {
+        for panel in panels { panel.orderFrontRegardless() }
     }
 
     @objc private func screensChanged() {

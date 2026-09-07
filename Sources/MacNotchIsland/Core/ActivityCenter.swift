@@ -4,12 +4,16 @@ import Combine
 /// The brain of the island. Owns live activities and transient alerts, tracks hover /
 /// drag / click state, and derives what the island should currently present.
 ///
-/// Rules mirror the iPhone's Dynamic Island:
+/// Rules mirror the iPhone's Dynamic Island, translated to a pointer and a keyboard:
 /// - Alerts (charging, AirPods, Focus, unlock, volume) briefly take over the island.
-/// - The highest-priority live activity owns the island; the next one becomes the detached
-///   "minimal" bubble on the right. Tapping the bubble swaps them.
-/// - Hovering (the Mac's long-press) expands; leaving collapses after a short grace period.
-/// - With nothing live, hovering opens the Home panel (music, timer presets, file shelf).
+/// - The most recently started live activity owns the island; the other becomes the detached
+///   "minimal" bubble on the right. Clicking the bubble swaps them. A call, or a timer that
+///   just rang, always wins regardless of age.
+/// - Nothing happens on hover. A click on the island opens it (the activity's expanded view,
+///   or the Home panel when nothing is live); a click on the island again, a click anywhere
+///   else, Escape or the global shortcut closes it. Shortcut modifiers + Tab cycles through
+///   every open-able view; with Shift it cycles back.
+/// - Files dragged onto the island open the shelf for the duration of the drag.
 final class ActivityCenter: ObservableObject {
     static let shared = ActivityCenter()
 
@@ -21,8 +25,13 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var dragPanel: String? = nil
     var isHovering: Bool { hoverPanel != nil }
     var isDragTargeted: Bool { dragPanel != nil }
-    @Published private(set) var manuallyExpanded = false
-    @Published private(set) var homeForced = false
+    /// What the user opened by clicking or with the keyboard. Stays open until dismissed;
+    /// nothing about the pointer's position changes it.
+    @Published private(set) var openView: IslandView? = nil {
+        didSet { if (openView == nil) != (oldValue == nil) { openStateChanged() } }
+    }
+    /// The panel whose island is being held down, for the press-in feedback.
+    @Published private(set) var pressedPanel: String? = nil
     @Published private(set) var forcedExpandedID: String? = nil
     @Published private(set) var pinnedID: String? = nil
     @Published var micInUse = false
@@ -44,6 +53,8 @@ final class ActivityCenter: ObservableObject {
     private var hoverWork: DispatchWorkItem?
     private var homeWork: DispatchWorkItem?
     private var forcedWork: DispatchWorkItem?
+    /// Watches for clicks outside the island while it is open, the way a transient popover does.
+    private var outsideClickMonitor: Any?
     private var expiryTimer: Timer?
     private var lastSuppressed = false
     private var cancellables = Set<AnyCancellable>()
@@ -66,8 +77,8 @@ final class ActivityCenter: ObservableObject {
         pendingAlerts.removeAll()
         hoverPanel = nil
         dragPanel = nil
-        manuallyExpanded = false
-        homeForced = false
+        pressedPanel = nil
+        openView = nil
         forcedExpandedID = nil
         pinnedID = nil
         micInUse = false
@@ -80,11 +91,34 @@ final class ActivityCenter: ObservableObject {
         Preferences.shared.privacyIndicatorsEnabled && (micInUse || cameraInUse)
     }
 
+    /// Island order. The iPhone gives the main pill to whatever started most recently and
+    /// demotes the older activity to the bubble, so starting a timer while music plays shows the
+    /// timer, and pressing play while a timer runs brings the music back. Two exceptions: an
+    /// activity the user pinned by clicking its bubble, and anything urgent (a call, a timer
+    /// that has just rung). Activities of one kind are grouped, ordered by their own priority
+    /// (the soonest of several timers), so a second timer never shuffles the music.
     var sortedActivities: [IslandActivity] {
-        activities.sorted { a, b in
+        Self.ordered(activities, pinnedID: pinnedID)
+    }
+
+    /// Priority at or above this always takes the island, whatever started later.
+    static let urgentPriority = 100
+
+    static func ordered(_ activities: [IslandActivity], pinnedID: String?) -> [IslandActivity] {
+        var newestByKind: [ActivityKind: Date] = [:]
+        for a in activities {
+            newestByKind[a.kind] = max(newestByKind[a.kind] ?? .distantPast, a.startedAt)
+        }
+        return activities.sorted { a, b in
             if let pinned = pinnedID {
                 if a.id == pinned { return true }
                 if b.id == pinned { return false }
+            }
+            let urgentA = a.priority >= urgentPriority, urgentB = b.priority >= urgentPriority
+            if urgentA != urgentB { return urgentA }
+            if a.kind != b.kind {
+                let ra = newestByKind[a.kind] ?? a.startedAt, rb = newestByKind[b.kind] ?? b.startedAt
+                if ra != rb { return ra > rb }
             }
             if a.priority != b.priority { return a.priority > b.priority }
             return a.startedAt > b.startedAt
@@ -103,8 +137,12 @@ final class ActivityCenter: ObservableObject {
         hoverWork?.cancel()
         hoverPanel = nil
         dragPanel = nil
-        manuallyExpanded = false
+        pressedPanel = nil
+        openView = nil
     }
+
+    /// True while something the user opened is on screen.
+    var isOpen: Bool { openView != nil }
 
     /// Hide the island for a while (presentations, screen sharing). 0 clears the pause.
     func pause(for seconds: TimeInterval) {
@@ -126,18 +164,26 @@ final class ActivityCenter: ObservableObject {
         if dragging && prefs.shelfEnabled { return .shelf }
 
         if let alert {
-            let wantsExpanded = alert.presentation == .expanded || hovering || manuallyExpanded
+            let wantsExpanded = alert.presentation == .expanded || (hovering && prefs.hoverToExpand)
+                || openView == .activity(id: alert.id)
             if wantsExpanded && alert.content.hasExpandedView { return .expanded(alert) }
             return .compact(alert, bubble: nil)
         }
 
-        if homeForced { return .home }
-
         let live = sortedActivities
+        switch openView {
+        case .home:
+            return .home
+        case .activity(let id):
+            if let a = live.first(where: { $0.id == id }), a.content.hasExpandedView { return .expanded(a) }
+        case nil:
+            break
+        }
+
         if let primary = live.first {
             let hoverExpand = hovering && prefs.hoverToExpand
             let forced = forcedExpandedID == primary.id
-            if (hoverExpand || manuallyExpanded || forced) && primary.content.hasExpandedView {
+            if (hoverExpand || forced) && primary.content.hasExpandedView {
                 return .expanded(primary)
             }
             return .compact(primary, bubble: live.dropFirst().first)
@@ -174,6 +220,7 @@ final class ActivityCenter: ObservableObject {
         activities.removeAll { $0.id == id }
         if pinnedID == id { pinnedID = nil }
         if forcedExpandedID == id { forcedExpandedID = nil }
+        if openView == .activity(id: id) { openView = nil }
     }
 
     func end(kind: ActivityKind) {
@@ -251,6 +298,7 @@ final class ActivityCenter: ObservableObject {
                 self.scheduleAlertDismiss(id: id, after: 1.0)
             } else {
                 self.alert = nil
+                if self.openView == .activity(id: id) { self.openView = nil }
                 self.showNextPendingAlert()
             }
         }
@@ -270,12 +318,15 @@ final class ActivityCenter: ObservableObject {
 
     func dismissAlert() {
         alertWork?.cancel()
+        if let alert, openView == .activity(id: alert.id) { openView = nil }
         alert = nil
         pendingAlerts.removeAll()
     }
 
     // MARK: - Interaction
 
+    /// Tracks which panel the pointer is over. Nothing opens because of it unless the user
+    /// switched the hover options on; alerts merely stay up a little longer under the pointer.
     func setHovering(_ hovering: Bool, panel: String = "main") {
         hoverWork?.cancel()
         let delay = hovering ? Preferences.shared.hoverDelay : 0.35
@@ -286,13 +337,17 @@ final class ActivityCenter: ObservableObject {
             } else {
                 guard self.hoverPanel == panel else { return }
             }
-            let before = self.presentation(for: panel)
             self.hoverPanel = hovering ? panel : nil
-            if !hovering { self.manuallyExpanded = false }
-            if before.isExpanded != self.presentation(for: panel).isExpanded { Haptics.tap() }
         }
         hoverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// Press-in feedback: the island shrinks slightly under the pointer, like the iPhone's
+    /// island under a finger.
+    func setPressed(_ pressed: Bool, panel: String = "main") {
+        let next: String? = pressed ? panel : nil
+        if pressedPanel != next { pressedPanel = next }
     }
 
     func setDragTargeted(_ targeted: Bool, panel: String = "main") {
@@ -306,57 +361,135 @@ final class ActivityCenter: ObservableObject {
         }
     }
 
-    func tap() {
-        switch presentation {
+    /// A click on the island. Compact: open what is showing. Expanded: close it again, the way a
+    /// menu bar extra toggles. Idle: open the Home panel. Alerts without a large view perform
+    /// their action instead.
+    func tap(panel: String = "main") {
+        switch presentation(for: panel) {
         case .compact(let a, _):
-            if let open = a.openAction {
-                open.perform()
-            } else if a.content.hasExpandedView {
-                manuallyExpanded = true
+            if a.content.hasExpandedView {
+                open(.activity(id: a.id))
+            } else if let action = a.openAction {
+                action.perform()
+                Haptics.tap()
             }
-            Haptics.tap()
+        case .expanded:
+            collapse()
         case .idle:
-            if Preferences.shared.expandOnIdleHover { showHome() }
-        default:
+            open(.home(tab: Self.currentHomeTab))
+        case .home, .shelf:
             break
         }
     }
 
-    func toggleManualExpansion() {
-        manuallyExpanded.toggle()
-        Haptics.tap()
+    /// Opens a view and keeps it open until `collapse()`.
+    func open(_ view: IslandView) {
+        homeWork?.cancel()
+        lastInteraction = Date()
+        if case .home(let tab) = view { Self.selectHomeTab(tab) }
+        if openView != view {
+            openView = view
+            Haptics.tap()
+        }
+    }
+
+    /// The global shortcut: close whatever is open, else open the main activity, else Home.
+    func toggle() {
+        if isOpen || presentation.isExpanded {
+            collapse()
+        } else if let primary = primary, primary.content.hasExpandedView {
+            open(.activity(id: primary.id))
+        } else {
+            open(.home(tab: Self.currentHomeTab))
+        }
+    }
+
+    /// Every view the keyboard can reach, in island order: each live activity's expanded view,
+    /// then the Home panel's tabs.
+    var keyboardRing: [IslandView] {
+        let activities = sortedActivities.filter { $0.content.hasExpandedView }.map { IslandView.activity(id: $0.id) }
+        let tabs = GestureRouter.availableHomeTabs(Preferences.shared).map { IslandView.home(tab: $0) }
+        return activities + tabs
+    }
+
+    /// Shortcut modifiers + Tab (forward) or Shift + Tab (backward). Closed: opens the first
+    /// (or last) view. Open: moves one step, wrapping around.
+    func cycleView(forward: Bool) {
+        let ring = keyboardRing
+        guard !ring.isEmpty else { return }
+        let next: IslandView
+        if let current = openView, let i = ring.firstIndex(of: current) {
+            next = ring[(i + (forward ? 1 : ring.count - 1)) % ring.count]
+        } else {
+            next = forward ? ring[0] : ring[ring.count - 1]
+        }
+        open(next)
+        Haptics.soft()
     }
 
     func collapse() {
-        manuallyExpanded = false
-        homeForced = false
+        homeWork?.cancel()
+        openView = nil
         forcedExpandedID = nil
         if !isHovering { alert = nil }
     }
 
-    /// Keep the current panel open while a menu or share sheet is in flight (the pointer
-    /// leaves the island when a menu opens, which would otherwise collapse it).
+    /// Menus and share sheets used to need this to survive the pointer leaving; an open island
+    /// no longer closes on its own, so this only cancels a pending timed close.
     func holdOpen(for seconds: TimeInterval = 10) {
         homeWork?.cancel()
-        homeForced = true
+    }
+
+    /// Open the Home panel programmatically (menu bar, URL scheme, the welcome tour). With a
+    /// duration it closes itself again unless the user has interacted with it since.
+    func showHome(for seconds: TimeInterval = 0) {
+        open(.home(tab: Self.currentHomeTab))
+        guard seconds > 0 else { return }
+        let opened = Date()
         let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            if self.isHovering { self.holdOpen(for: 1) } else { self.homeForced = false }
+            guard let self, case .home = self.openView, !self.isHovering,
+                  self.lastInteraction <= opened else { return }
+            self.openView = nil
         }
         homeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
-    /// Open the Home panel programmatically (menu bar, URL scheme).
-    func showHome(for seconds: TimeInterval = 5) {
-        homeWork?.cancel()
-        homeForced = true
-        Haptics.tap()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            if self.isHovering { self.showHome(for: 1) } else { self.homeForced = false }
-        }
-        homeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    /// When the user last clicked or keyed the island; a timed close never cuts that short.
+    private var lastInteraction = Date.distantPast
+
+    private static var currentHomeTab: String {
+        let stored = UserDefaults.standard.string(forKey: GestureRouter.homeTabKey) ?? GestureRouter.defaultHomeTab
+        return GestureRouter.effectiveTab(stored, available: GestureRouter.availableHomeTabs(Preferences.shared))
     }
+
+    private static func selectHomeTab(_ tab: String) {
+        guard UserDefaults.standard.string(forKey: GestureRouter.homeTabKey) != tab else { return }
+        UserDefaults.standard.set(tab, forKey: GestureRouter.homeTabKey)
+    }
+
+    /// Arms the click-outside monitor and the Escape shortcut while something is open, and
+    /// disarms both the moment it closes, so neither costs anything at rest.
+    private func openStateChanged() {
+        lastInteraction = Date()
+        if openView != nil {
+            HotKeyService.shared.setEscapeArmed(true)
+            guard outsideClickMonitor == nil else { return }
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                // Global monitors only see clicks delivered to other apps, so a click on the
+                // island itself (or on our Settings window) never lands here.
+                DispatchQueue.main.async { self?.collapse() }
+            }
+        } else {
+            HotKeyService.shared.setEscapeArmed(false)
+            if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor) }
+            outsideClickMonitor = nil
+        }
+    }
+}
+
+/// A view the user can open on the island and step through with the keyboard.
+enum IslandView: Equatable {
+    case activity(id: String)
+    case home(tab: String)
 }

@@ -87,8 +87,8 @@ final class Preferences: ObservableObject {
             UserDefaults.standard.object(forKey: key) == nil ? def : UserDefaults.standard.double(forKey: key)
         }
         showOnAllDisplays = bool("showOnAllDisplays", false)
-        hoverToExpand = bool("hoverToExpand", true)
-        expandOnIdleHover = bool("expandOnIdleHover", true)
+        hoverToExpand = bool("hoverToExpand", false)
+        expandOnIdleHover = bool("expandOnIdleHover", false)
         hapticsEnabled = bool("hapticsEnabled", true)
         hoverDelay = double("hoverDelay", 0.2)
         alertDuration = double("alertDuration", 2.8)
