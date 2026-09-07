@@ -23,10 +23,10 @@ struct CustomExpandedView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                     if let subtitle = state.subtitle, !subtitle.isEmpty {
-                        Text(subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                        Text(subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                     }
                     if let body = state.body, !body.isEmpty {
-                        Text(body).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
+                        Text(body).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).lineLimit(2)
                     }
                 }
                 Spacer()
@@ -39,13 +39,13 @@ struct CustomExpandedView: View {
                     CircleActionButton(symbol: "arrow.up.forward", tint: tint, size: 36) { activity.openAction?.perform() }
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilitySummary)
             if let progress = state.progress {
                 LevelBar(level: progress, tint: tint)
                     .frame(height: 5)
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, IslandInsets.horizontal)
                     .padding(.top, 10)
                     .accessibilityHidden(true)
             }

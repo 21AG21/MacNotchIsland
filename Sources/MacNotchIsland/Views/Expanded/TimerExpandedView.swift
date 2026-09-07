@@ -37,6 +37,10 @@ struct TimerExpandedView: View {
                                 .islandMatched(IslandMatchedID.timerTime)
                         }
                     }
+                    // Ring, headline, session dots and digits as one sentence; the pause and
+                    // cancel buttons beside them keep their own labels.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(spokenLabel(at: context.date))
                 }
                 Spacer(minLength: 0)
                 if state.isFinished {
@@ -49,7 +53,7 @@ struct TimerExpandedView: View {
                     CircleActionButton(symbol: "xmark", tint: .white.opacity(0.85)) { IslandTimer.shared.cancel() }
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, others.isEmpty ? 14 : 6)
             if !others.isEmpty { otherTimers }
         }
@@ -87,6 +91,28 @@ struct TimerExpandedView: View {
     private var headline: String {
         if state.isFinished { return pomodoro == nil ? "Timer done" : "\(state.label) done" }
         return state.isPaused ? "Paused" : state.label
+    }
+
+    /// "Timer, 4 minutes 59 seconds remaining", "Pasta timer paused, 1 minute remaining",
+    /// "Timer done", "Focus, 24 minutes 59 seconds remaining, session 2 of 4".
+    private func spokenLabel(at date: Date) -> String {
+        let name: String
+        if let phase = pomodoro {
+            name = phase.name
+        } else if state.label.isEmpty || state.label == "Timer" {
+            name = "Timer"
+        } else {
+            name = "\(state.label) timer"
+        }
+        var label: String
+        if state.isFinished {
+            label = "\(name) done"
+        } else {
+            let remaining = IslandAccessibility.spokenDuration(state.remaining(at: date).rounded(.up))
+            label = state.isPaused ? "\(name) paused, \(remaining) remaining" : "\(name), \(remaining) remaining"
+        }
+        if let phase = pomodoro { label += ", session \(phase.cycle) of \(phase.cycles)" }
+        return label
     }
 
     /// The session indicator: one small dot per Pomodoro cycle, filled up to the current one.
@@ -130,7 +156,7 @@ struct TimerExpandedView: View {
                 }
             }
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, IslandInsets.horizontal)
         .padding(.bottom, 8)
     }
 

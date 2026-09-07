@@ -50,7 +50,7 @@ struct ClipboardView: View {
                 .accessibilityHidden(true)
             Text("Nothing copied yet")
                 .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(.white.opacity(0.4))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -141,7 +141,7 @@ private struct ClipboardRowView: View {
                 Text(item.age())
                     .font(.system(size: 10))
                     .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.white.opacity(0.4))
             }
         }
         .frame(width: 76, alignment: .trailing)
@@ -178,7 +178,7 @@ private struct ClipboardRowButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 22, height: 22)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())

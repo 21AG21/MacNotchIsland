@@ -22,9 +22,10 @@ struct FocusExpandedView: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 14)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(state.isOn ? "\(state.name) on" : "\(state.name) off")
         }
     }
 }

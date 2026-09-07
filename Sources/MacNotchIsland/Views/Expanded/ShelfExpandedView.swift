@@ -12,7 +12,7 @@ struct ShelfExpandedView: View {
         VStack(spacing: 0) {
             NotchClearance(geometry: geometry, extra: 10)
             ShelfStripView(isDropTarget: isDropTarget, wide: true)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, IslandInsets.horizontal)
                 .padding(.bottom, 14)
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
@@ -123,7 +123,7 @@ struct ShelfStripView: View {
                 .foregroundStyle(.white.opacity(isDropTarget ? 0.9 : 0.4))
             Text(isDropTarget ? "Release to add" : "Drag files onto the notch")
                 .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(.white.opacity(0.4))
         }
     }
 
@@ -246,9 +246,12 @@ struct ShelfItemView: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
                         .foregroundStyle(.white, .black.opacity(0.7))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
-                .offset(x: 5, y: -5)
+                .buttonStyle(IslandButtonStyle())
+                .accessibilityLabel("Remove")
+                .offset(x: 6, y: -6)
             }
         }
     }

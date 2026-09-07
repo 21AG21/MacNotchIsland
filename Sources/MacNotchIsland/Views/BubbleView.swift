@@ -52,11 +52,11 @@ struct BubbleView: View {
             Image(systemName: "stopwatch.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
         case .download(let d):
             if let p = d.progress, !d.isComplete {
-                ProgressRing(progress: p, lineWidth: 2.5, tint: Color(red: 0.04, green: 0.52, blue: 1))
+                ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named("blue"))
                     .frame(width: diameter * 0.55, height: diameter * 0.55)
             } else {
                 Image(systemName: d.isComplete ? "checkmark.circle.fill" : "arrow.down.circle.fill")
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1))
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.named("blue"))
             }
         case .call:
             Image(systemName: "phone.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(.green)

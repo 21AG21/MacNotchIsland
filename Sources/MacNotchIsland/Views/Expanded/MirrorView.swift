@@ -46,7 +46,7 @@ struct MirrorView: View {
         case .starting:
             Text("Starting camera…")
                 .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(.white.opacity(0.4))
         case .denied:
             VStack(spacing: 8) {
                 Text("Camera access is off")
@@ -65,7 +65,7 @@ struct MirrorView: View {
                     .foregroundStyle(.white.opacity(0.3))
                 Text("No camera")
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.4))
             }
         }
     }

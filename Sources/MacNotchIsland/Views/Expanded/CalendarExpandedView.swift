@@ -22,9 +22,9 @@ struct CalendarExpandedView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                     Text("\(Self.time.string(from: state.start)) – \(Self.time.string(from: state.end))")
-                        .font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.65))
+                        .font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.6))
                     if let location = state.location, !location.isEmpty {
-                        Text(location).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                        Text(location).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).lineLimit(1)
                     }
                 }
                 Spacer()
@@ -41,7 +41,7 @@ struct CalendarExpandedView: View {
                     }
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 14)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilitySummary)

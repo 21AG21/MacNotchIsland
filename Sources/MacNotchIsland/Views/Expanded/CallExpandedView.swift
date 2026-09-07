@@ -26,24 +26,38 @@ struct CallExpandedView: View {
                 }
                 .frame(width: 44, height: 44)
                 .islandMatched(IslandMatchedID.callGlyph)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(state.appName).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    Text("Call in progress").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-                }
-                Spacer()
+                .accessibilityHidden(true)
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text(ctx.date.timeIntervalSince(state.startedAt).mmss)
-                        .font(.system(size: 20, weight: .medium, design: .rounded).monospacedDigit())
-                        .foregroundStyle(.green)
-                        .contentTransition(.numericText(countsDown: false))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.4)
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(state.appName).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                            Text("Call in progress").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                        }
+                        Spacer()
+                        Text(ctx.date.timeIntervalSince(state.startedAt).mmss)
+                            .font(.system(size: 20, weight: .medium, design: .rounded).monospacedDigit())
+                            .foregroundStyle(.green)
+                            .contentTransition(.numericText(countsDown: false))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.4)
+                            .islandMatched(IslandMatchedID.callTime)
+                    }
+                    // Name, status and the ticking digits read as one sentence; the Open button
+                    // beside them keeps its own label.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(spokenLabel(at: ctx.date))
                 }
-                .islandMatched(IslandMatchedID.callTime)
-                CircleActionButton(symbol: "arrow.up.forward", tint: .green) { activity.openAction?.perform() }
+                CircleActionButton(symbol: "arrow.up.forward", tint: .green, label: "Open \(state.appName)") {
+                    activity.openAction?.perform()
+                }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 14)
         }
+    }
+
+    /// "FaceTime call, 4 minutes 12 seconds".
+    private func spokenLabel(at date: Date) -> String {
+        "\(state.appName) call, \(IslandAccessibility.spokenDuration(date.timeIntervalSince(state.startedAt)))"
     }
 }
