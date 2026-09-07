@@ -191,6 +191,7 @@ struct HomeExpandedView: View {
                 }
                 .accessibilityLabel("Start \(minutes) minute timer")
             }
+            PillButton(title: "Pomodoro", tint: .orange) { IslandTimer.shared.startPomodoro() }
             if IslandTimer.shared.state != nil {
                 PillButton(title: "Cancel", tint: .white.opacity(0.85)) { IslandTimer.shared.cancel() }
             }

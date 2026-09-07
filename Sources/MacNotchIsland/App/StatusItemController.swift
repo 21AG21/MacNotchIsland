@@ -42,6 +42,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
             timerMenu.addItem(it)
         }
         timerMenu.addItem(.separator())
+        timerMenu.addItem(action("Start Pomodoro", #selector(startPomodoro)))
         cancel.title = "Cancel Timer"
         cancel.action = #selector(cancelTimer)
         cancel.target = self
@@ -149,6 +150,8 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     @objc private func startTimer(_ sender: NSMenuItem) {
         IslandTimer.shared.start(seconds: TimeInterval(sender.tag * 60), label: "Timer")
     }
+
+    @objc private func startPomodoro() { IslandTimer.shared.startPomodoro() }
 
     @objc private func cancelTimer() { IslandTimer.shared.cancel() }
 

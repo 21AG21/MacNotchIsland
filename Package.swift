@@ -18,6 +18,7 @@ let package = Package(
                 .linkedFramework("EventKit"),
                 .linkedFramework("QuickLookThumbnailing"),
                 .linkedFramework("ServiceManagement"),
+                .linkedFramework("UserNotifications"),
             ]
         ),
         .testTarget(
