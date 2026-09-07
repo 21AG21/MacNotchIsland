@@ -36,6 +36,14 @@ final class Preferences: ObservableObject {
     @Published var lowPowerEnabled: Bool { didSet { d.set(lowPowerEnabled, forKey: "lowPowerEnabled") } }
     @Published var hotkeyEnabled: Bool { didSet { d.set(hotkeyEnabled, forKey: "hotkeyEnabled") } }
     @Published var hasSeenWelcome: Bool { didSet { d.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
+    @Published var clipboardEnabled: Bool { didSet { d.set(clipboardEnabled, forKey: "clipboardEnabled") } }
+    @Published var clipboardLimit: Double { didSet { d.set(clipboardLimit, forKey: "clipboardLimit") } }
+    @Published var shelfExpiryHours: Double { didSet { d.set(shelfExpiryHours, forKey: "shelfExpiryHours") } }
+    @Published var lyricsEnabled: Bool { didSet { d.set(lyricsEnabled, forKey: "lyricsEnabled") } }
+    @Published var hudReplacementEnabled: Bool { didSet { d.set(hudReplacementEnabled, forKey: "hudReplacementEnabled") } }
+    @Published var capsLockEnabled: Bool { didSet { d.set(capsLockEnabled, forKey: "capsLockEnabled") } }
+    @Published var quickActionsEnabled: Bool { didSet { d.set(quickActionsEnabled, forKey: "quickActionsEnabled") } }
+    @Published var pauseAnimationsOnBattery: Bool { didSet { d.set(pauseAnimationsOnBattery, forKey: "pauseAnimationsOnBattery") } }
 
     // MARK: Geometry overrides (0 = auto-detect)
     @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
@@ -89,6 +97,14 @@ final class Preferences: ObservableObject {
         lowPowerEnabled = bool("lowPowerEnabled", true)
         hotkeyEnabled = bool("hotkeyEnabled", true)
         hasSeenWelcome = bool("hasSeenWelcome", false)
+        clipboardEnabled = bool("clipboardEnabled", true)
+        clipboardLimit = double("clipboardLimit", 50)
+        shelfExpiryHours = double("shelfExpiryHours", 24)
+        lyricsEnabled = bool("lyricsEnabled", true)
+        hudReplacementEnabled = bool("hudReplacementEnabled", false)
+        capsLockEnabled = bool("capsLockEnabled", true)
+        quickActionsEnabled = bool("quickActionsEnabled", true)
+        pauseAnimationsOnBattery = bool("pauseAnimationsOnBattery", false)
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)

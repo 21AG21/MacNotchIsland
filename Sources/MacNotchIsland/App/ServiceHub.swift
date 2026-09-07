@@ -16,10 +16,16 @@ final class ServiceHub {
     let downloads = DownloadMonitor()
     let lowPower = LowPowerMonitor()
     let hotkey = HotKeyService()
+    let clipboard = ClipboardStore.shared
+    let lyrics = LyricsService.shared
+    let mediaKeys = MediaKeyInterceptor()
+    let capsLock = CapsLockMonitor()
+    let energy = EnergyPolicy.shared
 
     private var cancellables = Set<AnyCancellable>()
 
     func start() {
+        energy.start()
         apply()
         LiveActivityAPI.shared.start()
         Preferences.shared.objectWillChange
@@ -44,5 +50,9 @@ final class ServiceHub {
         p.downloadsEnabled ? downloads.start() : downloads.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
         p.hotkeyEnabled ? hotkey.start() : hotkey.stop()
+        p.clipboardEnabled ? clipboard.start() : clipboard.stop()
+        (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
+        p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()
+        p.capsLockEnabled ? capsLock.start() : capsLock.stop()
     }
 }

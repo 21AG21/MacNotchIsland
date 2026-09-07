@@ -45,10 +45,21 @@ struct SettingsView: View {
                     toggle("Downloads", $prefs.downloadsEnabled, note: "Safari, Chrome and Firefox downloads in ~/Downloads, with a Done alert.")
                     toggle("Put finished downloads on the shelf", $prefs.addDownloadsToShelf)
                     toggle("Timer sound", $prefs.timerSoundEnabled)
+                    toggle("Caps Lock", $prefs.capsLockEnabled, note: "A brief pill when Caps Lock turns on or off.")
+                    toggle("Lyrics", $prefs.lyricsEnabled, note: "Time-synced lyrics under Now Playing, from LRCLIB.")
+                    toggle("Replace the system volume and brightness bezel", $prefs.hudReplacementEnabled, note: "The island becomes the only HUD. macOS asks for Accessibility access the first time.")
                 }
 
-                section("Shelf") {
-                    toggle("File shelf", $prefs.shelfEnabled, note: "Drag files onto the notch to keep them within reach.")
+                section("Shelf and clipboard") {
+                    toggle("File shelf", $prefs.shelfEnabled, note: "Drag files onto the notch to keep them within reach. Select several, AirDrop them, or right-click for more.")
+                    slider("Clear shelf items after", $prefs.shelfExpiryHours, range: 0...168, unit: "h", zeroLabel: "Never")
+                    toggle("Clipboard history", $prefs.clipboardEnabled, note: "Recent copies in the Home panel. Password managers' concealed items are skipped.")
+                    slider("Clipboard items kept", $prefs.clipboardLimit, range: 10...200, unit: "")
+                    toggle("Quick actions", $prefs.quickActionsEnabled, note: "Run your Shortcuts from the island.")
+                }
+
+                section("Energy") {
+                    toggle("Pause animations on battery", $prefs.pauseAnimationsOnBattery, note: "The visualizer and marquee already slow down on battery and stop in Low Power Mode and during sleep.")
                 }
 
                 section("Notch") {
