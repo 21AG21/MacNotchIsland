@@ -136,7 +136,7 @@ struct ShelfStripView: View {
                                   anchor: shareAnchor,
                                   targets: { targets(for: item.url) },
                                   onSelect: { click(item.url) })
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        .transition(IslandMotion.pop(scale: 0.6))
                 }
             }
             .padding(.horizontal, 10)

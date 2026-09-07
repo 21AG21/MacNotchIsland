@@ -14,7 +14,7 @@ struct NowPlayingExpandedView: View {
             HStack(alignment: .top, spacing: 0) {
                 ArtworkView(image: info.artwork, size: 60, radius: 12, flexible: true)
                     .id(info.artworkID)
-                    .transition(.scale(scale: 0.85).combined(with: .opacity))
+                    .transition(IslandMotion.pop(scale: 0.85))
                     // Matched outside `.id` (stable across track changes) but inside `.padding`,
                     // so the group frame tracks the cover itself, not its padded slot.
                     .islandMatched(IslandMatchedID.nowPlayingArtwork)

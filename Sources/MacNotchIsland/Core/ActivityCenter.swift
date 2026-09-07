@@ -295,6 +295,8 @@ final class ActivityCenter: ObservableObject {
             return
         }
         alertWork?.cancel()
+        // The user may have opened the alert being replaced; that view has nothing to show now.
+        if let previous = alert, previous.id != activity.id, openView == .activity(id: previous.id) { openView = nil }
         alert = activity
         if haptic { Haptics.tap() }
         scheduleAlertDismiss(id: activity.id, after: duration ?? Preferences.shared.alertDuration)
@@ -400,12 +402,13 @@ final class ActivityCenter: ObservableObject {
         homeWork?.cancel()
         lastInteraction = Date()
         navigationDirection = direction
-        guard openView != view else { return }
+        guard shownView != view else { return }
         withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
             if case .home(let tab) = view { Self.selectHomeTab(tab) }
             openView = view
         }
-        Haptics.tap()
+        // A click gets the firmer tap; a keyboard step the lighter detent.
+        if direction == 0 { Haptics.tap() } else { Haptics.soft() }
     }
 
     /// The global shortcut: close whatever is open, else open the main activity, else Home.
@@ -432,18 +435,13 @@ final class ActivityCenter: ObservableObject {
     func cycleView(forward: Bool) {
         let ring = keyboardRing
         guard !ring.isEmpty else { return }
-        // A tab picked with a click changes the stored tab but not `openView`; step from the
-        // tab that is actually showing.
-        var current = openView
-        if case .home = current { current = .home(tab: Self.currentHomeTab) }
         let next: IslandView
-        if let current, let i = ring.firstIndex(of: current) {
+        if let current = shownView, let i = ring.firstIndex(of: current) {
             next = ring[(i + (forward ? 1 : ring.count - 1)) % ring.count]
         } else {
             next = forward ? ring[0] : ring[ring.count - 1]
         }
         open(next, direction: forward ? 1 : -1)
-        Haptics.soft()
     }
 
     func collapse() {
@@ -479,6 +477,13 @@ final class ActivityCenter: ObservableObject {
 
     /// When the user last clicked or keyed the island; a timed close never cuts that short.
     private var lastInteraction = Date.distantPast
+
+    /// `openView` as the user sees it. A tab picked in the tab bar or by a swipe changes the
+    /// stored tab without going through `open`, so the Home case is re-read from the store.
+    private var shownView: IslandView? {
+        if case .home = openView { return .home(tab: Self.currentHomeTab) }
+        return openView
+    }
 
     private static var currentHomeTab: String {
         let stored = UserDefaults.standard.string(forKey: GestureRouter.homeTabKey) ?? GestureRouter.defaultHomeTab

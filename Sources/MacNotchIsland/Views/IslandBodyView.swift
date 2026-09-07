@@ -79,7 +79,7 @@ struct IdleContentView: View {
                 PrivacyDots()
                     .frame(width: layout.privacyWidth + 4, height: layout.bodyHeight)
                     .padding(.trailing, 4)
-                    .transition(.scale.combined(with: .opacity))
+                    .transition(IslandMotion.pop(scale: 0.5))
             }
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)

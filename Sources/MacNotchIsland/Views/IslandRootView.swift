@@ -13,7 +13,7 @@ struct IslandRootView: View {
     var body: some View {
         let presentation = center.presentation(for: panelID)
         let layout = IslandLayout.make(presentation: presentation, geometry: geometry, center: center, clearance: menuBar.limits)
-        let animation = IslandMotion.shape(from: previousLayout ?? layout, to: layout)
+        let animation = IslandMotion.shape(from: previousLayout ?? layout, to: layout, direction: center.navigationDirection)
 
         ZStack(alignment: .top) {
             Color.clear
@@ -23,11 +23,13 @@ struct IslandRootView: View {
                 if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
                     BubbleView(activity: bubble, diameter: layout.bubbleDiameter)
                         .offset(y: layout.topInset)
-                        .transition(.scale(scale: 0.2).combined(with: .opacity))
+                        .transition(IslandMotion.pop(scale: 0.2))
                 }
             }
             // Keep the main body centred on the notch when the bubble is present.
             .offset(x: layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0)
+            // The bubble pops with its own, bouncier spring than the outline.
+            .animation(IslandMotion.bubble, value: layout.hasBubble)
             .transition(.opacity)
             }
         }

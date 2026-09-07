@@ -41,7 +41,7 @@ struct CompactLeadingView: View {
             case .nowPlaying(let info):
                 ArtworkView(image: info.artwork, size: height - 10, radius: 5, flexible: true)
                     .id(info.artworkID)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .transition(IslandMotion.pop(scale: 0.6))
                     // Outside `.id` so a track change swaps the cover without tearing the
                     // element out of the matched group mid-expansion.
                     .islandMatched(IslandMatchedID.nowPlayingArtwork)

@@ -240,4 +240,37 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(center.isOpen)
         XCTAssertEqual(center.presentation, .idle)
     }
+
+    func testPreemptingAlertDropsTheOpenViewOfTheOneItReplaces() {
+        let airpods = IslandActivity(id: "bt", kind: .bluetooth,
+                                     content: .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods", batteryLeft: 50)),
+                                     priority: 85)
+        center.showAlert(airpods, duration: 5)
+        center.tap()
+        XCTAssertTrue(center.isOpen)
+        var low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .critical)
+        low.percent = 8
+        center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 5)
+        XCTAssertFalse(center.isOpen, "the replaced alert's open view must not linger")
+        center.dismissAlert()
+        XCTAssertEqual(center.presentation, .idle)
+    }
+
+    func testTabStepsFromTheTabPickedByClick() {
+        Preferences.shared.shelfEnabled = true
+        Preferences.shared.clipboardEnabled = true
+        Preferences.shared.quickActionsEnabled = false
+        Preferences.shared.mirrorEnabled = false
+        Preferences.shared.statsEnabled = false
+        Preferences.shared.weatherEnabled = false
+        center.open(.home(tab: "music"))
+        // The tab bar writes the tab straight to the store, as a click does.
+        UserDefaults.standard.set("clipboard", forKey: GestureRouter.homeTabKey)
+        center.cycleView(forward: true)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: GestureRouter.homeTabKey), "music",
+                       "from the last tab, forward wraps to the first, even though openView still said music")
+        center.cycleView(forward: true)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: GestureRouter.homeTabKey), "shelf")
+        center.collapse()
+    }
 }

@@ -20,12 +20,26 @@ enum IslandMotion {
     static let slideDistance: CGFloat = 36
 
     /// The content swap for a change of view: a directional push when the user stepped
-    /// sideways (keyboard, tab bar), a blur cross-fade otherwise.
+    /// sideways (keyboard, tab bar), a blur cross-fade otherwise. Only the incoming view
+    /// moves; the outgoing one fades where it is. A view's removal transition is fixed when
+    /// it arrives, so moving it too would send it the wrong way after a reversal.
     static func contentTransition(direction: Int) -> AnyTransition {
         guard direction != 0, !reduceMotion else { return AnyTransition(BlurReplaceTransition.blurReplace) }
         let distance = direction > 0 ? slideDistance : -slideDistance
-        return .asymmetric(insertion: .offset(x: distance).combined(with: .opacity),
-                           removal: .offset(x: -distance).combined(with: .opacity))
+        return .asymmetric(insertion: .offset(x: distance).combined(with: .opacity), removal: .opacity)
+    }
+
+    /// A scale-and-fade pop for things that appear inside the island (a bubble, artwork, a
+    /// shelf item); a plain fade under Reduce Motion.
+    static func pop(scale: CGFloat) -> AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: scale).combined(with: .opacity)
+    }
+
+    /// The curve for a change of the island's outline: the navigate spring while the user is
+    /// stepping sideways (so the outline and the pushed content move together), otherwise the
+    /// open or close spring for growth or shrinkage.
+    static func shape(from old: IslandLayout, to new: IslandLayout, direction: Int) -> Animation {
+        direction != 0 ? navigate : shape(from: old, to: new)
     }
 
     /// Growing (a new activity popping out of the notch, expanding) gets the bouncy open

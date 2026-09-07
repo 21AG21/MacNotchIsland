@@ -290,7 +290,7 @@ final class GestureRouter {
             let current = UserDefaults.standard.string(forKey: Self.homeTabKey) ?? Self.defaultHomeTab
             let from = tabs.firstIndex(of: Self.effectiveTab(current, available: tabs)) ?? 0
             let to = tabs.firstIndex(of: tab) ?? 0
-            let forward = to > from || (to == 0 && from == tabs.count - 1)
+            let forward = !tabs.isEmpty && to == (from + 1) % tabs.count
             ActivityCenter.shared.setNavigationDirection(forward ? 1 : -1)
             withAnimation(IslandMotion.navigate) { UserDefaults.standard.set(tab, forKey: Self.homeTabKey) }
             Haptics.soft()

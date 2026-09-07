@@ -25,7 +25,9 @@ final class MenuBarClearance: ObservableObject {
     /// Status item windows sit at this level (`NSWindow.Level.statusBar`).
     static let statusItemLayer = 25
 
-    private var observers: [NSObjectProtocol] = []
+    /// Each token with the centre it came from; workspace notifications live on the
+    /// workspace's own centre and must be removed there.
+    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var timer: Timer?
     private var pending: DispatchWorkItem?
 
@@ -36,12 +38,12 @@ final class MenuBarClearance: ObservableObject {
         let workspace = NSWorkspace.shared.notificationCenter
         // Menus belong to the frontmost app, so they change whenever it does; a moment later,
         // once the new menu bar has been laid out.
-        observers.append(workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+        observers.append((workspace, workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.refresh(after: 0.35)
-        })
-        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+        }))
+        observers.append((.default, NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.refresh(after: 0.6)
-        })
+        }))
         // Status items come and go without any notification; a slow poll catches them.
         let t = Timer(timeInterval: 20, repeats: true) { [weak self] _ in self?.refresh() }
         t.tolerance = 8
@@ -51,7 +53,7 @@ final class MenuBarClearance: ObservableObject {
     }
 
     func stop() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.forEach { $0.center.removeObserver($0.token) }
         observers.removeAll()
         timer?.invalidate()
         timer = nil

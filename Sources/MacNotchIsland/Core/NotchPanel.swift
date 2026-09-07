@@ -16,7 +16,10 @@ final class NotchPanel: NSPanel {
     /// anything next to the notch.
     static let restSlack: CGFloat = 4
     /// Extra room on the sides and below while a spring is in flight, since springs overshoot.
+    /// The open spring (damping 0.72) overshoots by about 4 % of the step, so the slack scales
+    /// with the step and this is only the floor.
     static let motionSlack: CGFloat = 14
+    static let overshootFraction: CGFloat = 0.06
     /// Longer than the slowest island spring, so the frame only shrinks once the shape is at rest.
     static let settleDelay: TimeInterval = 0.65
 
@@ -151,10 +154,12 @@ final class NotchPanel: NSPanel {
             || abs(target.midX - current.midX) > 0.5 || abs(target.maxY - current.maxY) > 0.5
         if needsRoom {
             var union = current.union(target)
-            union.origin.x -= Self.motionSlack
-            union.size.width += Self.motionSlack * 2
-            union.origin.y -= Self.motionSlack
-            union.size.height += Self.motionSlack
+            let slackX = max(Self.motionSlack, abs(target.width - current.width) * Self.overshootFraction)
+            let slackY = max(Self.motionSlack, abs(target.height - current.height) * Self.overshootFraction)
+            union.origin.x -= slackX
+            union.size.width += slackX * 2
+            union.origin.y -= slackY
+            union.size.height += slackY
             setFrame(Self.fit(union.size, in: screenFrame), display: true)
         }
 
