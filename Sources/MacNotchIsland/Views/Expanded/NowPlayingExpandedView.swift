@@ -4,6 +4,7 @@ struct NowPlayingExpandedView: View {
     let info: NowPlayingInfo
     let geometry: NotchGeometry
     @ObservedObject private var service = NowPlayingService.shared
+    @EnvironmentObject private var prefs: Preferences
 
     private var accent: Color { Color(nsColor: info.accent) }
 
@@ -31,6 +32,14 @@ struct NowPlayingExpandedView: View {
             }
             .padding(.top, 4)
 
+            // Reserved by ActivityContent.expandedSize (+24 pt when lyrics are on), so the
+            // row keeps its place whether or not the current moment has a line.
+            if prefs.lyricsEnabled {
+                LyricsView()
+                    .frame(height: 18, alignment: .leading)
+                    .padding(.top, 4)
+            }
+
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let position = info.position(at: context.date)
                 let duration = info.duration
@@ -47,7 +56,7 @@ struct NowPlayingExpandedView: View {
                     .foregroundStyle(.white.opacity(0.5))
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, prefs.lyricsEnabled ? 6 : 8)
 
             ZStack {
                 HStack(spacing: 30) {
