@@ -83,6 +83,9 @@ struct NotchShape: Shape {
     /// screen, not of the presentation, so it never changes mid-animation and stays out of
     /// `animatableData`.
     var floating: Bool = false
+    /// When set, decides the capsule-vs-continuous-corner branch from the layout's target
+    /// state; the animated `bottomRadius` overshoots on the open spring and would flip it mid-flight.
+    var isPill: Bool? = nil
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(topRadius, bottomRadius) }
@@ -103,8 +106,8 @@ struct NotchShape: Shape {
         let leftX = rect.minX + t
         let rightX = rect.maxX - t
         let bodyWidth = max(0, rightX - leftX)
-        let b = max(0, min(bottomRadius, bodyWidth / 2, rect.height - t))
-        let capsule = NotchShape.hasCapsuleBottom(height: rect.height, bottomRadius: b)
+        let b = max(0, min(bottomRadius, bodyWidth / 2, rect.height - t, rect.height / 2))
+        let capsule = isPill ?? NotchShape.hasCapsuleBottom(height: rect.height, bottomRadius: b)
         let span = capsule ? b : SmoothCorner.span(radius: b, along: bodyWidth, across: rect.height)
 
         var p = Path()

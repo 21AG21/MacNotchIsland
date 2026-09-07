@@ -21,6 +21,7 @@ struct IslandRootView: View {
                 IslandBodyView(geometry: geometry, presentation: presentation, layout: layout, panelID: panelID)
                 if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
                     BubbleView(activity: bubble, diameter: layout.bubbleDiameter)
+                        .offset(y: layout.topInset)
                         .transition(.scale(scale: 0.2).combined(with: .opacity))
                 }
             }

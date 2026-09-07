@@ -15,16 +15,16 @@ struct IslandBodyView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating)
+            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom)
                 .fill(Color.black)
 
             content
                 .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
                 .clipped()
-                .padding(.horizontal, layout.topRadius)
+                .padding(.horizontal, layout.floating ? 0 : layout.topRadius)
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
-        .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating))
+        .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom))
         // A floating pill hangs below the top edge instead of fusing into it; zero otherwise.
         .offset(y: layout.topInset)
         .onHover { hovering in center.setHovering(hovering, panel: panelID) }

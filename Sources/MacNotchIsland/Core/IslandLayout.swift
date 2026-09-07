@@ -66,6 +66,10 @@ struct IslandLayout: Equatable {
     /// island is fused to a physical notch.
     var frameWidth: CGFloat { floating ? bodyWidth : bodyWidth + topRadius * 2 }
 
+    /// Whether the bottom corners are semicircles at rest (compact pill); the shape uses this
+    /// instead of the animated radius so corners never pop mid-spring.
+    var isPillBottom: Bool { NotchShape.hasCapsuleBottom(height: bodyHeight, bottomRadius: bottomRadius) }
+
     /// Rect (centred, top-anchored) that should receive mouse events.
     var hitSize: CGSize {
         let extra = hasBubble ? (bubbleGap + bubbleDiameter) * 2 : 0
