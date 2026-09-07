@@ -42,11 +42,10 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// Settings, laid out the way System Settings is: a sidebar of panes on the left, a grouped
-/// form on the right, one window title per pane. The palette stays monochrome — the sidebar
-/// glyphs are neutral grey squares and every control inherits a greyscale tint.
+/// form on the right, one window title per pane. The sidebar glyphs are neutral grey squares;
+/// selection and controls take the user's own accent colour, as every Apple window does.
 struct SettingsView: View {
     @AppStorage("settingsSection") private var storedSection = SettingsSection.general.rawValue
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -67,11 +66,9 @@ struct SettingsView: View {
         } detail: {
             pane
                 .navigationTitle(current.title)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: current)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(width: 715, height: 470)
-        .tint(.primary)
     }
 
     // MARK: Panes
