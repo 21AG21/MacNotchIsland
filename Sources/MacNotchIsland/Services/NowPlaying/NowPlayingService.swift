@@ -9,7 +9,7 @@ import Combine
 final class NowPlayingService: ObservableObject {
     static let shared = NowPlayingService()
 
-    enum Backend { case none, mediaRemote, appleScript }
+    enum Backend { case inactive, mediaRemote, appleScript }
 
     @Published private(set) var info: NowPlayingInfo?
 
@@ -18,7 +18,7 @@ final class NowPlayingService: ObservableObject {
     private var running = false
     private var pollTimer: Timer?
     private var pausedSince: Date?
-    private(set) var activeBackend: Backend = .none
+    private(set) var activeBackend: Backend = .inactive
 
     private init() {}
 
@@ -60,7 +60,7 @@ final class NowPlayingService: ObservableObject {
         if backend == .appleScript && mediaRemote.isHealthy { return }
 
         guard let new else {
-            if activeBackend == backend || activeBackend == .none { clear() }
+            if activeBackend == backend || activeBackend == .inactive { clear() }
             return
         }
         activeBackend = backend
@@ -77,7 +77,7 @@ final class NowPlayingService: ObservableObject {
         guard info != nil || ActivityCenter.shared.activity(id: "nowplaying") != nil else { return }
         info = nil
         pausedSince = nil
-        activeBackend = .none
+        activeBackend = .inactive
         ActivityCenter.shared.end(id: "nowplaying")
     }
 
