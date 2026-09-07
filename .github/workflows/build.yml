@@ -29,7 +29,12 @@ jobs:
       - name: Test
         run: |
           set -o pipefail
-          swift test 2>&1 | grep -v "^\[" | tail -n 300
+          swift test 2>&1 | grep -v "^\[" | tee test.log | tail -n 300
+      - name: Failures
+        if: failure()
+        run: |
+          echo "Failing assertions and errors:"
+          grep -nE "error:|: failed|failed \(" test.log | grep -v "passed" | head -n 60 || true
       - name: Bundle
         run: |
           Scripts/build.sh

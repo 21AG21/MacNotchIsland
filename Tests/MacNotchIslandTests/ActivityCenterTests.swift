@@ -14,8 +14,8 @@ final class ActivityCenterTests: XCTestCase {
         p.hoverDelay = 0.01
     }
 
-    private func custom(_ id: String, priority: Int = 70, title: String = "X") -> IslandActivity {
-        IslandActivity(id: id, kind: .custom, content: .custom(CustomActivity(title: title)), priority: priority)
+    private func custom(_ id: String, priority: Int = 70, title: String = "X", kind: ActivityKind = .custom) -> IslandActivity {
+        IslandActivity(id: id, kind: kind, content: .custom(CustomActivity(title: title)), priority: priority)
     }
 
     func testIdleByDefault() {
@@ -128,14 +128,14 @@ final class ActivityCenterTests: XCTestCase {
     // MARK: - Ordering
 
     func testNewestKindTakesTheIslandAndUrgentAlwaysWins() {
-        var timer = custom("timer", priority: 90)
+        var timer = custom("timer", priority: 90, kind: .timer)
         timer.startedAt = Date(timeIntervalSinceNow: -60)
-        var music = custom("music", priority: 50)
+        var music = custom("music", priority: 50, kind: .nowPlaying)
         music.startedAt = Date()
         let ordered = ActivityCenter.ordered([timer, music], pinnedID: nil)
         XCTAssertEqual(ordered.map(\.id), ["music", "timer"], "the activity that started last owns the island")
 
-        var call = custom("call", priority: 100)
+        var call = custom("call", priority: 100, kind: .call)
         call.startedAt = Date(timeIntervalSinceNow: -600)
         XCTAssertEqual(ActivityCenter.ordered([timer, music, call], pinnedID: nil).first?.id, "call")
         XCTAssertEqual(ActivityCenter.ordered([timer, music], pinnedID: "timer").first?.id, "timer")
@@ -154,7 +154,7 @@ final class ActivityCenterTests: XCTestCase {
         var later = IslandActivity(id: "timer-2", kind: .timer,
                                    content: .timer(TimerState(label: "Roast", total: 3600, endDate: Date(timeIntervalSinceNow: 3600))), priority: 90)
         later.startedAt = Date()
-        var music = custom("music", priority: 50)
+        var music = custom("music", priority: 50, kind: .nowPlaying)
         music.startedAt = Date(timeIntervalSinceNow: -30)
         let ordered = ActivityCenter.ordered([music, later, soon], pinnedID: nil)
         XCTAssertEqual(ordered.map(\.id), ["timer", "timer-2", "music"],
