@@ -71,6 +71,10 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
+
         let welcome = NSMenuItem(title: "Welcome Tour", action: #selector(showWelcome), keyEquivalent: "")
         welcome.target = self
         menu.addItem(welcome)
@@ -109,6 +113,8 @@ final class StatusItemController: NSObject {
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func showWelcome() { WelcomeWindowController.shared.show() }
+
+    @objc private func checkForUpdates() { UpdateChecker.shared.checkNow() }
 
     // MARK: Demo
 
