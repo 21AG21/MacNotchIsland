@@ -1,66 +1,99 @@
 import SwiftUI
 
-/// First-launch welcome. House style: flat ground, big type, no boxes, one real action.
+/// First-launch welcome, laid out the way Apple's own apps introduce themselves:
+/// app icon, "Welcome to …", a short column of symbol + title + description rows,
+/// and one prominent Continue button. Flat ground, system type, no boxes.
 struct WelcomeView: View {
     @EnvironmentObject private var prefs: Preferences
     var dismiss: () -> Void
 
+    private var shortcut: String {
+        HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
+                                    carbonModifiers: HotKeyService.currentModifiers)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Notch Island")
-                .font(.system(size: 40, weight: .medium))
-                .tracking(-1)
+        VStack(spacing: 0) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 80, height: 80)
+                .accessibilityHidden(true)
+                .padding(.top, 8)
+
+            Text("Welcome to Notch Island")
+                .font(.system(size: 26, weight: .bold))
+                .padding(.top, 14)
             Text("Your notch is now a Dynamic Island.")
-                .font(.system(size: 16))
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .padding(.top, 4)
-                .padding(.bottom, 30)
 
-            row("Hover the notch", "Expands whatever is live: music, a timer, a call, a download. Click to open the app behind it.")
-            row("Drag files onto it", "They stay on the shelf until you drag them out again.")
-            row("Press ⌃⌥Space", "Summons the island from anywhere, even in full-screen apps.")
-            row("Watch the menu bar capsule", "Settings, timers, a demo of every alert, and Quit live there.")
+            VStack(alignment: .leading, spacing: 18) {
+                row("cursorarrow.rays", "Hover to expand",
+                    "Whatever is live opens under the notch: music, a timer, a call, a download. Click to jump to the app.")
+                row("tray.and.arrow.down", "Drop files on the shelf",
+                    "Drag anything onto the island and it waits there until you drag it out again.")
+                row("keyboard", "Press \(shortcut)",
+                    "Summon the island from anywhere, even in full-screen apps.")
+                row("menubar.rectangle", "Find it in the menu bar",
+                    "Settings, timers and the stopwatch live under the capsule icon.")
+            }
+            .frame(maxWidth: 400, alignment: .leading)
+            .padding(.top, 32)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 24)
 
-            HStack {
-                Toggle("Launch at login", isOn: $prefs.launchAtLogin)
-                    .toggleStyle(.switch)
-                    .tint(.primary)
-                    .font(.system(size: 14))
-                Spacer()
-                Button(action: {
-                    ActivityCenter.shared.showAlert(IslandActivity(id: "battery", kind: .battery,
-                        content: .battery(BatteryState(percent: 82, isCharging: true, isPluggedIn: true, event: .pluggedIn)), priority: 85))
-                }) {
-                    Text("Show me").font(.system(size: 14, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 12) {
                 Button(action: dismiss) {
-                    Text("Get started")
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.primary))
-                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                    Text("Continue")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.primary)
                 .keyboardShortcut(.defaultAction)
-                .padding(.leading, 14)
+                .frame(width: 300)
+
+                Button("Show an Example") {
+                    ActivityCenter.shared.showAlert(IslandActivity(id: "battery", kind: .battery,
+                        content: .battery(BatteryState(percent: 82, isCharging: true, isPluggedIn: true, event: .pluggedIn)),
+                        priority: 85))
+                }
+                .buttonStyle(.link)
+                .font(.system(size: 12))
+
+                Toggle("Open at login", isOn: $prefs.launchAtLogin)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+                    .padding(.top, 4)
             }
         }
-        .padding(36)
-        .frame(width: 520, height: 470, alignment: .topLeading)
+        .padding(.horizontal, 40)
+        .padding(.top, 28)
+        .padding(.bottom, 28)
+        .frame(width: 500, height: 600)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func row(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 17, weight: .semibold))
-            Text(detail).font(.system(size: 13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    private func row(_ symbol: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: symbol)
+                .font(.system(size: 26, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.primary)
+                .frame(width: 40, alignment: .center)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(.bottom, 16)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -87,6 +120,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         w.styleMask = [.titled, .closable, .fullSizeContentView]
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
+        w.isMovableByWindowBackground = true
         w.title = "Welcome to Notch Island"
         w.isReleasedWhenClosed = false
         w.delegate = self
