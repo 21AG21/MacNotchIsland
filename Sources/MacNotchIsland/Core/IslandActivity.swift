@@ -215,7 +215,7 @@ enum ActivityContent: Equatable {
     func expandedSize(notch: NotchGeometry) -> CGSize {
         let h = notch.notchHeight
         switch self {
-        case .nowPlaying: return CGSize(width: 540, height: h + (Preferences.shared.lyricsEnabled ? 200 : 176))
+        case .nowPlaying: return CGSize(width: 540, height: h + (Preferences.shared.lyricsEnabled ? 212 : 188))
         case .timer: return CGSize(width: 440, height: h + 84)
         case .stopwatch: return CGSize(width: 460, height: h + 84)
         case .call: return CGSize(width: 440, height: h + 84)

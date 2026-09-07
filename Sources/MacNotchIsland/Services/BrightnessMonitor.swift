@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Brightness HUD. There is no public change notification, so the built-in display's
 /// brightness is sampled a few times a second through DisplayServices (cheap call).
@@ -37,16 +38,29 @@ final class BrightnessMonitor {
 
     private var timer: Timer?
 
+    private var energyCancellable: AnyCancellable?
+
     func start() {
         guard timer == nil, Self.symbols.get != nil else { return }
         Self.lastSeen = read() ?? -1
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.tick() }
-        timer?.tolerance = 0.05
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
+    }
+
+    /// 4 Hz on mains power (brightness keys repeat quickly), slower on battery / Low Power / asleep.
+    private func scheduleTimer() {
+        timer?.invalidate()
+        let interval = 0.25 * EnergyPolicy.shared.pollingMultiplier
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+        timer?.tolerance = interval * 0.2
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        energyCancellable = nil
     }
 
     // MARK: Reading / writing

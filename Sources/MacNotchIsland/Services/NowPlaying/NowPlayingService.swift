@@ -44,6 +44,7 @@ final class NowPlayingService: ObservableObject {
         running = false
         pollTimer?.invalidate()
         pollTimer = nil
+        appleScript.cancel()
         adapter.stop()
         mediaRemote.stop()
         clear()
@@ -69,6 +70,7 @@ final class NowPlayingService: ObservableObject {
     }
 
     private func handle(_ new: NowPlayingInfo?, from backend: Backend) {
+        guard running else { return }   // a late poll must not bring the pill back after stop()
         // Lower-ranked backends stay quiet once a better one is delivering.
         if backend == .appleScript && (adapter.isHealthy || mediaRemote.isHealthy) { return }
         if backend == .mediaRemote && adapter.isHealthy { return }

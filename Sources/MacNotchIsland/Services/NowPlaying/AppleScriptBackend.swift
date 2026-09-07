@@ -20,6 +20,12 @@ final class AppleScriptBackend {
     private static let musicID = "com.apple.Music"
     private static let spotifyID = "com.spotify.client"
 
+    /// Drop any in-flight poll's result (its blocked NSAppleScript call can't be interrupted).
+    func cancel() {
+        generation += 1
+        inFlight = false
+    }
+
     func poll(_ completion: @escaping (NowPlayingInfo?) -> Void) {
         guard !inFlight else { return }
         let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })

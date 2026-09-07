@@ -93,7 +93,10 @@ final class MediaKeyInterceptor {
         tapPort = nil
         lock.unlock()
 
-        if let port { CGEvent.tapEnable(tap: port, enable: false) }
+        if let port {
+            CGEvent.tapEnable(tap: port, enable: false)
+            CFMachPortInvalidate(port)
+        }
         if let loop { CFRunLoopStop(loop) }
         tapThread = nil
     }

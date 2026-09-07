@@ -24,6 +24,7 @@ final class ServiceHub {
     let updates = UpdateChecker.shared
 
     private var cancellables = Set<AnyCancellable>()
+    private var requestedShortcuts = false
 
     func start() {
         energy.start()
@@ -55,7 +56,10 @@ final class ServiceHub {
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
         p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()
         p.capsLockEnabled ? capsLock.start() : capsLock.stop()
-        if p.quickActionsEnabled && ShortcutsRunner.shared.available.isEmpty { ShortcutsRunner.shared.refresh() }
+        if p.quickActionsEnabled && !requestedShortcuts {
+            requestedShortcuts = true
+            ShortcutsRunner.shared.refresh()
+        }
         p.updateChecksEnabled ? updates.start() : updates.stop()
     }
 }

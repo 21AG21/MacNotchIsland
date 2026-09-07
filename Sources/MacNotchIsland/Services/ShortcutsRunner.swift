@@ -71,7 +71,7 @@ final class ShortcutsRunner: ObservableObject {
             content: .custom(CustomActivity(title: name, subtitle: "Running…", symbol: symbol(for: name), tint: "purple")),
             priority: 75))
 
-        Self.queue.async {
+        DispatchQueue.global(qos: .userInitiated).async {
             let result = Self.execute(arguments: ["run", name])
             DispatchQueue.main.async {
                 ActivityCenter.shared.end(id: activityID)
@@ -106,6 +106,10 @@ final class ShortcutsRunner: ObservableObject {
             try process.run()
         } catch {
             return ProcessResult(succeeded: false, stderrFirstLine: error.localizedDescription)
+        }
+        // A shortcut that waits on a dialog forever must not pin a Live Activity forever.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 300) { [process] in
+            if process.isRunning { process.terminate() }
         }
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()

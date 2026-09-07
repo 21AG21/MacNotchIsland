@@ -171,7 +171,13 @@ final class LyricsService: ObservableObject {
                 while let first = rest.first, first == " " || first == "\t" { rest = rest.dropFirst() }
                 guard rest.first == "[", let close = rest.firstIndex(of: "]") else { break }
                 let body = rest[rest.index(after: rest.startIndex)..<close]
-                guard let time = timestamp(from: body) else { break }
+                guard let time = timestamp(from: body) else {
+                    // A metadata tag before any timestamp ends the line; a structural tag such
+                    // as [Chorus] after a timestamp is skipped rather than shown.
+                    if stamps.isEmpty { break }
+                    rest = rest[rest.index(after: close)...]
+                    continue
+                }
                 stamps.append(time)
                 rest = rest[rest.index(after: close)...]
             }
@@ -282,7 +288,8 @@ final class LyricsService: ObservableObject {
             guard let self else { return }
             if let data, let record = try? JSONDecoder().decode(Record.self, from: data), record.hasLyrics {
                 self.finish(key, record: record)
-            } else {
+            } else if key == self.currentKey {
+                // A cancelled request for a superseded track must not trigger a second search.
                 self.search(key)
             }
         }

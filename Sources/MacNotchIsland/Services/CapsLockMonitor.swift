@@ -3,7 +3,7 @@ import Combine
 
 /// Caps Lock on/off pill. Polls NSEvent.modifierFlags, which needs no permission at all.
 final class CapsLockMonitor {
-    private static let baseInterval: TimeInterval = 0.2
+    private static let baseInterval: TimeInterval = 0.6
 
     private var timer: Timer?
     private var last = false

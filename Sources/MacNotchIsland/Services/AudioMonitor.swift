@@ -84,7 +84,7 @@ final class AudioMonitor {
         guard muted != lastMute else { return }
         lastMute = muted
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: muted)), priority: 85)
-        ActivityCenter.shared.showAlert(activity, duration: 2)
+        ActivityCenter.shared.showAlert(activity, duration: 2, haptic: false)
     }
 
     private func microphoneChanged() {

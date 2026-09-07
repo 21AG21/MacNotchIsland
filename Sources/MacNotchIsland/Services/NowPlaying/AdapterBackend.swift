@@ -10,6 +10,7 @@ final class AdapterBackend {
 
     private var process: Process?
     private var input: FileHandle?
+    private var output: FileHandle?
     private var buffer = Data()
     private var stopped = true
     private var restartAttempts = 0
@@ -46,9 +47,12 @@ final class AdapterBackend {
     func stop() {
         stopped = true
         send("quit")
+        output?.readabilityHandler = nil   // no trailing reads after we've been told to stop
+        output = nil
         process?.terminate()
         process = nil
         input = nil
+        isHealthy = false
     }
 
     // MARK: Commands
@@ -93,6 +97,7 @@ final class AdapterBackend {
         }
         process = p
         input = stdin.fileHandleForWriting
+        output = stdout.fileHandleForReading
     }
 
     private func processEnded() {
