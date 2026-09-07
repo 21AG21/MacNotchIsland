@@ -1,8 +1,20 @@
 import AppKit
 
-/// Menu bar item: the app has no Dock icon, so this is how you reach Settings and Quit.
-final class StatusItemController: NSObject {
+/// Menu bar extra. The app has no Dock icon, so this is how you reach Settings and Quit.
+/// Built like Apple's own extras: a section header that reflects the island's state, items
+/// that validate against live state, and an Option-key alternate for the demo menu.
+final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let item: NSStatusItem
+    private let header = NSMenuItem.sectionHeader(title: "Notch Island")
+    private let visibility = NSMenuItem()
+    private let stopwatch = NSMenuItem()
+    private let cancel = NSMenuItem()
+    private lazy var timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
 
     override init() {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -17,83 +29,117 @@ final class StatusItemController: NSObject {
 
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.delegate = self
+        menu.addItem(header)
 
-        let open = NSMenuItem(title: "Open Island", action: #selector(openHome), keyEquivalent: "")
-        open.target = self
-        menu.addItem(open)
+        menu.addItem(action("Open Island", #selector(openHome)))
+        menu.addItem(.separator())
 
         let timerMenu = NSMenu()
         for minutes in [1, 3, 5, 10, 15, 25, 45, 60] {
-            let it = NSMenuItem(title: "\(minutes) min", action: #selector(startTimer(_:)), keyEquivalent: "")
+            let it = action(Self.presetTitle(minutes: minutes), #selector(startTimer(_:)))
             it.tag = minutes
-            it.target = self
             timerMenu.addItem(it)
         }
         timerMenu.addItem(.separator())
-        let cancel = NSMenuItem(title: "Cancel Timer", action: #selector(cancelTimer), keyEquivalent: "")
+        cancel.title = "Cancel Timer"
+        cancel.action = #selector(cancelTimer)
         cancel.target = self
         timerMenu.addItem(cancel)
         let timerItem = NSMenuItem(title: "Timer", action: nil, keyEquivalent: "")
         timerItem.submenu = timerMenu
         menu.addItem(timerItem)
 
-        let stopwatch = NSMenuItem(title: "Stopwatch", action: #selector(toggleStopwatch), keyEquivalent: "")
+        stopwatch.action = #selector(toggleStopwatch)
         stopwatch.target = self
         menu.addItem(stopwatch)
-
-        let hide = NSMenuItem(title: "Hide Island for an Hour", action: #selector(hideForHour), keyEquivalent: "")
-        hide.target = self
-        menu.addItem(hide)
-        let show = NSMenuItem(title: "Show Island Now", action: #selector(showNow), keyEquivalent: "")
-        show.target = self
-        menu.addItem(show)
-
-        let clear = NSMenuItem(title: "Clear Shelf", action: #selector(clearShelf), keyEquivalent: "")
-        clear.target = self
-        menu.addItem(clear)
-
         menu.addItem(.separator())
 
+        visibility.target = self
+        menu.addItem(visibility)
+        menu.addItem(action("Clear Shelf", #selector(clearShelf)))
+        menu.addItem(.separator())
+
+        menu.addItem(action("Check for Updates…", #selector(checkForUpdates)))
+
+        // Hold Option to swap the tour for the demo menu, the way Apple hides advanced options.
+        let welcome = action("Welcome Tour", #selector(showWelcome))
+        welcome.keyEquivalentModifierMask = []
+        menu.addItem(welcome)
+        let demoItem = NSMenuItem(title: "Demo", action: nil, keyEquivalent: "")
+        demoItem.keyEquivalentModifierMask = .option
+        demoItem.isAlternate = true
+        demoItem.submenu = buildDemoMenu()
+        menu.addItem(demoItem)
+
+        menu.addItem(action("Settings…", #selector(openSettings), key: ","))
+        menu.addItem(.separator())
+        menu.addItem(action("About Notch Island", #selector(showAbout)))
+        menu.addItem(action("Quit Notch Island", #selector(quit), key: "q"))
+        refreshDynamicItems()
+        return menu
+    }
+
+    private func buildDemoMenu() -> NSMenu {
         let demoMenu = NSMenu()
         let demos: [(String, Selector)] = [
             ("Charging", #selector(demoCharging)),
-            ("Low battery", #selector(demoLowBattery)),
-            ("AirPods connected", #selector(demoAirPods)),
-            ("Focus on", #selector(demoFocus)),
-            ("Silent mode", #selector(demoSilent)),
+            ("Low Battery", #selector(demoLowBattery)),
+            ("AirPods Connected", #selector(demoAirPods)),
+            ("Focus On", #selector(demoFocus)),
+            ("Silent Mode", #selector(demoSilent)),
             ("Volume", #selector(demoVolume)),
             ("Unlocked", #selector(demoUnlock)),
-            ("Incoming call", #selector(demoCall)),
-            ("Delivery live activity", #selector(demoDelivery)),
-            ("End demo activities", #selector(demoEnd)),
+            ("Incoming Call", #selector(demoCall)),
+            ("Delivery Live Activity", #selector(demoDelivery)),
         ]
-        for (title, sel) in demos {
-            let it = NSMenuItem(title: title, action: sel, keyEquivalent: "")
-            it.target = self
-            demoMenu.addItem(it)
+        for (title, sel) in demos { demoMenu.addItem(action(title, sel)) }
+        demoMenu.addItem(.separator())
+        demoMenu.addItem(action("End Demo Activities", #selector(demoEnd)))
+        return demoMenu
+    }
+
+    private func action(_ title: String, _ selector: Selector, key: String = "") -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+        it.target = self
+        return it
+    }
+
+    static func presetTitle(minutes: Int) -> String {
+        if minutes % 60 == 0 { return minutes == 60 ? "1 Hour" : "\(minutes / 60) Hours" }
+        return minutes == 1 ? "1 Minute" : "\(minutes) Minutes"
+    }
+
+    // MARK: Live state
+
+    func menuNeedsUpdate(_ menu: NSMenu) { refreshDynamicItems() }
+
+    private func refreshDynamicItems() {
+        let center = ActivityCenter.shared
+        let until = Preferences.shared.pausedUntil
+        let paused = until > 0 && Date().timeIntervalSince1970 < until
+        if paused {
+            header.title = "Hidden until " + timeFormatter.string(from: Date(timeIntervalSince1970: until))
+            visibility.title = "Show Island"
+            visibility.action = #selector(showNow)
+        } else if center.isSuppressed {
+            header.title = "Hidden while this app is in front"
+            visibility.title = "Hide Island for 1 Hour"
+            visibility.action = #selector(hideForHour)
+        } else {
+            header.title = "Notch Island"
+            visibility.title = "Hide Island for 1 Hour"
+            visibility.action = #selector(hideForHour)
         }
-        let demoItem = NSMenuItem(title: "Demo", action: nil, keyEquivalent: "")
-        demoItem.submenu = demoMenu
-        menu.addItem(demoItem)
+        stopwatch.title = IslandStopwatch.shared.state == nil ? "Start Stopwatch" : "Reset Stopwatch"
+    }
 
-        menu.addItem(.separator())
-
-        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
-        updates.target = self
-        menu.addItem(updates)
-
-        let welcome = NSMenuItem(title: "Welcome Tour", action: #selector(showWelcome), keyEquivalent: "")
-        welcome.target = self
-        menu.addItem(welcome)
-
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        let quit = NSMenuItem(title: "Quit Notch Island", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-        return menu
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(cancelTimer): return IslandTimer.shared.state != nil
+        case #selector(clearShelf): return !ShelfStore.shared.items.isEmpty
+        default: return true
+        }
     }
 
     // MARK: Actions
@@ -122,6 +168,11 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+
+    @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(nil)
+    }
 
     @objc private func showWelcome() { WelcomeWindowController.shared.show() }
 
