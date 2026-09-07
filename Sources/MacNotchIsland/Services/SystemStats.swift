@@ -298,7 +298,9 @@ final class SystemStats: ObservableObject {
         // machines that do not publish the raw one.
         let maxCapacity = number("AppleRawMaxCapacity") ?? number("MaxCapacity")
         let design = number("DesignCapacity")
-        let health = healthPercent(max: maxCapacity ?? 0, design: design ?? 0)
+        // Some Apple Silicon models publish MaxCapacity as a percentage rather than mAh; a
+        // ratio far below any real battery's health means the units didn't match.
+        let health = healthPercent(max: maxCapacity ?? 0, design: design ?? 0).flatMap { $0 >= 40 ? $0 : nil }
         // Never force a nonsense double through Int(), which would trap.
         let cycles = number("CycleCount").flatMap { (raw: Double) -> Int? in
             guard raw.isFinite, raw >= 0, raw < 1_000_000 else { return nil }
