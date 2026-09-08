@@ -15,6 +15,20 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(TimeInterval(0.4).timerString, "0:01")
     }
 
+    /// A live stream reports an infinite duration and an unmeasured track a NaN position;
+    /// `Int(Double)` traps on both, and on anything past Int's range, so the clock must not.
+    func testClockSurvivesWhatPlayersReport() {
+        XCTAssertEqual(TimeInterval.infinity.mmss, "0:00")
+        XCTAssertEqual((-TimeInterval.infinity).mmss, "0:00")
+        XCTAssertEqual(TimeInterval.nan.mmss, "0:00")
+        XCTAssertEqual(TimeInterval(-5).mmss, "0:00")
+        XCTAssertEqual(TimeInterval.greatestFiniteMagnitude.mmss, "99:59:59")
+        XCTAssertEqual(TimeInterval.infinity.timerString, "0:00")
+        XCTAssertEqual(TimeInterval.nan.timerString, "0:00")
+        XCTAssertEqual(TimeInterval(1e300).timerString, "99:59:59")
+        XCTAssertEqual(IslandAccessibility.playbackValue(position: .nan, duration: .infinity), "0:00 of 0:00")
+    }
+
     func testTimerStateMath() {
         let end = Date().addingTimeInterval(120)
         var t = TimerState(label: "t", total: 120, endDate: end)

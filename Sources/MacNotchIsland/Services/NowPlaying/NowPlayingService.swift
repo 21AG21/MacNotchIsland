@@ -127,7 +127,7 @@ final class NowPlayingService: ObservableObject {
         if backend == .appleScript && (adapter.isHealthy || mediaRemote.isHealthy) { return }
         if backend == .mediaRemote && adapter.isHealthy { return }
 
-        guard let new else {
+        guard let new = new.map(Self.sanitized) else {
             if activeBackend == backend || activeBackend == .inactive { scheduleClear() }
             return
         }
@@ -146,6 +146,18 @@ final class NowPlayingService: ObservableObject {
         }
         if info != reconciled { info = reconciled }
         publish()
+    }
+
+    /// A report as the island can use it. Players hand out infinite durations for live
+    /// streams, NaN positions for tracks they have not measured, and timestamps from nowhere;
+    /// none of those may reach arithmetic that ends in an `Int`, so they are zeroed here, once,
+    /// at the boundary.
+    static func sanitized(_ info: NowPlayingInfo) -> NowPlayingInfo {
+        var result = info
+        if !result.duration.isFinite || result.duration < 0 { result.duration = 0 }
+        if !result.elapsed.isFinite || result.elapsed < 0 { result.elapsed = 0 }
+        if !result.timestamp.timeIntervalSinceReferenceDate.isFinite { result.timestamp = Date() }
+        return result
     }
 
     /// The report the island should believe. Inside the optimistic window, a report about the
@@ -235,6 +247,7 @@ final class NowPlayingService: ObservableObject {
     }
 
     func seek(to seconds: TimeInterval) {
+        guard seconds.isFinite, seconds >= 0 else { return }
         switch activeBackend {
         case .appleScript: appleScript.seek(to: seconds, bundleID: info?.bundleID)
         case .adapter: adapter.send("seek \(Int(seconds))")
