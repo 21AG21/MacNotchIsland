@@ -26,9 +26,18 @@ final class GalleryTests: XCTestCase {
             throw XCTSkip("GALLERY_DIR is not set")
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // Other tests leave preferences behind in the same defaults domain; every tab and
+        // feature the gallery shows is switched on explicitly.
         let prefs = Preferences.shared
         prefs.hapticsEnabled = false
         prefs.weatherEnabled = true
+        prefs.statsEnabled = true
+        prefs.mirrorEnabled = true
+        prefs.quickActionsEnabled = true
+        prefs.shelfEnabled = true
+        prefs.clipboardEnabled = true
+        prefs.lyricsEnabled = true
+        prefs.nowPlayingEnabled = true
         RenderMode.isGallery = true
         defer { RenderMode.isGallery = false }
         let center = ActivityCenter.shared
