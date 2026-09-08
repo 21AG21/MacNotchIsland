@@ -31,6 +31,9 @@ struct QuickActionsRowView: View {
                     }
                     Spacer(minLength: 8)
                     PillButton(title: "Choose Actions…") {
+                        // Straight to the pane that fills this row, rather than to whichever
+                        // pane Settings happened to be left on.
+                        UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
                         NSApp.activate(ignoringOtherApps: true)
                         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                     }
