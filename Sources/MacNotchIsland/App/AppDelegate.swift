@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         RunRecord.begin()
         IslandLog.island.notice("launched pid \(Int(ProcessInfo.processInfo.processIdentifier), privacy: .public) from \(Bundle.main.bundlePath, privacy: .public)")
+        catchTermination()
         Self.retireOtherCopies()
         NSApp.setActivationPolicy(.accessory)
         rebuildPanels()
@@ -60,7 +61,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
+    /// `kill` (and the `pkill` in the install steps) sends SIGTERM, which would otherwise end
+    /// the process without a word. It is turned into an ordinary quit, so it is recorded like one.
+    private var terminationSignal: DispatchSourceSignal?
+    private static var signalledQuit: String?
+
+    private func catchTermination() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            Self.signalledQuit = "SIGTERM (kill or pkill)"
+            NSApp.terminate(nil)
+        }
+        source.resume()
+        terminationSignal = source
+    }
+
     private static func quitRequester() -> String {
+        if let signalled = signalledQuit { return signalled }
         guard let event = NSAppleEventManager.shared().currentAppleEvent else { return "from inside the app" }
         // keySenderPIDAttr, 'spid': the process that sent the quit event.
         guard let pid = event.attributeDescriptor(forKeyword: AEKeyword(0x7370_6964))?.int32Value else {
