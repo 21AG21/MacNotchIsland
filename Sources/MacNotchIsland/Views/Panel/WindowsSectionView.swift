@@ -14,7 +14,11 @@ struct WindowsSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionHeader("Windows") {
-                if !windows.isEmpty {
+                // Snapping is the half of this section that needs Accessibility. Saying so
+                // here beats a zone button that quietly does nothing.
+                if !monitor.canMove && !windows.isEmpty {
+                    PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
+                } else if !windows.isEmpty {
                     Text(windows.count == 1 ? "1 open" : "\(windows.count) open")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.4))

@@ -494,6 +494,20 @@ final class ActivityCenter: ObservableObject {
     func setPressed(_ pressed: Bool, panel: String = "main") {
         let next: String? = pressed ? panel : nil
         if pressedPanel != next { pressedPanel = next }
+        if pressed { pinPeekedPanel(panel: panel) }
+    }
+
+    /// A click anywhere in a panel that is only under the pointer pins it.
+    ///
+    /// The island's own tap gesture does this for a click on its background, but a click that
+    /// lands on a control — a slider, the output menu, a rail button — is consumed by that
+    /// control and never reaches it. Without this, using one of those controls left the panel
+    /// unpinned, and it would vanish the moment the pointer followed a menu off the island.
+    /// The press is enough: the user has committed to the panel.
+    private func pinPeekedPanel(panel: String) {
+        guard openView == nil, hoverPanel == panel, Preferences.shared.hoverToExpand,
+              case .panel(let view) = presentation(for: panel) else { return }
+        open(view)
     }
 
     func setDragTargeted(_ targeted: Bool, panel: String = "main") {

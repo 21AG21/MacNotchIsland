@@ -121,6 +121,14 @@ struct MusicSectionView: View {
                     LinearGradient(colors: [.black, .black.opacity(0.35), .clear],
                                    startPoint: .leading, endPoint: .trailing)
                 }
+                // And out again at the bottom, so the wash does not end in a straight line
+                // where the section is clipped above the divider.
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0),
+                                           .init(color: .black, location: 0.55),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
                 .offset(y: -6)
                 .id(info.artworkID)
                 .transition(.opacity)

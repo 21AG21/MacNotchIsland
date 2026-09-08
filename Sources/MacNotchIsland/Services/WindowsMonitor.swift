@@ -238,8 +238,10 @@ final class WindowsMonitor: ObservableObject {
 
     // MARK: - Acting on a window
 
-    /// Brings a window to the front and gives it the keyboard.
+    /// Brings a window to the front and gives it the keyboard. The panel closes with it: the
+    /// point of the click was to get to that window, not to keep looking at the notch.
     func focus(_ window: IslandWindow) {
+        ActivityCenter.shared.collapse(reason: "switched to a window")
         if let element = Self.axWindow(for: window) {
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)

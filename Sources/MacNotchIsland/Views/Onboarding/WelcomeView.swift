@@ -114,6 +114,7 @@ struct WelcomeView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 choice("calendar", "Today", "Your next events and reminders. Asks for calendar access.", $prefs.calendarEnabled)
+                choice("macwindow.on.rectangle", "Windows", "Every open window as a tile: click to switch, or snap it to half the screen. Asks for Screen Recording and Accessibility.", $prefs.windowsEnabled)
                 choice("tray.full", "Shelf", "Files you drop on the island; downloads and screenshots land there too.", $prefs.shelfEnabled)
                 choice("doc.on.clipboard", "Clipboard", "Recent copies, pinned ones first.", $prefs.clipboardEnabled)
                 choice("note.text", "Notes", "A scratchpad that keeps whatever you type.", $prefs.notesEnabled)

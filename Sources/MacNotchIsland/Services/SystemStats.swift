@@ -24,11 +24,15 @@ final class SystemStats: ObservableObject {
         var batteryHealthPercent: Double?
         var cycleCount: Int?
         var batteryTemperatureC: Double?
+        var diskUsedBytes: UInt64 = 0
+        var diskTotalBytes: UInt64 = 0
     }
 
     @Published private(set) var sample = Sample()
     /// The last `historyLength` CPU readings, oldest first — the sparkline's data.
     @Published private(set) var cpuHistory: [Double] = []
+    /// The same window of network throughput (down plus up, bytes a second).
+    @Published private(set) var networkHistory: [Double] = []
     /// True while at least one view is asking for samples.
     private(set) var isRunning = false
 
@@ -40,6 +44,8 @@ final class SystemStats: ObservableObject {
     private static let primingDelay: TimeInterval = 0.4
     /// How long a battery reading is good for; health and cycles barely move.
     private static let batteryInterval: TimeInterval = 30
+    /// The same for the disk: free space moves slowly and the reading walks the volume.
+    private static let diskInterval: TimeInterval = 30
 
     /// The host port is a send right that `mach_host_self()` re-references on every call,
     /// so take it once instead of every two seconds.
@@ -57,6 +63,8 @@ final class SystemStats: ObservableObject {
     private var previousNetwork: (down: UInt64, up: UInt64, time: Date)?
     private var battery: (health: Double?, cycles: Int?, temperature: Double?)?
     private var batteryReadAt: Date?
+    private var disk: (used: UInt64, total: UInt64)?
+    private var diskReadAt: Date?
 
     private init() {}
 
@@ -98,6 +106,7 @@ final class SystemStats: ObservableObject {
         energyCancellable?.cancel()
         energyCancellable = nil
         cpuHistory = []
+        networkHistory = []
         queue.async { [weak self] in self?.sampling = false }
     }
 
@@ -155,6 +164,11 @@ final class SystemStats: ObservableObject {
         next.cycleCount = reading.cycles
         next.batteryTemperatureC = reading.temperature
 
+        if let disk = diskReading(now: now) {
+            next.diskUsedBytes = disk.used
+            next.diskTotalBytes = disk.total
+        }
+
         publish(next, recordCPU: recordCPU)
     }
 
@@ -170,16 +184,47 @@ final class SystemStats: ObservableObject {
         return reading
     }
 
+    /// Free space on the boot volume. Cached like the battery: the answer walks the volume
+    /// and barely changes between samples.
+    private func diskReading(now: Date) -> (used: UInt64, total: UInt64)? {
+        if let cached = disk, let readAt = diskReadAt, now.timeIntervalSince(readAt) < Self.diskInterval {
+            return cached
+        }
+        let reading = Self.readDisk()
+        disk = reading
+        diskReadAt = now
+        return reading
+    }
+
+    /// Used and total bytes on the volume the system booted from, or nil when it cannot be
+    /// read. "Available" is the figure Finder shows — what could be freed for a big write.
+    static func readDisk() -> (used: UInt64, total: UInt64)? {
+        let url = URL(fileURLWithPath: "/")
+        guard let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey,
+                                                             .volumeAvailableCapacityForImportantUsageKey]),
+              let total = values.volumeTotalCapacity, total > 0 else { return nil }
+        let available = values.volumeAvailableCapacityForImportantUsage.map { UInt64(max(0, $0)) } ?? 0
+        let capacity = UInt64(total)
+        return (capacity - min(capacity, available), capacity)
+    }
+
     private func publish(_ new: Sample, recordCPU: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isRunning else { return }
             if self.sample != new { self.sample = new }
             guard recordCPU else { return }
-            var history = self.cpuHistory
-            history.append(new.cpuPercent)
-            if history.count > Self.historyLength { history.removeFirst(history.count - Self.historyLength) }
-            self.cpuHistory = history
+            self.cpuHistory = Self.appending(new.cpuPercent, to: self.cpuHistory)
+            self.networkHistory = Self.appending(new.networkDownBytesPerSec + new.networkUpBytesPerSec,
+                                                 to: self.networkHistory)
         }
+    }
+
+    /// One more reading, keeping the window at `historyLength`.
+    static func appending(_ value: Double, to history: [Double]) -> [Double] {
+        var next = history
+        next.append(value)
+        if next.count > historyLength { next.removeFirst(next.count - historyLength) }
+        return next
     }
 
     // MARK: - CPU
@@ -336,7 +381,8 @@ final class SystemStats: ObservableObject {
         return formatter
     }()
 
-    private static let memoryFormatter: ByteCountFormatter = {
+    /// Sizes as the Finder writes them ("412 GB"), shared by the memory and disk cells.
+    static let memoryFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .memory
         formatter.allowsNonnumericFormatting = false

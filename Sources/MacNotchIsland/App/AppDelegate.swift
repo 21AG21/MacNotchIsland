@@ -33,8 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let workspace = NSWorkspace.shared.notificationCenter
         workspace.addObserver(self, selector: #selector(spaceChanged),
                               name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-        workspace.addObserver(self, selector: #selector(frontAppChanged),
-                              name: NSWorkspace.didActivateApplicationNotification, object: nil)
 
         let prefs = Preferences.shared
         Publishers.Merge3(
@@ -121,17 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The island belongs to the notch, not to a Space: whatever the user had open stays open
-    /// across a swipe, and the panel is put back on top of the new desktop.
+    /// across a swipe, and the panel is refitted over the new desktop. Each panel keeps its own
+    /// place in the window order (`NotchPanel.assertOnTop`), for this and for every other way
+    /// the windows underneath can change.
     @objc private func spaceChanged() {
         IslandLog.panel.notice("space changed")
-        for panel in panels {
-            panel.orderFrontRegardless()
-            panel.refit()
-        }
-    }
-
-    @objc private func frontAppChanged() {
-        for panel in panels { panel.orderFrontRegardless() }
+        for panel in panels { panel.refit() }
     }
 
     @objc private func screensChanged() {
