@@ -197,6 +197,7 @@ final class NowPlayingService: ObservableObject {
     /// same track that contradicts what the user just did is corrected to the user's state; a
     /// different track, or anything after the window, is taken as is.
     static func reconcile(incoming: NowPlayingInfo, current: NowPlayingInfo?, optimistic: Optimistic?, now: Date) -> NowPlayingInfo {
+        let incoming = carryingArtwork(into: incoming, from: current)
         guard let optimistic, now < optimistic.until, let current, sameTrack(incoming, current) else { return incoming }
         var result = incoming
         if let isPlaying = optimistic.isPlaying, incoming.isPlaying != isPlaying {
@@ -210,6 +211,19 @@ final class NowPlayingService: ObservableObject {
             result.elapsed = expected
             result.timestamp = now
         }
+        return result
+    }
+
+    /// A cover found for the track that is playing survives the next report about it.
+    ///
+    /// The players that hand over no artwork hand over none every second, and `ArtworkFetcher`
+    /// only fills the gap once. Without this the cover would appear and vanish on every poll.
+    static func carryingArtwork(into incoming: NowPlayingInfo, from current: NowPlayingInfo?) -> NowPlayingInfo {
+        guard incoming.artwork == nil, let current, current.artwork != nil, sameTrack(incoming, current) else { return incoming }
+        var result = incoming
+        result.artwork = current.artwork
+        result.artworkID = current.artworkID
+        result.accent = current.accent
         return result
     }
 

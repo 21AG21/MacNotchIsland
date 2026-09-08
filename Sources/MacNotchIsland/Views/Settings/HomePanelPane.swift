@@ -91,6 +91,11 @@ struct HomePanelPane: View {
                 Text("Without Screen Recording the windows are still listed, by app, with no picture and no title.")
             }
             .disabled(!prefs.windowsEnabled)
+            // Permissions are granted in System Settings, which tells nobody; the rows are
+            // re-read while this pane is open so a grant shows up without a relaunch.
+            .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+                windows.refreshPermissions()
+            }
 
             Section {
                 Toggle("Camera mirror", isOn: $prefs.mirrorEnabled)

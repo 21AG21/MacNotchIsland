@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import MacNotchIsland
 
@@ -9,6 +10,38 @@ final class NowPlayingReconcileTests: XCTestCase {
     private func info(_ title: String = "Song", playing: Bool, elapsed: TimeInterval = 30, at date: Date? = nil) -> NowPlayingInfo {
         NowPlayingInfo(title: title, artist: "Band", album: "", duration: 200, elapsed: elapsed, timestamp: date ?? t0,
                        isPlaying: playing, bundleID: "com.apple.Music", artwork: nil, artworkID: 0, accent: .white)
+    }
+
+    /// A cover found for a track a player never gave one for has to survive that player's
+    /// next report, or it would flash on and off once a second.
+    func testAFoundCoverSurvivesTheNextReport() {
+        let cover = NSImage(size: NSSize(width: 10, height: 10))
+        var withCover = info(playing: true)
+        withCover.artwork = cover
+        withCover.artworkID = 7
+        withCover.accent = .systemPink
+
+        let bare = info(playing: true, elapsed: 31)
+        let result = NowPlayingService.reconcile(incoming: bare, current: withCover, optimistic: nil, now: t0 + 1)
+        XCTAssertTrue(result.artwork === cover, "the same track keeps the cover we found for it")
+        XCTAssertEqual(result.artworkID, 7)
+        XCTAssertEqual(result.elapsed, 31, "and the report is believed about everything else")
+
+        let nextTrack = info("Another", playing: true)
+        let switched = NowPlayingService.reconcile(incoming: nextTrack, current: withCover, optimistic: nil, now: t0 + 1)
+        XCTAssertNil(switched.artwork, "a different track does not inherit it")
+    }
+
+    /// A player that does hand over its own artwork always wins.
+    func testAPlayersOwnCoverIsNeverReplaced() {
+        let mine = NSImage(size: NSSize(width: 10, height: 10))
+        let theirs = NSImage(size: NSSize(width: 20, height: 20))
+        var current = info(playing: true)
+        current.artwork = mine
+        var incoming = info(playing: true, elapsed: 31)
+        incoming.artwork = theirs
+        let result = NowPlayingService.reconcile(incoming: incoming, current: current, optimistic: nil, now: t0 + 1)
+        XCTAssertTrue(result.artwork === theirs)
     }
 
     func testStaleReportInsideWindowKeepsTheUsersState() {

@@ -147,11 +147,18 @@ final class WindowsMonitor: ObservableObject {
 
     // MARK: - Reading
 
-    func refresh() {
+    /// Re-reads the two permissions and nothing else: cheap enough for a settings pane to
+    /// poll while it is open, with no window list and no captures.
+    func refreshPermissions() {
         let allowed = CGPreflightScreenCaptureAccess()
         if canCapture != allowed { canCapture = allowed }
         let trusted = AXIsProcessTrusted()
         if canMove != trusted { canMove = trusted }
+    }
+
+    func refresh() {
+        refreshPermissions()
+        let allowed = canCapture
         // The window server's list is walked off the main thread; what it says is turned into
         // tiles (and their app icons, which is AppKit's business) back on it.
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -283,7 +290,7 @@ final class WindowsMonitor: ObservableObject {
     /// point of the click was to get to that window, not to keep looking at the notch.
     func focus(_ window: IslandWindow) {
         ActivityCenter.shared.collapse(reason: "switched to a window")
-        if let element = Self.axWindow(for: window) {
+        if let element = Self.axWindow(for: window, lenient: true) {
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
@@ -298,7 +305,11 @@ final class WindowsMonitor: ObservableObject {
     @discardableResult
     func snap(_ window: IslandWindow, to zone: SnapZone) -> Bool {
         guard let element = Self.axWindow(for: window) else {
-            requestMove()
+            // Either the permission is missing, or the window moved since the list was taken
+            // and cannot be told from its siblings. Ask for the permission if that is what is
+            // missing, and take a fresh list either way rather than moving the wrong window.
+            if !AXIsProcessTrusted() { requestMove() }
+            refresh()
             return false
         }
         let target = zone.rect(in: Self.visibleFrame(containing: window.frame))
@@ -317,7 +328,8 @@ final class WindowsMonitor: ObservableObject {
     @discardableResult
     func close(_ window: IslandWindow) -> Bool {
         guard let element = Self.axWindow(for: window) else {
-            requestMove()
+            if !AXIsProcessTrusted() { requestMove() }
+            refresh()
             return false
         }
         var button: CFTypeRef?
@@ -333,7 +345,12 @@ final class WindowsMonitor: ObservableObject {
     /// The Accessibility element for a window the window list told us about. There is no
     /// public way to ask for a window by its number, so the app's windows are matched on what
     /// both sides agree about: where the window is, then what it is called.
-    static func axWindow(for window: IslandWindow) -> AXUIElement? {
+    ///
+    /// A window that cannot be identified is never guessed at. The list can be a couple of
+    /// seconds old, and an app usually has several windows: taking "the first one" would move
+    /// — or close — a window the user did not point at. `lenient` is for raising a window,
+    /// where the worst case is the app's own frontmost window coming forward instead.
+    static func axWindow(for window: IslandWindow, lenient: Bool = false) -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
         let app = AXUIElementCreateApplication(window.pid)
         var value: CFTypeRef?
@@ -344,8 +361,12 @@ final class WindowsMonitor: ObservableObject {
             return abs(frame.minX - window.frame.minX) < 4 && abs(frame.minY - window.frame.minY) < 4
                 && abs(frame.width - window.frame.width) < 4 && abs(frame.height - window.frame.height) < 4
         }) { return byFrame }
-        guard !window.title.isEmpty else { return elements.first }
-        return elements.first { title(of: $0) == window.title } ?? elements.first
+        if !window.title.isEmpty, let byTitle = elements.first(where: { title(of: $0) == window.title }) {
+            return byTitle
+        }
+        // One window and one candidate can only mean each other.
+        if elements.count == 1 { return elements[0] }
+        return lenient ? elements.first : nil
     }
 
     static func setFrame(_ element: AXUIElement, to rect: CGRect) {

@@ -37,11 +37,17 @@ final class ArtworkFetcher {
     /// Covers held in memory. Small: a cover is a few hundred kilobytes and the list is capped.
     private var cache: [Key: NSImage] = [:]
     private var order: [Key] = []
-    private var misses: Set<Key> = []
+    /// Tracks not to ask about again, and when that stops being true: a search that came back
+    /// with no match is settled for good, but a lookup that failed because the network was
+    /// down is only settled for a minute. Otherwise a track played offline would never get a
+    /// cover again, however long the Mac stayed on.
+    private var misses: [Key: Date] = [:]
     private var inFlight: Set<Key> = []
     private let session: URLSession
 
     static let cacheLimit = 40
+    /// How long a lookup that could not be made is left alone before it is tried again.
+    static let retryAfterFailure: TimeInterval = 60
     /// Covers come back at this many points square: enough for the 60 pt panel cover on a
     /// Retina display, and for the blurred backdrop behind it.
     static let size = 600
@@ -59,25 +65,37 @@ final class ArtworkFetcher {
         let key = Key(info)
         guard !key.terms.isEmpty else { return }
         if let image = cache[key] { return completion(image) }
-        guard !misses.contains(key), !inFlight.contains(key), let url = Self.searchURL(for: key) else { return }
+        if let until = misses[key] {
+            guard Date() >= until else { return }
+            misses[key] = nil
+        }
+        guard !inFlight.contains(key), let url = Self.searchURL(for: key) else { return }
         inFlight.insert(key)
-        session.dataTask(with: url) { [weak self] data, _, _ in
+        session.dataTask(with: url) { [weak self] data, _, error in
             guard let self else { return }
-            guard let data, let artworkURL = Self.artworkURL(fromSearch: data) else {
-                self.finish(key, image: nil, completion: completion)
+            guard let data else {
+                // Nothing came back at all: the network, not the track.
+                self.finish(key, image: nil, settled: false, completion: completion)
+                return
+            }
+            guard let artworkURL = Self.artworkURL(fromSearch: data) else {
+                // A real answer with no match in it. There is no cover to find.
+                self.finish(key, image: nil, settled: error == nil, completion: completion)
                 return
             }
             self.session.dataTask(with: artworkURL) { [weak self] data, _, _ in
-                self?.finish(key, image: data.flatMap { NSImage(data: $0) }, completion: completion)
+                self?.finish(key, image: data.flatMap { NSImage(data: $0) }, settled: false, completion: completion)
             }.resume()
         }.resume()
     }
 
-    private func finish(_ key: Key, image: NSImage?, completion: @escaping (NSImage) -> Void) {
+    /// `settled` means the search itself answered and had nothing: that track has no cover and
+    /// is never asked about again. Everything else is a failure worth retrying later.
+    private func finish(_ key: Key, image: NSImage?, settled: Bool, completion: @escaping (NSImage) -> Void) {
         DispatchQueue.main.async {
             self.inFlight.remove(key)
             guard let image, image.size.width > 1 else {
-                self.misses.insert(key)
+                self.misses[key] = settled ? .distantFuture : Date().addingTimeInterval(Self.retryAfterFailure)
                 return
             }
             self.cache[key] = image

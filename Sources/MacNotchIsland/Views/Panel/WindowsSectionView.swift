@@ -14,9 +14,13 @@ struct WindowsSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionHeader("Windows") {
-                // Snapping is the half of this section that needs Accessibility. Saying so
-                // here beats a zone button that quietly does nothing.
-                if !monitor.canMove && !windows.isEmpty {
+                // Each permission does half of this section: one draws the pictures, the other
+                // moves and closes the windows. Whichever is missing is offered here, because
+                // a tile with no picture and a zone button that quietly does nothing are not
+                // explanations.
+                if !monitor.canCapture {
+                    PillButton(title: "Show pictures", tint: .white.opacity(0.85)) { monitor.requestCapture() }
+                } else if !monitor.canMove {
                     PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
                 } else if !windows.isEmpty {
                     Text(windows.count == 1 ? "1 open" : "\(windows.count) open")
