@@ -19,16 +19,16 @@ struct IslandPane: View {
             }
 
             Section {
-                Toggle("Expand when the pointer rests on the island", isOn: $prefs.hoverToExpand)
-                    .help("Off by default: the island reacts to clicks and the keyboard, never to the pointer passing by.")
-                Toggle("Open Home panel when the empty island is hovered", isOn: $prefs.expandOnIdleHover)
+                Toggle("Open when the pointer rests on the island", isOn: $prefs.hoverToExpand)
+                    .help("The card of what is playing or running opens under the pointer and closes when it leaves. A click keeps it open.")
+                Toggle("Open Home when the empty island is hovered", isOn: $prefs.expandOnIdleHover)
                 if prefs.hoverToExpand || prefs.expandOnIdleHover {
                     SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
                 }
             } header: {
                 Text("Pointer")
             } footer: {
-                Text("Both are off unless you want them. With them off, nothing opens until you click or use the keyboard.")
+                Text("What the pointer opens closes when it leaves. A click on the island keeps the panel open until you click somewhere else, press Escape, or use the shortcut.")
             }
 
             Section {

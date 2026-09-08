@@ -128,7 +128,7 @@ struct ShelfStripView: View {
     }
 
     private var items: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        IslandScrollStrip(axis: .horizontal) {
             HStack(spacing: 10) {
                 ForEach(shelf.items) { item in
                     ShelfItemView(item: item,

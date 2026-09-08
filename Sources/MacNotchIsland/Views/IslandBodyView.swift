@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The black island itself: shape, content, hover / click / drop handling.
 struct IslandBodyView: View {
@@ -41,7 +40,7 @@ struct IslandBodyView: View {
         .offset(y: layout.topInset)
         .onHover { hovering in center.setHovering(hovering, panel: panelID) }
         .onTapGesture { center.tap(panel: panelID) }
-        .onDrop(of: [UTType.fileURL], isTargeted: $dropTargeted) { providers in
+        .islandDrop(isTargeted: $dropTargeted) { providers in
             guard prefs.shelfEnabled else { return false }
             return ShelfStore.shared.acceptDrop(providers)
         }

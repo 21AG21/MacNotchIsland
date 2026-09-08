@@ -447,11 +447,27 @@ final class ActivityCenter: ObservableObject {
             }
         case .idle:
             open(.home(tab: Self.currentHomeTab))
-        case .expanded, .home, .shelf:
-            // An open panel closes from outside, the way a popover does: a click anywhere else,
-            // Escape, or the shortcut. Clicks on the panel itself belong to its controls.
+        case .expanded(let a):
+            // Shown because the pointer rests here: a click keeps it after the pointer leaves.
+            // Once pinned, clicks on the panel belong to its controls; it closes from outside,
+            // the way a popover does: a click anywhere else, Escape, or the shortcut.
+            if openView == nil, alert?.id != a.id { open(.activity(id: a.id)) }
+        case .home:
+            if openView == nil { open(.home(tab: Self.currentHomeTab)) }
+        case .shelf:
             break
         }
+    }
+
+    /// Whether the panel on `panel` is open because the user asked for it (pointer, click or
+    /// keyboard) rather than because an alert took the island. Such a panel carries the view
+    /// switcher, so every other view is one click away.
+    func isUserPanel(for panel: String?) -> Bool {
+        if isOpen { return true }
+        let shown = presentation(for: panel)
+        guard shown.isExpanded, let alert else { return shown.isExpanded }
+        if case .expanded(let a) = shown, a.id == alert.id { return false }
+        return true
     }
 
     /// A key-press HUD (volume, brightness, Caps Lock) is feedback, not a card to open.

@@ -19,7 +19,7 @@ struct ClipboardView: View {
     }
 
     private var list: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        IslandScrollStrip(axis: .vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(store.items) { item in
                     ClipboardRowView(item: item, isHovered: hoveredID == item.id)

@@ -29,6 +29,8 @@ final class GalleryTests: XCTestCase {
         let prefs = Preferences.shared
         prefs.hapticsEnabled = false
         prefs.weatherEnabled = true
+        RenderMode.isGallery = true
+        defer { RenderMode.isGallery = false }
         let center = ActivityCenter.shared
         let files = Self.sampleFiles(in: dir)
 
