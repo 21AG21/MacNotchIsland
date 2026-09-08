@@ -446,7 +446,6 @@ final class ActivityCenter: ObservableObject {
                 open(.activity(id: a.id))
             } else if let action = a.openAction {
                 action.perform()
-                Haptics.tap()
             }
         case .idle:
             open(.home(tab: Self.currentHomeTab))
@@ -464,7 +463,8 @@ final class ActivityCenter: ObservableObject {
 
     /// Opens a view and keeps it open until `collapse()`. Model changes made from AppKit
     /// (a click, a hotkey) carry no animation of their own, so the ones that move the island
-    /// are wrapped here.
+    /// are wrapped here. No haptic: the trackpad has already clicked under the finger, and a
+    /// second click from the app right after reads as a double click.
     func open(_ view: IslandView, direction: Int = 0) {
         homeWork?.cancel()
         lastInteraction = Date()
@@ -475,8 +475,6 @@ final class ActivityCenter: ObservableObject {
             if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
             openView = view
         }
-        // A click gets the firmer tap; a keyboard step the lighter detent.
-        if direction == 0 { Haptics.tap() } else { Haptics.soft() }
     }
 
     /// An alert the user opens stops being transient: it becomes a live activity that stays

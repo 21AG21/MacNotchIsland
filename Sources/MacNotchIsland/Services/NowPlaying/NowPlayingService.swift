@@ -62,7 +62,7 @@ final class NowPlayingService: ObservableObject {
     /// nothing playing.
     static var fakesTrack: Bool { ProcessInfo.processInfo.environment["NOTCH_FAKE_TRACK"] == "1" }
 
-    private static func fakeTrack() -> NowPlayingInfo {
+    static func fakeTrack() -> NowPlayingInfo {
         let image = NSImage(size: NSSize(width: 300, height: 300), flipped: false) { rect in
             NSGradient(starting: .systemPink, ending: .systemIndigo)?.draw(in: rect, angle: 45)
             return true

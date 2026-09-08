@@ -57,3 +57,12 @@ jobs:
           name: smoke
           path: build/smoke/*.png
           if-no-files-found: ignore
+      - name: Gallery (every island state, rendered at 2x)
+        run: Scripts/gallery.sh
+      - name: Upload gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery
+          path: build/gallery/*.png
+          if-no-files-found: ignore

@@ -69,7 +69,6 @@ struct HomeExpandedView: View {
 
     private func select(_ tab: HomeTab) {
         guard tab != selection else { return }
-        Haptics.soft()
         // Slide the way the tab bar reads: rightward tabs push in from the right.
         let tabs = availableTabs
         let from = tabs.firstIndex(of: selection) ?? 0
