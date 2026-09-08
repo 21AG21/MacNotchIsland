@@ -109,7 +109,8 @@ struct ActionsSectionView: View {
 struct NotesSectionView: View {
     @ObservedObject private var notes = NotesStore.shared
     @EnvironmentObject private var center: ActivityCenter
-    @FocusState private var editing: Bool
+    // Qualified: the island has a `FocusState` of its own, the payload of a Focus activity.
+    @SwiftUI.FocusState private var editing: Bool
 
     var body: some View {
         VStack(spacing: 0) {

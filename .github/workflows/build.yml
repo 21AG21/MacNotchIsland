@@ -64,5 +64,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gallery
-          path: build/gallery/*.png
+          path: build/gallery/*.jpg
           if-no-files-found: ignore
