@@ -8,11 +8,13 @@ final class GestureRouterTests: XCTestCase {
     private typealias Action = GestureRouter.Action
     private typealias Context = GestureRouter.Context
 
-    private let allTabs = ["music", "shelf", "clipboard", "actions", "mirror", "stats", "weather"]
-
-    /// Comfortably past the swipe threshold; negative is a swipe to the left.
+    /// Comfortably past both swipe thresholds; negative is a swipe to the left.
     private let left: CGFloat = -80
     private let right: CGFloat = 80
+
+    private func panel(_ index: Int, of count: Int = 4, scrolls: Bool = false) -> Context {
+        .panel(index: index, count: count, scrolls: scrolls)
+    }
 
     /// The volume change an action carries, or nil when it is not a volume action.
     private func volumeDelta(_ action: Action) -> Double? {
@@ -20,7 +22,7 @@ final class GestureRouterTests: XCTestCase {
         return nil
     }
 
-    // MARK: - Horizontal swipes: Now Playing
+    // MARK: - Horizontal swipes: the compact Now Playing pill skips tracks
 
     func testSwipeLeftSkipsToNextTrackWhenCompact() {
         XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .compactNowPlaying), Action.nextTrack)
@@ -30,20 +32,15 @@ final class GestureRouterTests: XCTestCase {
         XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .compactNowPlaying), Action.previousTrack)
     }
 
-    func testSwipesWorkInTheExpandedPlayerToo() {
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .expandedNowPlaying), Action.nextTrack)
-        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .expandedNowPlaying), Action.previousTrack)
-    }
-
     func testShortSwipeDoesNothing() {
         XCTAssertEqual(Router.decide(dx: -Router.swipeThreshold, dy: 0, context: .compactNowPlaying), Action.none)
         XCTAssertEqual(Router.decide(dx: 12, dy: 0, context: .compactNowPlaying), Action.none)
     }
 
-    func testSwipeIsIgnoredForOtherActivities() {
+    func testSwipeIsIgnoredForOtherCompactStatesAndCards() {
         XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .idle), Action.none)
         XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .otherCompact), Action.none)
-        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .otherExpanded), Action.none)
+        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .card), Action.none)
     }
 
     func testSwipeIsIgnoredOnTheShelfSoTheStripCanScroll() {
@@ -51,48 +48,34 @@ final class GestureRouterTests: XCTestCase {
         XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .shelf), Action.none)
     }
 
-    // MARK: - Horizontal swipes: Home tabs
+    // MARK: - Horizontal swipes: the panel steps through the ring
 
-    func testSwipeLeftMovesToTheNextHomeTab() {
-        let context = Context.home(tab: "music", available: allTabs)
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: context), Action.selectTab("shelf"))
+    func testSwipeLeftStepsToTheNextViewOfThePanel() {
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(0)), Action.stepView(forward: true))
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(2)), Action.stepView(forward: true))
     }
 
-    func testSwipeRightMovesToThePreviousHomeTab() {
-        let context = Context.home(tab: "clipboard", available: allTabs)
-        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: context), Action.selectTab("shelf"))
+    func testSwipeRightStepsBack() {
+        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: panel(1)), Action.stepView(forward: false))
     }
 
-    func testHomeTabsWrapAround() {
-        let last = allTabs.last!
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: .home(tab: last, available: allTabs)),
-                       Action.selectTab("music"))
-        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: .home(tab: "music", available: allTabs)),
-                       Action.selectTab(last))
+    func testTheRingDoesNotWrapUnderASwipe() {
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(3)), Action.none, "no view after the last")
+        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: panel(0)), Action.none, "no view before the first")
     }
 
-    func testHomeTabsSkipDisabledFeatures() {
-        let context = Context.home(tab: "music", available: ["music", "actions"])
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: context), Action.selectTab("actions"))
-        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: context), Action.selectTab("actions"))
+    func testAViewStepAsksForALongerSwipeThanATrackSkip() {
+        XCTAssertEqual(Router.decide(dx: -(Router.viewSwipeThreshold - 5), dy: 0, context: panel(0)), Action.none)
+        XCTAssertEqual(Router.decide(dx: -(Router.viewSwipeThreshold + 5), dy: 0, context: panel(0)), Action.stepView(forward: true))
+        XCTAssertEqual(Router.decide(dx: -(Router.swipeThreshold + 5), dy: 0, context: .compactNowPlaying), Action.nextTrack)
     }
 
-    func testStoredTabThatIsNoLongerAvailableFallsBackToMusic() {
-        // The shelf was switched off while it was the selected tab; Home shows Music, so a
-        // swipe moves on from Music.
-        let context = Context.home(tab: "shelf", available: ["music", "clipboard"])
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: context), Action.selectTab("clipboard"))
+    func testASingleViewHasNothingToStepTo() {
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(0, of: 1)), Action.none)
     }
 
-    func testShelfTabKeepsItsHorizontalScrolling() {
-        let context = Context.home(tab: "shelf", available: allTabs)
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: context), Action.none)
-        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: context), Action.none)
-    }
-
-    func testASingleAvailableTabHasNothingToCycle() {
-        let context = Context.home(tab: "music", available: ["music"])
-        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: context), Action.none)
+    func testAScrollingSectionStillStepsSideways() {
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(0, scrolls: true)), Action.stepView(forward: true))
     }
 
     // MARK: - Vertical scrolling
@@ -117,18 +100,16 @@ final class GestureRouterTests: XCTestCase {
         XCTAssertGreaterThan(small, 0)
     }
 
-    func testVolumeWorksWhileCompactAndInTheExpandedPlayer() {
-        for context in [Context.idle, .compactNowPlaying, .expandedNowPlaying, .otherCompact] {
+    func testVolumeWorksWhileCompactOnACardAndOnASectionThatDoesNotScroll() {
+        for context in [Context.idle, .compactNowPlaying, .otherCompact, .card, panel(0)] {
             XCTAssertNotNil(volumeDelta(Router.decide(dx: 0, dy: -20, context: context)),
                             "expected a volume change for \(context)")
         }
     }
 
     func testVolumeIsLeftAloneWhereContentScrolls() {
-        XCTAssertEqual(Router.decide(dx: 0, dy: -60, context: .home(tab: "clipboard", available: allTabs)), Action.none)
-        XCTAssertEqual(Router.decide(dx: 0, dy: 60, context: .home(tab: "music", available: allTabs)), Action.none)
+        XCTAssertEqual(Router.decide(dx: 0, dy: -60, context: panel(1, scrolls: true)), Action.none)
         XCTAssertEqual(Router.decide(dx: 0, dy: -60, context: .shelf), Action.none)
-        XCTAssertEqual(Router.decide(dx: 0, dy: -60, context: .otherExpanded), Action.none)
     }
 
     func testNoMovementDoesNothing() {
@@ -158,34 +139,38 @@ final class GestureRouterTests: XCTestCase {
 
     func testConsumesHorizontalSwipes() {
         XCTAssertTrue(Router.consumesHorizontalSwipes(.compactNowPlaying))
-        XCTAssertTrue(Router.consumesHorizontalSwipes(.expandedNowPlaying))
-        XCTAssertTrue(Router.consumesHorizontalSwipes(.home(tab: "music", available: allTabs)))
-        XCTAssertFalse(Router.consumesHorizontalSwipes(.home(tab: "shelf", available: allTabs)))
-        XCTAssertFalse(Router.consumesHorizontalSwipes(.home(tab: "music", available: ["music"])))
+        XCTAssertTrue(Router.consumesHorizontalSwipes(panel(0)))
+        XCTAssertFalse(Router.consumesHorizontalSwipes(panel(0, of: 1)))
         XCTAssertFalse(Router.consumesHorizontalSwipes(.idle))
         XCTAssertFalse(Router.consumesHorizontalSwipes(.otherCompact))
-        XCTAssertFalse(Router.consumesHorizontalSwipes(.otherExpanded))
+        XCTAssertFalse(Router.consumesHorizontalSwipes(.card))
         XCTAssertFalse(Router.consumesHorizontalSwipes(.shelf))
     }
 
     func testConsumesVerticalScroll() {
         XCTAssertTrue(Router.consumesVerticalScroll(.idle))
         XCTAssertTrue(Router.consumesVerticalScroll(.compactNowPlaying))
-        XCTAssertTrue(Router.consumesVerticalScroll(.expandedNowPlaying))
         XCTAssertTrue(Router.consumesVerticalScroll(.otherCompact))
-        XCTAssertFalse(Router.consumesVerticalScroll(.otherExpanded))
-        XCTAssertFalse(Router.consumesVerticalScroll(.home(tab: "music", available: allTabs)))
+        XCTAssertTrue(Router.consumesVerticalScroll(.card))
+        XCTAssertTrue(Router.consumesVerticalScroll(panel(0)))
+        XCTAssertFalse(Router.consumesVerticalScroll(panel(0, scrolls: true)))
         XCTAssertFalse(Router.consumesVerticalScroll(.shelf))
     }
 
-    func testEffectiveTab() {
-        XCTAssertEqual(Router.effectiveTab("clipboard", available: allTabs), "clipboard")
-        XCTAssertEqual(Router.effectiveTab("clipboard", available: ["music", "shelf"]), "music")
-        XCTAssertEqual(Router.effectiveTab("music", available: []), "music")
-    }
+    // MARK: - Sections
 
-    func testHomeTabOrderMatchesTheTabBar() {
-        XCTAssertEqual(Router.homeTabOrder, allTabs)
-        XCTAssertEqual(Router.homeTabOrder.first, Router.defaultHomeTab)
+    func testTheSectionListIsOneListEverywhere() {
+        let prefs = Preferences.shared
+        let saved = (prefs.shelfEnabled, prefs.clipboardEnabled, prefs.quickActionsEnabled, prefs.statsEnabled, prefs.notesEnabled, prefs.calendarEnabled)
+        defer {
+            (prefs.shelfEnabled, prefs.clipboardEnabled, prefs.quickActionsEnabled, prefs.statsEnabled, prefs.notesEnabled, prefs.calendarEnabled) = saved
+        }
+        prefs.shelfEnabled = false
+        prefs.clipboardEnabled = true
+        XCTAssertEqual(HomeSection.resolve("shelf", prefs: prefs), .clipboard, "a section that is off resolves to the nearest one that is on")
+        XCTAssertEqual(HomeSection.resolve("nonsense", prefs: prefs), .music)
+        XCTAssertEqual(HomeSection.available(prefs).first, .music, "Now Playing can never be switched off")
+        XCTAssertEqual(HomeSection.allCases.map(\.rawValue).first, HomeSection.fallback.rawValue)
+        XCTAssertTrue(GestureRouter.scrollingSections.contains(.clipboard))
     }
 }

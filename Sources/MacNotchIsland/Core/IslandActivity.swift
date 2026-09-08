@@ -251,27 +251,23 @@ enum ActivityContent: Equatable {
         }
     }
 
-    /// Size of the expanded body for this content.
-    func expandedSize(notch: NotchGeometry) -> CGSize {
-        let h = notch.notchHeight
+    /// Height of this content's system card below the notch, derived from what it stacks: one
+    /// header row (12 above, 44 tall, 16 below), a progress bar under it, or a second row.
+    static let cardRow: CGFloat = 72
+    static let cardRowWithBar: CGFloat = 87
+    static let cardTwoRows: CGFloat = 128
+
+    var cardHeight: CGFloat {
         switch self {
-        case .nowPlaying: return CGSize(width: 540, height: h + (Preferences.shared.lyricsEnabled ? 212 : 188))
-        case .timer: return CGSize(width: 440, height: h + 84 + IslandTimer.extraRowsHeight)
-        case .stopwatch: return CGSize(width: 460, height: h + 84)
-        case .call: return CGSize(width: 440, height: h + 84)
-        case .battery: return CGSize(width: 420, height: h + 78)
-        case .bluetooth: return CGSize(width: 460, height: h + 96)
-        case .focus: return CGSize(width: 400, height: h + 72)
-        case .hud: return CGSize(width: 400, height: h + 66)
-        case .calendar: return CGSize(width: 480, height: h + 96)
-        case .download: return CGSize(width: 460, height: h + 92)
+        case .nowPlaying: return Self.cardTwoRows
+        case .timer: return Self.cardRow + IslandTimer.extraRowsHeight
+        case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
         case .custom(let c):
-            var extra: CGFloat = 84
-            if c.body != nil { extra += 22 }
-            if c.progress != nil { extra += 14 }
-            return CGSize(width: 460, height: h + extra)
-        case .unlock, .silent: return CGSize(width: 320, height: h + 40)
-        case .shelf: return CGSize(width: IslandLayout.homeSize.width, height: h + IslandLayout.homeSize.height)
+            if c.body != nil { return Self.cardTwoRows }
+            return c.progress != nil && !c.showsRing ? Self.cardRowWithBar : Self.cardRow
+        case .unlock, .silent: return 40
+        case .shelf: return Self.cardTwoRows
+        default: return Self.cardRow
         }
     }
 }

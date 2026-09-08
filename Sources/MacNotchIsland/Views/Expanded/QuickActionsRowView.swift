@@ -1,24 +1,30 @@
+import AppKit
 import SwiftUI
 
-/// Horizontal row of favourited Shortcuts as round glyph buttons, meant to sit in the
-/// Home panel (roughly 500 x 60). Tapping a button runs that shortcut immediately.
+/// Favourited Shortcuts as round glyph buttons across the Actions section. Clicking one runs
+/// that shortcut immediately.
 struct QuickActionsRowView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
 
     var body: some View {
-        HStack(spacing: 10) {
+        Group {
             if runner.favorites.isEmpty {
-                Text("Pick shortcuts in Settings")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
+                SectionEmptyState(symbol: "bolt", title: "No quick actions yet") {
+                    PillButton(title: "Choose Shortcuts…") {
+                        NSApp.activate(ignoringOtherApps: true)
+                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    }
+                }
             } else {
-                ForEach(runner.favorites, id: \.self) { name in
-                    QuickActionButton(name: name)
+                HStack(alignment: .top, spacing: 6) {
+                    ForEach(runner.favorites.prefix(8), id: \.self) { name in
+                        QuickActionButton(name: name)
+                    }
+                    Spacer(minLength: 0)
                 }
             }
-            Spacer(minLength: 0)
         }
-        .frame(width: 500, height: 60, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -27,30 +33,30 @@ private struct QuickActionButton: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
     @State private var hovering = false
 
-    private static let diameter: CGFloat = 32
+    private static let diameter: CGFloat = 40
 
     var body: some View {
         Button(action: { runner.run(name) }) {
             VStack(spacing: 5) {
                 ZStack {
-                    Circle().fill(Color.white.opacity(0.14))
+                    Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
                     Image(systemName: runner.symbol(for: name))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                 }
                 .frame(width: Self.diameter, height: Self.diameter)
                 Text(name)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .frame(width: 50)
+                    .frame(width: 66)
             }
-            .offset(y: hovering ? -2 : 0)
         }
         .buttonStyle(IslandButtonStyle())
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(IslandMotion.quick, value: hovering)
+        .help("Run \(name)")
         .accessibilityLabel("Run shortcut \(name)")
     }
 }

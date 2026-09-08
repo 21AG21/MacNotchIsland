@@ -35,6 +35,10 @@ final class ActivityCenter: ObservableObject {
             if (openView == nil) != (oldValue == nil) { openStateChanged() }
         }
     }
+    /// The view the panel shows while it is only under the pointer. Seeded from what the
+    /// island was showing when the pointer arrived; the switcher, a swipe or Tab move it. A
+    /// click promotes it to `openView` as is.
+    @Published private(set) var peekView: IslandView? = nil
     /// The panel whose island is being held down, for the press-in feedback.
     @Published private(set) var pressedPanel: String? = nil
     /// Which way the last change of view went: +1 forward, -1 back, 0 for a plain open or
@@ -94,6 +98,7 @@ final class ActivityCenter: ObservableObject {
         dragPanel = nil
         pressedPanel = nil
         openView = nil
+        peekView = nil
         forcedExpandedID = nil
         pinnedID = nil
         micInUse = false
@@ -184,45 +189,77 @@ final class ActivityCenter: ObservableObject {
 
         if dragging && prefs.shelfEnabled { return .shelf }
 
-        // An alert takes the island unless the user has something open; then it is drawn as a
-        // strip over the open panel instead (`overlayAlert`), so the panel never goes away.
-        if let alert, !isOpen || openView == .activity(id: alert.id) {
-            let wantsExpanded = alert.presentation == .expanded || (hovering && prefs.hoverToExpand)
-                || openView == .activity(id: alert.id)
-            if wantsExpanded && alert.content.hasExpandedView { return .expanded(alert) }
+        let peeking = hovering && prefs.hoverToExpand
+        // An alert takes the island unless a panel is showing; then it is drawn over the panel
+        // instead (`overlayAlert`), so the panel never goes away under the user. A panel that
+        // is only under the pointer does yield to a battery warning.
+        if let alert, !isOpen, !peeking || Self.alertRank(alert) >= 6 {
+            let large = alert.presentation == .expanded || (hovering && prefs.hoverToExpand && Self.alertRank(alert) > 2)
+            if large && alert.content.hasExpandedView { return .card(alert) }
             return .compact(alert, bubble: nil)
         }
 
-        let live = sortedActivities
-        switch openView {
-        case .home:
-            return .home
-        case .activity(let id):
-            if let a = live.first(where: { $0.id == id }), a.content.hasExpandedView { return .expanded(a) }
-        case nil:
-            break
-        }
+        if let view = openView { return .panel(validated(view)) }
 
+        let live = sortedActivities
+        if let primary = live.first, forcedExpandedID == primary.id, primary.content.hasExpandedView {
+            return .card(primary)
+        }
+        if peeking { return .panel(validated(peekView ?? defaultPeek())) }
         if let primary = live.first {
-            let hoverExpand = hovering && prefs.hoverToExpand
-            let forced = forcedExpandedID == primary.id
-            if (hoverExpand || forced) && primary.content.hasExpandedView {
-                return .expanded(primary)
-            }
             return .compact(primary, bubble: live.dropFirst().first)
         }
-
-        if hovering && prefs.expandOnIdleHover { return .home }
         return .idle
     }
 
     func activity(id: String) -> IslandActivity? { activities.first { $0.id == id } }
 
-    /// An alert that arrived while a panel is open (a volume HUD, a battery warning): shown as
-    /// the island's compact form over the top of the panel, which stays where it is.
+    /// True while the user's panel is on screen, pinned or under the pointer.
+    var isPanelShowing: Bool {
+        isOpen || (hoverPanel != nil && Preferences.shared.hoverToExpand)
+    }
+
+    /// An alert that arrived while the panel is showing (a volume HUD, a finished download, a
+    /// battery warning): drawn over the panel, which stays where it is. The one exception is a
+    /// battery warning over a panel that is merely under the pointer: that takes the island.
     var overlayAlert: IslandActivity? {
-        guard let alert, isOpen, openView != .activity(id: alert.id) else { return nil }
+        guard let alert, isPanelShowing else { return nil }
+        if !isOpen, Self.alertRank(alert) >= 6 { return nil }
         return alert
+    }
+
+    /// The view a panel opened for `activity` shows: a Now Playing or shelf pill opens its
+    /// Home section; anything else opens its own card in the panel.
+    static func view(for activity: IslandActivity) -> IslandView {
+        switch activity.kind {
+        case .nowPlaying: return .home(tab: HomeSection.music.rawValue)
+        case .shelf: return .home(tab: HomeSection.shelf.rawValue)
+        default: return .activity(id: activity.id)
+        }
+    }
+
+    /// What the pointer opens: the panel on whatever the island is showing, else Home.
+    func defaultPeek() -> IslandView {
+        if let primary = sortedActivities.first {
+            if primary.kind == .nowPlaying || primary.kind == .shelf { return Self.view(for: primary) }
+            if primary.content.hasExpandedView { return .activity(id: primary.id) }
+        }
+        return .home(tab: Self.currentHomeTab)
+    }
+
+    /// A view the panel can actually show: an activity that is still live and has a card, or
+    /// a Home section that is switched on (the nearest one, if the asked-for one is not).
+    func validated(_ view: IslandView) -> IslandView {
+        switch view {
+        case .activity(let id):
+            if let a = activity(id: id) {
+                if a.kind == .nowPlaying || a.kind == .shelf { return Self.view(for: a) }
+                if a.content.hasExpandedView { return view }
+            }
+            return .home(tab: Self.currentHomeTab)
+        case .home(let tab):
+            return .home(tab: HomeSection.resolve(tab, prefs: Preferences.shared).rawValue)
+        }
     }
 
     // MARK: - Live activities
@@ -330,7 +367,7 @@ final class ActivityCenter: ObservableObject {
 
     func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
         let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
-        if outranked || (isOpen && Self.waitsWhileOpen(activity)) {
+        if outranked || (isPanelShowing && Self.waitsWhileOpen(activity)) {
             // Behind the more important alert (a volume tick must not hide a low-battery
             // warning), or until the user closes what they opened.
             enqueue(activity, duration: duration)
@@ -382,7 +419,7 @@ final class ActivityCenter: ObservableObject {
         pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
         pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
         // Whatever is waiting for the panel to close keeps waiting while it is open.
-        guard let i = pendingAlerts.firstIndex(where: { !(isOpen && Self.waitsWhileOpen($0.activity)) }) else { return }
+        guard let i = pendingAlerts.firstIndex(where: { !(isPanelShowing && Self.waitsWhileOpen($0.activity)) }) else { return }
         let next = pendingAlerts.remove(at: i)
         showAlert(next.activity, duration: next.duration, haptic: false)
     }
@@ -398,21 +435,29 @@ final class ActivityCenter: ObservableObject {
 
     /// Tracks which panel the pointer is over. Nothing opens because of it unless the user
     /// switched the hover options on; alerts merely stay up a little longer under the pointer.
+    /// The pointer arrived on or left the island. Arrival waits the hover delay, so a pointer
+    /// crossing the notch on its way to the clock opens nothing; departure waits a grace
+    /// period, so a slip off the panel's edge does not close it.
     func setHovering(_ hovering: Bool, panel: String = "main") {
         hoverWork?.cancel()
-        let delay = hovering ? Preferences.shared.hoverDelay : 0.35
+        let delay = hovering ? Preferences.shared.hoverDelay : Self.hoverExitGrace
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if hovering {
                 guard self.hoverPanel != panel else { return }
+                if self.peekView == nil { self.peekView = self.defaultPeek() }
+                self.hoverPanel = panel
             } else {
                 guard self.hoverPanel == panel else { return }
+                self.hoverPanel = nil
+                if self.openView == nil { self.peekView = nil }
             }
-            self.hoverPanel = hovering ? panel : nil
         }
         hoverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
+
+    static let hoverExitGrace: TimeInterval = 0.4
 
     /// Press-in feedback: the island shrinks slightly under the pointer, like the iPhone's
     /// island under a finger.
@@ -440,34 +485,25 @@ final class ActivityCenter: ObservableObject {
         IslandLog.island.notice("tap on \(panel, privacy: .public): \(shown.contentID, privacy: .public)")
         switch shown {
         case .compact(let a, _):
-            if a.content.hasExpandedView, !Self.isTransientHUD(a, alert: alert) {
-                open(.activity(id: a.id))
+            guard !Self.isTransientHUD(a, alert: alert) else { return }
+            if a.content.hasExpandedView {
+                open(Self.view(for: a))
             } else if let action = a.openAction {
                 action.perform()
             }
+        case .card(let a):
+            // A click on a system card keeps it: it becomes the panel's current view.
+            if !Self.isTransientHUD(a, alert: alert) { open(Self.view(for: a)) }
         case .idle:
             open(.home(tab: Self.currentHomeTab))
-        case .expanded(let a):
+        case .panel(let view):
             // Shown because the pointer rests here: a click keeps it after the pointer leaves.
             // Once pinned, clicks on the panel belong to its controls; it closes from outside,
             // the way a popover does: a click anywhere else, Escape, or the shortcut.
-            if openView == nil, alert?.id != a.id { open(.activity(id: a.id)) }
-        case .home:
-            if openView == nil { open(.home(tab: Self.currentHomeTab)) }
+            if openView == nil { open(view) }
         case .shelf:
             break
         }
-    }
-
-    /// Whether the panel on `panel` is open because the user asked for it (pointer, click or
-    /// keyboard) rather than because an alert took the island. Such a panel carries the view
-    /// switcher, so every other view is one click away.
-    func isUserPanel(for panel: String?) -> Bool {
-        if isOpen { return true }
-        let shown = presentation(for: panel)
-        guard shown.isExpanded, let alert else { return shown.isExpanded }
-        if case .expanded(let a) = shown, a.id == alert.id { return false }
-        return true
     }
 
     /// A key-press HUD (volume, brightness, Caps Lock) is feedback, not a card to open.
@@ -483,12 +519,57 @@ final class ActivityCenter: ObservableObject {
         homeWork?.cancel()
         lastInteraction = Date()
         navigationDirection = direction
-        guard shownView != view else { return }
+        if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
+        let target = validated(view)
+        guard openView != target else { return }
         withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
-            if case .home(let tab) = view { Self.selectHomeTab(tab) }
-            if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
-            openView = view
+            if case .home(let tab) = target { Self.selectHomeTab(tab) }
+            peekView = nil
+            openView = target
         }
+    }
+
+    /// Shows `view` in the panel: pinned if the panel is pinned, under the pointer if it is
+    /// only peeking, and opened outright when nothing is showing (a keyboard step).
+    func select(_ view: IslandView, direction: Int = 0) {
+        if isOpen || hoverPanel == nil || !Preferences.shared.hoverToExpand {
+            open(view, direction: direction)
+            return
+        }
+        lastInteraction = Date()
+        navigationDirection = direction
+        let target = validated(view)
+        guard peekView != target else { return }
+        withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
+            if case .home(let tab) = target { Self.selectHomeTab(tab) }
+            peekView = target
+        }
+    }
+
+    /// One step along the ring. Without `wrap` the ends are ends (a swipe is spatial); with it
+    /// the ring is a cycle (Tab). Returns false when there was nowhere to go.
+    @discardableResult
+    func step(forward: Bool, wrap: Bool) -> Bool {
+        let ring = self.ring
+        guard !ring.isEmpty else { return false }
+        guard let current = currentView, let i = ring.firstIndex(of: current) else {
+            select(forward ? ring[0] : ring[ring.count - 1], direction: forward ? 1 : -1)
+            return true
+        }
+        var next = i + (forward ? 1 : -1)
+        if next < 0 || next >= ring.count {
+            guard wrap else { return false }
+            next = (next + ring.count) % ring.count
+        }
+        select(ring[next], direction: forward ? 1 : -1)
+        return true
+    }
+
+    /// The view the panel is on, pinned or peeking; nil when no panel is showing.
+    var currentView: IslandView? {
+        if let openView { return validated(openView) }
+        if hoverPanel != nil, Preferences.shared.hoverToExpand { return validated(peekView ?? defaultPeek()) }
+        return nil
     }
 
     /// An alert the user opens stops being transient: it becomes a live activity that stays
@@ -505,37 +586,45 @@ final class ActivityCenter: ObservableObject {
         alert = nil
     }
 
-    /// The global shortcut: close whatever is open, else open the main activity, else Home.
+    /// The global shortcut: close whatever is open, else open the panel on what the island
+    /// is showing (Home when nothing is live).
     func toggle() {
         if isOpen || presentation.isExpanded {
             collapse(reason: "shortcut")
-        } else if case .compact(let a, _) = presentation, a.content.hasExpandedView, !Self.isTransientHUD(a, alert: alert) {
-            open(.activity(id: a.id))
         } else {
-            open(.home(tab: Self.currentHomeTab))
+            open(defaultPeek())
         }
     }
 
-    /// Every view the keyboard can reach, in island order: each live activity's expanded view,
-    /// then the Home panel's tabs.
-    var keyboardRing: [IslandView] {
-        let activities = sortedActivities.filter { $0.content.hasExpandedView }.map { IslandView.activity(id: $0.id) }
-        let tabs = GestureRouter.availableHomeTabs(Preferences.shared).map { IslandView.home(tab: $0) }
-        return activities + tabs
+    /// The order the switcher lists live activities in: by kind, then by start. Never by
+    /// recency, so a slot never moves under the pointer.
+    static let ringKindOrder: [ActivityKind] = [.call, .timer, .stopwatch, .download, .calendar, .battery, .bluetooth,
+                                                .custom, .focus, .hud, .silent, .unlock, .shelf, .nowPlaying]
+
+    /// Every view the panel can show, in switcher order: the live activities' cards (left of
+    /// the cutout), then the Home sections (right of it). Now Playing and the shelf are Home
+    /// sections, so they never appear twice.
+    var ring: [IslandView] {
+        let cards = activities
+            .filter { $0.content.hasExpandedView && $0.kind != .nowPlaying && $0.kind != .shelf }
+            .sorted { a, b in
+                let ra = Self.ringKindOrder.firstIndex(of: a.kind) ?? 99
+                let rb = Self.ringKindOrder.firstIndex(of: b.kind) ?? 99
+                if ra != rb { return ra < rb }
+                return a.startedAt < b.startedAt
+            }
+            .map { IslandView.activity(id: $0.id) }
+        let sections = HomeSection.available(Preferences.shared).map { IslandView.home(tab: $0.rawValue) }
+        return cards + sections
     }
+
+    /// The ring as the keyboard walks it.
+    var keyboardRing: [IslandView] { ring }
 
     /// Shortcut modifiers + Tab (forward) or Shift + Tab (backward). Closed: opens the first
     /// (or last) view. Open: moves one step, wrapping around.
     func cycleView(forward: Bool) {
-        let ring = keyboardRing
-        guard !ring.isEmpty else { return }
-        let next: IslandView
-        if let current = shownView, let i = ring.firstIndex(of: current) {
-            next = ring[(i + (forward ? 1 : ring.count - 1)) % ring.count]
-        } else {
-            next = forward ? ring[0] : ring[ring.count - 1]
-        }
-        open(next, direction: forward ? 1 : -1)
+        step(forward: forward, wrap: true)
     }
 
     /// Closes whatever is open. `reason` goes to the log, so a panel that closed behind the
@@ -548,6 +637,7 @@ final class ActivityCenter: ObservableObject {
         heldAlertIDs.removeAll()
         withAnimation(IslandMotion.close) {
             openView = nil
+            peekView = nil
             forcedExpandedID = nil
             for id in held { end(id: id) }
             if !isHovering, alert != nil {
@@ -587,16 +677,10 @@ final class ActivityCenter: ObservableObject {
     /// Whether a screen point lies on an island; set by the app delegate from its panels.
     var islandHitTest: ((NSPoint) -> Bool)?
 
-    /// `openView` as the user sees it. A tab picked in the tab bar or by a swipe changes the
-    /// stored tab without going through `open`, so the Home case is re-read from the store.
-    private var shownView: IslandView? {
-        if case .home = openView { return .home(tab: Self.currentHomeTab) }
-        return openView
-    }
-
-    private static var currentHomeTab: String {
-        let stored = UserDefaults.standard.string(forKey: GestureRouter.homeTabKey) ?? GestureRouter.defaultHomeTab
-        return GestureRouter.effectiveTab(stored, available: GestureRouter.availableHomeTabs(Preferences.shared))
+    /// The Home section the panel last showed; where Home opens next time.
+    static var currentHomeTab: String {
+        let stored = UserDefaults.standard.string(forKey: GestureRouter.homeTabKey) ?? HomeSection.fallback.rawValue
+        return HomeSection.resolve(stored, prefs: Preferences.shared).rawValue
     }
 
     private static func selectHomeTab(_ tab: String) {
@@ -640,7 +724,7 @@ extension ActivityCenter {
 }
 
 /// A view the user can open on the island and step through with the keyboard.
-enum IslandView: Equatable {
+enum IslandView: Hashable {
     case activity(id: String)
     case home(tab: String)
 }

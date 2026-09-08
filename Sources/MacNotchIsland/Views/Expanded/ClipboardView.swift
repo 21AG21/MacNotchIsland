@@ -21,7 +21,7 @@ struct ClipboardView: View {
     private var list: some View {
         IslandScrollStrip(axis: .vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(store.items) { item in
+                ForEach(ordered) { item in
                     ClipboardRowView(item: item, isHovered: hoveredID == item.id)
                         .onHover { hovering in
                             if hovering {
@@ -30,7 +30,7 @@ struct ClipboardView: View {
                                 hoveredID = nil
                             }
                         }
-                    if item.id != store.items.last?.id {
+                    if item.id != ordered.last?.id {
                         Rectangle()
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 0.5)
@@ -42,17 +42,14 @@ struct ClipboardView: View {
         }
     }
 
+    /// Pinned items first, then the rest, newest first.
+    private var ordered: [ClipboardItem] {
+        store.items.filter(\.pinned) + store.items.filter { !$0.pinned }
+    }
+
     private var emptyState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.3))
-                .accessibilityHidden(true)
-            Text("Nothing copied yet")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.4))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        SectionEmptyState(symbol: "doc.on.clipboard", title: "No copies yet",
+                          subtitle: "Anything you copy shows up here, the last \(Int(Preferences.shared.clipboardLimit)) items.")
     }
 }
 

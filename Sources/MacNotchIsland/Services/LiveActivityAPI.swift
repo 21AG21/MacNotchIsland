@@ -113,7 +113,7 @@ final class LiveActivityAPI {
         case ("home", let tab):
             // notchisland://home, notchisland://home/shelf, notchisland://home?tab=clipboard
             let wanted = (q["tab"] ?? tab).lowercased()
-            if GestureRouter.homeTabOrder.contains(wanted) {
+            if HomeSection(rawValue: wanted) != nil {
                 center.open(.home(tab: wanted))
             } else {
                 center.showHome()

@@ -63,7 +63,7 @@ final class ActivityCenterTests: XCTestCase {
                                    content: .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods", batteryLeft: 50)),
                                    priority: 85, presentation: .expanded)
         center.showAlert(alert, duration: 5)
-        guard case .expanded(let shown) = center.presentation else { return XCTFail("expected expanded") }
+        guard case .card(let shown) = center.presentation else { return XCTFail("expected a card") }
         XCTAssertEqual(shown.id, "bt")
         center.dismissAlert()
         XCTAssertEqual(center.presentation, .idle)
@@ -75,15 +75,15 @@ final class ActivityCenterTests: XCTestCase {
         let exp = expectation(description: "hover applied")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { exp.fulfill() }
         wait(for: [exp], timeout: 2)
-        guard case .expanded(let a) = center.presentation else { return XCTFail("expected expanded on hover") }
-        XCTAssertEqual(a.id, "a")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "a")), "the pointer opens the panel on the activity's card")
+        XCTAssertFalse(center.isOpen, "under the pointer, not pinned")
 
         center.end(id: "a")
-        XCTAssertEqual(center.presentation, .home, "hovering with nothing live opens Home")
+        guard case .panel(.home) = center.presentation else { return XCTFail("hovering with nothing live shows Home") }
 
         center.setHovering(false)
         let exp2 = expectation(description: "hover cleared")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { exp2.fulfill() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + ActivityCenter.hoverExitGrace + 0.4) { exp2.fulfill() }
         wait(for: [exp2], timeout: 3)
         XCTAssertEqual(center.presentation, .idle)
     }
@@ -110,7 +110,7 @@ final class ActivityCenterTests: XCTestCase {
     func testForcedExpansion() {
         center.upsert(custom("timer", priority: 90))
         center.forceExpanded(id: "timer", for: 5)
-        guard case .expanded(let a) = center.presentation else { return XCTFail("expected forced expanded") }
+        guard case .card(let a) = center.presentation else { return XCTFail("expected a forced card") }
         XCTAssertEqual(a.id, "timer")
         center.collapse()
         guard case .compact = center.presentation else { return XCTFail("expected compact after collapse") }
@@ -170,11 +170,10 @@ final class ActivityCenterTests: XCTestCase {
                                      content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
         guard case .compact = center.presentation else { return XCTFail("compact at rest") }
         center.tap()
-        guard case .expanded(let a) = center.presentation else { return XCTFail("a click opens the activity") }
-        XCTAssertEqual(a.id, "timer")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "timer")), "a click opens the panel on the activity")
         XCTAssertTrue(center.isOpen)
         center.tap()
-        guard case .expanded = center.presentation else { return XCTFail("a click on the open panel leaves it open") }
+        guard case .panel = center.presentation else { return XCTFail("a click on the open panel leaves it open") }
         XCTAssertTrue(center.isOpen)
         center.collapse(reason: "test")
         guard case .compact = center.presentation else { return XCTFail("closing from outside collapses it") }
@@ -182,7 +181,7 @@ final class ActivityCenterTests: XCTestCase {
 
         center.end(id: "timer")
         center.tap()
-        XCTAssertEqual(center.presentation, .home, "clicking the empty island opens Home")
+        guard case .panel(.home) = center.presentation else { return XCTFail("clicking the empty island opens Home") }
         center.collapse()
         XCTAssertEqual(center.presentation, .idle)
     }
@@ -196,13 +195,18 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.presentation, .idle)
     }
 
+    private func onlyMusicSection() {
+        let p = Preferences.shared
+        p.shelfEnabled = false
+        p.clipboardEnabled = false
+        p.quickActionsEnabled = false
+        p.statsEnabled = false
+        p.notesEnabled = false
+        p.calendarEnabled = false
+    }
+
     func testKeyboardRingCyclesActivitiesThenHomeTabsAndWraps() {
-        Preferences.shared.shelfEnabled = false
-        Preferences.shared.clipboardEnabled = false
-        Preferences.shared.quickActionsEnabled = false
-        Preferences.shared.mirrorEnabled = false
-        Preferences.shared.statsEnabled = false
-        Preferences.shared.weatherEnabled = false
+        onlyMusicSection()
         center.upsert(IslandActivity(id: "timer", kind: .timer,
                                      content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
         XCTAssertEqual(center.keyboardRing, [.activity(id: "timer"), .home(tab: "music")])
@@ -211,7 +215,7 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.openView, .activity(id: "timer"))
         center.cycleView(forward: true)
         XCTAssertEqual(center.openView, .home(tab: "music"))
-        XCTAssertEqual(center.presentation, .home)
+        XCTAssertEqual(center.presentation, .panel(.home(tab: "music")))
         center.cycleView(forward: true)
         XCTAssertEqual(center.openView, .activity(id: "timer"), "wraps around")
         center.cycleView(forward: false)
@@ -227,7 +231,7 @@ final class ActivityCenterTests: XCTestCase {
         center.upsert(IslandActivity(id: "timer", kind: .timer,
                                      content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
         center.toggle()
-        guard case .expanded = center.presentation else { return XCTFail("shortcut opens the main activity") }
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "timer")), "shortcut opens the panel on the main activity")
         center.toggle()
         guard case .compact = center.presentation else { return XCTFail("shortcut closes it again") }
     }
@@ -238,15 +242,14 @@ final class ActivityCenterTests: XCTestCase {
                                    priority: 85)
         center.showAlert(alert, duration: 0.15)
         center.tap()
-        guard case .expanded(let opened) = center.presentation else { return XCTFail("clicking an alert opens its large view") }
-        XCTAssertEqual(opened.id, "bt")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "clicking an alert opens its card in the panel")
         XCTAssertNil(center.alert, "the clicked alert lives on as an activity")
 
         let exp = expectation(description: "alert duration passed")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
         wait(for: [exp], timeout: 2)
         XCTAssertTrue(center.isOpen, "its own timer must not close what the user opened")
-        guard case .expanded = center.presentation else { return XCTFail("still open after the alert would have expired") }
+        guard case .panel = center.presentation else { return XCTFail("still open after the alert would have expired") }
 
         center.collapse(reason: "test")
         XCTAssertFalse(center.isOpen)
@@ -264,23 +267,20 @@ final class ActivityCenterTests: XCTestCase {
         // A finished download waits for the panel; a critical battery warning does not.
         let download = DownloadState(name: "movie.mkv", bytes: 100, total: 100, app: "Safari", isComplete: true)
         center.showAlert(IslandActivity(id: "dl", kind: .download, content: .download(download), priority: 85), duration: 5)
-        guard case .expanded(let still) = center.presentation else { return XCTFail("a routine alert must not take the panel away") }
-        XCTAssertEqual(still.id, "bt")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "a routine alert must not take the panel away")
         XCTAssertTrue(center.isOpen)
 
         let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .critical)
         center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 0.15)
-        XCTAssertEqual(center.overlayAlert?.id, "battery", "a battery warning shows at once, as a strip")
-        guard case .expanded(let under) = center.presentation else { return XCTFail("the open panel stays under the strip") }
-        XCTAssertEqual(under.id, "bt")
+        XCTAssertEqual(center.overlayAlert?.id, "battery", "a battery warning shows at once, as a banner")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "the open panel stays under the banner")
         XCTAssertTrue(center.isOpen)
 
         let exp = expectation(description: "battery alert expired")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
         wait(for: [exp], timeout: 2)
         XCTAssertNil(center.overlayAlert)
-        guard case .expanded(let again) = center.presentation else { return XCTFail("still open once the warning expires") }
-        XCTAssertEqual(again.id, "bt")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "still open once the warning expires")
 
         center.collapse(reason: "test")
         XCTAssertFalse(center.isOpen)
@@ -304,8 +304,7 @@ final class ActivityCenterTests: XCTestCase {
         wait(for: [exp], timeout: 2)
         XCTAssertNil(center.alert)
         XCTAssertTrue(center.isOpen, "the live activity carries on")
-        guard case .expanded(let a) = center.presentation else { return XCTFail("expanded live activity") }
-        XCTAssertEqual(a.id, "np")
+        XCTAssertEqual(center.presentation, .panel(.activity(id: "np")))
         center.collapse(reason: "test")
     }
 
@@ -322,10 +321,10 @@ final class ActivityCenterTests: XCTestCase {
 
     func testHUDOverAnOpenPanelIsAStripNotAReplacement() {
         center.open(.home(tab: "music"))
-        XCTAssertEqual(center.presentation, .home)
+        XCTAssertEqual(center.presentation, .panel(.home(tab: "music")))
         let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
         center.showAlert(hud, duration: 5)
-        XCTAssertEqual(center.presentation, .home, "the panel stays")
+        XCTAssertEqual(center.presentation, .panel(.home(tab: "music")), "the panel stays")
         XCTAssertEqual(center.overlayAlert?.id, "hud")
         center.collapse(reason: "test")
         XCTAssertNil(center.overlayAlert, "closing the panel takes the strip with it")
@@ -335,21 +334,59 @@ final class ActivityCenterTests: XCTestCase {
         center.dismissAlert()
     }
 
-    func testTabStepsFromTheTabPickedByClick() {
+    func testTabStepsFromTheSectionPickedInTheSwitcher() {
+        onlyMusicSection()
         Preferences.shared.shelfEnabled = true
         Preferences.shared.clipboardEnabled = true
-        Preferences.shared.quickActionsEnabled = false
-        Preferences.shared.mirrorEnabled = false
-        Preferences.shared.statsEnabled = false
-        Preferences.shared.weatherEnabled = false
         center.open(.home(tab: "music"))
-        // The tab bar writes the tab straight to the store, as a click does.
-        UserDefaults.standard.set("clipboard", forKey: GestureRouter.homeTabKey)
+        center.select(.home(tab: "clipboard"))
+        XCTAssertEqual(center.openView, .home(tab: "clipboard"), "a switcher click moves a pinned panel")
+        XCTAssertEqual(UserDefaults.standard.string(forKey: GestureRouter.homeTabKey), "clipboard", "and remembers the section")
         center.cycleView(forward: true)
-        XCTAssertEqual(UserDefaults.standard.string(forKey: GestureRouter.homeTabKey), "music",
-                       "from the last tab, forward wraps to the first, even though openView still said music")
+        XCTAssertEqual(center.openView, .home(tab: "music"), "from the last section, Tab wraps to the first")
         center.cycleView(forward: true)
-        XCTAssertEqual(UserDefaults.standard.string(forKey: GestureRouter.homeTabKey), "shelf")
+        XCTAssertEqual(center.openView, .home(tab: "shelf"))
         center.collapse()
+    }
+
+    func testPeekShowsTheRingUnderThePointerAndAClickPinsIt() {
+        onlyMusicSection()
+        Preferences.shared.shelfEnabled = true
+        center.upsert(IslandActivity(id: "timer", kind: .timer,
+                                     content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
+        center.setHovering(true)
+        let exp = expectation(description: "hover applied")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+        XCTAssertEqual(center.currentView, .activity(id: "timer"))
+        XCTAssertFalse(center.isOpen)
+
+        center.select(.home(tab: "shelf"))
+        XCTAssertEqual(center.presentation, .panel(.home(tab: "shelf")), "the switcher moves the peek")
+        XCTAssertFalse(center.isOpen, "without pinning it")
+        XCTAssertTrue(center.step(forward: false, wrap: false))
+        XCTAssertEqual(center.currentView, .home(tab: "music"))
+        XCTAssertTrue(center.step(forward: false, wrap: false))
+        XCTAssertEqual(center.currentView, .activity(id: "timer"))
+        XCTAssertFalse(center.step(forward: false, wrap: false), "a swipe stops at the end of the ring")
+
+        center.tap()
+        XCTAssertEqual(center.openView, .activity(id: "timer"), "a click pins what the pointer was showing")
+        center.collapse(reason: "test")
+        center.setHovering(false)
+        let exp2 = expectation(description: "hover cleared")
+        DispatchQueue.main.asyncAfter(deadline: .now() + ActivityCenter.hoverExitGrace + 0.3) { exp2.fulfill() }
+        wait(for: [exp2], timeout: 3)
+        Preferences.shared.shelfEnabled = true
+    }
+
+    func testNowPlayingOpensItsHomeSectionAndNeverAppearsTwiceInTheRing() {
+        onlyMusicSection()
+        let track = NowPlayingService.fakeTrack()
+        center.upsert(IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(track), priority: 50))
+        XCTAssertEqual(center.keyboardRing, [.home(tab: "music")])
+        center.tap()
+        XCTAssertEqual(center.openView, .home(tab: "music"), "the music pill opens the Now Playing section")
+        center.collapse(reason: "test")
     }
 }

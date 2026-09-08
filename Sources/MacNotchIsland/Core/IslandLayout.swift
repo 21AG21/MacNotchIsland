@@ -4,21 +4,35 @@ import SwiftUI
 enum IslandPresentation: Equatable {
     case idle
     case compact(IslandActivity, bubble: IslandActivity?)
-    case expanded(IslandActivity)
-    case home
+    /// A card the system put up on its own (an alert with a large view, a timer that rang):
+    /// one or two rows under the notch, no switcher, gone when the alert is.
+    case card(IslandActivity)
+    /// The user's panel: the switcher in the top band, one section or one activity below it,
+    /// the control rail at the bottom. Opened by the pointer, a click or the keyboard.
+    case panel(IslandView)
+    /// The panel on its Shelf section while files are dragged over the island.
     case shelf
 
     var primary: IslandActivity? {
         switch self {
-        case .compact(let a, _), .expanded(let a): return a
+        case .compact(let a, _), .card(let a): return a
         default: return nil
         }
     }
 
     var isExpanded: Bool {
         switch self {
-        case .expanded, .home, .shelf: return true
+        case .card, .panel, .shelf: return true
         default: return false
+        }
+    }
+
+    /// The view the panel is showing, if this is a panel.
+    var panelView: IslandView? {
+        switch self {
+        case .panel(let view): return view
+        case .shelf: return .home(tab: HomeSection.shelf.rawValue)
+        default: return nil
         }
     }
 
@@ -27,8 +41,12 @@ enum IslandPresentation: Equatable {
         switch self {
         case .idle: return "idle"
         case .compact(let a, _): return "compact-\(a.id)"
-        case .expanded(let a): return "expanded-\(a.id)"
-        case .home: return "home"
+        case .card(let a): return "card-\(a.id)"
+        case .panel(let view):
+            switch view {
+            case .activity(let id): return "panel-activity-\(id)"
+            case .home(let tab): return "panel-home-\(tab)"
+            }
         case .shelf: return "shelf"
         }
     }
@@ -55,12 +73,32 @@ struct IslandLayout: Equatable {
     /// the island *is* the notch.
     var topInset: CGFloat = 0
 
+    // MARK: - The scale
+
+    static let compactTopRadius: CGFloat = 8
     static let expandedTopRadius: CGFloat = 20
-    static let expandedBottomRadius: CGFloat = 30
-    static let homeSize = CGSize(width: 540, height: 150)
-    /// The resting pill on a notchless screen, sized like the iPhone's idle island.
-    static let floatingIdleWidth: CGFloat = 120
-    static let floatingTopInset: CGFloat = 6
+    static let expandedBottomRadius: CGFloat = 36
+
+    /// The panel: one width for every view, so stepping between them never resizes the island.
+    static let panelWidth: CGFloat = 680
+    /// The top band straddles the notch by this much; the switcher lives in it.
+    static let bandExtra: CGFloat = 2.5
+    static let sectionHeight: CGFloat = 140
+    static let railHeight: CGFloat = 40
+    /// 8 pt, a hairline, 8 pt.
+    static let dividerBlock: CGFloat = 16.5
+    static let panelBottomInset: CGFloat = 14
+    static let panelContentHeight: CGFloat = sectionHeight + dividerBlock + railHeight + panelBottomInset
+    /// The content column inside the panel.
+    static let panelInset: CGFloat = 24
+    static var panelContentWidth: CGFloat { panelWidth - 2 * panelInset }
+
+    /// A system card is narrower: one thing, one or two rows.
+    static let cardWidth: CGFloat = 440
+
+    /// The resting pill on a notchless screen: a handle, not a slab.
+    static let floatingIdleWidth: CGFloat = 72
+    static let floatingIdleHeight: CGFloat = 22
 
     /// Full width of the shape: the body plus the outward top corners, which only exist when the
     /// island is fused to a physical notch.
@@ -99,7 +137,8 @@ struct IslandLayout: Equatable {
         let h = g.notchHeight
         let privacy: CGFloat = center.privacyIndicatorsVisible ? 18 : 0
         let floating = !g.hasPhysicalNotch
-        let inset: CGFloat = floating ? floatingTopInset : 0
+        // The floating pill hangs just below the menu bar, never on it.
+        let inset: CGFloat = floating ? g.menuBarHeight + 4 : 0
         // A floating island sits below the menu bar and covers nothing in it.
         let room = floating ? MenuBarClearance.Limits.unlimited : clearance
 
@@ -107,11 +146,12 @@ struct IslandLayout: Equatable {
         case .idle:
             let tightest = [room.leading, room.trailing].compactMap { $0 }.min()
             let pad: CGFloat = privacy > 0 ? MenuBarClearance.fitted(privacy + 8, minimal: privacy + 8, free: tightest) : 0
-            // Floating: a small resting pill rather than a slab as wide as the (absent) notch.
+            // Floating: a small resting handle rather than a slab as wide as the (absent) notch.
             let base = floating ? floatingIdleWidth : notchW
-            let bottom = floating ? h / 2 : min(10, h / 2)
-            return IslandLayout(bodyWidth: base + pad * 2, bodyHeight: h,
-                                topRadius: floating ? bottom : 6, bottomRadius: bottom,
+            let height = floating ? floatingIdleHeight : h
+            let bottom = floating ? height / 2 : min(10, h / 2)
+            return IslandLayout(bodyWidth: base + pad * 2, bodyHeight: height,
+                                topRadius: floating ? bottom : compactTopRadius, bottomRadius: bottom,
                                 leadingWidth: pad, trailingWidth: pad, privacyWidth: privacy,
                                 bubbleDiameter: h, bubbleGap: 8, hasBubble: false, isExpanded: false,
                                 floating: floating, topInset: inset)
@@ -130,22 +170,21 @@ struct IslandLayout: Equatable {
                 && (room.trailing.map { $0 - MenuBarClearance.margin >= trailing + bubbleRoom } ?? true)
             let bottom = h / 2
             return IslandLayout(bodyWidth: notchW + leading + trailing, bodyHeight: h,
-                                topRadius: floating ? bottom : 8, bottomRadius: bottom,
+                                topRadius: floating ? bottom : compactTopRadius, bottomRadius: bottom,
                                 leadingWidth: leading, trailingWidth: trailing, privacyWidth: privacy,
                                 bubbleDiameter: h, bubbleGap: 8, hasBubble: hasBubble, isExpanded: false,
                                 floating: floating, topInset: inset)
 
-        case .expanded(let a):
-            let size = a.content.expandedSize(notch: g)
-            return IslandLayout(bodyWidth: max(size.width, notchW + 120), bodyHeight: size.height,
+        case .card(let a):
+            return IslandLayout(bodyWidth: cardWidth, bodyHeight: h + a.content.cardHeight,
                                 topRadius: floating ? expandedBottomRadius : expandedTopRadius,
                                 bottomRadius: expandedBottomRadius,
                                 leadingWidth: 0, trailingWidth: 0, privacyWidth: privacy,
                                 bubbleDiameter: h, bubbleGap: 8, hasBubble: false, isExpanded: true,
                                 floating: floating, topInset: inset)
 
-        case .home, .shelf:
-            return IslandLayout(bodyWidth: homeSize.width, bodyHeight: h + homeSize.height,
+        case .panel, .shelf:
+            return IslandLayout(bodyWidth: panelWidth, bodyHeight: h + bandExtra + panelContentHeight,
                                 topRadius: floating ? expandedBottomRadius : expandedTopRadius,
                                 bottomRadius: expandedBottomRadius,
                                 leadingWidth: 0, trailingWidth: 0, privacyWidth: privacy,

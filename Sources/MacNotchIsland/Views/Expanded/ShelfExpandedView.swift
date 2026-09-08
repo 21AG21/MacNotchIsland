@@ -2,23 +2,6 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Full-width shelf shown while a file is being dragged over the island.
-struct ShelfExpandedView: View {
-    let geometry: NotchGeometry
-    let layout: IslandLayout
-    var isDropTarget: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            NotchClearance(geometry: geometry, extra: 10)
-            ShelfStripView(isDropTarget: isDropTarget, wide: true)
-                .padding(.horizontal, IslandInsets.horizontal)
-                .padding(.bottom, 14)
-        }
-        .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
-    }
-}
-
 /// Holds the AppKit view the share sheet hangs off. A plain reference so writing to it
 /// during a SwiftUI update never invalidates the view tree.
 final class ShelfShareAnchor {
@@ -101,9 +84,13 @@ struct ShelfStripView: View {
 
     private var strip: some View {
         ZStack {
+            // The drop zone is drawn only while something is being dragged; at rest the tiles
+            // sit on the panel like everything else.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: isDropTarget ? [6, 4] : []))
-                .foregroundStyle(.white.opacity(isDropTarget ? 0.6 : 0.14))
+                .fill(Color.white.opacity(isDropTarget ? 0.06 : 0))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                .foregroundStyle(.white.opacity(isDropTarget ? 0.5 : 0))
             if shelf.items.isEmpty {
                 emptyState
             } else {
@@ -111,25 +98,30 @@ struct ShelfStripView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 84)
+        .frame(height: 96)
         .background(ShelfAnchorView(anchor: shareAnchor).allowsHitTesting(false))
         .animation(IslandMotion.quick, value: isDropTarget)
     }
 
     private var emptyState: some View {
         VStack(spacing: 4) {
-            Image(systemName: "tray.and.arrow.down.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white.opacity(isDropTarget ? 0.9 : 0.4))
-            Text(isDropTarget ? "Release to add" : "Drag files onto the notch")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.4))
+            Image(systemName: isDropTarget ? "tray.and.arrow.down.fill" : "tray")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundStyle(.white.opacity(isDropTarget ? 0.9 : 0.3))
+            Text(isDropTarget ? "Drop to add" : "Your shelf is empty")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.7))
+            if !isDropTarget {
+                Text("Drag files onto the notch to park them here.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
         }
     }
 
     private var items: some View {
         IslandScrollStrip(axis: .horizontal) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 ForEach(shelf.items) { item in
                     ShelfItemView(item: item,
                                   isSelected: selection.contains(item.url),
@@ -195,18 +187,13 @@ struct ShelfItemView: View {
         VStack(spacing: 3) {
             thumbnail
             Text(url.lastPathComponent)
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
-                .frame(width: 56)
-            Text(ageText)
-                .font(.system(size: 8, weight: .medium))
-                .foregroundStyle(.white.opacity(0.4))
-                .lineLimit(1)
-                .frame(height: 10)
+                .frame(width: 66)
         }
         .contentShape(Rectangle())
-        .help(url.path)
+        .help(ageText.isEmpty ? url.path : "\(url.path)\nAdded \(ageText) ago")
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { shelf.open([url]) }
         .onTapGesture { onSelect() }
@@ -236,11 +223,11 @@ struct ShelfItemView: View {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().aspectRatio(contentMode: .fit)
                 }
             }
-            .frame(width: 44, height: 44)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(Color.white, lineWidth: 2)
                 }
             }

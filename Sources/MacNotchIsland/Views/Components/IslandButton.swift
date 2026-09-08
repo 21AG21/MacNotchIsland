@@ -14,13 +14,14 @@ struct GlyphButton: View {
     let symbol: String
     var size: CGFloat = 18
     var tint: Color = .white
+    var weight: Font.Weight = .bold
     var label: String? = nil
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size, weight: .bold))
+                .font(.system(size: size, weight: weight))
                 .foregroundStyle(tint)
                 .frame(width: size + 18, height: size + 18)
                 .contentShape(Rectangle())

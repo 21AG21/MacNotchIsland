@@ -15,8 +15,7 @@ struct MirrorView: View {
                 .accessibilityHidden(true)
             overlay
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 100)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
         // `.contain` rather than `.ignore`: the Camera access prompt's "Open Settings" button

@@ -58,7 +58,7 @@ final class IslandLayoutTests: XCTestCase {
         let info = NowPlayingInfo(title: "Song", artist: "Artist", album: "", duration: 200, elapsed: 10,
                                   timestamp: Date(), isPlaying: true, bundleID: nil, artwork: nil, artworkID: 0, accent: .white)
         let a = activity("np", .nowPlaying(info))
-        let expanded = IslandLayout.make(presentation: .expanded(a), geometry: geometry)
+        let expanded = IslandLayout.make(presentation: .card(a), geometry: geometry)
         let compact = IslandLayout.make(presentation: .compact(a, bubble: nil), geometry: geometry)
         XCTAssertTrue(expanded.isExpanded)
         XCTAssertGreaterThan(expanded.bodyWidth, compact.bodyWidth)
@@ -68,11 +68,14 @@ final class IslandLayoutTests: XCTestCase {
     }
 
     func testHomeAndShelfShareSize() {
-        let home = IslandLayout.make(presentation: .home, geometry: geometry)
+        let home = IslandLayout.make(presentation: .panel(.home(tab: "music")), geometry: geometry)
         let shelf = IslandLayout.make(presentation: .shelf, geometry: geometry)
+        let card = IslandLayout.make(presentation: .panel(.activity(id: "timer")), geometry: geometry)
         XCTAssertEqual(home.bodyWidth, shelf.bodyWidth)
         XCTAssertEqual(home.bodyHeight, shelf.bodyHeight)
-        XCTAssertEqual(home.bodyHeight, geometry.notchHeight + IslandLayout.homeSize.height)
+        XCTAssertEqual(home.bodyWidth, IslandLayout.panelWidth)
+        XCTAssertEqual(home.bodyHeight, geometry.notchHeight + IslandLayout.bandExtra + IslandLayout.panelContentHeight)
+        XCTAssertEqual(card.bodyHeight, home.bodyHeight, "every view of the panel is the same size, so stepping never resizes it")
     }
 
     func testEveryContentHasSaneExpandedSize() {
@@ -89,9 +92,10 @@ final class IslandLayoutTests: XCTestCase {
             .custom(CustomActivity(title: "Custom", body: "body", url: nil)),
         ]
         for content in contents {
-            let size = content.expandedSize(notch: geometry)
-            XCTAssertGreaterThan(size.width, geometry.notchWidth + 100, "\(content)")
-            XCTAssertGreaterThan(size.height, geometry.notchHeight + 40, "\(content)")
+            let card = IslandLayout.make(presentation: .card(activity("x", content)), geometry: geometry)
+            XCTAssertGreaterThan(card.bodyWidth, geometry.notchWidth + 100, "\(content)")
+            XCTAssertGreaterThan(card.bodyHeight, geometry.notchHeight + 40, "\(content)")
+            XCTAssertGreaterThanOrEqual(content.cardHeight, ActivityContent.cardRow, "\(content)")
             let widths = content.compactWidths
             XCTAssertGreaterThan(widths.leading, 0)
             XCTAssertGreaterThan(widths.trailing, 0)

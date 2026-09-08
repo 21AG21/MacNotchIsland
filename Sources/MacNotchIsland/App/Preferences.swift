@@ -47,6 +47,7 @@ final class Preferences: ObservableObject {
     @Published var pauseAnimationsOnBattery: Bool { didSet { d.set(pauseAnimationsOnBattery, forKey: "pauseAnimationsOnBattery") } }
     @Published var mirrorEnabled: Bool { didSet { d.set(mirrorEnabled, forKey: "mirrorEnabled") } }
     @Published var statsEnabled: Bool { didSet { d.set(statsEnabled, forKey: "statsEnabled") } }
+    @Published var notesEnabled: Bool { didSet { d.set(notesEnabled, forKey: "notesEnabled") } }
     @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
     @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
     /// Only widen the compact island into menu bar space that is actually free.
@@ -92,8 +93,8 @@ final class Preferences: ObservableObject {
         hoverToExpand = bool("hoverToExpand", true)
         expandOnIdleHover = bool("expandOnIdleHover", true)
         hapticsEnabled = bool("hapticsEnabled", true)
-        hoverDelay = double("hoverDelay", 0.2)
-        alertDuration = double("alertDuration", 2.8)
+        hoverDelay = double("hoverDelay", 0.25)
+        alertDuration = double("alertDuration", 1.8)
 
         nowPlayingEnabled = bool("nowPlayingEnabled", true)
         keepPausedMinutes = double("keepPausedMinutes", 5)
@@ -104,12 +105,12 @@ final class Preferences: ObservableObject {
         privacyIndicatorsEnabled = bool("privacyIndicatorsEnabled", true)
         callDetectionEnabled = bool("callDetectionEnabled", true)
         focusEnabled = bool("focusEnabled", true)
-        calendarEnabled = bool("calendarEnabled", false)
+        calendarEnabled = bool("calendarEnabled", true)
         unlockEnabled = bool("unlockEnabled", true)
         shelfEnabled = bool("shelfEnabled", true)
         timerSoundEnabled = bool("timerSoundEnabled", true)
         downloadsEnabled = bool("downloadsEnabled", true)
-        addDownloadsToShelf = bool("addDownloadsToShelf", false)
+        addDownloadsToShelf = bool("addDownloadsToShelf", true)
         screenshotsToShelfEnabled = bool("screenshotsToShelfEnabled", true)
         lowPowerEnabled = bool("lowPowerEnabled", true)
         hotkeyEnabled = bool("hotkeyEnabled", true)
@@ -124,6 +125,7 @@ final class Preferences: ObservableObject {
         pauseAnimationsOnBattery = bool("pauseAnimationsOnBattery", false)
         mirrorEnabled = bool("mirrorEnabled", true)
         statsEnabled = bool("statsEnabled", true)
+        notesEnabled = bool("notesEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)
         gesturesEnabled = bool("gesturesEnabled", true)
         keepClearOfMenuBar = bool("keepClearOfMenuBar", true)

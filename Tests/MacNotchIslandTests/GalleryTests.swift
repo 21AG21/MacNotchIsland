@@ -38,6 +38,10 @@ final class GalleryTests: XCTestCase {
         prefs.clipboardEnabled = true
         prefs.lyricsEnabled = true
         prefs.nowPlayingEnabled = true
+        prefs.notesEnabled = true
+        prefs.calendarEnabled = true
+        prefs.hoverToExpand = true
+        prefs.hoverDelay = 0.05
         RenderMode.isGallery = true
         defer { RenderMode.isGallery = false }
         let center = ActivityCenter.shared
@@ -46,7 +50,9 @@ final class GalleryTests: XCTestCase {
         var rendered: [String] = []
         for scene in Self.scenes(files: files) {
             center.resetForTesting()
+            center.setHovering(false)
             ShelfStore.shared.clear()
+            NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
             let geometry = scene.floating ? Self.plain : Self.notch
             try write(render(geometry: geometry), name: scene.name, dir: dir)
@@ -55,7 +61,7 @@ final class GalleryTests: XCTestCase {
         center.resetForTesting()
         ShelfStore.shared.clear()
         print("GALLERY rendered \(rendered.count) scenes: \(rendered.joined(separator: " "))")
-        XCTAssertGreaterThan(rendered.count, 30)
+        XCTAssertGreaterThan(rendered.count, 40)
     }
 
     // MARK: - Rendering
@@ -194,11 +200,17 @@ final class GalleryTests: XCTestCase {
 
     // MARK: - Scenes
 
+    /// Lets the hover delay elapse so the panel opens under the (simulated) pointer.
+    private static func peek(_ c: ActivityCenter) {
+        c.setHovering(true)
+        RunLoop.main.run(until: Date().addingTimeInterval(Preferences.shared.hoverDelay + 0.15))
+    }
+
     private static func scenes(files: [URL]) -> [Scene] {
-        func home(_ tab: String, _ extra: @escaping (ActivityCenter) -> Void = { _ in }) -> (ActivityCenter) -> Void {
+        func panel(_ tab: String, _ extra: @escaping (ActivityCenter) -> Void = { _ in }) -> (ActivityCenter) -> Void {
             { c in extra(c); c.open(.home(tab: tab)) }
         }
-        func expanded(_ activity: @escaping () -> IslandActivity) -> (ActivityCenter) -> Void {
+        func card(_ activity: @escaping () -> IslandActivity) -> (ActivityCenter) -> Void {
             { c in
                 let a = activity()
                 c.upsert(a)
@@ -220,8 +232,6 @@ final class GalleryTests: XCTestCase {
             Scene(name: "compact-shelf") { c in ShelfStore.shared.add(files); c.upsert(shelf(count: files.count)) },
 
             Scene(name: "alert-battery-charging") { c in c.showAlert(charging(), duration: 60) },
-            Scene(name: "alert-battery-low") { c in c.showAlert(lowBattery(), duration: 60) },
-            Scene(name: "alert-airpods") { c in c.showAlert(airPods(), duration: 60) },
             Scene(name: "alert-focus") { c in c.showAlert(focus(), duration: 60) },
             Scene(name: "alert-volume") { c in c.showAlert(hud(.volume, 0.6), duration: 60) },
             Scene(name: "alert-brightness") { c in c.showAlert(hud(.brightness, 0.4), duration: 60) },
@@ -236,38 +246,63 @@ final class GalleryTests: XCTestCase {
                 c.showAlert(hud(.volume, 0.6), duration: 60)
             },
 
-            Scene(name: "expanded-nowplaying", setup: expanded(nowPlaying)),
-            Scene(name: "expanded-timer", setup: expanded(timer)),
-            Scene(name: "expanded-stopwatch", setup: expanded(stopwatch)),
-            Scene(name: "expanded-call", setup: expanded(call)),
-            Scene(name: "expanded-download", setup: expanded(download)),
-            Scene(name: "expanded-calendar", setup: expanded(calendar)),
-            Scene(name: "expanded-custom-delivery", setup: expanded(custom)),
-            Scene(name: "expanded-battery", setup: expanded(charging)),
-            Scene(name: "expanded-bluetooth", setup: expanded(airPods)),
-            Scene(name: "expanded-focus", setup: expanded(focus)),
-            Scene(name: "expanded-shelf") { c in
-                ShelfStore.shared.add(files)
-                c.upsert(shelf(count: files.count))
-                c.open(.activity(id: "shelf"))
+            // System cards: an alert with a large view, or a timer that rang.
+            Scene(name: "card-battery-low") { c in c.showAlert(lowBattery(), duration: 60) },
+            Scene(name: "card-airpods") { c in c.showAlert(airPods(), duration: 60) },
+            Scene(name: "card-timer-rang") { c in
+                var t = timer()
+                if case .timer(var state) = t.content { state.isFinished = true; t.content = .timer(state) }
+                c.upsert(t)
+                c.forceExpanded(id: t.id, for: 60)
             },
-            Scene(name: "strip-volume-over-expanded-nowplaying") { c in
+            Scene(name: "card-call") { c in c.upsert(call()); c.forceExpanded(id: "call", for: 60) },
+
+            // The panel, pinned, on each view it can show.
+            Scene(name: "panel-music", setup: panel("music") { c in c.upsert(nowPlaying()) }),
+            Scene(name: "panel-music-empty", setup: panel("music")),
+            Scene(name: "panel-today", setup: panel("today")),
+            Scene(name: "panel-shelf", setup: panel("shelf") { _ in ShelfStore.shared.add(files) }),
+            Scene(name: "panel-shelf-empty", setup: panel("shelf")),
+            Scene(name: "panel-clipboard", setup: panel("clipboard")),
+            Scene(name: "panel-actions", setup: panel("actions")),
+            Scene(name: "panel-notes", setup: panel("notes")),
+            Scene(name: "panel-stats", setup: panel("stats")),
+            Scene(name: "panel-timer", setup: card(timer)),
+            Scene(name: "panel-stopwatch", setup: card(stopwatch)),
+            Scene(name: "panel-call", setup: card(call)),
+            Scene(name: "panel-download", setup: card(download)),
+            Scene(name: "panel-calendar", setup: card(calendar)),
+            Scene(name: "panel-custom-delivery", setup: card(custom)),
+            Scene(name: "panel-battery", setup: card(charging)),
+            Scene(name: "panel-bluetooth", setup: card(airPods)),
+            Scene(name: "panel-busy") { c in
+                c.upsert(nowPlaying()); c.upsert(timer()); c.upsert(download()); c.upsert(calendar())
+                ShelfStore.shared.add(files)
+                c.open(.home(tab: "music"))
+            },
+            Scene(name: "panel-volume-line") { c in
                 c.upsert(nowPlaying())
-                c.open(.activity(id: "nowplaying"))
+                c.open(.home(tab: "music"))
                 c.showAlert(hud(.volume, 0.6), duration: 60)
             },
-
-            Scene(name: "home-music", setup: home("music") { c in c.upsert(nowPlaying()) }),
-            Scene(name: "home-music-empty", setup: home("music")),
-            Scene(name: "home-shelf", setup: home("shelf") { _ in ShelfStore.shared.add(files) }),
-            Scene(name: "home-clipboard", setup: home("clipboard")),
-            Scene(name: "home-actions", setup: home("actions")),
-            Scene(name: "home-stats", setup: home("stats")),
-            Scene(name: "home-weather", setup: home("weather")),
+            Scene(name: "panel-banner-airpods") { c in
+                c.upsert(nowPlaying())
+                c.open(.home(tab: "music"))
+                c.showAlert(airPods(), duration: 60)
+            },
+            Scene(name: "panel-banner-battery-low") { c in
+                c.upsert(nowPlaying())
+                c.open(.home(tab: "music"))
+                c.showAlert(lowBattery(), duration: 60)
+            },
+            // Under the pointer, not pinned: no close button.
+            Scene(name: "peek-music") { c in c.upsert(nowPlaying()); peek(c) },
+            Scene(name: "peek-timer") { c in c.upsert(timer()); peek(c) },
+            Scene(name: "drag-shelf") { c in c.upsert(nowPlaying()); c.setDragTargeted(true) },
 
             Scene(name: "floating-compact-nowplaying", floating: true) { c in c.upsert(nowPlaying()) },
-            Scene(name: "floating-expanded-nowplaying", floating: true, setup: expanded(nowPlaying)),
-            Scene(name: "floating-home-music", floating: true, setup: home("music") { c in c.upsert(nowPlaying()) }),
+            Scene(name: "floating-panel-music", floating: true, setup: panel("music") { c in c.upsert(nowPlaying()) }),
+            Scene(name: "floating-card-battery-low", floating: true) { c in c.showAlert(lowBattery(), duration: 60) },
         ]
     }
 }

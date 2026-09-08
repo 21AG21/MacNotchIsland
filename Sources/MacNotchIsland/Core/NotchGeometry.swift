@@ -6,6 +6,8 @@ struct NotchGeometry: Equatable {
     var notchWidth: CGFloat
     var notchHeight: CGFloat
     var hasPhysicalNotch: Bool
+    /// The menu bar's height on this screen; a floating island hangs below it.
+    var menuBarHeight: CGFloat = 24
 
     var notchSize: CGSize { CGSize(width: notchWidth, height: notchHeight) }
 
@@ -25,6 +27,7 @@ struct NotchGeometry: Equatable {
         let hasNotch = top > 0
         var width: CGFloat = 200
         var height: CGFloat = 32
+        let menuBar = max(NSStatusBar.system.thickness, 24)
 
         if hasNotch {
             height = top
@@ -41,7 +44,6 @@ struct NotchGeometry: Equatable {
             }
         } else {
             // Simulated island on external displays: menu-bar height, iPhone-like proportions.
-            let menuBar = max(NSStatusBar.system.thickness, 24)
             height = max(menuBar, 30)
             width = 190
         }
@@ -52,6 +54,7 @@ struct NotchGeometry: Equatable {
         if prefs.notchWidthOverride > 0 { width = max(width, prefs.notchWidthOverride) }
         if prefs.notchHeightOverride > 0 { height = max(height, prefs.notchHeightOverride) }
 
-        return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch)
+        return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch,
+                             menuBarHeight: hasNotch ? top : menuBar)
     }
 }

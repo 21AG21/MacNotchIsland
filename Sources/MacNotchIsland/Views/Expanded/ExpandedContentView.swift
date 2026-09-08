@@ -9,8 +9,10 @@ struct ExpandedContentView: View {
     var body: some View {
         Group {
             switch activity.content {
-            case .nowPlaying(let info):
-                NowPlayingExpandedView(info: info, geometry: geometry)
+            case .nowPlaying:
+                MusicSectionView(geometry: geometry)
+                    .padding(.horizontal, IslandInsets.horizontal)
+                    .padding(.top, insidePanel ? 0 : geometry.notchHeight + 12)
             case .timer(let t):
                 TimerExpandedView(state: t, geometry: geometry)
             case .stopwatch(let s):
@@ -32,23 +34,43 @@ struct ExpandedContentView: View {
             case .custom(let c):
                 CustomExpandedView(state: c, activity: activity, geometry: geometry)
             case .shelf:
-                ShelfExpandedView(geometry: geometry, layout: layout, isDropTarget: false)
+                ShelfSectionView(isDropTarget: false)
+                    .padding(.horizontal, IslandInsets.horizontal)
+                    .padding(.top, insidePanel ? 0 : geometry.notchHeight + 12)
             case .unlock, .silent:
                 EmptyView()
             }
         }
-        .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
+        .frame(width: insidePanel ? IslandLayout.panelContentWidth : layout.bodyWidth,
+               height: insidePanel ? IslandLayout.sectionHeight : layout.bodyHeight,
+               alignment: insidePanel ? .center : .top)
     }
+
+    @Environment(\.insidePanel) private var insidePanel
 }
 
-/// Shared header spacing: content starts below the physical notch.
+/// Shared header spacing: content starts below the physical notch. Inside the panel the band
+/// above already cleared the notch, so this collapses to nothing.
 struct NotchClearance: View {
     let geometry: NotchGeometry
     var extra: CGFloat = 8
+    @Environment(\.insidePanel) private var insidePanel
     var body: some View {
         Color.clear
-            .frame(height: geometry.notchHeight + extra)
+            .frame(height: insidePanel ? 0 : geometry.notchHeight + extra)
             .accessibilityHidden(true)
+    }
+}
+
+private struct InsidePanelKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True for content drawn in the panel's section area rather than in a system card.
+    var insidePanel: Bool {
+        get { self[InsidePanelKey.self] }
+        set { self[InsidePanelKey.self] = newValue }
     }
 }
 

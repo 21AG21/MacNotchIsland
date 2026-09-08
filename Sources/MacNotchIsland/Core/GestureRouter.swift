@@ -8,8 +8,8 @@ import SwiftUI
 /// events inside the island's footprint (its `hitTest` returns nil everywhere else), so
 /// nothing outside the island is affected.
 ///
-/// - A horizontal swipe skips tracks while Now Playing owns the island, and cycles the Home
-///   panel's tabs while Home is open.
+/// - A horizontal swipe on the compact Now Playing pill skips tracks; on the open panel it
+///   steps to the next or previous view, the way the switcher reads.
 /// - A vertical scroll changes the output volume while the island is showing nothing that
 ///   scrolls by itself.
 /// - Anything else is handed straight back to SwiftUI, so the clipboard list and the shelf
@@ -27,26 +27,28 @@ final class GestureRouter {
     enum Context: Equatable {
         case idle
         case compactNowPlaying
-        case expandedNowPlaying
         case otherCompact
-        case otherExpanded
-        /// The Home panel. `tab` is the stored tab, `available` the tabs the user's
-        /// preferences currently allow, in tab-bar order.
-        case home(tab: String, available: [String])
+        /// A system card (an alert with a large view).
+        case card
+        /// The panel: `index` is the current view's position in the ring of `count` views;
+        /// `scrolls` when the section scrolls by itself (a list, a strip).
+        case panel(index: Int, count: Int, scrolls: Bool)
         case shelf
     }
 
     enum Action: Equatable {
         case nextTrack
         case previousTrack
-        case selectTab(String)
+        case stepView(forward: Bool)
         /// Change in output volume, on the 0...1 scale.
         case volume(delta: Double)
         case none
     }
 
-    /// Accumulated horizontal distance, in points, that makes a swipe.
+    /// Accumulated horizontal distance, in points, that makes a track skip.
     static let swipeThreshold: CGFloat = 40
+    /// A step between views asks for a little more: a scroll with a tilt must not change views.
+    static let viewSwipeThreshold: CGFloat = 55
     /// Volume change per point of vertical scrolling.
     static let volumeStep: Double = 0.004
     /// How far a gesture has to travel before it is locked to one axis.
@@ -58,44 +60,28 @@ final class GestureRouter {
     static let gestureGap: TimeInterval = 0.25
     /// At most ~30 volume writes a second.
     static let volumeInterval: TimeInterval = 1.0 / 30.0
-    /// Two track skips can never be closer together than this.
+    /// Two track skips (or view steps) can never be closer together than this.
     static let trackCooldown: TimeInterval = 0.6
 
-    /// UserDefaults key shared with `HomeExpandedView`.
+    /// UserDefaults key for the Home section the panel last showed.
     static let homeTabKey = "homeTab"
-    /// Raw values of `HomeExpandedView`'s `HomeTab`, in tab-bar order.
-    /// Must match HomeExpandedView.HomeTab order; the tab bar hides tabs whose feature is off.
-    static let homeTabOrder = ["music", "shelf", "clipboard", "actions", "mirror", "stats", "weather"]
-    /// The tab Home falls back to; it can never be switched off.
-    static let defaultHomeTab = "music"
 
-    /// The tab Home actually shows: the stored one, unless its feature has been switched off.
-    /// Mirrors `HomeExpandedView.selection`.
-    static func effectiveTab(_ tab: String, available: [String]) -> String {
-        available.contains(tab) ? tab : defaultHomeTab
-    }
-
-    /// Whether a horizontal swipe means anything here. The shelf strip scrolls sideways
-    /// itself, so it keeps its own scroll events.
+    /// Whether a horizontal swipe means anything here.
     static func consumesHorizontalSwipes(_ context: Context) -> Bool {
         switch context {
-        case .compactNowPlaying, .expandedNowPlaying:
-            return true
-        case .home(let tab, let available):
-            return effectiveTab(tab, available: available) != "shelf" && available.count > 1
-        case .idle, .otherCompact, .otherExpanded, .shelf:
-            return false
+        case .compactNowPlaying: return true
+        case .panel(_, let count, _): return count > 1
+        case .idle, .otherCompact, .card, .shelf: return false
         }
     }
 
-    /// Whether a vertical scroll should change the volume. Home and the shelf are left alone
-    /// because their content scrolls.
+    /// Whether a vertical scroll should change the volume. A section that scrolls keeps its
+    /// own scroll events.
     static func consumesVerticalScroll(_ context: Context) -> Bool {
         switch context {
-        case .idle, .compactNowPlaying, .expandedNowPlaying, .otherCompact:
-            return true
-        case .otherExpanded, .home, .shelf:
-            return false
+        case .idle, .compactNowPlaying, .otherCompact, .card: return true
+        case .panel(_, _, let scrolls): return !scrolls
+        case .shelf: return false
         }
     }
 
@@ -104,20 +90,21 @@ final class GestureRouter {
     /// `dx` is the horizontal distance accumulated so far in the current gesture and `dy` the
     /// vertical distance still to be applied, both as AppKit reports them: with the default
     /// (natural) scroll direction moving the fingers left gives a negative `dx` and moving
-    /// them up a negative `dy`. So a swipe to the left advances (next track, next tab) and a
-    /// swipe up raises the volume.
+    /// them up a negative `dy`. So a swipe to the left advances (next track, next view) and a
+    /// swipe up raises the volume. A step past either end of the ring is `.none`: a swipe is
+    /// spatial, only Tab wraps.
     static func decide(dx: CGFloat, dy: CGFloat, context: Context) -> Action {
-        if abs(dx) > swipeThreshold, abs(dx) >= abs(dy), consumesHorizontalSwipes(context) {
+        let threshold: CGFloat
+        if case .panel = context { threshold = viewSwipeThreshold } else { threshold = swipeThreshold }
+        if abs(dx) > threshold, abs(dx) >= abs(dy), consumesHorizontalSwipes(context) {
             let forward = dx < 0
             switch context {
-            case .compactNowPlaying, .expandedNowPlaying:
+            case .compactNowPlaying:
                 return forward ? .nextTrack : .previousTrack
-            case .home(let tab, let available):
-                let tabs = available.isEmpty ? [defaultHomeTab] : available
-                let current = effectiveTab(tab, available: tabs)
-                guard tabs.count > 1, let i = tabs.firstIndex(of: current) else { return .none }
-                let next = forward ? (i + 1) % tabs.count : (i - 1 + tabs.count) % tabs.count
-                return .selectTab(tabs[next])
+            case .panel(let index, let count, _):
+                let next = index + (forward ? 1 : -1)
+                guard next >= 0, next < count else { return .none }
+                return .stepView(forward: forward)
             default:
                 return .none
             }
@@ -227,40 +214,29 @@ final class GestureRouter {
 
     // MARK: - Context
 
+    /// Sections whose content scrolls by itself, and so keep their vertical scroll events.
+    static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .today]
+
     private func currentContext(panel: String) -> Context {
-        switch ActivityCenter.shared.presentation(for: panel) {
+        let center = ActivityCenter.shared
+        switch center.presentation(for: panel) {
         case .idle:
             return .idle
         case .compact(let activity, _):
             if case .nowPlaying = activity.content { return .compactNowPlaying }
             return .otherCompact
-        case .expanded(let activity):
-            if case .nowPlaying = activity.content { return .expandedNowPlaying }
-            return .otherExpanded
-        case .home:
-            let stored = UserDefaults.standard.string(forKey: Self.homeTabKey) ?? Self.defaultHomeTab
-            return .home(tab: stored, available: availableHomeTabs)
+        case .card:
+            return .card
+        case .panel(let view):
+            let ring = center.ring
+            let index = ring.firstIndex(of: view) ?? 0
+            var scrolls = false
+            if case .home(let tab) = view, let section = HomeSection(rawValue: tab) {
+                scrolls = Self.scrollingSections.contains(section)
+            }
+            return .panel(index: index, count: ring.count, scrolls: scrolls)
         case .shelf:
             return .shelf
-        }
-    }
-
-    /// Mirrors `HomeExpandedView.availableTabs`.
-    private var availableHomeTabs: [String] { Self.availableHomeTabs(Preferences.shared) }
-
-    /// The Home tabs the preferences currently allow, in tab-bar order. Shared with the
-    /// keyboard ring in ActivityCenter so both agree on what "next tab" means.
-    static func availableHomeTabs(_ prefs: Preferences) -> [String] {
-        return homeTabOrder.filter { tab in
-            switch tab {
-            case "shelf": return prefs.shelfEnabled
-            case "clipboard": return prefs.clipboardEnabled
-            case "actions": return prefs.quickActionsEnabled
-            case "mirror": return prefs.mirrorEnabled
-            case "stats": return prefs.statsEnabled
-            case "weather": return prefs.weatherEnabled
-            default: return true
-            }
         }
     }
 
@@ -282,18 +258,10 @@ final class GestureRouter {
             NowPlayingService.shared.previous()
             Haptics.tap()
             return true
-        case .selectTab(let tab):
-            // Swiping left moves to the next tab, which slides in from the right, like the
-            // keyboard step does; wrapping from the last tab back to the first still reads
-            // as forward.
-            let tabs = availableHomeTabs
-            let current = UserDefaults.standard.string(forKey: Self.homeTabKey) ?? Self.defaultHomeTab
-            let from = tabs.firstIndex(of: Self.effectiveTab(current, available: tabs)) ?? 0
-            let to = tabs.firstIndex(of: tab) ?? 0
-            let forward = !tabs.isEmpty && to == (from + 1) % tabs.count
-            ActivityCenter.shared.setNavigationDirection(forward ? 1 : -1)
-            withAnimation(IslandMotion.navigate) { UserDefaults.standard.set(tab, forKey: Self.homeTabKey) }
-            Haptics.soft()
+        case .stepView(let forward):
+            guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
+            lastTrackAt = now
+            if ActivityCenter.shared.step(forward: forward, wrap: false) { Haptics.soft() }
             return true
         case .volume(let delta):
             return applyVolume(delta: delta)

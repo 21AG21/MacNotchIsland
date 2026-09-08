@@ -80,7 +80,9 @@ final class LiveActivityAPITests: XCTestCase {
 
     func testHomeAndCollapse() {
         handle("notchisland://home")
-        XCTAssertEqual(center.presentation, .home)
+        guard case .panel(.home) = center.presentation else { return XCTFail("home opens the panel") }
+        handle("notchisland://home?tab=shelf")
+        XCTAssertEqual(center.openView, .home(tab: "shelf"))
         handle("notchisland://collapse")
         XCTAssertEqual(center.presentation, .idle)
     }

@@ -102,15 +102,15 @@ final class IslandTimerTests: XCTestCase {
 
     func testExpandedHeightGrowsPerExtraTimerUpToTwoRows() {
         let content = ActivityContent.timer(TimerState(label: "Tea", total: 60, endDate: Date()))
-        let base = content.expandedSize(notch: geometry).height
+        let base = content.cardHeight
         timer.start(seconds: 300, label: "One")
-        XCTAssertEqual(content.expandedSize(notch: geometry).height, base, "a single timer needs no extra row")
+        XCTAssertEqual(content.cardHeight, base, "a single timer needs no extra row")
         timer.start(seconds: 300, label: "Two")
-        XCTAssertEqual(content.expandedSize(notch: geometry).height, base + IslandTimer.rowHeight)
+        XCTAssertEqual(content.cardHeight, base + IslandTimer.rowHeight)
         timer.start(seconds: 300, label: "Three")
-        XCTAssertEqual(content.expandedSize(notch: geometry).height, base + IslandTimer.rowHeight * 2)
+        XCTAssertEqual(content.cardHeight, base + IslandTimer.rowHeight * 2)
         timer.start(seconds: 300, label: "Four")
-        XCTAssertEqual(content.expandedSize(notch: geometry).height, base + IslandTimer.rowHeight * 2,
+        XCTAssertEqual(content.cardHeight, base + IslandTimer.rowHeight * 2,
                        "the list never grows past two extra rows")
     }
 

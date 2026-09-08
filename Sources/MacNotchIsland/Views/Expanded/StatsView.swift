@@ -6,8 +6,8 @@ import SwiftUI
 struct StatsView: View {
     @ObservedObject private var stats = SystemStats.shared
 
-    private static let valueFont = Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
-    private static let smallValueFont = Font.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit()
+    private static let valueFont = Font.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit()
+    private static let smallValueFont = Font.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit()
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -128,7 +128,7 @@ struct StatsView: View {
     private var divider: some View {
         Rectangle()
             .fill(Color.white.opacity(0.08))
-            .frame(width: 1, height: 52)
+            .frame(width: 1, height: 64)
             .padding(.trailing, 12)
             .accessibilityHidden(true)
     }
