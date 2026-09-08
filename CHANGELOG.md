@@ -12,6 +12,8 @@ the unreleased section is what the next tag will ship.
   Accessibility; without those permissions the windows are still listed by app, and the
   section says what is missing and opens the right pane of System Settings.
 - Wi-Fi, Bluetooth and light/dark in the control rail, under every section.
+- Favourite apps in the Actions section: up to six sit in front of your Shortcuts, and a click
+  opens one and closes the panel. Chosen in Settings under Actions.
 - Picking a clipboard item pastes it where you were typing: the panel closes, the keyboard
   goes back to the app in front, and ⌘V follows. Switchable off in the Home Panel settings,
   and it falls back to putting the item on the pasteboard when Accessibility is not granted.

@@ -1,14 +1,19 @@
 import AppKit
 import SwiftUI
 
-/// Favourited Shortcuts as round glyph buttons across the Actions section. Clicking one runs
-/// that shortcut immediately.
+/// The Actions row: favourite apps first, then favourited Shortcuts, as round buttons.
+/// Clicking an app opens it and closes the panel; clicking a shortcut runs it where it is.
 struct QuickActionsRowView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
+    @ObservedObject private var apps = FavoriteApps.shared
+
+    /// Eight buttons is what the row holds; apps come first because they are what people
+    /// reach for most.
+    static let capacity = 8
 
     var body: some View {
         Group {
-            if runner.favorites.isEmpty {
+            if runner.favorites.isEmpty && apps.apps.isEmpty {
                 // One row, like the timer presets under it: a glyph, a line, the way in.
                 HStack(spacing: 12) {
                     Image(systemName: "bolt")
@@ -20,12 +25,12 @@ struct QuickActionsRowView: View {
                         Text("No quick actions yet")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.7))
-                        Text("Your Shortcuts, one click away.")
+                        Text("Your apps and Shortcuts, one click away.")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.white.opacity(0.4))
                     }
                     Spacer(minLength: 8)
-                    PillButton(title: "Choose Shortcuts…") {
+                    PillButton(title: "Choose Actions…") {
                         NSApp.activate(ignoringOtherApps: true)
                         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                     }
@@ -33,8 +38,12 @@ struct QuickActionsRowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .accessibilityElement(children: .contain)
             } else {
+                let favourites = apps.apps
                 HStack(alignment: .top, spacing: 6) {
-                    ForEach(runner.favorites.prefix(8), id: \.self) { name in
+                    ForEach(favourites, id: \.path) { app in
+                        AppButton(path: app.path, name: app.name)
+                    }
+                    ForEach(runner.favorites.prefix(max(0, Self.capacity - favourites.count)), id: \.self) { name in
                         QuickActionButton(name: name)
                     }
                     Spacer(minLength: 0)
@@ -42,6 +51,48 @@ struct QuickActionsRowView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One favourite app: its own icon, its name, and a click that opens it.
+private struct AppButton: View {
+    let path: String
+    let name: String
+    @ObservedObject private var apps = FavoriteApps.shared
+    @State private var hovering = false
+
+    private static let diameter: CGFloat = 40
+
+    var body: some View {
+        Button(action: { apps.launch(path) }) {
+            VStack(spacing: 5) {
+                ZStack {
+                    Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
+                    if let icon = apps.icon(for: path) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: 26, height: 26)
+                    } else {
+                        Image(systemName: "app")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: Self.diameter, height: Self.diameter)
+                Text(name)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .frame(width: 66)
+            }
+        }
+        .buttonStyle(IslandButtonStyle())
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .animation(IslandMotion.quick, value: hovering)
+        .help("Open \(name)")
+        .accessibilityLabel("Open \(name)")
     }
 }
 

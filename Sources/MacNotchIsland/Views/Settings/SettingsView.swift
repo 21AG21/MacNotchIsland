@@ -21,7 +21,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .activities: return "Activities"
         case .home: return "Home Panel"
         case .media: return "Media"
-        case .shortcuts: return "Shortcuts"
+        case .shortcuts: return "Actions"
         case .privacy: return "Privacy & Permissions"
         case .about: return "About"
         }
