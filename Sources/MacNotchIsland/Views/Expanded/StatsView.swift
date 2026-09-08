@@ -66,18 +66,22 @@ struct StatsView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            MeterBar(fraction: fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes))
-                .padding(.top, 10)
-                .accessibilityHidden(true)
-            Text(diskDetail)
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.4))
-                .lineLimit(1)
-                .padding(.top, 4)
+            // A volume that will not say how full it is gets the em dash and nothing else,
+            // rather than an empty bar and a line explaining itself.
+            if let detail = diskDetail {
+                MeterBar(fraction: fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes))
+                    .padding(.top, 10)
+                    .accessibilityHidden(true)
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .lineLimit(1)
+                    .padding(.top, 4)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Disk")
-        .accessibilityValue(diskDetail)
+        .accessibilityValue(diskDetail ?? "Not available")
     }
 
     private var networkCell: some View {
@@ -148,10 +152,10 @@ struct StatsView: View {
         return Self.percentText(fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes) * 100)
     }
 
-    /// "412 GB free of 1 TB".
-    private var diskDetail: String {
+    /// "412 GB free", or nothing at all when the volume did not answer.
+    private var diskDetail: String? {
         let total = stats.sample.diskTotalBytes
-        guard total > 0 else { return "Not available" }
+        guard total > 0 else { return nil }
         let free = total - min(total, stats.sample.diskUsedBytes)
         return "\(SystemStats.memoryFormatter.string(fromByteCount: Int64(clamping: free))) free"
     }

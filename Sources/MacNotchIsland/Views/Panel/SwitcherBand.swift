@@ -51,7 +51,7 @@ struct SwitcherBand: View {
                 Spacer(minLength: 0)
                 // The left of the band is empty unless something is live, and a row of small
                 // round glyphs says nothing about itself. So the name of whatever the pointer
-                // is on — or of the section showing — sits here, against the cutout.
+                // is on appears here, against the cutout, for as long as it is on it.
                 if left.views.isEmpty, let name = label {
                     Text(name)
                         .font(.system(size: 12, weight: .semibold))
@@ -77,12 +77,12 @@ struct SwitcherBand: View {
         .animation(IslandMotion.quick, value: label)
     }
 
-    /// What to call the band's right-hand side right now: the slot under the pointer, else
-    /// the view the panel is showing.
+    /// The name of the slot the pointer is on. Only while the pointer is on one: the section
+    /// showing already says what it is, in its own header, and two labels for one thing is
+    /// one too many.
     private var label: String? {
-        let view = hovered ?? current
-        guard let view else { return nil }
-        return Self.entry(for: view, center: center).title
+        guard let hovered else { return nil }
+        return Self.entry(for: hovered, center: center).title
     }
 
     /// How to lay a row of slots out in the room there is: at the size they like where they
