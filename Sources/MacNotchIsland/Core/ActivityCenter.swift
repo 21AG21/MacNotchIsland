@@ -41,6 +41,9 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var peekView: IslandView? = nil
     /// The panel whose island is being held down, for the press-in feedback.
     @Published private(set) var pressedPanel: String? = nil
+    /// True while the panel shows something that is typed into (Notes, the clipboard search):
+    /// the only time the island's window may take key status from the app in front.
+    @Published private(set) var wantsKeyboard = false
     /// Which way the last change of view went: +1 forward, -1 back, 0 for a plain open or
     /// close. Read by the views to pick a push or a cross-fade; not published, since it is
     /// always set right before the change that is.
@@ -465,6 +468,10 @@ final class ActivityCenter: ObservableObject {
         if pressedPanel != next { pressedPanel = next }
     }
 
+    func setWantsKeyboard(_ wants: Bool) {
+        if wantsKeyboard != wants { wantsKeyboard = wants }
+    }
+
     func setDragTargeted(_ targeted: Bool, panel: String = "main") {
         if targeted {
             guard dragPanel != panel else { return }
@@ -634,6 +641,7 @@ final class ActivityCenter: ObservableObject {
         if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
+        wantsKeyboard = false
         withAnimation(IslandMotion.close) {
             openView = nil
             peekView = nil
@@ -644,7 +652,7 @@ final class ActivityCenter: ObservableObject {
                 alert = nil
             }
         }
-        // Anything that waited for the panel to close gets its turn now.
+        // Anything a louder alert pushed aside gets its turn now.
         if alert == nil { showNextPendingAlert() }
     }
 

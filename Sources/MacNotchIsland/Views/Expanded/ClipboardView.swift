@@ -4,6 +4,8 @@ import SwiftUI
 /// Clipboard history for the Home panel's "Clipboard" tab: newest copy first, click a row
 /// to put it back on the pasteboard, hover for pin / copy / remove.
 struct ClipboardView: View {
+    /// Text the list is filtered by; empty shows everything.
+    var query: String = ""
     @ObservedObject private var store = ClipboardStore.shared
     @State private var hoveredID: UUID? = nil
 
@@ -11,6 +13,8 @@ struct ClipboardView: View {
         Group {
             if store.items.isEmpty {
                 emptyState
+            } else if ordered.isEmpty {
+                SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
             } else {
                 list
             }
@@ -42,9 +46,12 @@ struct ClipboardView: View {
         }
     }
 
-    /// Pinned items first, then the rest, newest first.
+    /// Pinned items first, then the rest, newest first; only what matches the search.
     private var ordered: [ClipboardItem] {
-        store.items.filter(\.pinned) + store.items.filter { !$0.pinned }
+        let all = store.items.filter(\.pinned) + store.items.filter { !$0.pinned }
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return all }
+        return all.filter { $0.preview.localizedCaseInsensitiveContains(needle) }
     }
 
     private var emptyState: some View {

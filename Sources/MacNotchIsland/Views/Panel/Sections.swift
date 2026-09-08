@@ -16,16 +16,53 @@ struct ShelfSectionView: View {
 
 struct ClipboardSectionView: View {
     @ObservedObject private var store = ClipboardStore.shared
+    @EnvironmentObject private var center: ActivityCenter
+    @State private var query = ""
 
     var body: some View {
         VStack(spacing: 0) {
             SectionHeader(store.items.isEmpty ? "Clipboard" : "Clipboard · \(store.items.count) \(store.items.count == 1 ? "item" : "items")") {
                 if !store.items.isEmpty {
+                    searchField
                     PillButton(title: "Clear", tint: .white.opacity(0.85)) { store.clear() }
                 }
             }
-            ClipboardView()
+            ClipboardView(query: query)
         }
+        .onAppear {
+            guard !RenderMode.isGallery, !store.items.isEmpty else { return }
+            center.setWantsKeyboard(true)
+        }
+        .onDisappear {
+            query = ""
+            center.setWantsKeyboard(false)
+        }
+    }
+
+    /// Filters the list as you type. Typing needs the island to be the key window, which the
+    /// section asks for while it shows and hands back when it goes.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.45))
+                .accessibilityHidden(true)
+            if RenderMode.isGallery {
+                Text("Search")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.35))
+            } else {
+                TextField("Search", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white)
+                    .accessibilityLabel("Search the clipboard")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 170, height: 22)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .onTapGesture { NotchPanel.takeKeyboard() }
     }
 }
 
@@ -80,6 +117,7 @@ struct ActionsSectionView: View {
 
 struct NotesSectionView: View {
     @ObservedObject private var notes = NotesStore.shared
+    @EnvironmentObject private var center: ActivityCenter
 
     var body: some View {
         VStack(spacing: 0) {
@@ -116,6 +154,12 @@ struct NotesSectionView: View {
             }
             .padding(.top, 2)
         }
+        .onAppear {
+            guard !RenderMode.isGallery else { return }
+            center.setWantsKeyboard(true)
+            NotchPanel.takeKeyboard()
+        }
+        .onDisappear { center.setWantsKeyboard(false) }
     }
 }
 

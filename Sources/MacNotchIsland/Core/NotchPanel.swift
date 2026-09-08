@@ -102,10 +102,31 @@ final class NotchPanel: NSPanel {
         refit()
     }
 
-    /// The island has no text input, so it never takes key-window status away from the app the
-    /// user is working in (clicks still land thanks to acceptsFirstMouse on the hosting view).
-    override var canBecomeKey: Bool { false }
+    /// The island takes key-window status only while something in the panel is typed into
+    /// (Notes, a search), so it never pulls focus from the app the user is working in. Clicks
+    /// land regardless, thanks to acceptsFirstMouse on the hosting view.
+    override var canBecomeKey: Bool { ActivityCenter.shared.wantsKeyboard }
     override var canBecomeMain: Bool { false }
+
+    /// Gives the keyboard to the island under the pointer (or the main screen's), once a
+    /// section that takes typing is showing.
+    static func takeKeyboard() {
+        guard ActivityCenter.shared.wantsKeyboard else { return }
+        let panels = NSApp.windows.compactMap { $0 as? NotchPanel }.filter { $0.isVisible }
+        let mouse = NSEvent.mouseLocation
+        let target = panels.first { $0.screen?.frame.contains(mouse) == true }
+            ?? panels.first { $0.screen == NSScreen.main } ?? panels.first
+        target?.makeKey()
+    }
+
+    /// Hands key status back to the app in front once nothing in the panel is typed into any
+    /// more. A window that stays on screen has one way to stop being key: out and straight
+    /// back in, within the same pass, so nothing is seen to move.
+    private func releaseKeyIfUnwanted() {
+        guard isKeyWindow, !ActivityCenter.shared.wantsKeyboard else { return }
+        orderOut(nil)
+        orderFrontRegardless()
+    }
 
     static func displayKey(for screen: NSScreen) -> String {
         let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
@@ -209,6 +230,7 @@ final class NotchPanel: NSPanel {
     func refit() {
         let suppressed = ActivityCenter.shared.isSuppressed
         if ignoresMouseEvents != suppressed { ignoresMouseEvents = suppressed }
+        releaseKeyIfUnwanted()
 
         settleWork?.cancel()
         let target = restFrame()

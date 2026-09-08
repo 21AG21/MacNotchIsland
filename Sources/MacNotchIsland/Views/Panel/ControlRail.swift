@@ -14,7 +14,9 @@ struct ControlRail: View {
     @State private var brightness: Double = BrightnessControl.shared.current() ?? 0.5
 
     var body: some View {
-        HStack(spacing: 14) {
+        // Budget at 632 pt with everything showing: two sliders (208 and 168), four to five
+        // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
+        HStack(spacing: 12) {
             volume
             if BrightnessControl.shared.isAvailable { brightnessControl }
             Spacer(minLength: 8)
@@ -57,7 +59,7 @@ struct ControlRail: View {
             .help(outputs.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(outputs.isMuted ? "Unmute" : "Mute")
             IslandSlider(value: outputs.isMuted ? 0 : Double(outputs.volume ?? 0)) { outputs.setVolume(Float($0)) }
-                .frame(width: 200)
+                .frame(width: 176)
                 .opacity(outputs.volume == nil ? 0.3 : 1)
                 .disabled(outputs.volume == nil)
                 .accessibilityLabel("Volume")
@@ -76,7 +78,7 @@ struct ControlRail: View {
                 brightness = value
                 BrightnessControl.shared.set(value)
             }
-            .frame(width: 160)
+            .frame(width: 136)
             .accessibilityLabel("Brightness")
             .accessibilityValue("\(Int((brightness * 100).rounded())) percent")
         }

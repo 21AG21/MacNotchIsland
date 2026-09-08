@@ -286,10 +286,8 @@ final class ActivityCenterTests: XCTestCase {
         center.collapse(reason: "test")
         XCTAssertFalse(center.isOpen)
         XCTAssertNil(center.activity(id: "bt"), "closing a held alert ends it")
-        guard case .compact(let shown, _) = center.presentation else { return XCTFail("the banner's alert is on the pill once the panel closes") }
-        XCTAssertEqual(shown.id, "dl")
-        center.dismissAlert()
-        XCTAssertEqual(center.presentation, .idle)
+        XCTAssertNil(center.alert, "the banner was seen; closing the panel does not replay it on the pill")
+        XCTAssertEqual(center.presentation, .idle, "nothing is left behind")
     }
 
     func testAlertOverALiveActivityOfTheSameIdLeavesItOpenWhenItExpires() {
