@@ -16,7 +16,7 @@ struct IslandPane: View {
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("Change the shortcut under Shortcuts. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
+                Text("Change the shortcut under Actions. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
             }
 
             Section {
@@ -29,7 +29,7 @@ struct IslandPane: View {
             } header: {
                 Text("Pointer")
             } footer: {
-                Text("What the pointer opens closes when it leaves. A click on the island keeps the panel open until you click somewhere else, press Escape, or use the shortcut.")
+                Text("What the pointer opens closes when it leaves. A click anywhere on the panel — its background or one of its controls — keeps it open until you click somewhere else, press Escape, or use the shortcut.")
             }
 
             Section {
