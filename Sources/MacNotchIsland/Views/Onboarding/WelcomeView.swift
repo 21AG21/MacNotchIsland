@@ -57,7 +57,7 @@ struct WelcomeView: View {
                 row("cursorarrow.motionlines", "Rest the pointer on it",
                     "The island shows what is playing, counting down or downloading. Hover to peek at the full view; click to keep it open.")
                 row("rectangle.split.3x1", "One panel for everything",
-                    "Music, today's agenda, the shelf, clipboard, notes and stats, with volume and brightness under them. Step between them beside the notch or with a swipe.")
+                    "Music, today's agenda, your open windows, the shelf, clipboard, notes and stats, with volume, brightness, Wi-Fi and Bluetooth under them. Step between them beside the notch or with a swipe.")
                 row("tray.and.arrow.down", "Drop files on the shelf",
                     "Drag anything onto the island and it waits there until you drag it out again, or AirDrop it from the rail.")
                 row("keyboard", "Press \(shortcut)",

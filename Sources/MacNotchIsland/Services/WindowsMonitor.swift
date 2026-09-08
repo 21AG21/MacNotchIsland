@@ -179,16 +179,20 @@ final class WindowsMonitor: ObservableObject {
         if windows != merged { windows = merged }
         let live = Set(listed.map(\.id))
         thumbnails = thumbnails.filter { live.contains($0.key) }
+        // An app that has gone takes its icon with it: process ids are reused, and a stale
+        // icon would then belong to somebody else.
+        let pids = Set(listed.map(\.pid))
+        icons = icons.filter { pids.contains($0.key) }
         guard capturing else { return }
         capture(Array(listed.prefix(Self.maxCaptures)).map(\.id))
     }
 
-    /// An app's icon, looked up once. Kept for the life of the app: it is a handful of
-    /// images, and asking again on every pass would make the list look different every time.
+    /// An app's icon, looked up once and kept while that app still has a window: asking again
+    /// on every pass would hand back a different image each time and make the list look
+    /// changed when nothing had.
     private func icon(for pid: pid_t) -> NSImage? {
         if let cached = icons[pid] { return cached }
         guard let icon = NSRunningApplication(processIdentifier: pid)?.icon else { return nil }
-        if icons.count > 64 { icons.removeAll() }
         icons[pid] = icon
         return icon
     }
