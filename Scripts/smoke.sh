@@ -32,6 +32,14 @@ run_case() {  # name, click y, extra env
   screencapture -x "$OUT/$name-1-after-open.png"
   echo "--- click 2: the open panel (should stay open)"; "$OUT/click" mid "$y"; sleep 1.5
   screencapture -x "$OUT/$name-2-after-second-click.png"
+  # Step between sections the way a user does: click two of the switcher's slots beside the
+  # cutout. The panel must move to each one and must not resize or die doing it.
+  if [ "$name" != "floating" ]; then
+    for offset in 122 172; do
+      echo "--- click switcher slot at mid+$offset"; "$OUT/click" "mid+$offset" 17; sleep 1.2
+    done
+    screencapture -x "$OUT/$name-4-after-switcher.png"
+  fi
   echo "--- click 3: far away (should close)"; "$OUT/click" 120 500; sleep 1.5
   screencapture -x "$OUT/$name-3-after-outside-click.png"
   if kill -0 "$pid" 2>/dev/null; then
@@ -46,6 +54,15 @@ run_case() {  # name, click y, extra env
   # The island is fused to the top of the screen: its black must start on the very first row.
   # A seam here is what a user sees as "it sits a couple of pixels too low".
   if [ "$name" != "floating" ]; then
+    # Which sections the panel actually opened, from what the app logged.
+    local sections
+    sections=$(log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact 2>&1 \
+      | grep -o 'home(tab: "[a-z]*")' | sort -u | wc -l | tr -d ' ')
+    echo "--- sections opened: $sections"
+    echo "sections $name: $sections" >> "$SUMMARY"
+    if [ "$sections" -lt 2 ]; then
+      echo "SMOKE FAILED: clicking the switcher did not step between sections"; DIED=1
+    fi
     for shot in 1-after-open 3-after-outside-click; do
       local png="$OUT/$name-$shot.png"
       [ -f "$png" ] || continue
@@ -68,7 +85,7 @@ run_case() {  # name, click y, extra env
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   sleep 1
   # A strip across the top of each screenshot, small enough to read back from the job log.
-  for shot in 1-after-open 2-after-second-click 3-after-outside-click; do
+  for shot in 1-after-open 2-after-second-click 4-after-switcher 3-after-outside-click; do
     local png="$OUT/$name-$shot.png"
     [ -f "$png" ] || continue
     local w off; w=$(sips -g pixelWidth "$png" | awk '/pixelWidth/ {print $2}')

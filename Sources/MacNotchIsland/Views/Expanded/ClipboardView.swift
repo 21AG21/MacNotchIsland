@@ -157,6 +157,14 @@ private struct ClipboardRowView: View {
 
     private func copyBack() {
         store.copy(item: item)
+        // Picking an item means "put this where I was typing". The panel goes first, so the
+        // keyboard is back with that app before the keystroke lands; without the permission
+        // to synthesise one, the item is on the pasteboard and the user pastes it themselves.
+        if Preferences.shared.pasteOnPick, MediaKeyInterceptor.isTrusted {
+            ActivityCenter.shared.collapse(reason: "clipboard item picked")
+            ClipboardStore.pasteIntoFrontmostApp()
+            return
+        }
         let activity = IslandActivity(id: "clipboard-copied",
                                       kind: .custom,
                                       content: .custom(CustomActivity(title: "Copied",

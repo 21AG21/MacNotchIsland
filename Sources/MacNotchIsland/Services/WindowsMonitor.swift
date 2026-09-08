@@ -88,6 +88,8 @@ final class WindowsMonitor: ObservableObject {
     private var timer: Timer?
     private var capturing = false
     private var thumbnails: [CGWindowID: NSImage] = [:]
+    private var energyCancellable: AnyCancellable?
+    private var icons: [pid_t: NSImage] = [:]
 
     /// How often the list and the pictures are refreshed while the section is open. Slow
     /// enough to cost nothing, fast enough that a window you just moved looks right.
@@ -95,6 +97,9 @@ final class WindowsMonitor: ObservableObject {
     /// The most windows shown. Beyond this the strip is a haystack, and every extra picture
     /// is a capture.
     static let maxWindows = 12
+    /// How many of them get a live picture. The rest are app tiles until they come forward,
+    /// which keeps a busy Mac from paying for a dozen captures a beat.
+    static let maxCaptures = 8
     /// Pixel width every thumbnail is captured at; the tile draws it at half that.
     static let thumbnailWidth: CGFloat = 320
     /// Windows smaller than this are palettes, HUDs and tool strips, not windows to switch to.
@@ -114,10 +119,10 @@ final class WindowsMonitor: ObservableObject {
         viewers += 1
         guard viewers == 1 else { return }
         refresh()
-        let t = Timer(timeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in self?.refresh() }
-        t.tolerance = Self.refreshInterval / 4
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
     }
 
     func viewerDisappeared() {
@@ -125,26 +130,60 @@ final class WindowsMonitor: ObservableObject {
         guard viewers == 0 else { return }
         timer?.invalidate()
         timer = nil
+        energyCancellable = nil
+    }
+
+    /// The refresh beat, slowed on battery like every other poller in the app.
+    private func scheduleTimer() {
+        guard viewers > 0 else { return }
+        let interval = Self.refreshInterval * max(1, EnergyPolicy.shared.pollingMultiplier)
+        guard timer == nil || abs(interval - (timer?.timeInterval ?? 0)) > 0.01 else { return }
+        timer?.invalidate()
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.refresh() }
+        t.tolerance = interval / 4
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     // MARK: - Reading
 
     func refresh() {
-        let listed = Self.list()
         let allowed = CGPreflightScreenCaptureAccess()
         if canCapture != allowed { canCapture = allowed }
         let trusted = AXIsProcessTrusted()
         if canMove != trusted { canMove = trusted }
+        // The window server's list is walked off the main thread; what it says is turned into
+        // tiles (and their app icons, which is AppKit's business) back on it.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+            DispatchQueue.main.async { self?.apply(Self.list(now: info), capturing: allowed) }
+        }
+    }
+
+    private func apply(_ listed: [IslandWindow], capturing: Bool) {
+        guard viewers > 0 else { return }
         // Keep the picture taken last time until a fresh one arrives, so a tile never blinks.
         let merged = listed.map { window -> IslandWindow in
             var copy = window
+            copy.icon = icon(for: window.pid)
             copy.thumbnail = thumbnails[window.id]
             return copy
         }
         if windows != merged { windows = merged }
-        thumbnails = thumbnails.filter { id, _ in listed.contains { $0.id == id } }
-        guard allowed else { return }
-        capture(listed.map(\.id))
+        let live = Set(listed.map(\.id))
+        thumbnails = thumbnails.filter { live.contains($0.key) }
+        guard capturing else { return }
+        capture(Array(listed.prefix(Self.maxCaptures)).map(\.id))
+    }
+
+    /// An app's icon, looked up once. Kept for the life of the app: it is a handful of
+    /// images, and asking again on every pass would make the list look different every time.
+    private func icon(for pid: pid_t) -> NSImage? {
+        if let cached = icons[pid] { return cached }
+        guard let icon = NSRunningApplication(processIdentifier: pid)?.icon else { return nil }
+        if icons.count > 64 { icons.removeAll() }
+        icons[pid] = icon
+        return icon
     }
 
     /// Windows worth showing, front to back, as the window server lists them.
@@ -164,8 +203,10 @@ final class WindowsMonitor: ObservableObject {
             let owner = (window[kCGWindowOwnerName as String] as? String) ?? ""
             guard !owner.isEmpty, !ignoredOwners.contains(owner) else { continue }
             let title = (window[kCGWindowName as String] as? String) ?? ""
+            // The icon is filled in by `apply`, from a cache: asking AppKit for it here would
+            // hand back a different NSImage every pass and make every list look changed.
             result.append(IslandWindow(id: id, title: title, appName: owner, pid: pid, frame: frame,
-                                       icon: NSRunningApplication(processIdentifier: pid)?.icon, thumbnail: nil))
+                                       icon: nil, thumbnail: nil))
             if result.count >= maxWindows { break }
         }
         return result
@@ -264,8 +305,11 @@ final class WindowsMonitor: ObservableObject {
         Self.setFrame(element, to: target)
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
         NSRunningApplication(processIdentifier: window.pid)?.activate()
-        // The list is now wrong by exactly the window that moved; show that at once.
+        // The list is now wrong by exactly the window that moved. Ask again straight away and
+        // once more a beat later, by which time the window server has the new frame and the
+        // tile can be redrawn where the window actually went.
         refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
         return true
     }
 

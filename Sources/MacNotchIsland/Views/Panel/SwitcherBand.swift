@@ -7,6 +7,8 @@ struct SwitcherBand: View {
     let geometry: NotchGeometry
     let current: IslandView?
     @EnvironmentObject private var center: ActivityCenter
+    /// The slot the pointer is on, so the band can name it. Nothing else depends on it.
+    @State private var hovered: IslandView?
 
     /// The size a slot likes to be, and the smallest it will accept before slots start being
     /// dropped. Sections can be switched on and off, so the row has to hold anything from two
@@ -38,13 +40,27 @@ struct SwitcherBand: View {
     var body: some View {
         let width = IslandLayout.panelWidth
         let side = (width - middle) / 2 - Self.inset
-        let closeRoom: CGFloat = center.isOpen ? Self.slot + 6 : 0
+        // The close button's room is kept whether or not it is showing: the slots must not
+        // resize and shuffle along the moment a peeked panel is pinned.
+        let closeRoom: CGFloat = Self.slot + 6
         let left = Self.fit(cards, in: side)
         let right = Self.fit(sections, in: side - closeRoom)
         HStack(spacing: 0) {
             HStack(spacing: left.gap) {
                 ForEach(Array(left.views.enumerated()), id: \.offset) { _, view in slotView(view, size: left.slot) }
                 Spacer(minLength: 0)
+                // The left of the band is empty unless something is live, and a row of small
+                // round glyphs says nothing about itself. So the name of whatever the pointer
+                // is on — or of the section showing — sits here, against the cutout.
+                if left.views.isEmpty, let name = label {
+                    Text(name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                        .transition(.opacity)
+                        .id(name)
+                        .accessibilityHidden(true)
+                }
             }
             .frame(width: side, alignment: .leading)
             Color.clear.frame(width: middle)
@@ -58,6 +74,15 @@ struct SwitcherBand: View {
         .padding(.horizontal, Self.inset)
         .frame(width: width, height: geometry.notchHeight + IslandLayout.bandExtra)
         .animation(IslandMotion.quick, value: ring)
+        .animation(IslandMotion.quick, value: label)
+    }
+
+    /// What to call the band's right-hand side right now: the slot under the pointer, else
+    /// the view the panel is showing.
+    private var label: String? {
+        let view = hovered ?? current
+        guard let view else { return nil }
+        return Self.entry(for: view, center: center).title
     }
 
     /// How to lay a row of slots out in the room there is: at the size they like where they
@@ -89,6 +114,9 @@ struct SwitcherBand: View {
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
+        .onHover { inside in
+            if inside { hovered = view } else if hovered == view { hovered = nil }
+        }
         .help(entry.title)
         .accessibilityLabel(entry.title)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)

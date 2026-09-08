@@ -12,6 +12,12 @@ the unreleased section is what the next tag will ship.
   Accessibility; without those permissions the windows are still listed by app, and the
   section says what is missing and opens the right pane of System Settings.
 - Wi-Fi, Bluetooth and light/dark in the control rail, under every section.
+- Picking a clipboard item pastes it where you were typing: the panel closes, the keyboard
+  goes back to the app in front, and ⌘V follows. Switchable off in the Home Panel settings,
+  and it falls back to putting the item on the pasteboard when Accessibility is not granted.
+- The switcher band names what the pointer is on, in the space left of the cutout, so the row
+  of glyphs teaches itself.
+- Stats shows disk usage, and the processor and network draw their recent history.
 - Album art for players that hand over none. A browser or a podcast app leaves the cover
   empty, so the track is looked up by name and the cover comes from there; the cover then
   washes into the black behind Now Playing, the way the phone does it. Switchable off in

@@ -39,6 +39,7 @@ final class Preferences: ObservableObject {
     @Published var hasSeenWelcome: Bool { didSet { d.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
     @Published var clipboardEnabled: Bool { didSet { d.set(clipboardEnabled, forKey: "clipboardEnabled") } }
     @Published var clipboardLimit: Double { didSet { d.set(clipboardLimit, forKey: "clipboardLimit") } }
+    @Published var pasteOnPick: Bool { didSet { d.set(pasteOnPick, forKey: "pasteOnPick") } }
     @Published var shelfExpiryHours: Double { didSet { d.set(shelfExpiryHours, forKey: "shelfExpiryHours") } }
     @Published var lyricsEnabled: Bool { didSet { d.set(lyricsEnabled, forKey: "lyricsEnabled") } }
     @Published var artworkLookupEnabled: Bool { didSet { d.set(artworkLookupEnabled, forKey: "artworkLookupEnabled") } }
@@ -121,6 +122,7 @@ final class Preferences: ObservableObject {
         hasSeenWelcome = bool("hasSeenWelcome", false)
         clipboardEnabled = bool("clipboardEnabled", true)
         clipboardLimit = double("clipboardLimit", 50)
+        pasteOnPick = bool("pasteOnPick", true)
         shelfExpiryHours = double("shelfExpiryHours", 24)
         lyricsEnabled = bool("lyricsEnabled", true)
         artworkLookupEnabled = bool("artworkLookupEnabled", true)

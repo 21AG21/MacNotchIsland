@@ -61,6 +61,8 @@ struct HomePanelPane: View {
                 Stepper(value: $prefs.clipboardLimit, in: 10...200, step: 10) {
                     Text("Items kept: \(Int(prefs.clipboardLimit))")
                 }
+                Toggle("Paste after picking an item", isOn: $prefs.pasteOnPick)
+                    .help("Clicking an item closes the panel and pastes it where you were typing. Needs Accessibility; without it the item is only put on the pasteboard.")
             } header: {
                 Text("Clipboard")
             } footer: {

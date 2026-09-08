@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import CoreLocation
 import EventKit
 import SwiftUI
@@ -15,9 +16,15 @@ struct PrivacyPane: View {
             Section {
                 permission(
                     "Accessibility",
-                    detail: "Needed only to replace the system volume and brightness bezel.",
+                    detail: "Moves windows from the Windows section, and replaces the system volume and brightness bezel.",
                     status: MediaKeyInterceptor.isTrusted ? "Granted" : "Not granted",
                     pane: .accessibility
+                )
+                permission(
+                    "Screen Recording",
+                    detail: "Draws the picture of each window in the Windows section. Nothing is ever recorded or sent.",
+                    status: CGPreflightScreenCaptureAccess() ? "Granted" : "Not granted",
+                    pane: .screenRecording
                 )
                 permission(
                     "Camera",

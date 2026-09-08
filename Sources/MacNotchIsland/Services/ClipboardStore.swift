@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Combine
 import ImageIO
 
@@ -267,6 +268,26 @@ final class ClipboardStore: ObservableObject {
         pruneThumbnails()
         schedulePersist()
     }
+
+    /// Pastes into whatever the user was working in, a moment after the island has handed the
+    /// keyboard back. Needs the Accessibility permission to synthesise the keystroke; without
+    /// it the item is simply on the pasteboard, ready for a ⌘V of the user's own.
+    static func pasteIntoFrontmostApp(after delay: TimeInterval = 0.6) {
+        guard AXIsProcessTrusted() else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let source = CGEventSource(stateID: .combinedSessionState)
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: Self.vKeyCode, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: Self.vKeyCode, keyDown: false) else { return }
+            down.flags = .maskCommand
+            up.flags = .maskCommand
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// kVK_ANSI_V. The paste shortcut is ⌘V on every keyboard layout macOS ships, because the
+    /// menu shortcut is defined by the key's position, not by the letter printed on it.
+    static let vKeyCode: CGKeyCode = 9
 
     /// Puts an entry back on the pasteboard. The resulting change is ignored by the poller.
     func copy(item: ClipboardItem) {
