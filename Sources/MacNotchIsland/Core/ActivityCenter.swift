@@ -340,6 +340,7 @@ final class ActivityCenter: ObservableObject {
         case .hud: return 1
         case .silent: return 2
         case .custom: return activity.id == "capslock" ? 1 : 3
+        case .nowPlaying: return 3
         case .focus, .unlock: return 3
         case .download, .bluetooth: return 4
         case .battery(let b): return (b.event == .low || b.event == .critical) ? 6 : 5

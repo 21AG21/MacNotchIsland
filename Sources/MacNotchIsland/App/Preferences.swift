@@ -48,6 +48,8 @@ final class Preferences: ObservableObject {
     @Published var mirrorEnabled: Bool { didSet { d.set(mirrorEnabled, forKey: "mirrorEnabled") } }
     @Published var statsEnabled: Bool { didSet { d.set(statsEnabled, forKey: "statsEnabled") } }
     @Published var notesEnabled: Bool { didSet { d.set(notesEnabled, forKey: "notesEnabled") } }
+    /// Widen the pill for a moment with the title and artist when a track starts or changes.
+    @Published var sneakPeekEnabled: Bool { didSet { d.set(sneakPeekEnabled, forKey: "sneakPeekEnabled") } }
     @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
     @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
     /// Only widen the compact island into menu bar space that is actually free.
@@ -126,6 +128,7 @@ final class Preferences: ObservableObject {
         mirrorEnabled = bool("mirrorEnabled", true)
         statsEnabled = bool("statsEnabled", true)
         notesEnabled = bool("notesEnabled", true)
+        sneakPeekEnabled = bool("sneakPeekEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)
         gesturesEnabled = bool("gesturesEnabled", true)
         keepClearOfMenuBar = bool("keepClearOfMenuBar", true)

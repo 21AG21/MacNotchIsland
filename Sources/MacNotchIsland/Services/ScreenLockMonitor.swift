@@ -9,7 +9,7 @@ final class ScreenLockMonitor {
         token = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
                 let activity = IslandActivity(id: "unlock", kind: .unlock, content: .unlock, priority: 85)
-                ActivityCenter.shared.showAlert(activity, duration: 1.8)
+                ActivityCenter.shared.showAlert(activity, duration: 1.2)
             }
     }
 

@@ -199,25 +199,26 @@ enum ActivityContent: Equatable {
 
     /// Leading / trailing widths used in the compact (pill) state, in points.
     var compactWidths: (leading: CGFloat, trailing: CGFloat) {
+        // A glyph slot is 34 pt: a 16 pt symbol with even air either side.
         switch self {
-        case .nowPlaying: return (44, 44)
-        case .timer: return (40, 60)
-        case .stopwatch: return (40, 64)
-        case .call: return (40, 60)
-        case .battery: return (48, 56)
-        case .bluetooth(let s): return (44, s.summaryPercent == nil ? 90 : 56)
-        case .focus(let f): return (40, f.isOn ? 40 : 40)
-        case .hud: return (40, 84)
-        case .silent: return (40, 60)
-        case .unlock: return (40, 82)
-        case .calendar: return (40, 64)
-        case .download(let d): return (40, d.progress != nil ? 40 : 70)
+        case .nowPlaying: return (40, 40)
+        case .timer: return (34, 60)
+        case .stopwatch: return (34, 64)
+        case .call: return (34, 60)
+        case .battery: return (40, 56)
+        case .bluetooth(let s): return (34, s.summaryPercent == nil ? 88 : 52)
+        case .focus: return (34, 40)
+        case .hud: return (34, 72)
+        case .silent: return (34, 56)
+        case .unlock: return (34, 0)
+        case .calendar: return (34, 64)
+        case .download(let d): return (34, d.progress != nil ? 40 : 70)
         case .custom(let c):
-            if c.progress != nil && c.showsRing { return (40, 40) }
+            if c.progress != nil && c.showsRing { return (34, 40) }
             let text = c.trailingText ?? ""
             let w = min(120, max(44, CGFloat(text.count) * 8 + 20))
-            return (40, w)
-        case .shelf(let s): return (40, s.count > 9 ? 48 : 40)
+            return (34, w)
+        case .shelf(let s): return (34, s.count > 9 ? 48 : 40)
         }
     }
 

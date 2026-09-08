@@ -8,9 +8,12 @@ struct CompactContentView: View {
     let geometry: NotchGeometry
     @EnvironmentObject private var center: ActivityCenter
 
+    /// The live activity a key-press HUD is drawn over, whose glyph keeps the leading slot.
+    private var under: IslandActivity? { IslandLayout.activityUnder(activity, center: center) }
+
     var body: some View {
         HStack(spacing: 0) {
-            CompactLeadingView(activity: activity, height: layout.bodyHeight)
+            CompactLeadingView(activity: under ?? activity, height: layout.bodyHeight)
                 .frame(width: layout.leadingWidth, height: layout.bodyHeight)
             Color.clear.frame(width: geometry.notchWidth, height: layout.bodyHeight)
             HStack(spacing: 0) {
@@ -33,7 +36,8 @@ struct CompactLeadingView: View {
     let activity: IslandActivity
     let height: CGFloat
 
-    private var iconSize: CGFloat { max(12, height * 0.44) }
+    /// One size for every leading glyph: a 16 pt symbol in a 34 pt slot.
+    private var iconSize: CGFloat { max(12, height * 0.48) }
 
     var body: some View {
         ZStack {
@@ -85,12 +89,12 @@ struct CompactLeadingView: View {
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.white)
                     .symbolEffect(.bounce, value: true)
-            case .calendar(let c):
+            case .calendar:
                 Image(systemName: "calendar")
                     .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(Color.named(c.tint))
+                    .foregroundStyle(.white)
             case .download(let d):
-                Image(systemName: d.isComplete ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                Image(systemName: d.isComplete ? "checkmark" : "arrow.down")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(d.isComplete ? Color.named("green") : Color.named("blue"))
                     .contentTransition(.symbolEffect(.replace))
@@ -121,14 +125,25 @@ struct CompactTrailingView: View {
     /// Words ("Connected", "On", "Unlocked", "in 5m") sit in the system face like every other
     /// label in the island; only numerals get the rounded face and tabular digits, the way
     /// the iPhone sets its countdowns and percentages.
-    private var wordFont: Font { .system(size: 13, weight: .semibold) }
+    private var wordFont: Font { .system(size: 12.5, weight: .semibold) }
     private var numeralFont: Font { .system(size: max(11, height * 0.4), weight: .semibold, design: .rounded).monospacedDigit() }
 
     var body: some View {
         ZStack {
             switch activity.content {
+            case .nowPlaying(let info) where activity.id == NowPlayingService.peekAlertID && !minimal:
+                // The sneak peek: what just started, for a moment, where the bars go.
+                VStack(alignment: .leading, spacing: 0) {
+                    MarqueeText(text: info.title, font: .system(size: 12, weight: .semibold), color: .white)
+                        .frame(height: 15)
+                    MarqueeText(text: info.artist.isEmpty ? info.appName : info.artist,
+                                font: .system(size: 11, weight: .regular), color: .white.opacity(0.55))
+                        .frame(height: 13)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             case .nowPlaying(let info):
-                VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent), barCount: minimal ? 3 : 4)
+                VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent.blended(withFraction: 0.3, of: .white) ?? info.accent),
+                               barCount: minimal ? 3 : 4, barWidth: 2.5, maxHeight: 12, minHeight: 3)
                     .islandMatched(IslandMatchedID.nowPlayingVisualizer)
             case .timer(let t):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -138,7 +153,7 @@ struct CompactTrailingView: View {
                     } else {
                         Text(t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
                             .font(numeralFont)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: true))
                             .lineLimit(1)
                     }
@@ -148,7 +163,7 @@ struct CompactTrailingView: View {
                 TimelineView(.periodic(from: .now, by: s.isRunning ? 1 : 3600)) { ctx in
                     Text(s.elapsed(at: ctx.date).mmss)
                         .font(numeralFont)
-                        .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+                        .foregroundStyle(s.isRunning ? .white : .white.opacity(0.55))
                         .contentTransition(.numericText(countsDown: false))
                         .lineLimit(1)
                 }
@@ -157,15 +172,16 @@ struct CompactTrailingView: View {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     Text(ctx.date.timeIntervalSince(c.startedAt).mmss)
                         .font(numeralFont)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.white)
                         .contentTransition(.numericText(countsDown: false))
                         .lineLimit(1)
                 }
                 .islandMatched(IslandMatchedID.callTime)
             case .battery(let b):
+                // The value stays white; only a real warning may be red.
                 Text("\(b.percent)%")
                     .font(numeralFont)
-                    .foregroundStyle(b.tint)
+                    .foregroundStyle(b.event == .low || b.event == .critical ? Color.named("red") : .white)
             case .bluetooth(let d):
                 if let p = d.summaryPercent {
                     Text("\(p)%").font(numeralFont).foregroundStyle(.white)
@@ -176,20 +192,20 @@ struct CompactTrailingView: View {
                 Text(f.isOn ? "On" : "Off").font(wordFont).foregroundStyle(.white)
             case .hud(let h):
                 LevelBar(level: h.isMuted ? 0 : h.level, tint: .white)
-                    .frame(width: minimal ? 28 : 62, height: 6)
+                    .frame(width: minimal ? 28 : 52, height: 4)
             case .silent(let s):
                 Text(s.isSilent ? "Silent" : "Ring")
                     .font(wordFont)
-                    .foregroundStyle(s.isSilent ? Color.named("red") : .white)
+                    .foregroundStyle(.white)
             case .unlock:
-                Text("Unlocked").font(wordFont).foregroundStyle(.white)
+                EmptyView()
             case .calendar(let c):
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
                     Text(c.relativeStart(at: ctx.date)).font(wordFont).foregroundStyle(.white)
                 }
             case .download(let d):
                 if d.isComplete {
-                    Text("Done").font(wordFont).foregroundStyle(Color.named("green"))
+                    Text("Done").font(wordFont).foregroundStyle(.white)
                 } else if let p = d.progress {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named("blue"))
                         .frame(width: height * 0.5, height: height * 0.5)
@@ -202,7 +218,7 @@ struct CompactTrailingView: View {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named(c.tint))
                         .frame(width: height * 0.5, height: height * 0.5)
                 } else if let text = c.trailingText {
-                    Text(text).font(wordFont).foregroundStyle(Color.named(c.tint)).lineLimit(1)
+                    Text(text).font(wordFont).foregroundStyle(.white).lineLimit(1)
                 } else {
                     Image(systemName: "ellipsis").font(wordFont).foregroundStyle(.white.opacity(0.6))
                 }

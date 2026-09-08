@@ -88,10 +88,10 @@ final class BatteryMonitor {
             if now.percent <= 10 && !warnedCritical {
                 warnedCritical = true
                 warnedLow = true
-                show(BatteryState(percent: now.percent, isCharging: false, isPluggedIn: false, event: .critical), duration: 5, expanded: true)
+                show(BatteryState(percent: now.percent, isCharging: false, isPluggedIn: false, event: .critical), duration: 4)
             } else if now.percent <= 20 && !warnedLow {
                 warnedLow = true
-                show(BatteryState(percent: now.percent, isCharging: false, isPluggedIn: false, event: .low), duration: 4, expanded: true)
+                show(BatteryState(percent: now.percent, isCharging: false, isPluggedIn: false, event: .low), duration: 3)
             }
         } else if now.percent >= 100 && !announcedFull && previous.percent < 100 {
             announcedFull = true

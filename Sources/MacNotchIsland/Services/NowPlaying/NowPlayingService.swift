@@ -143,8 +143,27 @@ final class NowPlayingService: ObservableObject {
         } else if pausedSince == nil {
             pausedSince = now
         }
+        let previous = info
         if info != reconciled { info = reconciled }
         publish()
+        if Self.isNewTrack(reconciled, after: previous) { peek(reconciled) }
+    }
+
+    /// The alert id of the sneak peek: the compact pill widened for a moment with the title
+    /// and artist of a track that just started.
+    static let peekAlertID = "nowplaying-peek"
+
+    /// A track worth announcing: playing, and not the one that was playing a moment ago.
+    static func isNewTrack(_ new: NowPlayingInfo, after previous: NowPlayingInfo?) -> Bool {
+        guard new.isPlaying, !new.title.isEmpty else { return false }
+        guard let previous else { return true }
+        return !sameTrack(new, previous)
+    }
+
+    private func peek(_ track: NowPlayingInfo) {
+        guard Preferences.shared.sneakPeekEnabled, !ActivityCenter.shared.isPanelShowing else { return }
+        let alert = IslandActivity(id: Self.peekAlertID, kind: .nowPlaying, content: .nowPlaying(track), priority: 60)
+        ActivityCenter.shared.showAlert(alert, duration: 2.4, haptic: false)
     }
 
     /// A report as the island can use it. Players hand out infinite durations for live

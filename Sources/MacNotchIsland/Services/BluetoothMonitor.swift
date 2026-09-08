@@ -34,11 +34,11 @@ final class BluetoothMonitor: NSObject {
         }
 
         var state = BluetoothState(name: name, address: address, symbol: symbol)
+        // A compact pill, the way the iPhone announces AirPods: the glyph and the level. The
+        // full card with every battery is one click away.
         let show: (BluetoothState) -> Void = { state in
-            let hasBattery = state.summaryPercent != nil || state.batteryCase != nil
-            let activity = IslandActivity(id: "bluetooth", kind: .bluetooth, content: .bluetooth(state), priority: 85,
-                                          presentation: hasBattery ? .expanded : .compact)
-            ActivityCenter.shared.showAlert(activity, duration: hasBattery ? 4 : nil)
+            let activity = IslandActivity(id: "bluetooth", kind: .bluetooth, content: .bluetooth(state), priority: 85)
+            ActivityCenter.shared.showAlert(activity, duration: 2.2)
         }
 
         // Battery levels appear in the IORegistry shortly after connection.

@@ -96,6 +96,17 @@ struct IslandLayout: Equatable {
     /// A system card is narrower: one thing, one or two rows.
     static let cardWidth: CGFloat = 440
 
+    /// The trailing slot while a track's title and artist are peeking.
+    static let sneakPeekTrailingWidth: CGFloat = 150
+
+    /// The live activity a transient alert is drawn over, when the alert is feedback (a
+    /// volume or brightness HUD, mute) rather than news: its leading glyph stays on the pill.
+    static func activityUnder(_ alert: IslandActivity, center: ActivityCenter) -> IslandActivity? {
+        guard center.alert?.id == alert.id, ActivityCenter.alertRank(alert) <= 2,
+              let primary = center.primary, primary.id != alert.id else { return nil }
+        return primary
+    }
+
     /// The resting pill on a notchless screen: a handle, not a slab.
     static let floatingIdleWidth: CGFloat = 72
     static let floatingIdleHeight: CGFloat = 22
@@ -157,8 +168,17 @@ struct IslandLayout: Equatable {
                                 floating: floating, topInset: inset)
 
         case .compact(let a, let bubble):
-            let full = a.content.compactWidths
-            let minimal = a.content.compactMinimalWidths
+            var full = a.content.compactWidths
+            var minimal = a.content.compactMinimalWidths
+            if a.id == NowPlayingService.peekAlertID {
+                // The sneak peek: the title and artist where the bars usually are.
+                full.trailing = sneakPeekTrailingWidth
+                minimal.trailing = 28
+            } else if let under = Self.activityUnder(a, center: center) {
+                // A key-press HUD over a live activity keeps that activity's glyph on the left.
+                full.leading = under.content.compactWidths.leading
+                minimal.leading = under.content.compactMinimalWidths.leading
+            }
             let leading = MenuBarClearance.fitted(full.leading, minimal: minimal.leading, free: room.leading)
             // The privacy dots come first on the right; the content gets what is left.
             let content = MenuBarClearance.fitted(full.trailing, minimal: minimal.trailing,
