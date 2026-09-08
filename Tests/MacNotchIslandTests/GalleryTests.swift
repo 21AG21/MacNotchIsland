@@ -92,7 +92,7 @@ final class GalleryTests: XCTestCase {
         if let png = rep.representation(using: .png, properties: [:]) {
             try png.write(to: folder.appendingPathComponent(name + ".png"))
         }
-        if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
+        if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) {
             try jpeg.write(to: folder.appendingPathComponent(name + ".jpg"))
         }
     }
@@ -280,7 +280,7 @@ final class GalleryTests: XCTestCase {
                 ShelfStore.shared.add(files)
                 c.open(.home(tab: "music"))
             },
-            Scene(name: "panel-volume-line") { c in
+            Scene(name: "panel-banner-volume") { c in
                 c.upsert(nowPlaying())
                 c.open(.home(tab: "music"))
                 c.showAlert(hud(.volume, 0.6), duration: 60)

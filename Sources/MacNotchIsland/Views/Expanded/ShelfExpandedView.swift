@@ -47,6 +47,17 @@ struct ShelfStripView: View {
         }
     }
 
+    /// The AppKit view the share picker hangs off; ImageRenderer cannot draw one, so the
+    /// gallery goes without.
+    @ViewBuilder
+    private var anchorView: some View {
+        if RenderMode.isGallery {
+            Color.clear
+        } else {
+            ShelfAnchorView(anchor: shareAnchor).allowsHitTesting(false)
+        }
+    }
+
     // MARK: - Header
 
     private var headerTitle: String {
@@ -99,7 +110,7 @@ struct ShelfStripView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 96)
-        .background(ShelfAnchorView(anchor: shareAnchor).allowsHitTesting(false))
+        .background(anchorView)
         .animation(IslandMotion.quick, value: isDropTarget)
     }
 

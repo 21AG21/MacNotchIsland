@@ -1,27 +1,8 @@
 import SwiftUI
 
-/// An alert that arrives while the panel is showing. A key-press HUD (volume, brightness) is
-/// a thin level line along the panel's top edge, gone a moment after the last change; any
-/// other alert takes the control rail's row as a banner the user can click, and the panel's
-/// content stays exactly where it is.
-struct HUDLine: View {
-    let hud: LevelHUD
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Rectangle().fill(Color.white.opacity(0.12))
-                Rectangle().fill(Color.white.opacity(0.9))
-                    .frame(width: geo.size.width * (hud.isMuted ? 0 : min(1, max(0, hud.level))))
-            }
-        }
-        .frame(height: 3)
-        .animation(IslandMotion.quick, value: hud.level)
-        .accessibilityLabel(hud.title)
-        .accessibilityValue("\(Int((hud.level * 100).rounded())) percent")
-    }
-}
-
+/// An alert that arrives while the panel is showing takes the control rail's row for a
+/// moment: the glyph, a title, the value the pill would show. The panel's content stays
+/// exactly where it is, and a click opens the alert's card.
 struct AlertBanner: View {
     let activity: IslandActivity
     @EnvironmentObject private var center: ActivityCenter
@@ -61,12 +42,15 @@ struct AlertBanner: View {
         case .timer(let t): return t.isFinished ? "\(t.label) done" : t.label
         case .unlock: return "Unlocked"
         case .silent(let s): return s.isSilent ? "Silent" : "Sound on"
+        case .hud(let h): return h.isMuted ? "Muted" : h.title
         default: return IslandAccessibility.compactLabel(for: activity.content)
         }
     }
 
     private func act() {
-        if activity.content.hasExpandedView {
+        if case .hud = activity.content {
+            center.dismissAlert()
+        } else if activity.content.hasExpandedView {
             center.open(ActivityCenter.view(for: activity))
         } else if let action = activity.openAction {
             action.perform()

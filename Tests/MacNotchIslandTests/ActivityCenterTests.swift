@@ -264,29 +264,30 @@ final class ActivityCenterTests: XCTestCase {
         center.showAlert(airpods, duration: 5)
         center.tap()
         XCTAssertTrue(center.isOpen)
-        // A finished download waits for the panel; a critical battery warning does not.
+        // A finished download is a banner in the rail; the panel stays exactly where it is.
         let download = DownloadState(name: "movie.mkv", bytes: 100, total: 100, app: "Safari", isComplete: true)
         center.showAlert(IslandActivity(id: "dl", kind: .download, content: .download(download), priority: 85), duration: 5)
+        XCTAssertEqual(center.overlayAlert?.id, "dl", "a routine alert shows as a banner over the open panel")
         XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "a routine alert must not take the panel away")
         XCTAssertTrue(center.isOpen)
 
         let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .critical)
         center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 0.15)
-        XCTAssertEqual(center.overlayAlert?.id, "battery", "a battery warning shows at once, as a banner")
+        XCTAssertEqual(center.overlayAlert?.id, "battery", "a battery warning outranks the download and shows at once")
         XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "the open panel stays under the banner")
         XCTAssertTrue(center.isOpen)
 
         let exp = expectation(description: "battery alert expired")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
         wait(for: [exp], timeout: 2)
-        XCTAssertNil(center.overlayAlert)
+        XCTAssertEqual(center.overlayAlert?.id, "dl", "the download the warning replaced comes back once it expires")
         XCTAssertEqual(center.presentation, .panel(.activity(id: "bt")), "still open once the warning expires")
 
         center.collapse(reason: "test")
         XCTAssertFalse(center.isOpen)
         XCTAssertNil(center.activity(id: "bt"), "closing a held alert ends it")
-        guard case .compact(let waited, _) = center.presentation else { return XCTFail("the alert that waited shows once the panel closes") }
-        XCTAssertEqual(waited.id, "dl")
+        guard case .compact(let shown, _) = center.presentation else { return XCTFail("the banner's alert is on the pill once the panel closes") }
+        XCTAssertEqual(shown.id, "dl")
         center.dismissAlert()
         XCTAssertEqual(center.presentation, .idle)
     }

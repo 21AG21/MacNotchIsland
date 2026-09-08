@@ -36,7 +36,7 @@ struct PanelView: View {
                 .accessibilityHidden(true)
 
             ZStack {
-                if let alert = center.overlayAlert, !Self.isLevelHUD(alert) {
+                if let alert = center.overlayAlert {
                     AlertBanner(activity: alert)
                         .transition(.asymmetric(insertion: .offset(y: 8).combined(with: .opacity), removal: .opacity))
                 } else {
@@ -53,11 +53,6 @@ struct PanelView: View {
         .onChange(of: view) { _, _ in showingMirror = false }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Self.title(for: view, center: center))
-    }
-
-    static func isLevelHUD(_ activity: IslandActivity) -> Bool {
-        if case .hud = activity.content { return true }
-        return false
     }
 
     static func title(for view: IslandView, center: ActivityCenter) -> String {

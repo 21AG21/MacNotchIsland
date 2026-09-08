@@ -21,18 +21,8 @@ struct IslandBodyView: View {
                 .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
                 .clipped()
                 .padding(.horizontal, layout.floating ? 0 : layout.topRadius)
-
-            // A volume or brightness key pressed while the panel is showing: a level line
-            // along the panel's top edge, nothing else moves.
-            if presentation.panelView != nil, let strip = center.overlayAlert, case .hud(let hud) = strip.content {
-                HUDLine(hud: hud)
-                    .frame(width: layout.bodyWidth)
-                    .padding(.horizontal, layout.floating ? 0 : layout.topRadius)
-                    .transition(.opacity)
-            }
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
-        .animation(IslandMotion.quick, value: center.overlayAlert?.id)
         .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom))
         // Press-in feedback while the whole island is the button (compact and idle); the
         // expanded panels have controls of their own that give their own feedback.

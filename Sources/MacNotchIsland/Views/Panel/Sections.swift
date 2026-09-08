@@ -124,26 +124,15 @@ struct NotesSectionView: View {
 struct StatsSectionView: View {
     var body: some View {
         VStack(spacing: 0) {
-            StatsView()
-                .frame(height: 104)
-            HStack {
-                Spacer()
-                Button(action: {
+            SectionHeader("Stats") {
+                PillButton(title: "Activity Monitor", symbol: "arrow.up.forward", tint: .white.opacity(0.85)) {
                     let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
                     NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
-                }) {
-                    HStack(spacing: 4) {
-                        Text("Open Activity Monitor")
-                        Image(systemName: "arrow.up.forward")
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(IslandButtonStyle())
             }
-            .frame(height: 24)
-            Spacer(minLength: 0)
+            StatsView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 10)
         }
     }
 }

@@ -10,10 +10,19 @@ struct MusicSectionView: View {
     @ObservedObject private var outputs = AudioOutputs.shared
     @ObservedObject private var lyrics = LyricsService.shared
     @EnvironmentObject private var prefs: Preferences
+    @EnvironmentObject private var center: ActivityCenter
+
+    /// What the service reports, or what the island's Now Playing activity carries when the
+    /// service has nothing yet (a report still in flight, a rendered gallery).
+    private var info: NowPlayingInfo? {
+        if let info = service.info { return info }
+        if case .nowPlaying(let info)? = center.activity(id: "nowplaying")?.content { return info }
+        return nil
+    }
 
     var body: some View {
         Group {
-            if let info = service.info {
+            if let info {
                 player(info)
             } else {
                 SectionEmptyState(symbol: "play.circle", title: "Nothing playing") {

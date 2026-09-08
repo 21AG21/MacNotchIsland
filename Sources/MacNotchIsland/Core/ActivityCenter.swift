@@ -348,14 +348,6 @@ final class ActivityCenter: ObservableObject {
         }
     }
 
-    /// Alerts that wait for an open panel to close rather than interrupt it: everything between
-    /// a key-press HUD (feedback the user just asked for) and a battery warning (which cannot
-    /// wait). A finished download must not yank away the panel someone is using.
-    static func waitsWhileOpen(_ activity: IslandActivity) -> Bool {
-        let rank = alertRank(activity)
-        return rank >= 3 && rank < 6 && activity.priority < urgentPriority
-    }
-
     /// How long a queued alert stays worth showing: a HUD goes stale in a moment, a finished
     /// download keeps for a while, a battery warning longer still.
     static func patience(for activity: IslandActivity) -> TimeInterval {
@@ -368,9 +360,8 @@ final class ActivityCenter: ObservableObject {
 
     func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
         let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
-        if outranked || (isPanelShowing && Self.waitsWhileOpen(activity)) {
-            // Behind the more important alert (a volume tick must not hide a low-battery
-            // warning), or until the user closes what they opened.
+        if outranked {
+            // Behind the more important alert: a volume tick must not hide a low-battery warning.
             enqueue(activity, duration: duration)
             return
         }
@@ -382,6 +373,13 @@ final class ActivityCenter: ObservableObject {
            self.activity(id: previous.id) == nil {
             IslandLog.island.notice("closing: alert \(previous.id, privacy: .public) replaced")
             openView = nil
+        }
+        // A louder alert replacing a quieter one keeps the quieter one for afterwards, so a
+        // battery warning never makes a finished download vanish unseen. Key-press HUDs are
+        // stale by then and are not kept.
+        if let previous = alert, previous.id != activity.id,
+           Self.alertRank(previous) >= 3, Self.alertRank(previous) < Self.alertRank(activity) {
+            enqueue(previous, duration: nil)
         }
         alert = activity
         if haptic { Haptics.tap() }
@@ -397,8 +395,9 @@ final class ActivityCenter: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.alert?.id == id else { return }
             // Keep a real alert up while the pointer is on it, like holding a finger on the island;
-            // very short confirmations ("Copied") expire regardless, since a click leaves the pointer there.
-            if (self.isHovering || self.isDragTargeted) && seconds > 1.5 {
+            // very short confirmations ("Copied") expire regardless, since a click leaves the pointer
+            // there, and so does a banner over the panel, whose rail the pointer is there to use.
+            if (self.isHovering || self.isDragTargeted) && seconds > 1.5 && !self.isPanelShowing {
                 self.scheduleAlertDismiss(id: id, after: 1.0)
             } else {
                 self.alert = nil
@@ -419,9 +418,8 @@ final class ActivityCenter: ObservableObject {
         let now = Date()
         pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
         pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
-        // Whatever is waiting for the panel to close keeps waiting while it is open.
-        guard let i = pendingAlerts.firstIndex(where: { !(isPanelShowing && Self.waitsWhileOpen($0.activity)) }) else { return }
-        let next = pendingAlerts.remove(at: i)
+        guard !pendingAlerts.isEmpty else { return }
+        let next = pendingAlerts.removeFirst()
         showAlert(next.activity, duration: next.duration, haptic: false)
     }
 

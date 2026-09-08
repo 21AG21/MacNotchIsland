@@ -12,8 +12,10 @@ the unreleased section is what the next tag will ship.
   expanded view with it) between tracks. What the user opens now stays until a click
   elsewhere, Escape or the shortcut.
 - A click on an open panel no longer closes it; only its controls react, as in a popover.
-- Routine alerts (a finished download, a paired device) wait until the panel is closed
-  instead of yanking it away; key-press HUDs and battery warnings still show at once.
+- An alert that arrives while the panel is open (a finished download, a paired device, a
+  volume key, a battery warning) is a banner in the panel's control rail for a moment
+  instead of yanking the panel away. A louder alert replacing a quieter one hands back to
+  it when it expires, so nothing is missed.
 - Clicking a volume or brightness HUD no longer opens a card.
 - Launching the app while an older copy is still running quits the old copy, instead of
   drawing two islands on the same notch.

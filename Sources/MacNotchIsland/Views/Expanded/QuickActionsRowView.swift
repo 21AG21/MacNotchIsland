@@ -9,12 +9,29 @@ struct QuickActionsRowView: View {
     var body: some View {
         Group {
             if runner.favorites.isEmpty {
-                SectionEmptyState(symbol: "bolt", title: "No quick actions yet") {
+                // One row, like the timer presets under it: a glyph, a line, the way in.
+                HStack(spacing: 12) {
+                    Image(systemName: "bolt")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.3))
+                        .frame(width: 40, height: 40)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("No quick actions yet")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text("Your Shortcuts, one click away.")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    Spacer(minLength: 8)
                     PillButton(title: "Choose Shortcuts…") {
                         NSApp.activate(ignoringOtherApps: true)
                         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain)
             } else {
                 HStack(alignment: .top, spacing: 6) {
                     ForEach(runner.favorites.prefix(8), id: \.self) { name in
