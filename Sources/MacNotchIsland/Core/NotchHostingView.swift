@@ -35,19 +35,28 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         super.scrollWheel(with: event)
     }
 
-    /// This view is kept centred on the notch by its panel, so `bounds.midX` is the notch.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let provider = hitExtentsProvider else { return super.hitTest(point) }
+    /// The island's footprint in this view's own coordinates, or nil when no extents are
+    /// known. This view is kept centred on the notch by its panel, so `bounds.midX` is the notch.
+    func islandRect() -> CGRect? {
+        guard let provider = hitExtentsProvider else { return nil }
         let e = provider()
-        let local = convert(point, from: superview)
         let width = e.leading + e.trailing
-        let rect: CGRect
         if isFlipped {
-            rect = CGRect(x: bounds.midX - e.leading, y: 0, width: width, height: e.height)
-        } else {
-            rect = CGRect(x: bounds.midX - e.leading, y: bounds.maxY - e.height, width: width, height: e.height)
+            return CGRect(x: bounds.midX - e.leading, y: 0, width: width, height: e.height)
         }
-        guard rect.contains(local) else { return nil }
+        return CGRect(x: bounds.midX - e.leading, y: bounds.maxY - e.height, width: width, height: e.height)
+    }
+
+    /// Whether a point in window coordinates lies on the island. Pure geometry: nothing here
+    /// asks SwiftUI anything, so it is safe to call from any callback at any moment.
+    func islandContains(windowPoint: NSPoint) -> Bool {
+        guard let rect = islandRect() else { return bounds.contains(convert(windowPoint, from: nil)) }
+        return rect.contains(convert(windowPoint, from: nil))
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let rect = islandRect() else { return super.hitTest(point) }
+        guard rect.contains(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
     }
 }

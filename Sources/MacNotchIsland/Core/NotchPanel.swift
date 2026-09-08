@@ -105,10 +105,11 @@ final class NotchPanel: NSPanel {
     }
 
     /// Whether a point in screen coordinates lies on this panel's island (not merely inside
-    /// the window, whose slack around the island is click-through).
+    /// the window, whose slack around the island is click-through). Geometry only; it never
+    /// runs a view hit test, so it costs nothing and touches no view state.
     func islandContains(screenPoint: NSPoint) -> Bool {
         guard frame.contains(screenPoint), let hosting else { return false }
-        return hosting.hitTest(convertPoint(fromScreen: screenPoint)) != nil
+        return hosting.islandContains(windowPoint: convertPoint(fromScreen: screenPoint))
     }
 
     /// The resting frame for a screen before any state exists: the bare notch plus slack.
@@ -157,12 +158,31 @@ final class NotchPanel: NSPanel {
     /// narrower side; the overhang lies outside the window and is neither drawn nor clickable,
     /// which is what lets the window be asymmetric while SwiftUI keeps centring on the notch.
     private func place(_ rect: NSRect) {
-        setFrame(rect, display: true)
+        // A rect that lost touch with the screen (a display going away mid-change) must never
+        // reach AppKit: an infinite or NaN frame is an exception, not a warning.
+        guard !rect.isNull, rect.width.isFinite, rect.height.isFinite, rect.minX.isFinite, rect.minY.isFinite,
+              rect.width >= 1, rect.height >= 1 else {
+            IslandLog.panel.error("panel \(self.panelID, privacy: .public) refused frame \(NSStringFromRect(rect), privacy: .public)")
+            return
+        }
+        IslandLog.panel.notice("panel \(self.panelID, privacy: .public) placing \(NSStringFromRect(rect), privacy: .public) from \(NSStringFromRect(self.frame), privacy: .public)")
+        // The window is drawn on the next turn of the run loop like any other change; asking
+        // for a synchronous display here would lay the SwiftUI tree out from inside whatever
+        // called us, in the middle of its own update.
+        setFrame(rect, display: false)
         guard let hosting else { return }
         let notchX = screenFrame.midX - rect.minX
         let half = max(notchX, rect.width - notchX)
-        hosting.frame = NSRect(x: (notchX - half).rounded(), y: 0, width: (half * 2).rounded(), height: rect.height)
-        IslandLog.panel.notice("panel \(self.panelID, privacy: .public) frame \(NSStringFromRect(rect), privacy: .public) hosting \(NSStringFromRect(hosting.frame), privacy: .public)")
+        let hostingFrame = NSRect(x: (notchX - half).rounded(), y: 0, width: (half * 2).rounded(), height: rect.height)
+        if hosting.frame != hostingFrame { hosting.frame = hostingFrame }
+        IslandLog.panel.notice("panel \(self.panelID, privacy: .public) frame \(NSStringFromRect(self.frame), privacy: .public) hosting \(NSStringFromRect(hosting.frame), privacy: .public)")
+    }
+
+    /// Frames that differ by less than a point are the same frame: AppKit may round what it
+    /// is given, and a settle that keeps re-placing an equal rect would lay the view out on
+    /// every beat for nothing.
+    private static func same(_ a: NSRect, _ b: NSRect) -> Bool {
+        abs(a.minX - b.minX) < 1 && abs(a.minY - b.minY) < 1 && abs(a.width - b.width) < 1 && abs(a.height - b.height) < 1
     }
 
     /// Several published changes land in one runloop turn; one refit covers them all, after the
@@ -206,7 +226,7 @@ final class NotchPanel: NSPanel {
                 return
             }
             let rest = self.restFrame()
-            if self.frame != rest { self.place(rest) }
+            if !Self.same(self.frame, rest) { self.place(rest) }
         }
         settleWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay, execute: work)
