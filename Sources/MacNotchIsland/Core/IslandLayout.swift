@@ -28,17 +28,19 @@ enum IslandPresentation: Equatable {
     }
 
     /// Stable identity used to drive content transitions.
+    ///
+    /// Every panel view shares one identity on purpose. The panel is one thing — the switcher
+    /// in the band, a section, the rail — and stepping to the next section changes only the
+    /// section. Giving each view its own identity here would tear the whole panel down and
+    /// build it again on every step: the switcher and the rail would fade out and back in for
+    /// a change that never touched them, and the rail's audio listeners would be dropped and
+    /// rebuilt each time. The section makes its own, smaller transition inside `PanelView`.
     var contentID: String {
         switch self {
         case .idle: return "idle"
         case .compact(let a, _): return "compact-\(a.id)"
         case .card(let a): return "card-\(a.id)"
-        case .panel(let view):
-            switch view {
-            case .activity(let id): return "panel-activity-\(id)"
-            case .home(let tab): return "panel-home-\(tab)"
-            }
-        case .shelf: return "shelf"
+        case .panel, .shelf: return "panel"
         }
     }
 }
@@ -71,7 +73,9 @@ struct IslandLayout: Equatable {
     static let expandedBottomRadius: CGFloat = 36
 
     /// The panel: one width for every view, so stepping between them never resizes the island.
-    static let panelWidth: CGFloat = 680
+    /// Wide enough for every section's switcher slot to sit beside the cutout at a size the
+    /// pointer can hit, and for four window tiles to stand side by side.
+    static let panelWidth: CGFloat = 720
     /// The top band straddles the notch by this much; the switcher lives in it.
     static let bandExtra: CGFloat = 2.5
     static let sectionHeight: CGFloat = 140

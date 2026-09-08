@@ -102,6 +102,31 @@ struct MusicSectionView: View {
             .frame(height: 30)
             .padding(.top, 4)
         }
+        .background(alignment: .top) { backdrop(info) }
+    }
+
+    /// The cover, blurred out into the black behind the section — the wash of colour the phone
+    /// puts behind what is playing. It fades away to the right so nothing sits behind the
+    /// title, and it is only ever as strong as a hint: the island is black first.
+    @ViewBuilder
+    private func backdrop(_ info: NowPlayingInfo) -> some View {
+        if let artwork = info.artwork {
+            Image(nsImage: artwork)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.sectionHeight)
+                .blur(radius: 40)
+                .opacity(0.32)
+                .mask {
+                    LinearGradient(colors: [.black, .black.opacity(0.35), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                }
+                .offset(y: -6)
+                .id(info.artworkID)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     private var lyricLine: String? {

@@ -3,12 +3,13 @@ import Foundation
 /// The sections of the Home panel, in the order the switcher shows them. The one list the
 /// switcher, the keyboard ring, the swipes, the URL scheme and the panel itself all read.
 enum HomeSection: String, CaseIterable {
-    case music, today, shelf, clipboard, actions, notes, stats
+    case music, today, windows, shelf, clipboard, actions, notes, stats
 
     var title: String {
         switch self {
         case .music: return "Now Playing"
         case .today: return "Today"
+        case .windows: return "Windows"
         case .shelf: return "Shelf"
         case .clipboard: return "Clipboard"
         case .actions: return "Actions"
@@ -21,6 +22,7 @@ enum HomeSection: String, CaseIterable {
         switch self {
         case .music: return "music.note"
         case .today: return "calendar"
+        case .windows: return "macwindow.on.rectangle"
         case .shelf: return "tray.full"
         case .clipboard: return "doc.on.clipboard"
         case .actions: return "bolt"
@@ -35,6 +37,7 @@ enum HomeSection: String, CaseIterable {
         switch self {
         case .music: return true
         case .today: return prefs.calendarEnabled
+        case .windows: return prefs.windowsEnabled
         case .shelf: return prefs.shelfEnabled
         case .clipboard: return prefs.clipboardEnabled
         case .actions: return prefs.quickActionsEnabled

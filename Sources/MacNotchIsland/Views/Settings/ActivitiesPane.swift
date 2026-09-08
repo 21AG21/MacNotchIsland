@@ -24,6 +24,8 @@ struct ActivitiesPane: View {
                 .disabled(!prefs.nowPlayingEnabled)
                 Toggle("Lyrics", isOn: $prefs.lyricsEnabled)
                     .help("Time-synced lyrics under Now Playing, from LRCLIB.")
+                Toggle("Find missing album art", isOn: $prefs.artworkLookupEnabled)
+                    .help("When a player hands over no cover — a browser, a podcast app — the track is looked up by name in Apple's public search and the cover comes from there. Only the title, artist and album are sent, and only when there is no cover already.")
                     .disabled(!prefs.nowPlayingEnabled)
                 Toggle("Audio-reactive visualizer", isOn: $prefs.reactiveVisualizerEnabled)
                     .help("The bars follow the sound instead of a fixed pattern.")

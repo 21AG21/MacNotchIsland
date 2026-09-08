@@ -41,12 +41,14 @@ final class Preferences: ObservableObject {
     @Published var clipboardLimit: Double { didSet { d.set(clipboardLimit, forKey: "clipboardLimit") } }
     @Published var shelfExpiryHours: Double { didSet { d.set(shelfExpiryHours, forKey: "shelfExpiryHours") } }
     @Published var lyricsEnabled: Bool { didSet { d.set(lyricsEnabled, forKey: "lyricsEnabled") } }
+    @Published var artworkLookupEnabled: Bool { didSet { d.set(artworkLookupEnabled, forKey: "artworkLookupEnabled") } }
     @Published var hudReplacementEnabled: Bool { didSet { d.set(hudReplacementEnabled, forKey: "hudReplacementEnabled") } }
     @Published var capsLockEnabled: Bool { didSet { d.set(capsLockEnabled, forKey: "capsLockEnabled") } }
     @Published var quickActionsEnabled: Bool { didSet { d.set(quickActionsEnabled, forKey: "quickActionsEnabled") } }
     @Published var pauseAnimationsOnBattery: Bool { didSet { d.set(pauseAnimationsOnBattery, forKey: "pauseAnimationsOnBattery") } }
     @Published var mirrorEnabled: Bool { didSet { d.set(mirrorEnabled, forKey: "mirrorEnabled") } }
     @Published var statsEnabled: Bool { didSet { d.set(statsEnabled, forKey: "statsEnabled") } }
+    @Published var windowsEnabled: Bool { didSet { d.set(windowsEnabled, forKey: "windowsEnabled") } }
     @Published var notesEnabled: Bool { didSet { d.set(notesEnabled, forKey: "notesEnabled") } }
     /// Widen the pill for a moment with the title and artist when a track starts or changes.
     @Published var sneakPeekEnabled: Bool { didSet { d.set(sneakPeekEnabled, forKey: "sneakPeekEnabled") } }
@@ -121,12 +123,14 @@ final class Preferences: ObservableObject {
         clipboardLimit = double("clipboardLimit", 50)
         shelfExpiryHours = double("shelfExpiryHours", 24)
         lyricsEnabled = bool("lyricsEnabled", true)
+        artworkLookupEnabled = bool("artworkLookupEnabled", true)
         hudReplacementEnabled = bool("hudReplacementEnabled", false)
         capsLockEnabled = bool("capsLockEnabled", true)
         quickActionsEnabled = bool("quickActionsEnabled", true)
         pauseAnimationsOnBattery = bool("pauseAnimationsOnBattery", false)
         mirrorEnabled = bool("mirrorEnabled", true)
         statsEnabled = bool("statsEnabled", true)
+        windowsEnabled = bool("windowsEnabled", true)
         notesEnabled = bool("notesEnabled", true)
         sneakPeekEnabled = bool("sneakPeekEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)

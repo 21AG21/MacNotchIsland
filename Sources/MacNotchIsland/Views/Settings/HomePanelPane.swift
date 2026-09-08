@@ -4,6 +4,7 @@ import SwiftUI
 /// under them.
 struct HomePanelPane: View {
     @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var windows = WindowsMonitor.shared
     @AppStorage("settingsSection") private var selectedSection = SettingsSection.general.rawValue
 
     /// The choices offered for shelf expiry, in hours.
@@ -17,6 +18,8 @@ struct HomePanelPane: View {
                 Toggle("Weather in Today", isOn: $prefs.weatherEnabled)
                     .help("The conditions outside, in the Today header. Asks for your location when first opened. Data from Open-Meteo.")
                     .disabled(!prefs.calendarEnabled)
+                Toggle("Windows", isOn: $prefs.windowsEnabled)
+                    .help("Every open window as a live tile: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows.")
                 Toggle("Shelf", isOn: $prefs.shelfEnabled)
                     .help("Drag files onto the island to keep them within reach.")
                 Toggle("Clipboard", isOn: $prefs.clipboardEnabled)
@@ -64,6 +67,28 @@ struct HomePanelPane: View {
                 Text("Items marked as concealed by password managers are never recorded.")
             }
             .disabled(!prefs.clipboardEnabled)
+
+            Section {
+                LabeledContent("Pictures of windows") {
+                    HStack(spacing: 8) {
+                        Text(windows.canCapture ? "Allowed" : "Not allowed")
+                            .foregroundStyle(.secondary)
+                        Button("Screen Recording…") { SystemSettingsPane.screenRecording.open() }
+                    }
+                }
+                LabeledContent("Moving windows") {
+                    HStack(spacing: 8) {
+                        Text(windows.canMove ? "Allowed" : "Not allowed")
+                            .foregroundStyle(.secondary)
+                        Button("Accessibility…") { SystemSettingsPane.accessibility.open() }
+                    }
+                }
+            } header: {
+                Text("Windows")
+            } footer: {
+                Text("Without Screen Recording the windows are still listed, by app, with no picture and no title.")
+            }
+            .disabled(!prefs.windowsEnabled)
 
             Section {
                 Toggle("Camera mirror", isOn: $prefs.mirrorEnabled)

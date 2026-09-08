@@ -68,6 +68,10 @@ final class ActivityCenter: ObservableObject {
     /// Alerts the user clicked open. They live on as activities until closed, so their own
     /// timers cannot pull the panel away.
     private var heldAlertIDs: Set<String> = []
+    /// True while a slider or the scrubber is being dragged, see `setControlDragging`.
+    private(set) var controlDragging = false
+    /// A hover exit that arrived mid-drag and is waiting for the button to come up.
+    private var deferredHoverExit: String?
     private var hoverWork: DispatchWorkItem?
     private var homeWork: DispatchWorkItem?
     private var forcedWork: DispatchWorkItem?
@@ -97,6 +101,8 @@ final class ActivityCenter: ObservableObject {
         hoverPanel = nil
         dragPanel = nil
         pressedPanel = nil
+        controlDragging = false
+        deferredHoverExit = nil
         openView = nil
         peekView = nil
         forcedExpandedID = nil
@@ -163,6 +169,8 @@ final class ActivityCenter: ObservableObject {
         hoverPanel = nil
         dragPanel = nil
         pressedPanel = nil
+        controlDragging = false
+        deferredHoverExit = nil
         if openView != nil { IslandLog.island.notice("closing: island hidden") }
         openView = nil
     }
@@ -443,17 +451,40 @@ final class ActivityCenter: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if hovering {
+                deferredHoverExit = nil
                 guard self.hoverPanel != panel else { return }
                 if self.peekView == nil { self.peekView = self.defaultPeek() }
                 self.hoverPanel = panel
             } else {
                 guard self.hoverPanel == panel else { return }
+                // A slider or the scrubber being dragged keeps the panel: the pointer is
+                // allowed to run past the end of the track, the way it may on a menu bar
+                // slider. The exit is applied the moment the button comes up.
+                guard !self.controlDragging else {
+                    self.deferredHoverExit = panel
+                    return
+                }
                 self.hoverPanel = nil
                 if self.openView == nil { self.peekView = nil }
             }
         }
         hoverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// A control inside the panel is being dragged. Nothing about the pointer leaving the
+    /// island may close it until the drag is over.
+    func setControlDragging(_ active: Bool, panel: String = "main") {
+        guard controlDragging != active else { return }
+        controlDragging = active
+        lastInteraction = Date()
+        guard !active, let deferred = deferredHoverExit else { return }
+        deferredHoverExit = nil
+        // Straight away, not after another grace period: the pointer left a while ago.
+        hoverWork?.cancel()
+        guard hoverPanel == deferred else { return }
+        hoverPanel = nil
+        if openView == nil { peekView = nil }
     }
 
     static let hoverExitGrace: TimeInterval = 0.4

@@ -146,7 +146,22 @@ final class NowPlayingService: ObservableObject {
         let previous = info
         if info != reconciled { info = reconciled }
         publish()
+        lookUpArtworkIfMissing(for: reconciled)
         if Self.isNewTrack(reconciled, after: previous) { peek(reconciled) }
+    }
+
+    /// Fills in a cover the player did not give us, see `ArtworkFetcher`. A track that already
+    /// has artwork, or a player the user asked not to look up, is left alone.
+    private func lookUpArtworkIfMissing(for track: NowPlayingInfo) {
+        guard Preferences.shared.artworkLookupEnabled, track.artwork == nil, !track.title.isEmpty else { return }
+        ArtworkFetcher.shared.artwork(for: track) { [weak self] image in
+            guard let self, var current = self.info, Self.sameTrack(current, track), current.artwork == nil else { return }
+            current.artwork = image
+            current.artworkID = ArtworkFetcher.Key(track).hashValue
+            current.accent = image.dominantColor()
+            self.info = current
+            self.publish()
+        }
     }
 
     /// The alert id of the sneak peek: the compact pill widened for a moment with the title

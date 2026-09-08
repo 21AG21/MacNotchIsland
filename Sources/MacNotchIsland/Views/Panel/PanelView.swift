@@ -75,6 +75,7 @@ struct PanelView: View {
             switch HomeSection(rawValue: tab) ?? .music {
             case .music: MusicSectionView(geometry: geometry)
             case .today: TodaySectionView()
+            case .windows: WindowsSectionView()
             case .shelf: ShelfSectionView(isDropTarget: isDropTarget)
             case .clipboard: ClipboardSectionView()
             case .actions: ActionsSectionView()

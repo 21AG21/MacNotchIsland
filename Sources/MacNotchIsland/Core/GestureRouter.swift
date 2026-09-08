@@ -215,7 +215,7 @@ final class GestureRouter {
     // MARK: - Context
 
     /// Sections whose content scrolls by itself, and so keep their vertical scroll events.
-    static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .today]
+    static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .today, .windows]
 
     private func currentContext(panel: String) -> Context {
         let center = ActivityCenter.shared

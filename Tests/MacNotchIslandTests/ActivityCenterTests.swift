@@ -19,6 +19,7 @@ final class ActivityCenterTests: XCTestCase {
         p.statsEnabled = true
         p.notesEnabled = true
         p.calendarEnabled = true
+        p.windowsEnabled = true
     }
 
     private func custom(_ id: String, priority: Int = 70, title: String = "X", kind: ActivityKind = .custom) -> IslandActivity {

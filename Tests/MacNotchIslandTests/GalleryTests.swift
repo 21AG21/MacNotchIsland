@@ -40,6 +40,7 @@ final class GalleryTests: XCTestCase {
         prefs.nowPlayingEnabled = true
         prefs.notesEnabled = true
         prefs.calendarEnabled = true
+        prefs.windowsEnabled = true
         prefs.hoverToExpand = true
         prefs.hoverDelay = 0.05
         RenderMode.isGallery = true
@@ -76,7 +77,7 @@ final class GalleryTests: XCTestCase {
                 .environmentObject(Preferences.shared)
                 .environment(\.colorScheme, .dark)
         }
-        .frame(width: 760, height: height)
+        .frame(width: 880, height: height)
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
         return renderer.cgImage
@@ -261,6 +262,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-music", setup: panel("music") { c in c.upsert(nowPlaying()) }),
             Scene(name: "panel-music-empty", setup: panel("music")),
             Scene(name: "panel-today", setup: panel("today")),
+            Scene(name: "panel-windows", setup: panel("windows")),
             Scene(name: "panel-shelf", setup: panel("shelf") { _ in ShelfStore.shared.add(files) }),
             Scene(name: "panel-shelf-empty", setup: panel("shelf")),
             Scene(name: "panel-clipboard", setup: panel("clipboard")),

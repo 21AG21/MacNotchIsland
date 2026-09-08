@@ -90,9 +90,11 @@ final class MenuBarClearance: ObservableObject {
             let band = Self.menuBarBand(screenFrame: frame, primaryHeight: primaryHeight, notchHeight: geometry.notchHeight)
             let trailing = Self.statusItemClearance(windows: windows, menuBar: band, notchMaxX: notch.maxX)
             let leading = Self.menuClearance(app: app, notchMinX: notch.minX)
-            let next = Limits(leading: leading, trailing: trailing)
+            let measured = Limits(leading: leading, trailing: trailing)
             DispatchQueue.main.async {
-                guard let self, self.timer != nil, ticket == self.generation, self.limits != next else { return }
+                guard let self, self.timer != nil, ticket == self.generation else { return }
+                let next = Self.settled(measured, from: self.limits)
+                guard self.limits != next else { return }
                 self.limits = next
             }
         }
@@ -103,6 +105,25 @@ final class MenuBarClearance: ObservableObject {
     static func menuBarBand(screenFrame: CGRect, primaryHeight: CGFloat, notchHeight: CGFloat) -> CGRect {
         CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: notchHeight)
     }
+
+    /// A measurement worth acting on.
+    ///
+    /// Menu bars twitch: a title's frame comes back a point or two different depending on when
+    /// it is read, and a status item that redraws itself moves the edge by a hair. The island
+    /// is anchored to the notch and people notice it moving, so a new measurement is only
+    /// taken up when it is far enough from the last one to change what actually fits.
+    static func settled(_ new: Limits, from old: Limits) -> Limits {
+        Limits(leading: settled(new.leading, from: old.leading),
+               trailing: settled(new.trailing, from: old.trailing))
+    }
+
+    private static func settled(_ new: CGFloat?, from old: CGFloat?) -> CGFloat? {
+        guard let new, let old else { return new }
+        return abs(new - old) < noise ? old : new
+    }
+
+    /// How far a measurement must move before the island does.
+    static let noise: CGFloat = 8
 
     // MARK: - Pure measurements
 

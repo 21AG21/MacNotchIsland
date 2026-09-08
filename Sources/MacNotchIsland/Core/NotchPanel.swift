@@ -35,6 +35,9 @@ final class NotchPanel: NSPanel {
     private var cancellables = Set<AnyCancellable>()
     private var refitScheduled = false
     private var settleWork: DispatchWorkItem?
+    /// Notification observers that keep the island on top, see `assertOnTop`.
+    private var orderObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+    private var orderWork: DispatchWorkItem?
 
     init(screen: NSScreen, geometry: NotchGeometry) {
         self.geometry = geometry
@@ -49,7 +52,7 @@ final class NotchPanel: NSPanel {
                    defer: false)
 
         isFloatingPanel = true
-        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        level = Self.islandLevel
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear
@@ -104,7 +107,54 @@ final class NotchPanel: NSPanel {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.scheduleRefit() }
             .store(in: &cancellables)
+        watchForReordering()
         refit()
+    }
+
+    deinit {
+        orderObservers.forEach { $0.center.removeObserver($0.token) }
+    }
+
+    /// Above the menu bar, above other floating panels, above anything an ordinary app can
+    /// raise a window to. The island is part of the machine, not a window in the pile.
+    static let islandLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+
+    /// The island belongs to the screen, not to whatever app is in front: moving windows
+    /// about, switching apps or changing Space must never leave it behind another window.
+    /// Nothing here activates this app or takes focus — the panel only reclaims its own place
+    /// in the order it is already meant to be at the top of.
+    private func watchForReordering() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name: NSNotification.Name in [NSWorkspace.didActivateApplicationNotification,
+                                          NSWorkspace.activeSpaceDidChangeNotification,
+                                          NSWorkspace.didLaunchApplicationNotification,
+                                          NSWorkspace.didUnhideApplicationNotification] {
+            let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.scheduleAssertOnTop()
+            }
+            orderObservers.append((workspace, token))
+        }
+        let token = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                           object: nil, queue: .main) { [weak self] _ in
+            self?.scheduleAssertOnTop()
+        }
+        orderObservers.append((.default, token))
+    }
+
+    /// A run of notifications (activating an app raises several) costs one assertion.
+    private func scheduleAssertOnTop() {
+        orderWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.assertOnTop() }
+        orderWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.orderAssertDelay, execute: work)
+    }
+
+    static let orderAssertDelay: TimeInterval = 0.12
+
+    private func assertOnTop() {
+        guard isVisible, !isKeyWindow else { return }
+        if level != Self.islandLevel { level = Self.islandLevel }
+        orderFrontRegardless()
     }
 
     /// The island takes key-window status only while a section that is typed into (Notes, the

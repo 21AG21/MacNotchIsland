@@ -97,6 +97,7 @@ enum SystemSettingsPane: String {
     case location = "Privacy_LocationServices"
     case calendars = "Privacy_Calendars"
     case automation = "Privacy_Automation"
+    case screenRecording = "Privacy_ScreenCapture"
 
     var url: URL? {
         URL(string: "x-apple.systempreferences:com.apple.preference.security?" + rawValue)

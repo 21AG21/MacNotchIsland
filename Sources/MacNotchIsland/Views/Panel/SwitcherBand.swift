@@ -8,11 +8,16 @@ struct SwitcherBand: View {
     let current: IslandView?
     @EnvironmentObject private var center: ActivityCenter
 
+    /// The size a slot likes to be, and the smallest it will accept before slots start being
+    /// dropped. Sections can be switched on and off, so the row has to hold anything from two
+    /// to every one of them without changing the panel's width.
     static let slot: CGFloat = 26
+    static let minSlot: CGFloat = 21
     static let gap: CGFloat = 4
-    static let inset: CGFloat = 24
+    static let minGap: CGFloat = 2
+    static let inset: CGFloat = 16
     /// Room kept clear either side of the physical cutout.
-    static let cutoutMargin: CGFloat = 12
+    static let cutoutMargin: CGFloat = 10
 
     private var ring: [IslandView] { center.ring }
 
@@ -33,16 +38,18 @@ struct SwitcherBand: View {
     var body: some View {
         let width = IslandLayout.panelWidth
         let side = (width - middle) / 2 - Self.inset
+        let closeRoom: CGFloat = center.isOpen ? Self.slot + 6 : 0
+        let left = Self.fit(cards, in: side)
+        let right = Self.fit(sections, in: side - closeRoom)
         HStack(spacing: 0) {
-            HStack(spacing: Self.gap) {
-                ForEach(Array(fitting(cards, in: side).enumerated()), id: \.offset) { _, view in slotView(view) }
+            HStack(spacing: left.gap) {
+                ForEach(Array(left.views.enumerated()), id: \.offset) { _, view in slotView(view, size: left.slot) }
                 Spacer(minLength: 0)
             }
             .frame(width: side, alignment: .leading)
             Color.clear.frame(width: middle)
-            HStack(spacing: Self.gap) {
-                let closeRoom: CGFloat = center.isOpen ? Self.slot + 6 : 0
-                ForEach(Array(fitting(sections, in: side - closeRoom).enumerated()), id: \.offset) { _, view in slotView(view) }
+            HStack(spacing: right.gap) {
+                ForEach(Array(right.views.enumerated()), id: \.offset) { _, view in slotView(view, size: right.slot) }
                 Spacer(minLength: 0)
                 if center.isOpen { closeButton }
             }
@@ -53,23 +60,32 @@ struct SwitcherBand: View {
         .animation(IslandMotion.quick, value: ring)
     }
 
-    /// As many slots as the side has room for.
-    private func fitting(_ views: [IslandView], in room: CGFloat) -> [IslandView] {
-        let count = max(0, Int((room + Self.gap) / (Self.slot + Self.gap)))
-        return Array(views.prefix(count))
+    /// How to lay a row of slots out in the room there is: at the size they like where they
+    /// all fit, tighter where they do not, and only then fewer of them. Every section the user
+    /// switched on should be one click away, so the row gives up its spacing before it gives
+    /// up a slot.
+    static func fit(_ views: [IslandView], in room: CGFloat) -> (views: [IslandView], slot: CGFloat, gap: CGFloat) {
+        guard !views.isEmpty, room > 0 else { return ([], slot, gap) }
+        let count = CGFloat(views.count)
+        if count * slot + (count - 1) * gap <= room { return (views, slot, gap) }
+        let tight = (room - (count - 1) * minGap) / count
+        if tight >= minSlot { return (views, min(slot, tight.rounded(.down)), minGap) }
+        // Even at the smallest size they do not all fit: drop the ones at the end.
+        let fits = max(0, Int((room + minGap) / (minSlot + minGap)))
+        return (Array(views.prefix(fits)), minSlot, minGap)
     }
 
-    private func slotView(_ view: IslandView) -> some View {
+    private func slotView(_ view: IslandView, size: CGFloat) -> some View {
         let entry = Self.entry(for: view, center: center)
         let selected = current == view
         return Button(action: { center.select(view, direction: direction(to: view)) }) {
             ZStack {
                 Circle().fill(Color.white.opacity(selected ? 0.14 : 0))
                 Image(systemName: entry.symbol)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: size * 0.54, weight: .semibold))
                     .foregroundStyle(selected ? Color.white : entry.tint.opacity(0.55))
             }
-            .frame(width: Self.slot, height: Self.slot)
+            .frame(width: size, height: size)
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
