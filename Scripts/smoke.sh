@@ -11,6 +11,7 @@ OUT=build/smoke
 mkdir -p "$OUT"
 
 swiftc -O -o "$OUT/click" Scripts/click.swift || exit 1
+swiftc -O -o "$OUT/topgap" Scripts/topgap.swift || exit 1
 defaults write "$ID" hasSeenWelcome -bool true
 defaults write "$ID" hapticsEnabled -bool false
 defaults write "$ID" updateChecksEnabled -bool false
@@ -36,6 +37,17 @@ run_case() {  # name, click y, extra env
   log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact 2>&1 | tail -n 120
   echo "--- errors and faults from the process"
   log show --start "$start" --predicate "process == \"MacNotchIsland\" AND (messageType == error OR messageType == fault)" --style compact 2>&1 | tail -n 40
+  # The island is fused to the top of the screen: its black must start on the very first row.
+  # A seam here is what a user sees as "it sits a couple of pixels too low".
+  if [ "$name" != "floating" ]; then
+    for shot in 1-after-open 3-after-outside-click; do
+      local png="$OUT/$name-$shot.png"
+      [ -f "$png" ] || continue
+      local gap; gap=$("$OUT/topgap" "$png")
+      echo "--- topgap $name-$shot: $gap px"
+      if [ "$gap" -gt 4 ]; then echo "SMOKE FAILED: the island sits ${gap}px below the top of the screen"; DIED=1; fi
+    done
+  fi
   echo "--- app stderr"; tail -n 20 "$OUT/$name-app.log"
   echo "--- crash reports"
   for f in $(ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i notch | head -1); do
@@ -67,4 +79,4 @@ run_case notch 16 "NOTCH_SIMULATE=1"
 # the Now Playing card. Simulated notch and a made-up track, so the runner needs no player.
 run_case nowplaying 16 "NOTCH_SIMULATE=1 NOTCH_FAKE_TRACK=1"
 echo "--- done"
-if [ "$DIED" -ne 0 ]; then echo "SMOKE FAILED: the app died in at least one case"; exit 1; fi
+if [ "$DIED" -ne 0 ]; then echo "SMOKE FAILED: see the failures above"; exit 1; fi

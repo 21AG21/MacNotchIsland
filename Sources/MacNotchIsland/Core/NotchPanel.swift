@@ -86,6 +86,9 @@ final class NotchPanel: NSPanel {
         // reaches the window through the content view), so it lives inside a plain view that
         // has no intrinsic size, and keeps the frame it is given.
         view.sizingOptions = []
+        // The island is *meant* to sit under the notch and over the menu bar; a safe area
+        // would inset it away from the very edge it has to be fused to.
+        view.safeAreaRegions = []
         view.translatesAutoresizingMaskIntoConstraints = true
         view.autoresizingMask = []
         view.frame = NSRect(origin: .zero, size: frame.size)
@@ -109,6 +112,10 @@ final class NotchPanel: NSPanel {
     /// working in. Clicks land regardless, thanks to acceptsFirstMouse on the hosting view.
     override var canBecomeKey: Bool { ActivityCenter.shared.wantsKeyboard }
     override var canBecomeMain: Bool { false }
+
+    /// AppKit keeps ordinary windows clear of the menu bar by pushing them down. This one has
+    /// to sit on the screen's top edge, so it keeps the frame it asks for.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
     /// Follows what the panel needs: key status while a section that is typed into is open,
     /// handed straight back when that section goes.
