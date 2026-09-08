@@ -12,8 +12,23 @@ struct IslandBodyView: View {
     @State private var dropTargeted = false
     @Namespace private var islandNamespace
 
+    /// How far the fused island carries its black past its own top edge. Up there is the
+    /// bezel around the camera, black already, so the overdraw cannot be seen — and it means
+    /// no rounding or compositing seam can leave a light hairline between the island and the
+    /// top of the screen. Anything above the window's edge is simply clipped away.
+    static let topBleed: CGFloat = 4
+
     var body: some View {
         ZStack(alignment: .top) {
+            // A floating island has a real top edge to show, so it gets no bleed.
+            if !layout.floating {
+                Rectangle()
+                    .fill(Color.black)
+                    .frame(width: layout.frameWidth, height: Self.topBleed)
+                    .offset(y: -Self.topBleed)
+                    .accessibilityHidden(true)
+            }
+
             NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom)
                 .fill(Color.black)
 
