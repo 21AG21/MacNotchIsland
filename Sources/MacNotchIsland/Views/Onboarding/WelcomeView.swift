@@ -7,6 +7,7 @@ import SwiftUI
 struct WelcomeView: View {
     @EnvironmentObject private var prefs: Preferences
     var dismiss: () -> Void
+    @State private var page = 0
 
     private var shortcut: String {
         HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
@@ -18,6 +19,24 @@ struct WelcomeView: View {
     }
 
     var body: some View {
+        ZStack {
+            if page == 0 {
+                welcome.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
+            } else {
+                picker.transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 28)
+        .padding(.bottom, 28)
+        .frame(width: 500, height: 600)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipped()
+    }
+
+    // MARK: - Page one: what it is
+
+    private var welcome: some View {
         VStack(spacing: 0) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
@@ -35,14 +54,14 @@ struct WelcomeView: View {
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 18) {
-                row("cursorarrow.click.2", "Click to open",
-                    "The island shows what is playing, counting down or downloading. Click it for the full view; click anywhere else to close it.")
+                row("cursorarrow.motionlines", "Rest the pointer on it",
+                    "The island shows what is playing, counting down or downloading. Hover to peek at the full view; click to keep it open.")
+                row("rectangle.split.3x1", "One panel for everything",
+                    "Music, today's agenda, the shelf, clipboard, notes and stats, with volume and brightness under them. Step between them beside the notch or with a swipe.")
                 row("tray.and.arrow.down", "Drop files on the shelf",
-                    "Drag anything onto the island and it waits there, with a count, until you drag it out again.")
+                    "Drag anything onto the island and it waits there until you drag it out again, or AirDrop it from the rail.")
                 row("keyboard", "Press \(shortcut)",
-                    "Opens the island from anywhere. \(tabShortcut) steps through every view; Escape closes.")
-                row("menubar.rectangle", "Find it in the menu bar",
-                    "Settings, timers and the stopwatch are a click away in the menu bar.")
+                    "Opens the panel from anywhere. \(tabShortcut) steps through every section; Escape closes.")
             }
             .frame(maxWidth: 400, alignment: .leading)
             .padding(.top, 32)
@@ -50,7 +69,7 @@ struct WelcomeView: View {
             Spacer(minLength: 24)
 
             VStack(spacing: 12) {
-                Button(action: dismiss) {
+                Button(action: { withAnimation(.easeInOut(duration: 0.3)) { page = 1 } }) {
                     Text("Continue")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(maxWidth: .infinity)
@@ -67,18 +86,61 @@ struct WelcomeView: View {
                 }
                 .buttonStyle(.link)
                 .font(.system(size: 12))
+            }
+        }
+    }
+
+    // MARK: - Page two: what it shows
+
+    private var picker: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 44, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.accentColor)
+                .frame(height: 80)
+                .accessibilityHidden(true)
+                .padding(.top, 8)
+
+            Text("Choose What It Shows")
+                .font(.system(size: 26, weight: .bold))
+                .padding(.top, 14)
+            Text("Now Playing is always there. Everything else is up to you, and can change later in Settings.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 14) {
+                choice("calendar", "Today", "Your next events and reminders. Asks for calendar access.", $prefs.calendarEnabled)
+                choice("tray.full", "Shelf", "Files you drop on the island; downloads and screenshots land there too.", $prefs.shelfEnabled)
+                choice("doc.on.clipboard", "Clipboard", "Recent copies, pinned ones first.", $prefs.clipboardEnabled)
+                choice("note.text", "Notes", "A scratchpad that keeps whatever you type.", $prefs.notesEnabled)
+                choice("gauge.with.dots.needle.bottom.50percent", "Stats", "Processor, memory, network and battery health.", $prefs.statsEnabled)
+                choice("speaker.wave.2", "Replace the volume and brightness bezel", "The island becomes the only heads-up display. Asks for Accessibility access.", $prefs.hudReplacementEnabled)
+            }
+            .frame(maxWidth: 420, alignment: .leading)
+            .padding(.top, 28)
+
+            Spacer(minLength: 20)
+
+            VStack(spacing: 12) {
+                Button(action: dismiss) {
+                    Text("Done")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .frame(width: 300)
 
                 Toggle("Open at login", isOn: $prefs.launchAtLogin)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
-                    .padding(.top, 4)
             }
         }
-        .padding(.horizontal, 40)
-        .padding(.top, 28)
-        .padding(.bottom, 28)
-        .frame(width: 500, height: 600)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func row(_ symbol: String, _ title: String, _ detail: String) -> some View {
@@ -98,6 +160,29 @@ struct WelcomeView: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func choice(_ symbol: String, _ title: String, _ detail: String, _ isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.primary)
+                    .frame(width: 32, alignment: .center)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 13, weight: .semibold))
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+            }
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
     }
 }
 

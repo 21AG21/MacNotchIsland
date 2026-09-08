@@ -18,11 +18,15 @@ Services/*  ──►  ActivityCenter  ──►  IslandLayout  ──►  Islan
   urgent, then the most recently started kind, ambient things like the shelf last), plus a
   queue of *transient alerts* (a volume tick, "AirPods connected", a low-battery warning)
   ranked by `alertRank` so a louder alert never hides a quieter one that matters more. The
-  user's *open view* (`IslandView`: an activity's expanded view or a Home tab, set by a click
-  or by the keyboard ring and cleared by a click elsewhere, Escape or the shortcut), press and
-  drag state per panel, forced expansion, and the pause / full-screen / hidden-app suppression
-  flags all live here. `presentation(for:)` reduces all of that to one of: idle, compact
-  (optionally with a detached bubble), expanded, home, shelf.
+  user's *pinned view* (`openView`, an `IslandView`: an activity or a section of the panel,
+  set by a click, the switcher or the keyboard ring and cleared by a click elsewhere, Escape
+  or the shortcut), the *peek* (`peekView`, the same while the pointer merely rests on the
+  island), press and drag state per panel, forced expansion, and the pause / full-screen /
+  hidden-app suppression flags all live here. `presentation(for:)` reduces all of that to
+  one of: idle, compact (optionally with a detached bubble), a system card, the panel on a
+  view, shelf. `ring` is the one ordered list of activity cards and available sections that
+  the switcher, Tab, the swipes and the URL scheme all step through; `Core/HomeSection.swift`
+  is the list of sections and which of them the user has switched on.
 - **`Core/NotchPanel.swift`** — the transparent, non-activating panel over the notch. Its
   frame follows the island's footprint (`refit`): it grows the instant something opens, with
   room for the spring to overshoot, and shrinks back after the closing animation, so at rest
@@ -67,13 +71,17 @@ Spotify as a last resort.
 
 ## Views
 
-`Views/IslandRootView.swift` picks the compact, expanded, home or shelf body;
-`Views/IslandBodyView.swift` draws the shape and applies the shared transition. Compact
-leading / trailing content lives in `CompactContentView`, the expanded panels under
-`Views/Expanded/`, shared pieces (artwork, progress ring, scrubber, marquee, visualizer
-bars, privacy dots) under `Views/Components/`. The island keeps iOS's semantic colours
-because that is what it clones; windows (Settings, Welcome) follow native macOS
-conventions in a monochrome palette.
+`Views/IslandBodyView.swift` picks the idle, compact, card, panel or shelf body, draws the
+shape and applies the shared transition. Compact leading / trailing content lives in
+`CompactContentView`. The panel is under `Views/Panel/`: `PanelView` stacks the
+`SwitcherBand` (activities left of the cutout, sections right of it, a close button when
+pinned), one section (`MusicSectionView`, `TodaySectionView`, the rest in `Sections.swift`)
+or one activity's card content, and the `ControlRail`; `AlertBanner` and `HUDLine` draw a
+transient alert over an open panel. The system cards and the section bodies they share live
+under `Views/Expanded/`; shared pieces (artwork, progress ring, scrubber, slider, marquee,
+visualizer bars, privacy dots) under `Views/Components/`. The island keeps the iPhone's
+palette (white values, coloured glyphs, artwork-tinted bars); windows (Settings, Welcome)
+follow native macOS conventions in a monochrome palette.
 
 ## Integration points
 

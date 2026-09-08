@@ -9,19 +9,19 @@ struct IslandPane: View {
         Form {
             Section {
                 LabeledContent("Toggle island", value: HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode, carbonModifiers: HotKeyService.currentModifiers))
-                LabeledContent("Next view", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
-                LabeledContent("Previous view", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
+                LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
+                LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
                 LabeledContent("Close", value: "Escape")
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("Change the shortcut under Shortcuts. Clicking the island opens it as well; a click anywhere else, or Escape, closes it. What you open stays open across desktops.")
+                Text("Change the shortcut under Shortcuts. Tab steps through the live activities and every section in the order the switcher shows them. What you open stays open across desktops.")
             }
 
             Section {
                 Toggle("Open when the pointer rests on the island", isOn: $prefs.hoverToExpand)
-                    .help("The card of what is playing or running opens under the pointer and closes when it leaves. A click keeps it open.")
-                Toggle("Open Home when the empty island is hovered", isOn: $prefs.expandOnIdleHover)
+                    .help("The panel opens under the pointer, on what is playing or running, and closes when it leaves. A click keeps it open.")
+                Toggle("Open the panel when the empty island is hovered", isOn: $prefs.expandOnIdleHover)
                 if prefs.hoverToExpand || prefs.expandOnIdleHover {
                     SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
                 }
@@ -42,7 +42,7 @@ struct IslandPane: View {
             } header: {
                 Text("Alerts and gestures")
             } footer: {
-                Text("Swipe sideways on the island to skip tracks or switch Home panel tabs; scroll up or down for volume.")
+                Text("Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for volume.")
             }
 
             Section {
@@ -54,7 +54,7 @@ struct IslandPane: View {
             } header: {
                 Text("Keyboard shortcut")
             } footer: {
-                Text("The shortcut opens the island, or the Home panel when nothing is live. Press it again to close.")
+                Text("The shortcut opens the panel on what is playing, or on Now Playing when nothing is. Press it again to close.")
             }
         }
         .formStyle(.grouped)

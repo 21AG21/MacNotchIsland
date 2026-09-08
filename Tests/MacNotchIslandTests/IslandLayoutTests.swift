@@ -119,16 +119,19 @@ final class IslandLayoutTests: XCTestCase {
 
     func testCompactKeepsTheNotchGapOnTheNotch() {
         // The volume HUD has the widest trailing slot; without the shift its bar would sit
-        // 22 pt inside the cutout.
+        // well inside the cutout.
         let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
         let layout = IslandLayout.make(presentation: .compact(hud, bubble: nil), geometry: geometry, clearance: .unlimited)
+        let widths = hud.content.compactWidths
+        let shift = (widths.trailing - widths.leading) / 2
         XCTAssertEqual(layout.bodyShift, (layout.trailingWidth - layout.leadingWidth) / 2)
-        XCTAssertEqual(layout.bodyShift, 22)
+        XCTAssertEqual(layout.bodyShift, shift)
+        XCTAssertGreaterThanOrEqual(shift, 16, "the bar's slot is far wider than the glyph's")
         // Gap centre measured from the body's left edge equals the body's centre, shifted back.
         let notchCentreInBody = layout.leadingWidth + 200 / 2
         XCTAssertEqual(notchCentreInBody, layout.bodyWidth / 2 - layout.bodyShift, accuracy: 0.001)
-        XCTAssertEqual(layout.hitLeading, layout.frameWidth / 2 - 22 + 4)
-        XCTAssertEqual(layout.hitTrailing, layout.frameWidth / 2 + 22 + 4)
+        XCTAssertEqual(layout.hitLeading, layout.frameWidth / 2 - shift + 4)
+        XCTAssertEqual(layout.hitTrailing, layout.frameWidth / 2 + shift + 4)
         XCTAssertEqual(layout.hitSize.width, 2 * layout.hitTrailing)
     }
 

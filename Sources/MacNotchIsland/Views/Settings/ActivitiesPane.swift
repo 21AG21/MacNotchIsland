@@ -28,6 +28,9 @@ struct ActivitiesPane: View {
                 Toggle("Audio-reactive visualizer", isOn: $prefs.reactiveVisualizerEnabled)
                     .help("The bars follow the sound instead of a fixed pattern.")
                     .disabled(!prefs.nowPlayingEnabled)
+                Toggle("Show new tracks in the pill", isOn: $prefs.sneakPeekEnabled)
+                    .help("The title and artist appear in the pill for a moment when a track starts or changes.")
+                    .disabled(!prefs.nowPlayingEnabled)
             } header: {
                 Text("Now Playing")
             } footer: {
@@ -69,11 +72,11 @@ struct ActivitiesPane: View {
                 Toggle("Focus", isOn: $prefs.focusEnabled)
                     .help("Show the current Focus, including Do Not Disturb.")
                 Toggle("Upcoming calendar events", isOn: $prefs.calendarEnabled)
-                    .help("Your next event, shortly before it starts.")
+                    .help("Your next event shortly before it starts, and the Today section of the panel.")
             } header: {
                 Text("Focus and calendar")
             } footer: {
-                Text("Calendar events ask for calendar access the first time they are turned on.")
+                Text("Calendar events ask for calendar access the first time they are turned on. The same switch shows the Today section in the panel.")
             }
 
             Section {

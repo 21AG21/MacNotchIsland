@@ -28,11 +28,37 @@ the unreleased section is what the next tag will ship.
 - The click-outside check no longer runs a view hit test from the event monitor; it checks
   the island's footprint arithmetically.
 
+### Changed
+- One panel for everything. The expanded views, the Home drawer and its tab bar are gone;
+  in their place is a single 680 pt panel with a switcher in the band beside the notch (live
+  activities on the left, sections on the right), one section or one activity under it, and
+  a control rail at the bottom with volume and brightness sliders, the camera mirror,
+  AirDrop for the shelf, and Settings. Stepping between views never resizes the island.
+- Peek and pin. Resting the pointer on the island opens the panel on what is playing or
+  running; it closes when the pointer leaves. A click pins it until a click elsewhere,
+  Escape or the shortcut. The shortcut's modifiers with Tab (and Shift + Tab), a sideways
+  swipe on the panel, or the switcher step through the same list everywhere.
+- The compact pill reads like the iPhone's: a coloured glyph in a 34 pt slot on the left, a
+  white value on the right (red only for a battery warning), thinner bars blended toward
+  white, a 4 pt HUD bar. A key-press HUD over a live activity keeps that activity's glyph.
+- Alerts that used to open a card stay compact: AirPods connecting, low and critical battery,
+  unlock. The full card is one click away. Cards that the system does put up (a finished
+  timer, a call) are 440 pt wide, one or two rows, with no switcher.
+- No haptic for a click, ever: the trackpad has already clicked under the finger. Haptics
+  remain for alerts, a ringing timer, drag targeting and swipes.
+
 ### Added
-- The island is driven by clicks and the keyboard, never by the pointer passing by: a click
-  opens what the island shows (or Home when idle), a click anywhere else, Escape or the
-  shortcut closes it, and the shortcut's modifiers with Tab (and Shift + Tab) step through
-  every view. The island shrinks slightly while pressed.
+- Sections: Today (the next 24 hours of events, today's reminders with a checkbox, the
+  weather in the header), Notes (a scratchpad kept on disk), and Stats beside the shelf,
+  clipboard and actions. Now Playing is a section too, so it is reachable while anything
+  else is live. The list is one enum, `HomeSection`, read by the switcher, the keyboard
+  ring, the swipes, the URL scheme (`notchisland://home/notes`) and Settings.
+- Sneak peek: a track that starts widens the pill for a moment with its title and artist.
+- Output picker under Now Playing, backed by CoreAudio: the devices that can play, the one
+  that is, and a live volume slider that follows it.
+- A first-run picker after the welcome page chooses which sections the panel shows and
+  whether the island replaces the system bezel.
+- The island shrinks slightly while pressed.
 - The shelf is a live activity while it holds files: a tray glyph and a count in the island,
   its strip on click, the bubble while something else is live.
 - The compact island keeps clear of menu bar text: it only widens into space that is free

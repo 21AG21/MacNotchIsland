@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// "Home Panel": the drawer behind the island — shelf, clipboard and the tabs it can show.
+/// "Home Panel": the sections the panel can show beside Now Playing, and the control rail
+/// under them.
 struct HomePanelPane: View {
     @ObservedObject private var prefs = Preferences.shared
     @AppStorage("settingsSection") private var selectedSection = SettingsSection.general.rawValue
@@ -11,8 +12,28 @@ struct HomePanelPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("File shelf", isOn: $prefs.shelfEnabled)
-                    .help("Drag files onto the notch to keep them within reach.")
+                Toggle("Today", isOn: $prefs.calendarEnabled)
+                    .help("Your next events and reminders. Asks for calendar and reminders access when first opened.")
+                Toggle("Weather in Today", isOn: $prefs.weatherEnabled)
+                    .help("The conditions outside, in the Today header. Asks for your location when first opened. Data from Open-Meteo.")
+                    .disabled(!prefs.calendarEnabled)
+                Toggle("Shelf", isOn: $prefs.shelfEnabled)
+                    .help("Drag files onto the island to keep them within reach.")
+                Toggle("Clipboard", isOn: $prefs.clipboardEnabled)
+                    .help("Recent copies, pinned ones first.")
+                Toggle("Actions", isOn: $prefs.quickActionsEnabled)
+                    .help("Run your favourite shortcuts from the panel.")
+                Toggle("Notes", isOn: $prefs.notesEnabled)
+                    .help("A scratchpad that keeps whatever you type.")
+                Toggle("Stats", isOn: $prefs.statsEnabled)
+                    .help("Processor, memory, network and battery health.")
+            } header: {
+                Text("Sections")
+            } footer: {
+                Text("Now Playing is always there. Step between sections with the buttons beside the notch, a sideways swipe, or Tab.")
+            }
+
+            Section {
                 Picker("Clear items after", selection: expiry) {
                     Text("Never").tag(0.0)
                     Text("1 hour").tag(1.0)
@@ -22,46 +43,36 @@ struct HomePanelPane: View {
                     Text("1 week").tag(168.0)
                 }
                 .pickerStyle(.menu)
-                .disabled(!prefs.shelfEnabled)
                 Toggle("Add downloads to the shelf", isOn: $prefs.addDownloadsToShelf)
                     .help("Finished downloads land on the shelf instead of only alerting.")
-                    .disabled(!prefs.shelfEnabled)
                 Toggle("Add screenshots to the shelf", isOn: $prefs.screenshotsToShelfEnabled)
                     .help("New screenshots land on the shelf, ready to drag into another app.")
-                    .disabled(!prefs.shelfEnabled)
             } header: {
                 Text("Shelf")
             } footer: {
                 Text("Select several items to drag or AirDrop them together. Clearing removes them from the shelf only, never from disk.")
             }
+            .disabled(!prefs.shelfEnabled)
 
             Section {
-                Toggle("Clipboard history", isOn: $prefs.clipboardEnabled)
-                    .help("Keep recent copies in the Home panel.")
                 Stepper(value: $prefs.clipboardLimit, in: 10...200, step: 10) {
                     Text("Items kept: \(Int(prefs.clipboardLimit))")
                 }
-                .disabled(!prefs.clipboardEnabled)
             } header: {
                 Text("Clipboard")
             } footer: {
                 Text("Items marked as concealed by password managers are never recorded.")
             }
+            .disabled(!prefs.clipboardEnabled)
 
             Section {
-                Toggle("Quick actions", isOn: $prefs.quickActionsEnabled)
-                    .help("Run your favourite shortcuts from the Home panel.")
                 Toggle("Camera mirror", isOn: $prefs.mirrorEnabled)
-                    .help("Check yourself before a call. Asks for camera access when first opened.")
-                Toggle("System stats", isOn: $prefs.statsEnabled)
-                    .help("Processor, memory, network and battery health.")
-                Toggle("Weather", isOn: $prefs.weatherEnabled)
-                    .help("Asks for your location when first opened. Data from Open-Meteo.")
+                    .help("A mirror button in the rail, to check yourself before a call. Asks for camera access when first opened.")
             } header: {
-                Text("Tabs")
+                Text("Control rail")
             } footer: {
                 HStack(spacing: 8) {
-                    Text("Choose which shortcuts appear as quick actions in Shortcuts.")
+                    Text("Volume, brightness, AirDrop for the shelf and Settings are always in the rail under every section. Choose which shortcuts appear as actions in Shortcuts.")
                     Button("Open Shortcuts") {
                         selectedSection = SettingsSection.shortcuts.rawValue
                     }

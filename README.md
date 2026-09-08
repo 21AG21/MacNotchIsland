@@ -12,22 +12,22 @@ and the same content layout as iOS.
 
 | iPhone Dynamic Island | Notch Island on the Mac |
 | --- | --- |
-| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Click to expand, drag the scrubber to seek, swipe sideways on the island to skip tracks. Time-synced lyrics from LRCLIB under the title. |
+| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover or click for the Now Playing section: scrubber, transport, an output picker, time-synced lyrics from LRCLIB. A track that starts peeks into the pill for a moment with its title and artist. Swipe sideways on the pill to skip tracks. |
 | Timer countdown in orange, expanded pause / cancel, "timer done" state | Same, with 1–60 min presets in the Home panel and menu bar, or `notchctl timer 5`. |
 | Stopwatch Live Activity (iOS 17) with laps | Same: Home panel, menu bar, or `notchisland://stopwatch`. |
 | Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. |
 | Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. Low Power Mode on/off too. |
-| AirPods / Bluetooth connect with battery | IOBluetooth connection events, AirPods left / right / case battery rings from the IORegistry. |
+| AirPods / Bluetooth connect with battery | IOBluetooth connection events: a brief pill with the level as a device connects, the card with left, right and case one click away, read from the IORegistry. |
 | Focus on / off with the Focus symbol | Watches macOS's Focus assertion database. |
 | Silent / ring switch, volume | Mute shows the bell; volume and brightness changes show a level bar. Optionally the island *replaces* the system bezel entirely (event tap, needs Accessibility). Scroll on the island to change volume. |
 | Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
 | Face ID unlock animation | "Unlocked" when the Mac unlocks. |
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
 | Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap: the most recently started activity owns the island, a call or a timer that just rang always does, and the shelf waits in the bubble while something plays. Alerts are ranked so a volume tick never hides a low-battery warning. |
-| Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. |
-| Long-press to expand, tap to open | Click the island to open it, click anywhere else (or press Escape) to close it; nothing reacts to the pointer merely passing by, and what you open stays open across desktops. A global shortcut (⌃⌥Space by default) toggles it, the same modifiers with Tab step through every view and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
-| — | Home panel (click the empty island): mini player and timer presets, a file shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history, quick actions that run your Shortcuts, camera mirror, system stats, and weather. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
-| — | Trackpad gestures: swipe sideways on the island to skip tracks or switch Home tabs, scroll for volume. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
+| Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. The Today section lists the next 24 hours and today's reminders. |
+| Long-press to expand, tap to open | Rest the pointer on the island to peek at the panel; click to keep it open, click anywhere else (or press Escape) to close it. What you open stays open across desktops. A global shortcut (⌃⌥Space by default) toggles it, the same modifiers with Tab step through every section and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
+| — | One panel for everything. A switcher beside the notch holds the live activities on the left and the sections on the right: Now Playing, Today (events, reminders, weather), the shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history with pins, actions that run your Shortcuts, a notes scratchpad, and system stats. Under every section a control rail: volume and brightness sliders, the camera mirror, AirDrop for the shelf, Settings. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
+| — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
 | — | Hide the island for an hour from the menu bar, or automatically while a full-screen app is in front. A daily check against GitHub releases tells you when a new version is out. |
 | — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert. Caps Lock pill. |
 | — | Energy discipline: animations slow on battery and stop in Low Power Mode or sleep; every poller backs off; idle CPU stays near zero. |
@@ -138,7 +138,10 @@ blue, indigo, purple, pink, brown, gray, white) or a hex value. `symbol` is any 
 ## How it's put together
 
 - `Core/ActivityCenter.swift` owns live activities and transient alerts and derives the
-  current presentation (idle, compact with optional bubble, expanded, home, shelf).
+  current presentation (idle, compact with optional bubble, a system card, the panel on a
+  section or an activity, the shelf while files are dragged over the island).
+- `Core/HomeSection.swift` is the one list of panel sections that the switcher, the keyboard
+  ring, the swipes and the URL scheme all read.
 - `Core/IslandLayout.swift` turns a presentation plus the screen's notch geometry into
   concrete sizes and corner radii; the same function drives the click-through hit test.
 - `Shapes/NotchShape.swift` is the outline with outward-curving top corners so the black
@@ -149,13 +152,13 @@ blue, indigo, purple, pink, brown, gray, white) or a hex value. `symbol` is any 
   Settings.
 - Windows follow native macOS conventions (a System Settings-style sidebar, grouped forms,
   standard controls, an Apple-style welcome) in a monochrome palette. The island itself keeps
-  iOS's semantic colours (orange timer, green call and charging, artwork-tinted visualizer)
-  because that is what it is cloning. See `ARCHITECTURE.md` for the full map.
+  the iPhone's: white values, coloured glyphs (orange timer, green call and charging),
+  artwork-tinted bars. See `ARCHITECTURE.md` for the full map.
 
 ## Notes
 
-- macOS still shows its own volume / brightness bezel; suppressing it requires disabling a
-  system service, which this app does not do.
+- macOS shows its own volume / brightness bezel unless "Replace the system volume and
+  brightness bezel" is on under Activities, which needs Accessibility access for the key tap.
 - The island stays above full-screen apps and on every Space. On a Mac without a notch (or
   an external display with "Show on every display" on) a simulated island is drawn at the
   top centre.

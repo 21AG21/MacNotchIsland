@@ -39,8 +39,8 @@ final class MenuBarClearanceTests: XCTestCase {
 
         let roomy = IslandLayout.make(presentation: .compact(timer, bubble: music), geometry: geometry, center: center,
                                       clearance: .unlimited)
-        XCTAssertEqual(roomy.leadingWidth, 40)
-        XCTAssertEqual(roomy.trailingWidth, 60)
+        XCTAssertEqual(roomy.leadingWidth, timer.content.compactWidths.leading)
+        XCTAssertEqual(roomy.trailingWidth, timer.content.compactWidths.trailing)
         XCTAssertTrue(roomy.hasBubble)
 
         let tight = IslandLayout.make(presentation: .compact(timer, bubble: music), geometry: geometry, center: center,
@@ -62,8 +62,8 @@ final class MenuBarClearanceTests: XCTestCase {
                                    content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90)
         let layout = IslandLayout.make(presentation: .compact(timer, bubble: nil), geometry: plain, center: .shared,
                                        clearance: MenuBarClearance.Limits(leading: 0, trailing: 0))
-        XCTAssertEqual(layout.leadingWidth, 40)
-        XCTAssertEqual(layout.trailingWidth, 60)
+        XCTAssertEqual(layout.leadingWidth, timer.content.compactWidths.leading)
+        XCTAssertEqual(layout.trailingWidth, timer.content.compactWidths.trailing)
     }
 
     func testBandConversionForANotchedScreenBelowThePrimary() {
