@@ -32,8 +32,8 @@ the unreleased section is what the next tag will ship.
 - One panel for everything. The expanded views, the Home drawer and its tab bar are gone;
   in their place is a single 680 pt panel with a switcher in the band beside the notch (live
   activities on the left, sections on the right), one section or one activity under it, and
-  a control rail at the bottom with volume and brightness sliders, the camera mirror,
-  AirDrop for the shelf, and Settings. Stepping between views never resizes the island.
+  a control rail at the bottom with volume and brightness sliders, Keep Awake, the camera
+  mirror, AirDrop for the shelf, and Settings. Stepping between views never resizes the island.
 - Peek and pin. Resting the pointer on the island opens the panel on what is playing or
   running; it closes when the pointer leaves. A click pins it until a click elsewhere,
   Escape or the shortcut. The shortcut's modifiers with Tab (and Shift + Tab), a sideways
@@ -56,6 +56,8 @@ the unreleased section is what the next tag will ship.
 - Sneak peek: a track that starts widens the pill for a moment with its title and artist.
 - Output picker under Now Playing, backed by CoreAudio: the devices that can play, the one
   that is, and a live volume slider that follows it.
+- Keep Awake, in the control rail and the menu bar: a power assertion that holds the Mac
+  and its display awake until switched off, and ends with the app.
 - A first-run picker after the welcome page chooses which sections the panel shows and
   whether the island replaces the system bezel.
 - The island shrinks slightly while pressed.

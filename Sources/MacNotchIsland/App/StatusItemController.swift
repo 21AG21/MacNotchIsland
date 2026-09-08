@@ -7,6 +7,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     private let item: NSStatusItem
     private let header = NSMenuItem.sectionHeader(title: "Notch Island")
     private let visibility = NSMenuItem()
+    private let keepAwake = NSMenuItem()
     private let stopwatch = NSMenuItem()
     private let cancel = NSMenuItem()
     private lazy var timeFormatter: DateFormatter = {
@@ -58,6 +59,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
         visibility.target = self
         menu.addItem(visibility)
+        keepAwake.title = "Keep Awake"
+        keepAwake.action = #selector(toggleKeepAwake)
+        keepAwake.target = self
+        menu.addItem(keepAwake)
         menu.addItem(action("Clear Shelf", #selector(clearShelf)))
         menu.addItem(.separator())
 
@@ -134,6 +139,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
             visibility.action = #selector(hideForHour)
         }
         stopwatch.title = IslandStopwatch.shared.state == nil ? "Start Stopwatch" : "Reset Stopwatch"
+        keepAwake.state = KeepAwake.shared.isOn ? .on : .off
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -163,6 +169,8 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     @objc private func clearShelf() { ShelfStore.shared.clear() }
 
     @objc private func hideForHour() { ActivityCenter.shared.pause(for: 3600) }
+
+    @objc private func toggleKeepAwake() { KeepAwake.shared.toggle() }
 
     @objc private func showNow() { ActivityCenter.shared.pause(for: 0) }
 

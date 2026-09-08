@@ -1,12 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// The strip under every section: the Mac's two most-reached-for controls, then the mirror,
-/// AirDrop and Settings. Identical whatever the panel shows, so hands learn where things are.
+/// The strip under every section: the Mac's two most-reached-for controls, then Keep Awake,
+/// the mirror, AirDrop and Settings. Identical whatever the panel shows, so hands learn where
+/// things are.
 struct ControlRail: View {
     @Binding var showingMirror: Bool
     @ObservedObject private var outputs = AudioOutputs.shared
     @ObservedObject private var shelf = ShelfStore.shared
+    @ObservedObject private var keepAwake = KeepAwake.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
     @State private var brightness: Double = BrightnessControl.shared.current() ?? 0.5
@@ -16,6 +18,10 @@ struct ControlRail: View {
             volume
             if BrightnessControl.shared.isAvailable { brightnessControl }
             Spacer(minLength: 8)
+            railButton(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
+                       label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
+                keepAwake.toggle()
+            }
             if prefs.mirrorEnabled {
                 railButton(symbol: showingMirror ? "camera.fill" : "camera", label: showingMirror ? "Hide mirror" : "Mirror",
                            active: showingMirror) {

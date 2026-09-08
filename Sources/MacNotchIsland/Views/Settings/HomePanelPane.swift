@@ -72,7 +72,7 @@ struct HomePanelPane: View {
                 Text("Control rail")
             } footer: {
                 HStack(spacing: 8) {
-                    Text("Volume, brightness, AirDrop for the shelf and Settings are always in the rail under every section. Choose which shortcuts appear as actions in Shortcuts.")
+                    Text("Volume, brightness, Keep Awake, AirDrop for the shelf and Settings are always in the rail under every section. Choose which shortcuts appear as actions in Shortcuts.")
                     Button("Open Shortcuts") {
                         selectedSection = SettingsSection.shortcuts.rawValue
                     }
