@@ -28,7 +28,12 @@ final class ActivityCenter: ObservableObject {
     /// What the user opened by clicking or with the keyboard. Stays open until dismissed;
     /// nothing about the pointer's position changes it.
     @Published private(set) var openView: IslandView? = nil {
-        didSet { if (openView == nil) != (oldValue == nil) { openStateChanged() } }
+        didSet {
+            if openView != oldValue {
+                IslandLog.island.info("open view: \(String(describing: self.openView), privacy: .public)")
+            }
+            if (openView == nil) != (oldValue == nil) { openStateChanged() }
+        }
     }
     /// The panel whose island is being held down, for the press-in feedback.
     @Published private(set) var pressedPanel: String? = nil
@@ -56,6 +61,9 @@ final class ActivityCenter: ObservableObject {
 
     private var alertWork: DispatchWorkItem?
     private var pendingAlerts: [(activity: IslandActivity, queuedAt: Date, duration: TimeInterval?)] = []
+    /// Alerts the user clicked open. They live on as activities until closed, so their own
+    /// timers cannot pull the panel away.
+    private var heldAlertIDs: Set<String> = []
     private var hoverWork: DispatchWorkItem?
     private var homeWork: DispatchWorkItem?
     private var forcedWork: DispatchWorkItem?
@@ -81,6 +89,7 @@ final class ActivityCenter: ObservableObject {
         activities = []
         alert = nil
         pendingAlerts.removeAll()
+        heldAlertIDs.removeAll()
         hoverPanel = nil
         dragPanel = nil
         pressedPanel = nil
@@ -149,6 +158,7 @@ final class ActivityCenter: ObservableObject {
         hoverPanel = nil
         dragPanel = nil
         pressedPanel = nil
+        if openView != nil { IslandLog.island.info("closing: island hidden") }
         openView = nil
     }
 
@@ -231,9 +241,13 @@ final class ActivityCenter: ObservableObject {
     func end(id: String) {
         guard activities.contains(where: { $0.id == id }) else { return }
         activities.removeAll { $0.id == id }
+        heldAlertIDs.remove(id)
         if pinnedID == id { pinnedID = nil }
         if forcedExpandedID == id { forcedExpandedID = nil }
-        if openView == .activity(id: id) { openView = nil }
+        if openView == .activity(id: id) {
+            IslandLog.island.info("closing: activity \(id, privacy: .public) ended")
+            openView = nil
+        }
     }
 
     func end(kind: ActivityKind) {
@@ -289,20 +303,49 @@ final class ActivityCenter: ObservableObject {
         }
     }
 
+    /// Alerts that wait for an open panel to close rather than interrupt it: everything between
+    /// a key-press HUD (feedback the user just asked for) and a battery warning (which cannot
+    /// wait). A finished download must not yank away the panel someone is using.
+    static func waitsWhileOpen(_ activity: IslandActivity) -> Bool {
+        let rank = alertRank(activity)
+        return rank >= 3 && rank < 6 && activity.priority < urgentPriority
+    }
+
+    /// How long a queued alert stays worth showing: a HUD goes stale in a moment, a finished
+    /// download keeps for a while, a battery warning longer still.
+    static func patience(for activity: IslandActivity) -> TimeInterval {
+        switch alertRank(activity) {
+        case ...2: return 2
+        case 3...4: return 20
+        default: return 90
+        }
+    }
+
     func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
-        if let current = alert, current.id != activity.id, Self.alertRank(current) > Self.alertRank(activity) {
-            // Queue behind the more important alert (a volume tick must not hide a low-battery warning).
-            pendingAlerts.removeAll { $0.activity.id == activity.id }
-            if pendingAlerts.count < 3 { pendingAlerts.append((activity, Date(), duration)) }
+        let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
+        if outranked || (isOpen && Self.waitsWhileOpen(activity)) {
+            // Behind the more important alert (a volume tick must not hide a low-battery
+            // warning), or until the user closes what they opened.
+            enqueue(activity, duration: duration)
             return
         }
         alertWork?.cancel()
         MenuBarClearance.shared.refresh()
-        // The user may have opened the alert being replaced; that view has nothing to show now.
-        if let previous = alert, previous.id != activity.id, openView == .activity(id: previous.id) { openView = nil }
+        // The user may have opened the alert being replaced; unless a live activity carries the
+        // same id (a track-change alert over Now Playing), that view has nothing to show now.
+        if let previous = alert, previous.id != activity.id, openView == .activity(id: previous.id),
+           self.activity(id: previous.id) == nil {
+            IslandLog.island.info("closing: alert \(previous.id, privacy: .public) replaced")
+            openView = nil
+        }
         alert = activity
         if haptic { Haptics.tap() }
         scheduleAlertDismiss(id: activity.id, after: duration ?? Preferences.shared.alertDuration)
+    }
+
+    private func enqueue(_ activity: IslandActivity, duration: TimeInterval?) {
+        pendingAlerts.removeAll { $0.activity.id == activity.id }
+        if pendingAlerts.count < 3 { pendingAlerts.append((activity, Date(), duration)) }
     }
 
     private func scheduleAlertDismiss(id: String, after seconds: TimeInterval) {
@@ -314,7 +357,12 @@ final class ActivityCenter: ObservableObject {
                 self.scheduleAlertDismiss(id: id, after: 1.0)
             } else {
                 self.alert = nil
-                if self.openView == .activity(id: id) { self.openView = nil }
+                // A view opened on this alert closes with it, unless a live activity of the
+                // same id is there to carry on.
+                if self.openView == .activity(id: id), self.activity(id: id) == nil {
+                    IslandLog.island.info("closing: alert \(id, privacy: .public) expired")
+                    self.openView = nil
+                }
                 self.showNextPendingAlert()
             }
         }
@@ -324,17 +372,17 @@ final class ActivityCenter: ObservableObject {
 
     private func showNextPendingAlert() {
         let now = Date()
-        // Transient HUD-style alerts go stale quickly; anything else is still worth showing.
-        pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > (Self.alertRank($0.activity) <= 2 ? 2 : 15) }
-        guard !pendingAlerts.isEmpty else { return }
+        pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
         pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
-        let next = pendingAlerts.removeFirst()
+        // Whatever is waiting for the panel to close keeps waiting while it is open.
+        guard let i = pendingAlerts.firstIndex(where: { !(isOpen && Self.waitsWhileOpen($0.activity)) }) else { return }
+        let next = pendingAlerts.remove(at: i)
         showAlert(next.activity, duration: next.duration, haptic: false)
     }
 
     func dismissAlert() {
         alertWork?.cancel()
-        if let alert, openView == .activity(id: alert.id) { openView = nil }
+        if let alert, openView == .activity(id: alert.id), activity(id: alert.id) == nil { openView = nil }
         alert = nil
         pendingAlerts.removeAll()
     }
@@ -383,19 +431,24 @@ final class ActivityCenter: ObservableObject {
     func tap(panel: String = "main") {
         switch presentation(for: panel) {
         case .compact(let a, _):
-            if a.content.hasExpandedView {
+            if a.content.hasExpandedView, !Self.isTransientHUD(a, alert: alert) {
                 open(.activity(id: a.id))
             } else if let action = a.openAction {
                 action.perform()
                 Haptics.tap()
             }
-        case .expanded:
-            collapse()
         case .idle:
             open(.home(tab: Self.currentHomeTab))
-        case .home, .shelf:
+        case .expanded, .home, .shelf:
+            // An open panel closes from outside, the way a popover does: a click anywhere else,
+            // Escape, or the shortcut. Clicks on the panel itself belong to its controls.
             break
         }
+    }
+
+    /// A key-press HUD (volume, brightness, Caps Lock) is feedback, not a card to open.
+    private static func isTransientHUD(_ a: IslandActivity, alert: IslandActivity?) -> Bool {
+        alert?.id == a.id && alertRank(a) <= 2
     }
 
     /// Opens a view and keeps it open until `collapse()`. Model changes made from AppKit
@@ -408,18 +461,33 @@ final class ActivityCenter: ObservableObject {
         guard shownView != view else { return }
         withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
             if case .home(let tab) = view { Self.selectHomeTab(tab) }
+            if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
             openView = view
         }
         // A click gets the firmer tap; a keyboard step the lighter detent.
         if direction == 0 { Haptics.tap() } else { Haptics.soft() }
     }
 
+    /// An alert the user opens stops being transient: it becomes a live activity that stays
+    /// until they close it, so its own timer cannot pull the panel away. An alert that merely
+    /// annotates a live activity of the same id (a track change over Now Playing) needs no
+    /// promotion; the activity carries on when the alert expires.
+    private func holdAlertIfNeeded(id: String) {
+        guard let current = alert, current.id == id, activity(id: id) == nil else { return }
+        alertWork?.cancel()
+        var held = current
+        held.expiresAt = nil
+        activities.append(held)
+        heldAlertIDs.insert(id)
+        alert = nil
+    }
+
     /// The global shortcut: close whatever is open, else open the main activity, else Home.
     func toggle() {
         if isOpen || presentation.isExpanded {
-            collapse()
-        } else if let primary = primary, primary.content.hasExpandedView {
-            open(.activity(id: primary.id))
+            collapse(reason: "shortcut")
+        } else if case .compact(let a, _) = presentation, a.content.hasExpandedView, !Self.isTransientHUD(a, alert: alert) {
+            open(.activity(id: a.id))
         } else {
             open(.home(tab: Self.currentHomeTab))
         }
@@ -447,14 +515,25 @@ final class ActivityCenter: ObservableObject {
         open(next, direction: forward ? 1 : -1)
     }
 
-    func collapse() {
+    /// Closes whatever is open. `reason` goes to the log, so a panel that closed behind the
+    /// user's back can be explained from a report.
+    func collapse(reason: String = "request") {
         homeWork?.cancel()
         navigationDirection = 0
+        if let current = openView { IslandLog.island.info("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
+        let held = heldAlertIDs
+        heldAlertIDs.removeAll()
         withAnimation(IslandMotion.close) {
             openView = nil
             forcedExpandedID = nil
-            if !isHovering { alert = nil }
+            for id in held { end(id: id) }
+            if !isHovering, alert != nil {
+                alertWork?.cancel()
+                alert = nil
+            }
         }
+        // Anything that waited for the panel to close gets its turn now.
+        if alert == nil { showNextPendingAlert() }
     }
 
     /// Menus and share sheets used to need this to survive the pointer leaving; an open island
@@ -508,7 +587,7 @@ final class ActivityCenter: ObservableObject {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
                 // Global monitors only see clicks delivered to other apps, so a click on the
                 // island itself (or on our Settings window) never lands here.
-                DispatchQueue.main.async { self?.collapse() }
+                DispatchQueue.main.async { self?.collapse(reason: "click outside") }
             }
         } else {
             HotKeyService.shared.setEscapeArmed(false)

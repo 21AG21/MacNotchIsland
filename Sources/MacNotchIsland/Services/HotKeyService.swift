@@ -144,7 +144,7 @@ final class HotKeyService: ObservableObject {
         case .toggle: center.toggle()
         case .next: center.cycleView(forward: true)
         case .previous: center.cycleView(forward: false)
-        case .escape: center.collapse()
+        case .escape: center.collapse(reason: "escape")
         }
     }
 

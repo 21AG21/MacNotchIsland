@@ -15,7 +15,7 @@ struct IslandPane: View {
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("Change the shortcut under Shortcuts. Clicking the island opens it as well; clicking anywhere else closes it.")
+                Text("Change the shortcut under Shortcuts. Clicking the island opens it as well; a click anywhere else, or Escape, closes it. What you open stays open across desktops.")
             }
 
             Section {

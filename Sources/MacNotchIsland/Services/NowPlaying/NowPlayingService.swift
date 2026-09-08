@@ -25,6 +25,8 @@ final class NowPlayingService: ObservableObject {
     private(set) var activeBackend: Backend = .inactive
     /// What the user just asked for, held against stale backend reports for a moment.
     private var optimistic: Optimistic?
+    /// A pending removal of the Now Playing card, see `clearGrace`.
+    private var clearWork: DispatchWorkItem?
 
     /// A transport command takes a few hundred milliseconds to round-trip through
     /// MediaRemote, and the first report after it can still carry the old state (the playback
@@ -46,6 +48,12 @@ final class NowPlayingService: ObservableObject {
     }
 
     static let optimisticWindow: TimeInterval = 1.2
+
+    /// MediaRemote hands out an empty report for a moment between tracks and whenever a player
+    /// rebuilds its state. Ending the card on the first one would flash the island, and close
+    /// the expanded view if it was open, several times an album. An empty report has to hold
+    /// this long before the card goes.
+    static let clearGrace: TimeInterval = 2.5
 
     private init() {}
 
@@ -99,9 +107,11 @@ final class NowPlayingService: ObservableObject {
         if backend == .mediaRemote && adapter.isHealthy { return }
 
         guard let new else {
-            if activeBackend == backend || activeBackend == .inactive { clear() }
+            if activeBackend == backend || activeBackend == .inactive { scheduleClear() }
             return
         }
+        clearWork?.cancel()
+        clearWork = nil
         activeBackend = backend
         let now = Date()
         let reconciled = Self.reconcile(incoming: new, current: info, optimistic: optimistic, now: now)
@@ -149,7 +159,19 @@ final class NowPlayingService: ObservableObject {
         return true
     }
 
+    private func scheduleClear() {
+        guard clearWork == nil, info != nil || ActivityCenter.shared.activity(id: "nowplaying") != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.clearWork = nil
+            self?.clear()
+        }
+        clearWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.clearGrace, execute: work)
+    }
+
     private func clear() {
+        clearWork?.cancel()
+        clearWork = nil
         guard info != nil || ActivityCenter.shared.activity(id: "nowplaying") != nil else { return }
         info = nil
         pausedSince = nil

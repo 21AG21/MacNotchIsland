@@ -163,7 +163,7 @@ final class ActivityCenterTests: XCTestCase {
 
     // MARK: - Clicks and keyboard
 
-    func testClickOpensAndClosesWithoutAnyHover() {
+    func testClickOpensAndOnlyAnOutsideCloseCollapses() {
         Preferences.shared.hoverToExpand = false
         Preferences.shared.expandOnIdleHover = false
         center.upsert(IslandActivity(id: "timer", kind: .timer,
@@ -174,7 +174,10 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(a.id, "timer")
         XCTAssertTrue(center.isOpen)
         center.tap()
-        guard case .compact = center.presentation else { return XCTFail("a second click closes it") }
+        guard case .expanded = center.presentation else { return XCTFail("a click on the open panel leaves it open") }
+        XCTAssertTrue(center.isOpen)
+        center.collapse(reason: "test")
+        guard case .compact = center.presentation else { return XCTFail("closing from outside collapses it") }
         XCTAssertFalse(center.isOpen)
 
         center.end(id: "timer")
@@ -229,31 +232,90 @@ final class ActivityCenterTests: XCTestCase {
         guard case .compact = center.presentation else { return XCTFail("shortcut closes it again") }
     }
 
-    func testDismissedAlertDropsItsOpenView() {
+    func testClickedAlertStaysUntilClosed() {
         let alert = IslandActivity(id: "bt", kind: .bluetooth,
                                    content: .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods", batteryLeft: 50)),
                                    priority: 85)
-        center.showAlert(alert, duration: 5)
+        center.showAlert(alert, duration: 0.15)
         center.tap()
-        guard case .expanded = center.presentation else { return XCTFail("clicking an alert opens its large view") }
-        center.dismissAlert()
+        guard case .expanded(let opened) = center.presentation else { return XCTFail("clicking an alert opens its large view") }
+        XCTAssertEqual(opened.id, "bt")
+        XCTAssertNil(center.alert, "the clicked alert lives on as an activity")
+
+        let exp = expectation(description: "alert duration passed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+        XCTAssertTrue(center.isOpen, "its own timer must not close what the user opened")
+        guard case .expanded = center.presentation else { return XCTFail("still open after the alert would have expired") }
+
+        center.collapse(reason: "test")
         XCTAssertFalse(center.isOpen)
-        XCTAssertEqual(center.presentation, .idle)
+        XCTAssertNil(center.activity(id: "bt"), "closing a held alert ends it")
+        XCTAssertEqual(center.presentation, .idle, "nothing is left behind")
     }
 
-    func testPreemptingAlertDropsTheOpenViewOfTheOneItReplaces() {
+    func testClosingAHeldAlertEndsItAndReleasesWhatWaited() {
         let airpods = IslandActivity(id: "bt", kind: .bluetooth,
                                      content: .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods", batteryLeft: 50)),
                                      priority: 85)
         center.showAlert(airpods, duration: 5)
         center.tap()
         XCTAssertTrue(center.isOpen)
-        var low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .critical)
-        low.percent = 8
-        center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 5)
-        XCTAssertFalse(center.isOpen, "the replaced alert's open view must not linger")
+        // A finished download waits for the panel; a critical battery warning does not.
+        let download = DownloadState(name: "movie.mkv", bytes: 100, total: 100, app: "Safari", isComplete: true)
+        center.showAlert(IslandActivity(id: "dl", kind: .download, content: .download(download), priority: 85), duration: 5)
+        guard case .expanded(let still) = center.presentation else { return XCTFail("a routine alert must not take the panel away") }
+        XCTAssertEqual(still.id, "bt")
+        XCTAssertTrue(center.isOpen)
+
+        let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .critical)
+        center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 0.15)
+        guard case .compact(let shown, _) = center.presentation else { return XCTFail("a battery warning shows at once") }
+        XCTAssertEqual(shown.id, "battery")
+        XCTAssertTrue(center.isOpen, "the held alert is still open behind it")
+
+        let exp = expectation(description: "battery alert expired")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+        guard case .expanded(let again) = center.presentation else { return XCTFail("the held alert is back once the warning expires") }
+        XCTAssertEqual(again.id, "bt")
+
+        center.collapse(reason: "test")
+        XCTAssertFalse(center.isOpen)
+        XCTAssertNil(center.activity(id: "bt"), "closing a held alert ends it")
+        guard case .compact(let waited, _) = center.presentation else { return XCTFail("the alert that waited shows once the panel closes") }
+        XCTAssertEqual(waited.id, "dl")
         center.dismissAlert()
         XCTAssertEqual(center.presentation, .idle)
+    }
+
+    func testAlertOverALiveActivityOfTheSameIdLeavesItOpenWhenItExpires() {
+        let live = IslandActivity(id: "np", kind: .custom, content: .custom(CustomActivity(title: "Song")), priority: 50)
+        center.upsert(live)
+        center.showAlert(IslandActivity(id: "np", kind: .custom, content: .custom(CustomActivity(title: "Next song")), priority: 85), duration: 0.15)
+        center.tap()
+        XCTAssertEqual(center.openView, .activity(id: "np"))
+        XCTAssertNotNil(center.alert, "an alert that annotates a live activity is not promoted")
+
+        let exp = expectation(description: "alert expired")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+        XCTAssertNil(center.alert)
+        XCTAssertTrue(center.isOpen, "the live activity carries on")
+        guard case .expanded(let a) = center.presentation else { return XCTFail("expanded live activity") }
+        XCTAssertEqual(a.id, "np")
+        center.collapse(reason: "test")
+    }
+
+    func testVolumeHUDIsFeedbackNotACard() {
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        center.showAlert(hud, duration: 5)
+        center.tap()
+        XCTAssertFalse(center.isOpen, "clicking a volume HUD opens nothing")
+        center.toggle()
+        guard case .home = center.openView else { return XCTFail("the shortcut goes to Home instead") }
+        center.collapse(reason: "test")
+        center.dismissAlert()
     }
 
     func testTabStepsFromTheTabPickedByClick() {

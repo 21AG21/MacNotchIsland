@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenRebuildWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard Self.isOnlyInstance() else {
+            NSApp.terminate(nil)
+            return
+        }
         NSApp.setActivationPolicy(.accessory)
         rebuildPanels()
         statusItem = StatusItemController()
@@ -54,10 +58,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Switching desktops closes anything the user had open, like a popover would, and makes
-    /// sure the panel is on top of the new Space.
+    /// Two copies (one in /Applications and one in a build folder, say) would draw two islands
+    /// on the same notch and fight over every click; the newcomer bows out.
+    private static func isOnlyInstance() -> Bool {
+        guard let id = Bundle.main.bundleIdentifier else { return true }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != me }
+        guard let other = others.first else { return true }
+        IslandLog.panel.error("another copy is already running (pid \(Int(other.processIdentifier), privacy: .public)); quitting this one")
+        return false
+    }
+
+    /// The island belongs to the notch, not to a Space: whatever the user had open stays open
+    /// across a swipe, and the panel is put back on top of the new desktop.
     @objc private func spaceChanged() {
-        ActivityCenter.shared.collapse()
+        IslandLog.panel.info("space changed")
         for panel in panels {
             panel.orderFrontRegardless()
             panel.refit()
@@ -69,21 +84,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screensChanged() {
-        // didChangeScreenParameters fires several times per physical event; rebuild once.
+        // didChangeScreenParameters fires several times per physical event, and also when a
+        // full-screen app hides the menu bar. Settle first, then rebuild only if the displays
+        // themselves changed; otherwise just make sure the panels are still where they belong.
         screenRebuildWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rebuildPanels() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.rebuildPanelsIfGeometryChanged() else { return }
+            for panel in self.panels {
+                panel.orderFrontRegardless()
+                panel.refit()
+            }
+        }
         screenRebuildWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
-    private func rebuildPanelsIfGeometryChanged() {
+    /// The screens that should carry an island right now.
+    private static func targetScreens() -> [NSScreen] {
+        let screens = NSScreen.screens
+        if Preferences.shared.showOnAllDisplays { return screens }
+        let notched = screens.filter { $0.safeAreaInsets.top > 0 }
+        if notched.isEmpty, let main = NSScreen.main { return [main] }
+        return notched
+    }
+
+    private static func key(for screen: NSScreen, geometry: NotchGeometry) -> String {
+        let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? ""
+        return "screen-\(number)|\(geometry.notchWidth)|\(geometry.notchHeight)"
+    }
+
+    /// Rebuilds the panels when the set of screens that should carry one, or a notch's size,
+    /// differs from what is on screen. Returns whether it did.
+    @discardableResult
+    private func rebuildPanelsIfGeometryChanged() -> Bool {
         let current = Set(panels.map { "\($0.panelID)|\($0.geometry.notchWidth)|\($0.geometry.notchHeight)" })
-        let fresh = Set(NSScreen.screens.map { screen -> String in
-            let g = NotchGeometry.detect(on: screen)
-            let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? ""
-            return "screen-\(number)|\(g.notchWidth)|\(g.notchHeight)"
-        })
-        if !current.isSubset(of: fresh) { rebuildPanels() }
+        let fresh = Set(Self.targetScreens().map { Self.key(for: $0, geometry: NotchGeometry.detect(on: $0)) })
+        guard current != fresh else { return false }
+        IslandLog.panel.info("displays changed; rebuilding panels")
+        rebuildPanels()
+        return true
     }
 
     private func rebuildPanels() {
@@ -93,20 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         panels.removeAll()
 
-        let screens = NSScreen.screens
-        let targets: [NSScreen]
-        if Preferences.shared.showOnAllDisplays {
-            targets = screens
-        } else {
-            let notched = screens.filter { $0.safeAreaInsets.top > 0 }
-            if notched.isEmpty, let main = NSScreen.main {
-                targets = [main]
-            } else {
-                targets = notched
-            }
-        }
-
-        for screen in targets {
+        for screen in Self.targetScreens() {
             let geometry = NotchGeometry.detect(on: screen)
             let panel = NotchPanel(screen: screen, geometry: geometry)
             panel.orderFrontRegardless()

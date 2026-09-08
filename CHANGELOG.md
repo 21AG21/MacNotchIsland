@@ -5,6 +5,21 @@ the unreleased section is what the next tag will ship.
 
 ## Unreleased
 
+### Fixed
+- An open panel no longer closes on its own: switching desktops (a three-finger swipe) kept
+  collapsing it, an alert that had been clicked open closed itself when the alert timed out,
+  and a momentary empty report from the music player ended the Now Playing card (and the
+  expanded view with it) between tracks. What the user opens now stays until a click
+  elsewhere, Escape or the shortcut.
+- A click on an open panel no longer closes it; only its controls react, as in a popover.
+- Routine alerts (a finished download, a paired device) wait until the panel is closed
+  instead of yanking it away; key-press HUDs and battery warnings still show at once.
+- Clicking a volume or brightness HUD no longer opens a card.
+- A second running copy of the app quits at launch instead of drawing a second island.
+- A full-screen app hiding the menu bar no longer rebuilds the island windows.
+- The reasons a panel opens or closes are written to the unified log under
+  `com.macnotchisland.app`, so a report from another Mac can be diagnosed.
+
 ### Added
 - The island is driven by clicks and the keyboard, never by the pointer passing by: a click
   opens what the island shows (or Home when idle), a click anywhere else, Escape or the
