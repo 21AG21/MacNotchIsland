@@ -134,6 +134,7 @@ final class ShelfStore: ObservableObject {
         let before = items.count
         items.removeAll { targets.contains($0.url) }
         guard items.count != before else { return }
+        discardOwned(Array(targets))
         pruneThumbnailCache()
         persist()
         rescheduleSweep()
@@ -143,11 +144,27 @@ final class ShelfStore: ObservableObject {
 
     func clear() {
         guard !items.isEmpty else { return }
+        let leaving = urls
         items.removeAll()
         thumbnails.removeAll()
         thumbnailQueue.removeAll()
+        discardOwned(leaving)
         persist()
         rescheduleSweep()
+    }
+
+    /// A picture, a link or a piece of text the island itself wrote has nowhere else to live,
+    /// so it goes to the Trash when it leaves the shelf — recoverable, and it does not pile up
+    /// in Application Support. A file that came from Finder is never touched.
+    private func discardOwned(_ urls: [URL]) {
+        let owned = urls.filter { Self.isOwned($0) }
+        guard backgroundWork, !owned.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async {
+            for url in owned {
+                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            }
+        }
     }
 
     // MARK: - Expiry
@@ -160,12 +177,25 @@ final class ShelfStore: ObservableObject {
         return items.filter { $0.addedAt > cutoff }
     }
 
-    /// Drops expired items. Returns true when something was removed.
+    /// Whether an item still has a file behind it.
+    ///
+    /// A file that was moved or deleted is gone from the shelf; a file whose whole folder has
+    /// disappeared is on a disk that was unplugged, and the shelf keeps it, because plugging
+    /// the disk back in should bring it back rather than having quietly emptied the shelf.
+    static func stillThere(_ item: ShelfItem, fileManager: FileManager = .default) -> Bool {
+        if fileManager.fileExists(atPath: item.url.path) { return true }
+        return !fileManager.fileExists(atPath: item.url.deletingLastPathComponent().path)
+    }
+
+    /// Drops expired items, and any whose file has gone. Returns true when something was removed.
     @discardableResult
     func sweepExpired(now: Date = Date()) -> Bool {
-        let kept = Self.pruned(items, expiryHours: expiryHoursProvider(), now: now)
+        let expiredGone = Self.pruned(items, expiryHours: expiryHoursProvider(), now: now)
+        let kept = backgroundWork ? expiredGone.filter { Self.stillThere($0) } : expiredGone
         guard kept.count != items.count else { return false }
+        let leaving = Set(items.map(\.url)).subtracting(kept.map(\.url))
         items = kept
+        discardOwned(Array(leaving))
         pruneThumbnailCache()
         persist()
         rescheduleSweep()
@@ -254,24 +284,42 @@ final class ShelfStore: ObservableObject {
 
     // MARK: - Drops
 
-    /// SwiftUI `.onDrop` handler. Files only.
+    /// What the island will take: a file, a picture, a link, or a piece of text. Everything
+    /// that is not already a file is written into `dropFolder` first, so the shelf always
+    /// holds files and anything on it can be dragged straight into another app.
+    static let acceptedTypes: [UTType] = [.fileURL, .image, .url, .text]
+
+    /// Where text, pictures and links dropped on the island are kept. Inside our own
+    /// Application Support folder, so nothing lands in the user's Downloads without asking.
+    static var dropFolder: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("Notch Island/Shelf", isDirectory: true)
+    }
+
+    /// True for a file this app made from a drop. Those are ours to delete when they leave the
+    /// shelf; a file the user dropped from Finder is never touched.
+    static func isOwned(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasPrefix(dropFolder.standardizedFileURL.path + "/")
+    }
+
+    /// SwiftUI `.onDrop` handler. Each provider is asked for the best thing it has, in the
+    /// order a person would expect: the file itself, then a picture, then a link, then text.
     func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
-        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
-        guard !fileProviders.isEmpty else { return false }
+        let usable = providers.filter { provider in
+            Self.acceptedTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) }
+        }
+        guard !usable.isEmpty else { return false }
         let group = DispatchGroup()
         var urls: [URL] = []
         let lock = NSLock()
-        for provider in fileProviders {
+        for provider in usable {
             group.enter()
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                defer { group.leave() }
-                var url: URL?
-                if let data = item as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
-                else if let u = item as? URL { url = u }
-                else if let s = item as? String { url = URL(string: s) }
+            Self.url(from: provider) { url in
                 if let url {
                     lock.lock(); urls.append(url); lock.unlock()
                 }
+                group.leave()
             }
         }
         group.notify(queue: .main) { [weak self] in
@@ -279,6 +327,127 @@ final class ShelfStore: ObservableObject {
             ActivityCenter.shared.setDragTargeted(false)
         }
         return true
+    }
+
+    /// The picture formats a drag can carry, best first.
+    private static let imageTypes: [UTType] = [.png, .jpeg, .tiff, .heic, .gif, .image]
+
+    /// The file a provider stands for: its own, or one written for it.
+    private static func url(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                completion(fileURL(from: item))
+            }
+            return
+        }
+        // Ask for a concrete kind of picture rather than the abstract one: a provider that
+        // advertises "an image" does not always hand one over when asked in those terms.
+        if let type = imageTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) {
+            provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
+                guard let data, let image = NSImage(data: data), image.size.width > 1 else { return completion(nil) }
+                completion(write(image: image, suggested: provider.suggestedName))
+            }
+            return
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                guard let url = webURL(from: item) else { return completion(nil) }
+                completion(write(link: url))
+            }
+            return
+        }
+        provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { item, _ in
+            var text: String?
+            if let string = item as? String { text = string }
+            else if let data = item as? Data { text = String(data: data, encoding: .utf8) }
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return completion(nil) }
+            completion(write(text: text))
+        }
+    }
+
+    private static func fileURL(from item: Any?) -> URL? {
+        if let data = item as? Data { return URL(dataRepresentation: data, relativeTo: nil) }
+        if let url = item as? URL { return url }
+        if let string = item as? String { return URL(string: string) }
+        return nil
+    }
+
+    private static func webURL(from item: Any?) -> URL? {
+        if let url = item as? URL, !url.isFileURL { return url }
+        if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil), !url.isFileURL { return url }
+        if let string = item as? String, let url = URL(string: string), url.scheme != nil { return url }
+        return nil
+    }
+
+    /// A unique file inside `dropFolder`, with the folder made if it is not there yet.
+    private static func destination(name: String, extension ext: String) -> URL? {
+        let folder = dropFolder
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            NSLog("Shelf: could not make the drop folder: \(error.localizedDescription)")
+            return nil
+        }
+        let safe = name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = safe.isEmpty ? "Dropped" : String(safe.prefix(60))
+        var candidate = folder.appendingPathComponent(base).appendingPathExtension(ext)
+        var index = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(base) \(index)").appendingPathExtension(ext)
+            index += 1
+        }
+        return candidate
+    }
+
+    /// The stamp that keeps one drop apart from the next: "Image 14.32.05".
+    private static func stamp(_ kind: String, now: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH.mm.ss"
+        return "\(kind) \(formatter.string(from: now))"
+    }
+
+    static func write(image: NSImage, suggested: String?) -> URL? {
+        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let name = (suggested?.isEmpty == false ? (suggested! as NSString).deletingPathExtension : stamp("Image"))
+        guard let url = destination(name: name, extension: "png") else { return nil }
+        do {
+            try png.write(to: url)
+            return url
+        } catch {
+            NSLog("Shelf: could not write the dropped image: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    static func write(text: String) -> URL? {
+        // The first line names the file, the way Notes titles a note.
+        let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let name = firstLine.trimmingCharacters(in: .whitespaces).isEmpty ? stamp("Text") : firstLine
+        guard let url = destination(name: name, extension: "txt") else { return nil }
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            NSLog("Shelf: could not write the dropped text: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// A dropped link becomes a `.webloc`, which is what Finder makes and what every browser
+    /// opens with a double click.
+    static func write(link: URL) -> URL? {
+        let name = link.host ?? stamp("Link")
+        guard let destination = destination(name: name, extension: "webloc") else { return nil }
+        do {
+            let plist = try PropertyListSerialization.data(fromPropertyList: ["URL": link.absoluteString],
+                                                          format: .xml, options: 0)
+            try plist.write(to: destination)
+            return destination
+        } catch {
+            NSLog("Shelf: could not write the dropped link: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: - Persistence

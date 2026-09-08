@@ -15,7 +15,7 @@ extension View {
         if RenderMode.isGallery {
             self
         } else {
-            onDrop(of: [.fileURL], isTargeted: isTargeted, perform: perform)
+            onDrop(of: ShelfStore.acceptedTypes, isTargeted: isTargeted, perform: perform)
         }
     }
 }

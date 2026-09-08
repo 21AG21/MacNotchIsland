@@ -49,6 +49,62 @@ final class ShelfStoreTests: XCTestCase {
         ShelfItem(url: url, addedAt: Date().addingTimeInterval(-hoursAgo * 3600))
     }
 
+    // MARK: - Anything can be dropped
+
+    func testDroppedTextBecomesAFileNamedAfterItsFirstLine() throws {
+        let url = try XCTUnwrap(ShelfStore.write(text: "Shopping list\nmilk\nbread"))
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(url.pathExtension, "txt")
+        XCTAssertEqual(url.deletingPathExtension().lastPathComponent, "Shopping list")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Shopping list\nmilk\nbread")
+        XCTAssertTrue(ShelfStore.isOwned(url), "the island wrote it, so the island may tidy it away")
+    }
+
+    func testDroppedTextThatIsAllWhitespaceIsStillWrittenUnderATimeStamp() throws {
+        let url = try XCTUnwrap(ShelfStore.write(text: "\n   \n"))
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("Text "), url.lastPathComponent)
+    }
+
+    func testDroppedLinkBecomesAWeblocFinderCanOpen() throws {
+        let link = try XCTUnwrap(URL(string: "https://example.com/a/page"))
+        let url = try XCTUnwrap(ShelfStore.write(link: link))
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(url.pathExtension, "webloc")
+        XCTAssertEqual(url.deletingPathExtension().lastPathComponent, "example.com")
+        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil) as? [String: String]
+        XCTAssertEqual(plist?["URL"], "https://example.com/a/page")
+    }
+
+    func testTwoDropsOfTheSameNameBecomeTwoFiles() throws {
+        let first = try XCTUnwrap(ShelfStore.write(text: "Note\none"))
+        let second = try XCTUnwrap(ShelfStore.write(text: "Note\ntwo"))
+        defer {
+            try? FileManager.default.removeItem(at: first)
+            try? FileManager.default.removeItem(at: second)
+        }
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(try String(contentsOf: second, encoding: .utf8), "Note\ntwo")
+    }
+
+    func testAFileFromFinderIsNeverOurs() throws {
+        XCTAssertFalse(ShelfStore.isOwned(try makeFile("theirs.txt")))
+    }
+
+    // MARK: - Files that go away
+
+    func testAnItemWhoseFileWasDeletedIsDropped() throws {
+        let url = try makeFile("gone.txt")
+        try FileManager.default.removeItem(at: url)
+        XCTAssertFalse(ShelfStore.stillThere(item(url, hoursAgo: 0)), "the folder is there, the file is not")
+    }
+
+    func testAnItemOnAnUnpluggedDiskIsKept() throws {
+        let url = URL(fileURLWithPath: "/Volumes/Nothing Here/report.pdf")
+        XCTAssertTrue(ShelfStore.stillThere(item(url, hoursAgo: 0)),
+                      "the whole folder is missing, so the disk is away rather than the file gone")
+    }
+
     // MARK: - Expiry (pure)
 
     func testExpiryRemovesItemsOlderThanTheLimit() throws {

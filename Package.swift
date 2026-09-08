@@ -19,6 +19,7 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("EventKit"),
                 .linkedFramework("QuickLookThumbnailing"),
+                .linkedFramework("Quartz"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("UserNotifications"),
             ]

@@ -12,6 +12,12 @@ the unreleased section is what the next tag will ship.
   Accessibility; without those permissions the windows are still listed by app, and the
   section says what is missing and opens the right pane of System Settings.
 - Wi-Fi, Bluetooth and light/dark in the control rail, under every section.
+- The shelf takes more than files: drag a picture, a link or a piece of selected text onto
+  the island and it becomes a file on the shelf — a PNG, a `.webloc` Finder can open, or a
+  text file named after its first line. Anything the island wrote itself goes to the Trash
+  when it leaves the shelf; a file that came from Finder is never touched.
+- Dragging off the shelf takes the whole selection at once, as one pile, and a Quick Look
+  button on each tile (and in its menu) previews without opening anything.
 - Favourite apps in the Actions section: up to six sit in front of your Shortcuts, and a click
   opens one and closes the panel. Chosen in Settings under Actions.
 - Picking a clipboard item pastes it where you were typing: the panel closes, the keyboard
@@ -26,6 +32,9 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- The shelf forgets a file that was deleted or moved, but keeps one whose whole folder has
+  gone: an unplugged disk no longer empties the shelf.
+- With items selected, the shelf's last pill removes those instead of clearing everything.
 - Stepping to the next section no longer rebuilds the whole panel. The switcher band and the
   control rail stay where they are and only the section between them moves; the rail's audio
   listeners are no longer dropped and rebuilt on every step.

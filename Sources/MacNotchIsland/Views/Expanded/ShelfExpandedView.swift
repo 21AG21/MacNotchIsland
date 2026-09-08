@@ -81,10 +81,17 @@ struct ShelfStripView: View {
                 PillButton(title: "AirDrop", symbol: wide ? "dot.radiowaves.right" : nil) {
                     shelf.airDrop(orderedSelection.isEmpty ? shelf.urls : orderedSelection)
                 }
-                PillButton(title: "Clear", tint: .white.opacity(0.85)) {
-                    selection.removeAll()
-                    selectionAnchor = nil
-                    shelf.clear()
+                // With a selection the destructive pill takes only that: emptying the whole
+                // shelf when the user has picked out two files is not what they asked for.
+                if selection.isEmpty {
+                    PillButton(title: "Clear", tint: .white.opacity(0.85)) { shelf.clear() }
+                } else {
+                    PillButton(title: "Remove", tint: .white.opacity(0.85)) {
+                        let going = orderedSelection
+                        selection.removeAll()
+                        selectionAnchor = nil
+                        shelf.remove(going)
+                    }
                 }
             }
         }
@@ -208,7 +215,15 @@ struct ShelfItemView: View {
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { shelf.open([url]) }
         .onTapGesture { onSelect() }
-        .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
+        // The left mouse belongs to AppKit here: a click selects, a double click opens, and a
+        // drag takes every selected file at once, which SwiftUI's one-item `onDrag` cannot do.
+        // The trailing strip is left to SwiftUI so the remove button stays clickable.
+        .overlay {
+            if !RenderMode.isGallery {
+                ShelfDragHandle(urls: targets, onClick: onSelect, onOpen: { shelf.open(targets()) })
+                    .padding(.trailing, 22)
+            }
+        }
         .contextMenu { menu }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
@@ -255,11 +270,28 @@ struct ShelfItemView: View {
                 .offset(x: 6, y: -6)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            // Quick Look, where Finder puts the space bar. The island is never the key window,
+            // so there is no space bar to press; this is that gesture.
+            if hovering {
+                Button(action: { ShelfQuickLook.shared.show(targets()) }) {
+                    Image(systemName: "eye.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white, .black.opacity(0.7))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(IslandButtonStyle())
+                .accessibilityLabel("Quick Look")
+                .offset(x: 6, y: 4)
+            }
+        }
     }
 
     @ViewBuilder
     private var menu: some View {
         Button("Open") { shelf.open(targets()) }
+        Button("Quick Look") { ShelfQuickLook.shared.show(targets()) }
         Button("Reveal in Finder") { shelf.revealInFinder(targets()) }
         Divider()
         Button("AirDrop") { shelf.airDrop(targets()) }
