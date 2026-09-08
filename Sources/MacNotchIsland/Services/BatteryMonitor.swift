@@ -52,7 +52,8 @@ final class BatteryMonitor {
     }
 
     /// The power-source description of the internal battery, or nil on a Mac without one.
-    private static func internalBatteryDescription() -> [String: Any]? {
+    /// Shared with `SystemStats`, which asks the same question for the Stats section.
+    static func internalBatteryDescription() -> [String: Any]? {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
         for ps in list {

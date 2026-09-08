@@ -50,7 +50,7 @@ struct BluetoothExpandedView: View {
                 }
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, 16)
+            .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilitySummary)
         }

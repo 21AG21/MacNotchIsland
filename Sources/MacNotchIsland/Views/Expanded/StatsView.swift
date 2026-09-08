@@ -106,11 +106,25 @@ struct StatsView: View {
         .accessibilityValue("Download \(SystemStats.rateText(stats.sample.networkDownBytesPerSec)), upload \(SystemStats.rateText(stats.sample.networkUpBytesPerSec))")
     }
 
+    /// The laptop question, in the order it is asked: how much is left, then for how long,
+    /// then how the battery is ageing.
     private var batteryCell: some View {
         cell(label: "Battery") {
             Text(batteryValue)
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+            if let percent = stats.sample.batteryPercent {
+                MeterBar(fraction: Double(percent) / 100)
+                    .padding(.top, 10)
+                    .accessibilityHidden(true)
+                if let time = batteryTime {
+                    Text(time)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                        .padding(.top, 4)
+                }
+            }
             if let detail = batteryDetail {
                 Text(detail)
                     .font(.system(size: 10))
@@ -124,25 +138,37 @@ struct StatsView: View {
         .accessibilityValue(batteryAccessibilityValue)
     }
 
-    /// "92 percent, 214 cycles · 31°", or "Not available" on a Mac with no battery.
+    /// "3 h 40 min left", "48 min to full", or "Plugged in" when there is no estimate.
+    private var batteryTime: String? {
+        guard stats.sample.batteryPercent != nil else { return nil }
+        guard let minutes = stats.sample.batteryMinutesRemaining else {
+            return stats.sample.batteryCharging ? "Charging" : nil
+        }
+        let duration = BatteryFormatting.formatMinutes(minutes)
+        return stats.sample.batteryCharging ? "\(duration) to full" : "\(duration) left"
+    }
+
+    /// "82 percent, 3 h 40 min left, 91 percent health", or "Not available" on a desktop.
     private var batteryAccessibilityValue: String {
-        guard let health = stats.sample.batteryHealthPercent else { return "Not available" }
-        var value = "\(Int(health.rounded())) percent"
-        if let detail = batteryDetail { value += ", \(detail)" }
-        return value
+        guard let percent = stats.sample.batteryPercent else { return "Not available" }
+        var parts = ["\(percent) percent"]
+        if let time = batteryTime { parts.append(time) }
+        if let detail = batteryDetail { parts.append(detail) }
+        return parts.joined(separator: ", ")
     }
 
-    /// Battery health, or an em dash on a Mac that has no battery to ask.
+    /// How much charge is left, or an em dash on a Mac with no battery to ask.
     private var batteryValue: String {
-        guard let health = stats.sample.batteryHealthPercent else { return "—" }
-        return "\(Int(health.rounded()))%"
+        guard let percent = stats.sample.batteryPercent else { return "—" }
+        return "\(percent)%"
     }
 
-    /// "214 cycles · 31°", dropping whichever half the battery did not report.
+    /// "91% health · 214 cycles", dropping whatever the battery did not report. Health belongs
+    /// under the charge, not instead of it.
     private var batteryDetail: String? {
         var parts: [String] = []
+        if let health = stats.sample.batteryHealthPercent { parts.append("\(Int(health.rounded()))% health") }
         if let cycles = stats.sample.cycleCount { parts.append("\(cycles) cycles") }
-        if let temperature = stats.sample.batteryTemperatureC { parts.append("\(Int(temperature.rounded()))°") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

@@ -46,11 +46,46 @@ struct BatteryExpandedView: View {
                 }
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, 16)
+            .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(BatteryFormatting.accessibilityLabel(for: state))
+
+            // The panel has room the 440 pt card does not, and on a laptop this is the card
+            // people open on purpose: the level as a bar, and how the battery is ageing.
+            if insidePanel {
+                VStack(alignment: .leading, spacing: 8) {
+                    ChargeBar(percent: state.percent, tint: state.tint)
+                    if let detail = BatteryFormatting.detailLine(for: state) {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, IslandInsets.horizontal)
+                .padding(.top, 14)
+                .accessibilityHidden(true)
+            }
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
+    }
+}
+
+/// How full the battery is, as a bar the width of the card: the shape of the number above it.
+private struct ChargeBar: View {
+    let percent: Int
+    let tint: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.12))
+                Capsule()
+                    .fill(tint.opacity(0.9))
+                    .frame(width: max(3, proxy.size.width * min(1, max(0, Double(percent) / 100))))
+            }
+        }
+        .frame(height: 6)
     }
 }
 

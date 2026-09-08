@@ -46,19 +46,22 @@ struct TimerExpandedView: View {
                     .accessibilityLabel(spokenLabel(at: context.date))
                 }
                 Spacer(minLength: 0)
-                HStack(spacing: 20) {
+                // Two circles of the same weight, told apart by colour rather than by shape:
+                // the timer's own orange for what it does next, white for cancelling it.
+                HStack(spacing: 10) {
                     if state.isFinished {
-                        CircleActionButton(symbol: "arrow.counterclockwise", tint: .white) { IslandTimer.shared.repeatLast() }
+                        CircleActionButton(symbol: "arrow.counterclockwise", tint: .orange, label: "Repeat") { IslandTimer.shared.repeatLast() }
                     } else {
-                        CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .white) {
+                        CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .orange,
+                                           label: state.isPaused ? "Resume" : "Pause") {
                             state.isPaused ? IslandTimer.shared.resume() : IslandTimer.shared.pause()
                         }
                     }
-                    cancelButton
+                    CircleActionButton(symbol: "xmark", tint: .white, label: "Cancel") { IslandTimer.shared.cancel() }
                 }
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, others.isEmpty ? 16 : 0)
+            .padding(.bottom, others.isEmpty && !insidePanel ? 16 : 0)
             if !others.isEmpty { otherTimers }
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
@@ -95,18 +98,6 @@ struct TimerExpandedView: View {
 
     /// Cancelling is the quietest thing on the card: a bare glyph, no disc, but still a
     /// 40 pt target to hit.
-    private var cancelButton: some View {
-        Button(action: { IslandTimer.shared.cancel() }) {
-            Image(systemName: "xmark")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
-                .frame(width: 40, height: 40)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(IslandButtonStyle())
-        .accessibilityLabel("Cancel")
-    }
-
     private var headline: String {
         if state.isFinished { return pomodoro == nil ? "Timer done" : "\(state.label) done" }
         return state.isPaused ? "Paused" : state.label

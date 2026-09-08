@@ -28,7 +28,7 @@ struct HUDExpandedView: View {
                     .frame(width: 62, alignment: .trailing)
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, 16)
+            .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")
             .accessibilityValue(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent")

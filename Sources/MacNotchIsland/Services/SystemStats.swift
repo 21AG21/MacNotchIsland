@@ -2,6 +2,7 @@ import Combine
 import Darwin
 import Foundation
 import IOKit
+import IOKit.ps
 
 /// Live CPU / memory / network / battery-health numbers for the Home panel's Stats tab.
 ///
@@ -26,6 +27,10 @@ final class SystemStats: ObservableObject {
         var batteryTemperatureC: Double?
         var diskUsedBytes: UInt64 = 0
         var diskTotalBytes: UInt64 = 0
+        /// What a laptop is actually asked about: how much charge is left, and for how long.
+        var batteryPercent: Int?
+        var batteryCharging = false
+        var batteryMinutesRemaining: Int?
     }
 
     @Published private(set) var sample = Sample()
@@ -169,6 +174,12 @@ final class SystemStats: ObservableObject {
             next.diskTotalBytes = disk.total
         }
 
+        if let charge = Self.readCharge() {
+            next.batteryPercent = charge.percent
+            next.batteryCharging = charge.charging
+            next.batteryMinutesRemaining = charge.minutes
+        }
+
         publish(next, recordCPU: recordCPU)
     }
 
@@ -182,6 +193,20 @@ final class SystemStats: ObservableObject {
         battery = reading
         batteryReadAt = now
         return reading
+    }
+
+    /// How much charge is left, whether it is going up, and macOS's own estimate of how long
+    /// it will last — the three things a laptop is asked about. Nil on a desktop.
+    static func readCharge() -> (percent: Int, charging: Bool, minutes: Int?)? {
+        guard let description = BatteryMonitor.internalBatteryDescription() else { return nil }
+        let current = description[kIOPSCurrentCapacityKey] as? Int ?? 0
+        let maximum = description[kIOPSMaxCapacityKey] as? Int ?? 100
+        let charging = description[kIOPSIsChargingKey] as? Bool ?? false
+        let key = charging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
+        let raw = description[key] as? Int ?? -1
+        let percent = maximum > 0 ? Int((Double(current) / Double(maximum) * 100).rounded()) : current
+        // macOS reports -1 while it is still working the estimate out.
+        return (min(100, max(0, percent)), charging, raw > 0 ? raw : nil)
     }
 
     /// Free space on the boot volume. Cached like the battery: the answer walks the volume

@@ -56,7 +56,7 @@ struct CustomExpandedView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.bottom, 16)
+        .padding(.bottom, insidePanel ? 0 : 16)
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
     }
 

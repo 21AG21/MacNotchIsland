@@ -141,6 +141,11 @@ struct SectionHeader<Trailing: View>: View {
         self.trailing = trailing
     }
 
+    /// The header's own height, and the gap every section leaves under it. One number each,
+    /// so the first line of every section starts on the same baseline.
+    static let height: CGFloat = 22
+    static let gapBelow: CGFloat = 8
+
     var body: some View {
         HStack(spacing: 8) {
             Text(title)
@@ -150,7 +155,7 @@ struct SectionHeader<Trailing: View>: View {
             Spacer(minLength: 0)
             trailing()
         }
-        .frame(height: 22)
+        .frame(height: Self.height)
     }
 }
 
