@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenRebuildWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        RunRecord.begin()
+        IslandLog.island.notice("launched pid \(Int(ProcessInfo.processInfo.processIdentifier), privacy: .public) from \(Bundle.main.bundlePath, privacy: .public)")
         Self.retireOtherCopies()
         NSApp.setActivationPolicy(.accessory)
         rebuildPanels()
@@ -49,6 +51,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Every deliberate quit is recorded with who asked for it: the menu bar item, another
+    /// copy of the app retiring this one, or the system. A run that ends any other way leaves
+    /// no such record, which is how the next run knows it vanished.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        RunRecord.end(Self.quitRequester())
+        return .terminateNow
+    }
+
+    private static func quitRequester() -> String {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent else { return "from inside the app" }
+        // keySenderPIDAttr, 'spid': the process that sent the quit event.
+        guard let pid = event.attributeDescriptor(forKeyword: AEKeyword(0x7370_6964))?.int32Value else {
+            return "Apple event without a sender"
+        }
+        let app = NSRunningApplication(processIdentifier: pid)
+        let name = app?.localizedName ?? "pid \(pid)"
+        let path = app?.bundleURL?.path ?? "?"
+        return "quit event from \(name) (pid \(pid), \(path))"
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         ActivityCenter.shared.showHome()

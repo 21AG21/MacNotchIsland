@@ -16,6 +16,8 @@ defaults write "$ID" hapticsEnabled -bool false
 defaults write "$ID" updateChecksEnabled -bool false
 defaults write "$ID" screenshotsToShelfEnabled -bool false
 
+DIED=0
+
 run_case() {  # name, click y, extra env
   local name=$1 y=$2 env=${3:-}
   echo "=== case $name"
@@ -23,19 +25,26 @@ run_case() {  # name, click y, extra env
   env $env "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/$name-app.log" 2>&1 &
   local pid=$!
   sleep 6
-  echo "--- click 1: the idle island (should open Home)"; "$OUT/click" mid "$y"; sleep 2.5
+  echo "--- click 1: the island (should open)"; "$OUT/click" mid "$y"; sleep 2.5
   screencapture -x "$OUT/$name-1-after-open.png"
   echo "--- click 2: the open panel (should stay open)"; "$OUT/click" mid "$y"; sleep 1.5
   screencapture -x "$OUT/$name-2-after-second-click.png"
   echo "--- click 3: far away (should close)"; "$OUT/click" 120 500; sleep 1.5
   screencapture -x "$OUT/$name-3-after-outside-click.png"
-  if kill -0 "$pid" 2>/dev/null; then echo "--- app alive: yes"; else echo "--- app alive: NO, it died"; fi
+  if kill -0 "$pid" 2>/dev/null; then echo "--- app alive: yes"; else echo "--- app alive: NO, it died"; DIED=1; fi
   echo "--- unified log"
   log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact 2>&1 | tail -n 120
+  echo "--- errors and faults from the process"
+  log show --start "$start" --predicate "process == \"MacNotchIsland\" AND (messageType == error OR messageType == fault)" --style compact 2>&1 | tail -n 40
   echo "--- app stderr"; tail -n 20 "$OUT/$name-app.log"
   echo "--- crash reports"
   for f in $(ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i notch | head -1); do
-    head -n 60 ~/Library/Logs/DiagnosticReports/"$f"
+    local report=~/Library/Logs/DiagnosticReports/"$f"
+    echo "$f"
+    head -n 1 "$report"
+    grep -o '"termination"[^}]*}' "$report" | head -1
+    grep -o '"exception"[^}]*}' "$report" | head -1
+    grep -o '"asi"[^}]*}' "$report" | head -1
   done
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   sleep 1
@@ -54,4 +63,8 @@ run_case() {  # name, click y, extra env
 
 run_case floating 21
 run_case notch 16 "NOTCH_SIMULATE=1"
+# The path users take most: a track is playing, the compact island shows it, a click opens
+# the Now Playing card. Simulated notch and a made-up track, so the runner needs no player.
+run_case nowplaying 16 "NOTCH_SIMULATE=1 NOTCH_FAKE_TRACK=1"
 echo "--- done"
+if [ "$DIED" -ne 0 ]; then echo "SMOKE FAILED: the app died in at least one case"; exit 1; fi

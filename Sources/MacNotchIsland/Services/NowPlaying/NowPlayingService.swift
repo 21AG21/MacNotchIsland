@@ -57,9 +57,28 @@ final class NowPlayingService: ObservableObject {
 
     private init() {}
 
+    /// `NOTCH_FAKE_TRACK=1` in the environment plays a made-up track with artwork instead of
+    /// asking any player, so the Now Playing card can be exercised on a machine (CI) with
+    /// nothing playing.
+    static var fakesTrack: Bool { ProcessInfo.processInfo.environment["NOTCH_FAKE_TRACK"] == "1" }
+
+    private static func fakeTrack() -> NowPlayingInfo {
+        let image = NSImage(size: NSSize(width: 300, height: 300), flipped: false) { rect in
+            NSGradient(starting: .systemPink, ending: .systemIndigo)?.draw(in: rect, angle: 45)
+            return true
+        }
+        return NowPlayingInfo(title: "Smoke Test", artist: "Notch Island", album: "Continuous Integration",
+                              duration: 214, elapsed: 61, timestamp: Date(), isPlaying: true, bundleID: "com.apple.Music",
+                              artwork: image, artworkID: 1, accent: image.dominantColor() ?? .white)
+    }
+
     func start() {
         guard !running else { return }
         running = true
+        if Self.fakesTrack {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.handle(Self.fakeTrack(), from: .adapter) }
+            return
+        }
         adapter.onUpdate = { [weak self] info in self?.handle(info, from: .adapter) }
         adapter.start()
         mediaRemote.onUpdate = { [weak self] info in
