@@ -67,7 +67,7 @@ final class CalendarMonitor: NSObject {
         ActivityCenter.shared.upsert(activity)
     }
 
-    private static func meetingLink(in event: EKEvent) -> URL? {
+    static func meetingLink(in event: EKEvent) -> URL? {
         var haystack = [event.url?.absoluteString, event.location, event.notes].compactMap { $0 }.joined(separator: " ")
         haystack = haystack.replacingOccurrences(of: "\n", with: " ")
         let pattern = #"https?://[^\s<>"']*(zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|webex\.com|facetime\.apple\.com|whereby\.com)[^\s<>"']*"#
