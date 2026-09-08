@@ -17,8 +17,18 @@ struct AlertBanner: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                CompactTrailingView(activity: activity, height: 28)
-                    .frame(width: 90, height: 28)
+                if case .hud(let hud) = activity.content {
+                    // The level gets the room a banner has: a long bar and the figure.
+                    LevelBar(level: hud.isMuted ? 0 : hud.level, tint: .white)
+                        .frame(width: 140, height: 4)
+                    Text(hud.isMuted ? "Muted" : "\(Int((hud.level * 100).rounded()))%")
+                        .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .frame(width: 44, alignment: .trailing)
+                } else {
+                    CompactTrailingView(activity: activity, height: 28)
+                        .frame(width: 90, height: 28)
+                }
             }
             .padding(.horizontal, 12)
             .frame(width: IslandLayout.panelContentWidth, height: 32)
