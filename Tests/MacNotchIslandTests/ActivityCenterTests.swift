@@ -328,7 +328,8 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.presentation, .home, "the panel stays")
         XCTAssertEqual(center.overlayAlert?.id, "hud")
         center.collapse(reason: "test")
-        XCTAssertNil(center.overlayAlert)
+        XCTAssertNil(center.overlayAlert, "closing the panel takes the strip with it")
+        center.showAlert(hud, duration: 5)
         guard case .compact(let shown, _) = center.presentation else { return XCTFail("with nothing open the HUD has the island") }
         XCTAssertEqual(shown.id, "hud")
         center.dismissAlert()
