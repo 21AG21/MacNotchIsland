@@ -8,7 +8,7 @@
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
 #   notchctl shelf add <path>                   notchctl shelf clear
-#   notchctl home | collapse | settings
+#   notchctl home [music|today|shelf|clipboard|actions|notes|stats] | collapse | settings
 set -euo pipefail
 
 urlencode() {
@@ -74,7 +74,9 @@ case "$cmd" in
       clear) open_url "shelf/clear" ;;
       *) echo "usage: notchctl shelf add <path> | clear" >&2; exit 2 ;;
     esac ;;
-  home|collapse|settings)
+  home)
+    if [ -n "${1:-}" ]; then open_url "home/$1"; else open_url "home"; fi ;;
+  collapse|settings)
     open_url "$cmd" ;;
   *)
     sed -n '2,12p' "$0"; exit 2 ;;

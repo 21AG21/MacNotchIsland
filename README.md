@@ -130,7 +130,7 @@ notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1
 notchisland://timer?minutes=5&label=Tea    notchisland://timer/cancel | pause | resume
 notchisland://stopwatch                    notchisland://stopwatch/lap | stop | reset
 notchisland://shelf/add?path=…             notchisland://shelf/clear
-notchisland://home | collapse | settings
+notchisland://home[/music|today|shelf|clipboard|actions|notes|stats] | collapse | settings
 ```
 
 `tint` accepts the iOS system colour names (red, orange, yellow, green, mint, teal, cyan,
