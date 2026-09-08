@@ -311,7 +311,6 @@ final class ClipboardStore: ObservableObject {
     func togglePin(item: ClipboardItem) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[index].pinned.toggle()
-        Haptics.soft()
         schedulePersist()
     }
 

@@ -186,7 +186,7 @@ struct TimerExpandedView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
             }
-            Button(action: { Haptics.soft(); IslandTimer.shared.cancel(id: entry.id) }) {
+            Button(action: { IslandTimer.shared.cancel(id: entry.id) }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.white.opacity(0.7))

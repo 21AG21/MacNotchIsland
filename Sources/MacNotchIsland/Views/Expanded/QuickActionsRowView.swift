@@ -30,10 +30,7 @@ private struct QuickActionButton: View {
     private static let diameter: CGFloat = 32
 
     var body: some View {
-        Button(action: {
-            Haptics.soft()
-            runner.run(name)
-        }) {
+        Button(action: { runner.run(name) }) {
             VStack(spacing: 5) {
                 ZStack {
                     Circle().fill(Color.white.opacity(0.14))

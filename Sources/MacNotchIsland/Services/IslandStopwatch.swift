@@ -19,7 +19,6 @@ final class IslandStopwatch: ObservableObject {
             state = StopwatchState(startedAt: Date())
         }
         publish()
-        Haptics.tap()
     }
 
     func stop() {
@@ -35,7 +34,6 @@ final class IslandStopwatch: ObservableObject {
         s.laps.append(s.elapsed(at: Date()))
         state = s
         publish()
-        Haptics.soft()
     }
 
     func reset() {

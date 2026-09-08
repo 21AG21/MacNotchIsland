@@ -234,7 +234,6 @@ final class ActivityCenter: ObservableObject {
             if activities[i] != a { activities[i] = a }
         } else {
             activities.append(activity)
-            Haptics.soft()
             // The island is about to widen into the menu bar; measure it as it is right now.
             MenuBarClearance.shared.refresh()
         }
@@ -267,7 +266,6 @@ final class ActivityCenter: ObservableObject {
     func promote(id: String) {
         guard activities.contains(where: { $0.id == id }) else { return }
         pinnedID = id
-        Haptics.tap()
     }
 
     /// Temporarily force an activity into its expanded view (e.g. a timer finishing).

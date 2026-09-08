@@ -34,7 +34,7 @@ struct IslandPane: View {
             Section {
                 SettingsSlider("Alert duration", value: $prefs.alertDuration, range: 1...6, unit: "s")
                 Toggle("Trackpad haptics", isOn: $prefs.hapticsEnabled)
-                    .help("A light tap when the island expands or an alert arrives.")
+                    .help("A light tap when an alert arrives, a timer rings, or a file is dragged onto the island. Never for a click: the trackpad has already clicked.")
                 Toggle("Trackpad gestures", isOn: $prefs.gesturesEnabled)
                     .help("Swipe and scroll on the island to control playback and volume.")
                 Toggle("Keep clear of menu bar items", isOn: $prefs.keepClearOfMenuBar)

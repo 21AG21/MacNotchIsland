@@ -143,7 +143,6 @@ final class IslandTimer: ObservableObject {
         ActivityCenter.shared.dismissAlert()
         publishAll()
         syncTicker()
-        Haptics.tap()
         return id
     }
 

@@ -18,7 +18,7 @@ struct GlyphButton: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: { Haptics.soft(); action() }) {
+        Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .bold))
                 .foregroundStyle(tint)
@@ -57,7 +57,7 @@ struct CircleActionButton: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: { Haptics.soft(); action() }) {
+        Button(action: action) {
             ZStack {
                 Circle().fill(filled ? tint : tint.opacity(0.22))
                 Image(systemName: symbol)
@@ -81,7 +81,7 @@ struct PillButton: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: { Haptics.soft(); action() }) {
+        Button(action: action) {
             HStack(spacing: 5) {
                 if let symbol { Image(systemName: symbol).font(.system(size: 11, weight: .bold)) }
                 Text(title).font(.system(size: 12, weight: .semibold))
