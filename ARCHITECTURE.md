@@ -67,7 +67,14 @@ where it does not (Caps Lock, Focus, full-screen detection) and never above 2 Hz
 Now Playing has three backends chosen at runtime: a MediaRemote adapter (a small dylib
 compiled by `Scripts/build.sh`, hosted out-of-process and spoken to over JSON), the
 in-process MediaRemote framework where it still works, and AppleScript for Music and
-Spotify as a last resort.
+Spotify as a last resort. `ArtworkFetcher` fills in a cover none of them supplied, by
+name, once per track.
+
+Three services are driven by a view being on screen rather than by `ServiceHub`, and count
+their viewers: `WindowsMonitor` (the window list, its ScreenCaptureKit thumbnails, and the
+Accessibility calls that raise, snap and close a window), `SystemToggles` (Wi-Fi through
+CoreWLAN, Bluetooth through IOBluetooth's undeclared power switch, appearance through
+System Events) and `BrightnessControl`. Each one costs nothing while the panel is closed.
 
 ## Views
 
