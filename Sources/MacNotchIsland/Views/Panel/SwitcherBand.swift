@@ -70,7 +70,7 @@ struct SwitcherBand: View {
             HStack(spacing: right.gap) {
                 ForEach(Array(right.views.enumerated()), id: \.offset) { _, view in slotView(view, size: right.slot) }
                 Spacer(minLength: 0)
-                if center.isOpen { closeButton }
+                if center.isOpen { closeButton(size: right.slot) }
             }
             .frame(width: side, alignment: .leading)
         }
@@ -138,15 +138,16 @@ struct SwitcherBand: View {
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
-    private var closeButton: some View {
+    /// The same circle as a slot, so the row is one size across.
+    private func closeButton(size: CGFloat) -> some View {
         Button(action: { center.collapse(reason: "close button") }) {
             ZStack {
                 Circle().fill(Color.white.opacity(0.10))
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: size * 0.42, weight: .bold))
                     .foregroundStyle(.white.opacity(0.7))
             }
-            .frame(width: Self.slot, height: Self.slot)
+            .frame(width: size, height: size)
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
