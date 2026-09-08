@@ -69,7 +69,7 @@ final class NowPlayingService: ObservableObject {
         }
         return NowPlayingInfo(title: "Smoke Test", artist: "Notch Island", album: "Continuous Integration",
                               duration: 214, elapsed: 61, timestamp: Date(), isPlaying: true, bundleID: "com.apple.Music",
-                              artwork: image, artworkID: 1, accent: image.dominantColor() ?? .white)
+                              artwork: image, artworkID: 1, accent: image.dominantColor())
     }
 
     func start() {
