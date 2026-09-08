@@ -66,15 +66,22 @@ struct ActionsSectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            SectionHeader("Actions") {
+                PillButton(title: "Edit", tint: .white.opacity(0.85)) {
+                    UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
+                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+            }
             QuickActionsRowView()
                 .frame(height: 64)
             Rectangle()
                 .fill(Color.white.opacity(0.08))
                 .frame(height: 0.5)
-                .padding(.vertical, 8)
+                .padding(.vertical, 6)
                 .accessibilityHidden(true)
             timerRow
-                .frame(height: 30)
+                .frame(height: 28)
             Spacer(minLength: 0)
         }
     }

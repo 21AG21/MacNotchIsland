@@ -68,13 +68,10 @@ struct ShelfStripView: View {
         return "Shelf · \(shelf.items.count) \(shelf.items.count == 1 ? "item" : "items")"
     }
 
+    /// The same header every other section uses, so the shelf's title sits on the same line
+    /// as Windows', Today's and the rest.
     private var header: some View {
-        HStack(spacing: 6) {
-            Text(headerTitle)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(isDropTarget ? 1 : 0.6))
-                .lineLimit(1)
-            Spacer(minLength: 0)
+        SectionHeader(headerTitle) {
             if !shelf.items.isEmpty {
                 // The narrow Home column only has room for two pills; Open lives on the
                 // double-click and in the context menu there.
@@ -98,7 +95,6 @@ struct ShelfStripView: View {
                 }
             }
         }
-        .frame(height: 29)
     }
 
     // MARK: - Strip
@@ -152,7 +148,8 @@ struct ShelfStripView: View {
                         .transition(IslandMotion.pop(scale: 0.6))
                 }
             }
-            .padding(.horizontal, 10)
+            // No inset of its own: the first tile lines up with the section's header and with
+            // every other section's content.
             .padding(.vertical, 5)
             // A dropped file pops into place and the rest shuffle over; a removed one shrinks away.
             .animation(IslandMotion.content, value: shelf.items)
@@ -204,6 +201,9 @@ struct ShelfItemView: View {
 
     private var url: URL { item.url }
 
+    /// The width of a tile: the thumbnail with room either side for a name worth reading.
+    static let column: CGFloat = 78
+
     var body: some View {
         VStack(spacing: 3) {
             thumbnail
@@ -222,10 +222,11 @@ struct ShelfItemView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75))
                     .lineLimit(1)
+                    .truncationMode(.middle)
                     .opacity(hovering ? 0 : 1)
                 if hovering { actions }
             }
-            .frame(width: 66, height: 18)
+            .frame(width: Self.column, height: 18)
         }
         .contentShape(Rectangle())
         .help(ageText.isEmpty ? url.path : "\(url.path)\nAdded \(ageText) ago")
