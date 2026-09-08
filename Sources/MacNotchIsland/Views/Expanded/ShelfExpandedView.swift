@@ -62,7 +62,10 @@ struct ShelfStripView: View {
 
     private var headerTitle: String {
         if !selection.isEmpty { return "\(selection.count) selected" }
-        return isDropTarget ? "Drop to keep here" : "Shelf"
+        if isDropTarget { return "Drop to keep here" }
+        guard !shelf.items.isEmpty else { return "Shelf" }
+        // The strip scrolls, so say how much there is to scroll to.
+        return "Shelf · \(shelf.items.count) \(shelf.items.count == 1 ? "item" : "items")"
     }
 
     private var header: some View {

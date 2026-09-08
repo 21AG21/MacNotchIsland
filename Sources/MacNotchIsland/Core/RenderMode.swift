@@ -28,7 +28,13 @@ struct IslandScrollStrip<Content: View>: View {
 
     var body: some View {
         if RenderMode.isGallery {
-            content().clipped()
+            // A scroll view puts its content against the leading edge; laid out in place it
+            // would centre instead, and the gallery would show a strip nobody will ever see.
+            content()
+                .frame(maxWidth: axis == .horizontal ? .infinity : nil,
+                       maxHeight: axis == .vertical ? .infinity : nil,
+                       alignment: .topLeading)
+                .clipped()
         } else {
             ScrollView(axis, showsIndicators: showsIndicators) { content() }
         }
