@@ -15,8 +15,13 @@ struct NotchGeometry: Equatable {
     /// Notch widths measured per screen, kept for moments when the system reports none.
     private static var measuredWidths: [String: CGFloat] = [:]
 
+    /// `NOTCH_SIMULATE=1` in the environment makes a plain display behave as if it had a
+    /// 200 x 32 pt notch, so the notch code paths can run on machines (and CI) without one.
+    static var simulatesNotch: Bool { ProcessInfo.processInfo.environment["NOTCH_SIMULATE"] == "1" }
+
     static func detect(on screen: NSScreen, prefs: Preferences = .shared) -> NotchGeometry {
-        let top = screen.safeAreaInsets.top
+        var top = screen.safeAreaInsets.top
+        if top == 0, simulatesNotch { top = 32 }
         let hasNotch = top > 0
         var width: CGFloat = 200
         var height: CGFloat = 32
@@ -31,6 +36,8 @@ struct NotchGeometry: Equatable {
             } else if let known = measuredWidths[key] {
                 // The auxiliary areas come and go with the menu bar; the cutout does not.
                 width = known
+            } else if simulatesNotch {
+                width = 200
             }
         } else {
             // Simulated island on external displays: menu-bar height, iPhone-like proportions.

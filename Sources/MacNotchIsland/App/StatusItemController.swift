@@ -62,6 +62,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         menu.addItem(.separator())
 
         menu.addItem(action("Check for Updates…", #selector(checkForUpdates)))
+        menu.addItem(action("Copy Diagnostics", #selector(copyDiagnostics)))
 
         // Hold Option to swap the tour for the demo menu, the way Apple hides advanced options.
         let welcome = action("Welcome Tour", #selector(showWelcome))
@@ -171,6 +172,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func copyDiagnostics() { Diagnostics.copyToPasteboard() }
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
