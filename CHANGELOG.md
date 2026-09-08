@@ -20,6 +20,13 @@ the unreleased section is what the next tag will ship.
 - A full-screen app hiding the menu bar no longer rebuilds the island windows.
 - The reasons a panel opens or closes are written to the unified log under
   `com.macnotchisland.app`, so a report from another Mac can be diagnosed.
+- A track reporting an infinite duration or an unmeasured position (a live stream, a radio
+  station) no longer crashes the app the moment the Now Playing card opens; such times read
+  as zero.
+- The island's window changes size without forcing a synchronous layout of its content, and
+  refuses a frame that lost touch with the screen.
+- The click-outside check no longer runs a view hit test from the event monitor; it checks
+  the island's footprint arithmetically.
 
 ### Added
 - The island is driven by clicks and the keyboard, never by the pointer passing by: a click
@@ -38,6 +45,9 @@ the unreleased section is what the next tag will ship.
   count and health, read from IOKit when the alert appears.
 - Hide the island automatically while chosen apps are in front; the list lives in Settings.
 - Screenshots land on the shelf with a brief thumbnail alert.
+- Copy Diagnostics (menu bar) includes the newest crash reports macOS wrote for the app, the
+  errors and faults logged around it, and whether the previous run quit on request (and by
+  whom) or simply vanished. A `kill` counts as a request.
 - A Settings window laid out like System Settings: sidebar of panes, grouped forms,
   standard controls, sentence-case labels and footers.
 - A Welcome window in Apple's onboarding pattern with the live shortcut in it.
