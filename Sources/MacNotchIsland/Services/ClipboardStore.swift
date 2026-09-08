@@ -309,6 +309,8 @@ final class ClipboardStore: ObservableObject {
             let live = item.fileURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
             guard !live.isEmpty else {
                 pasteboard.setString(item.fileURLs.map(\.path).joined(separator: "\n"), forType: .string)
+                // The poller must not read this write back as a fresh copy and file it twice.
+                lastChangeCount = pasteboard.changeCount
                 return
             }
             let files: [NSPasteboardWriting] = live.map { $0 as NSURL }

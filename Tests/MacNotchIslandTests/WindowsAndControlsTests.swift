@@ -107,6 +107,21 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertLessThanOrEqual(used, 60)
     }
 
+    // MARK: - Favourite apps
+
+    func testADeletedAppLeavesTheFavouritesButAnUnpluggedOneStays() throws {
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let app = folder.appendingPathComponent("Thing.app")
+        try Data("app".utf8).write(to: app)
+        XCTAssertTrue(FavoriteApps.worthKeeping(app.path), "it is there")
+        try FileManager.default.removeItem(at: app)
+        XCTAssertFalse(FavoriteApps.worthKeeping(app.path), "deleted: forget it")
+        XCTAssertTrue(FavoriteApps.worthKeeping("/Volumes/Nothing Here/Thing.app"),
+                      "a whole folder missing is an unplugged disk, not a deleted app")
+    }
+
     // MARK: - Menu bar hysteresis
 
     func testTheIslandIgnoresAMenuBarThatMovedByAHair() {

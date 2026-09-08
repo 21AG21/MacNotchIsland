@@ -44,19 +44,21 @@ final class ShortcutsRunner: ObservableObject {
             return
         }
         Self.queue.async { [weak self] in
-            let output = Self.capture(arguments: ["list"])
-            let names = Self.parseList(output ?? "")
+            let result = Self.capture(arguments: ["list"])
+            let names = Self.parseList(result.output ?? "")
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.available = names
+                guard result.succeeded else { return }
                 self.pruneFavorites(against: names)
             }
         }
     }
 
     /// Drops favourites the Shortcuts app no longer has, so the row never offers a button
-    /// that can only fail. An empty list means the question could not be asked — a Shortcuts
-    /// app that is busy or missing — and nothing is dropped on the strength of that.
+    /// that can only fail. Only ever called for a listing that exited cleanly, and never on an
+    /// empty one: a Shortcuts app that is busy, missing, or still syncing from iCloud must not
+    /// be taken as proof that every favourite has gone.
     private func pruneFavorites(against names: [String]) {
         guard !names.isEmpty else { return }
         let live = favorites.filter { names.contains($0) }
@@ -134,7 +136,10 @@ final class ShortcutsRunner: ObservableObject {
         return ProcessResult(succeeded: process.terminationStatus == 0, stderrFirstLine: firstLine)
     }
 
-    private static func capture(arguments: [String]) -> String? {
+    /// Runs `shortcuts` and returns what it printed, and whether it said it succeeded. The
+    /// exit status matters: a listing that failed half way is not evidence that a shortcut
+    /// has gone.
+    private static func capture(arguments: [String]) -> (output: String?, succeeded: Bool) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = arguments
@@ -144,11 +149,11 @@ final class ShortcutsRunner: ObservableObject {
         do {
             try process.run()
         } catch {
-            return nil
+            return (nil, false)
         }
         let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return String(data: data, encoding: .utf8)
+        return (String(data: data, encoding: .utf8), process.terminationStatus == 0)
     }
 
     // MARK: - Favorites

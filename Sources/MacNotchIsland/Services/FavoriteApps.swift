@@ -32,13 +32,22 @@ final class FavoriteApps: ObservableObject {
     /// no longer see, or remove.
     var apps: [(path: String, name: String)] {
         let live = paths.filter { FileManager.default.fileExists(atPath: $0) }
-        if live != paths {
+        let kept = paths.filter { Self.worthKeeping($0) }
+        if kept != paths {
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.paths != live else { return }
-                self.paths = live
+                guard let self, self.paths != kept else { return }
+                self.paths = kept
             }
         }
         return live.map { ($0, Self.name(of: $0)) }
+    }
+
+    /// Whether a path is still worth storing. A deleted app is forgotten; an app whose whole
+    /// folder has gone is on a disk that is not plugged in, and comes back when it is.
+    static func worthKeeping(_ path: String, fileManager: FileManager = .default) -> Bool {
+        if fileManager.fileExists(atPath: path) { return true }
+        let folder = (path as NSString).deletingLastPathComponent
+        return !folder.isEmpty && !fileManager.fileExists(atPath: folder)
     }
 
     static func name(of path: String) -> String {

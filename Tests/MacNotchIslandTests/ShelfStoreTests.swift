@@ -91,6 +91,37 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertFalse(ShelfStore.isOwned(try makeFile("theirs.txt")))
     }
 
+    // MARK: - Copying
+
+    func testCopyingATextFileCarriesItsText() throws {
+        let url = try makeFile("note.txt")
+        try "the quick brown fox".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertTrue(ShelfStore.mightHaveExtras(url))
+        let extras = try XCTUnwrap(ShelfStore.pasteboardExtras(for: url))
+        let text = extras.first { $0.0 == .string }.map { String(data: $0.1, encoding: .utf8) }
+        XCTAssertEqual(text, "the quick brown fox")
+    }
+
+    func testCopyingALinkCarriesItsAddressRatherThanItsPlist() throws {
+        let link = try XCTUnwrap(URL(string: "https://example.com/page"))
+        let url = try XCTUnwrap(ShelfStore.write(link: link))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let extras = try XCTUnwrap(ShelfStore.pasteboardExtras(for: url))
+        XCTAssertEqual(extras.first.map { String(data: $0.1, encoding: .utf8) }, "https://example.com/page")
+    }
+
+    func testAnOrdinaryFileCarriesNothingExtra() throws {
+        let url = dir.appendingPathComponent("archive.zip")
+        try Data("not really a zip".utf8).write(to: url)
+        XCTAssertFalse(ShelfStore.mightHaveExtras(url))
+    }
+
+    func testSomethingTooBigToHoldIsNotRead() throws {
+        let url = try makeFile("big.txt")
+        try Data(repeating: 65, count: 4096).write(to: url)
+        XCTAssertNil(ShelfStore.pasteboardExtras(for: url, limit: 1024), "the size guard comes first")
+    }
+
     // MARK: - Files that go away
 
     func testAnItemWhoseFileWasDeletedIsDropped() throws {

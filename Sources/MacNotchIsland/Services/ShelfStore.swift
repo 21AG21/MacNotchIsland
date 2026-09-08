@@ -57,7 +57,9 @@ final class ShelfStore: ObservableObject {
         if let expiryHours { expiryHoursProvider = expiryHours }
 
         var loaded = Self.load(from: defaults, key: key)
-        loaded = loaded.filter { FileManager.default.fileExists(atPath: $0.url.path) }
+        // The same rule the sweep uses: a file that has gone is dropped, a file whose whole
+        // folder has gone is on a disk that is not plugged in and is kept.
+        loaded = loaded.filter { Self.stillThere($0) }
         if loaded.count > self.maxItems { loaded = Array(loaded.prefix(self.maxItems)) }
         items = loaded
 
@@ -119,7 +121,12 @@ final class ShelfStore: ObservableObject {
         }
         // Cap *before* asking for thumbnails so dropping hundreds of files stays cheap.
         if next.count > maxItems { next = Array(next.prefix(maxItems)) }
+        let before = Set(items.map(\.url))
         items = Self.pruned(next, expiryHours: expiryHoursProvider(), now: now)
+        // Anything the cap or the expiry pushed off takes its file with it when the file was
+        // ours to begin with; otherwise the drop folder would grow forever.
+        let leaving = before.union(files).subtracting(items.map(\.url))
+        discardOwned(Array(leaving))
 
         pruneThumbnailCache()
         for item in items { requestThumbnail(item.url) }
@@ -279,24 +286,48 @@ final class ShelfStore: ObservableObject {
     /// rather than a copy of it. Reading a file to copy it happens off the main thread.
     func copyToPasteboard(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        announceCopy(count: urls.count)
+        // Several files, or one whose content is not worth carrying: the file references are
+        // all there is to write, and it can be written at once.
+        guard urls.count == 1, let url = urls.first, Self.mightHaveExtras(url) else {
+            Self.write(urls, extras: nil)
+            return
+        }
+        // Reading and decoding a file belongs off the main thread; the pasteboard is then
+        // written once, a few milliseconds later, with everything on it.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let extras = Self.pasteboardExtras(for: url)
+            DispatchQueue.main.async { Self.write([url], extras: extras) }
+        }
+    }
+
+    /// Puts files on the pasteboard, with a single file's content beside it where there is
+    /// any: one item carrying several representations, so the reader picks the one it
+    /// understands and the same copy pastes as a file in Finder and as its content elsewhere.
+    private static func write(_ urls: [URL], extras: [(NSPasteboard.PasteboardType, Data)]?) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        // One item carrying several representations: the reader picks the one it understands,
-        // so the same copy pastes as a file in Finder and as its content everywhere else.
-        if urls.count == 1, let url = urls.first, let extras = Self.pasteboardExtras(for: url) {
-            let item = NSPasteboardItem()
-            item.setString(url.absoluteString, forType: .fileURL)
-            for (type, data) in extras { item.setData(data, forType: type) }
-            pasteboard.writeObjects([item])
-        } else {
+        guard let extras, !extras.isEmpty, urls.count == 1, let url = urls.first else {
             pasteboard.writeObjects(urls.map { $0 as NSURL })
+            return
         }
-        announceCopy(count: urls.count)
+        let item = NSPasteboardItem()
+        item.setString(url.absoluteString, forType: .fileURL)
+        for (type, data) in extras { item.setData(data, forType: type) }
+        pasteboard.writeObjects([item])
+    }
+
+    /// Whether a file has anything beside itself worth putting on the pasteboard.
+    static func mightHaveExtras(_ url: URL) -> Bool {
+        switch copyKind(of: url) {
+        case .text, .image: return true
+        case .file: return url.pathExtension.lowercased() == "webloc"
+        }
     }
 
     /// The extra representations of a file: its text, its picture, or the address inside a
-    /// `.webloc`. Nil for anything too big to hold in the pasteboard, which is also what keeps
-    /// this cheap enough to do where it is called from.
+    /// `.webloc`. Nil for anything too big to hold in the pasteboard. Reads and decodes a
+    /// file, so it is called from a background queue.
     static func pasteboardExtras(for url: URL, limit: Int = 8 * 1024 * 1024) -> [(NSPasteboard.PasteboardType, Data)]? {
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         guard size <= limit else { return nil }
@@ -341,9 +372,13 @@ final class ShelfStore: ObservableObject {
     func moveToTrash(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
         remove(urls)
+        // `remove` has already trashed anything the island wrote; trashing it twice would
+        // leave the second attempt logging a failure about a file that is already gone.
+        let theirs = urls.filter { !Self.isOwned($0) }
+        guard !theirs.isEmpty else { return }
         // Trashing can block on iCloud or network volumes; never do it on the main thread.
         DispatchQueue.global(qos: .userInitiated).async {
-            for url in urls {
+            for url in theirs {
                 do {
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                 } catch {
@@ -402,32 +437,60 @@ final class ShelfStore: ObservableObject {
 
     /// The picture formats a drag can carry, best first.
     private static let imageTypes: [UTType] = [.png, .jpeg, .tiff, .heic, .gif, .image]
+    /// The same for text: concrete first, because a provider that advertises "some text" does
+    /// not always answer to that name.
+    private static let textTypes: [UTType] = [.utf8PlainText, .plainText, .rtf, .text]
 
     /// The file a provider stands for: its own, or one written for it.
+    ///
+    /// The kinds are tried in the order a person would expect — the file, then a picture, then
+    /// a link, then text — and a kind that is advertised but cannot be read falls through to
+    /// the next rather than ending the drop. A web page's drag often carries all four.
     private static func url(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                completion(fileURL(from: item))
+        file(from: provider) { url in
+            if let url { return completion(url) }
+            image(from: provider) { url in
+                if let url { return completion(url) }
+                link(from: provider) { url in
+                    if let url { return completion(url) }
+                    text(from: provider, completion: completion)
+                }
             }
-            return
         }
-        // Ask for a concrete kind of picture rather than the abstract one: a provider that
-        // advertises "an image" does not always hand one over when asked in those terms.
-        if let type = imageTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) {
-            provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
-                guard let data, let image = NSImage(data: data), image.size.width > 1 else { return completion(nil) }
-                completion(write(image: image, suggested: provider.suggestedName))
-            }
-            return
+    }
+
+    private static func file(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { return completion(nil) }
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            completion(fileURL(from: item))
         }
-        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                guard let url = webURL(from: item) else { return completion(nil) }
-                completion(write(link: url))
-            }
-            return
+    }
+
+    /// Ask for a concrete kind of picture rather than the abstract one: a provider that
+    /// advertises "an image" does not always hand one over when asked in those terms.
+    private static func image(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
+        guard let type = imageTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) else {
+            return completion(nil)
         }
-        provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { item, _ in
+        provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
+            guard let data, let image = NSImage(data: data), image.size.width > 1 else { return completion(nil) }
+            completion(write(image: image, suggested: provider.suggestedName))
+        }
+    }
+
+    private static func link(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) else { return completion(nil) }
+        provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+            guard let url = webURL(from: item) else { return completion(nil) }
+            completion(write(link: url))
+        }
+    }
+
+    private static func text(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
+        guard let type = textTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) else {
+            return completion(nil)
+        }
+        provider.loadItem(forTypeIdentifier: type.identifier, options: nil) { item, _ in
             var text: String?
             if let string = item as? String { text = string }
             else if let data = item as? Data { text = String(data: data, encoding: .utf8) }
