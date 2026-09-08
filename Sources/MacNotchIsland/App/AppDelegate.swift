@@ -62,7 +62,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func retireOtherCopies() {
         guard let id = Bundle.main.bundleIdentifier else { return }
         let me = ProcessInfo.processInfo.processIdentifier
-        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != me }
+        let mine = NSRunningApplication.current
+        // Only copies that started before this one are retired; a copy that started later is
+        // about to retire us, and two copies must never retire each other.
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { other in
+            guard other.processIdentifier != me else { return false }
+            if let theirs = other.launchDate, let ours = mine.launchDate, theirs != ours { return theirs < ours }
+            return other.processIdentifier < me
+        }
         for other in others {
             IslandLog.panel.error("another copy is running (pid \(Int(other.processIdentifier), privacy: .public)); asking it to quit")
             other.terminate()
@@ -76,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The island belongs to the notch, not to a Space: whatever the user had open stays open
     /// across a swipe, and the panel is put back on top of the new desktop.
     @objc private func spaceChanged() {
-        IslandLog.panel.info("space changed")
+        IslandLog.panel.notice("space changed")
         for panel in panels {
             panel.orderFrontRegardless()
             panel.refit()
@@ -112,19 +119,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return notched
     }
 
-    private static func key(for screen: NSScreen, geometry: NotchGeometry) -> String {
-        let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? ""
-        return "screen-\(number)|\(geometry.notchWidth)|\(geometry.notchHeight)"
-    }
-
-    /// Rebuilds the panels when the set of screens that should carry one, or a notch's size,
-    /// differs from what is on screen. Returns whether it did.
+    /// Rebuilds the panels when the set of displays that should carry one differs from what
+    /// is on screen (a display added or removed, or resized). Returns whether it did.
     @discardableResult
     private func rebuildPanelsIfGeometryChanged() -> Bool {
-        let current = Set(panels.map { "\($0.panelID)|\($0.geometry.notchWidth)|\($0.geometry.notchHeight)" })
-        let fresh = Set(Self.targetScreens().map { Self.key(for: $0, geometry: NotchGeometry.detect(on: $0)) })
+        let current = Set(panels.map(\.displayKey))
+        let fresh = Set(Self.targetScreens().map { NotchPanel.displayKey(for: $0) })
         guard current != fresh else { return false }
-        IslandLog.panel.info("displays changed; rebuilding panels")
+        IslandLog.panel.notice("displays changed; rebuilding panels")
         rebuildPanels()
         return true
     }
@@ -141,6 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let panel = NotchPanel(screen: screen, geometry: geometry)
             panel.orderFrontRegardless()
             panels.append(panel)
+        }
+        ActivityCenter.shared.islandHitTest = { [weak self] point in
+            self?.panels.contains { $0.islandContains(screenPoint: point) } ?? false
         }
     }
 }

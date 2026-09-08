@@ -37,9 +37,13 @@ final class HotKeyService: ObservableObject {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
             var hotKeyID = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
-                              nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
-            let slot = Slot(rawValue: hotKeyID.id) ?? .toggle
+            let read = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                         nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            // Only our own, well-formed hot keys are acted on; anything else is logged and dropped.
+            guard read == noErr, hotKeyID.signature == HotKeyService.signature, let slot = Slot(rawValue: hotKeyID.id) else {
+                IslandLog.island.error("hot key event ignored: status \(read, privacy: .public) id \(hotKeyID.id, privacy: .public)")
+                return noErr
+            }
             DispatchQueue.main.async { HotKeyService.handle(slot) }
             return noErr
         }, 1, &eventType, nil, &handlerRef)
@@ -140,11 +144,17 @@ final class HotKeyService: ObservableObject {
 
     private static func handle(_ slot: Slot) {
         let center = ActivityCenter.shared
+        let sinceInteraction = Date().timeIntervalSince(center.lastInteraction)
+        IslandLog.island.notice("hot key \(slot.rawValue, privacy: .public) after \(sinceInteraction, privacy: .public)s")
         switch slot {
         case .toggle: center.toggle()
         case .next: center.cycleView(forward: true)
         case .previous: center.cycleView(forward: false)
-        case .escape: center.collapse(reason: "escape")
+        case .escape:
+            // Escape is registered the instant something opens; nothing in the tail of that
+            // click may pass for a key press.
+            guard sinceInteraction > 0.3 else { return }
+            center.collapse(reason: "escape")
         }
     }
 

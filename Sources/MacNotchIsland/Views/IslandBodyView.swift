@@ -22,8 +22,16 @@ struct IslandBodyView: View {
                 .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
                 .clipped()
                 .padding(.horizontal, layout.floating ? 0 : layout.topRadius)
+
+            // A HUD or a warning that arrives while a panel is open sits over its top edge in
+            // the island's compact form; the panel underneath stays exactly where it is.
+            if layout.isExpanded, let strip = center.overlayAlert {
+                AlertStrip(activity: strip, geometry: geometry, layout: layout)
+                    .transition(IslandMotion.pop(scale: 0.85))
+            }
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
+        .animation(IslandMotion.quick, value: center.overlayAlert?.id)
         .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom))
         // Press-in feedback while the whole island is the button (compact and idle); the
         // expanded panels have controls of their own that give their own feedback.
@@ -65,6 +73,32 @@ struct IslandBodyView: View {
         .id(presentation.contentID)
         .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
         .environment(\.islandNamespace, islandNamespace)
+    }
+}
+
+/// The island's compact form for one alert, drawn over an open panel.
+private struct AlertStrip: View {
+    let activity: IslandActivity
+    let geometry: NotchGeometry
+    let layout: IslandLayout
+    @EnvironmentObject private var center: ActivityCenter
+    @ObservedObject private var menuBar = MenuBarClearance.shared
+
+    var body: some View {
+        let strip = IslandLayout.make(presentation: .compact(activity, bubble: nil), geometry: geometry,
+                                      center: center, clearance: menuBar.limits)
+        ZStack(alignment: .top) {
+            NotchShape(topRadius: strip.topRadius, bottomRadius: strip.bottomRadius, floating: strip.floating, isPill: strip.isPillBottom)
+                .fill(Color.black)
+            CompactContentView(activity: activity, layout: strip, geometry: geometry)
+                .frame(width: strip.bodyWidth, height: strip.bodyHeight, alignment: .top)
+                .padding(.horizontal, strip.floating ? 0 : strip.topRadius)
+        }
+        .frame(width: strip.frameWidth, height: strip.bodyHeight)
+        // The panel is already shifted by its own `bodyShift`; only the difference remains.
+        .offset(x: strip.bodyShift - layout.bodyShift)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

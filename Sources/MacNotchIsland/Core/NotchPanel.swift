@@ -24,6 +24,10 @@ final class NotchPanel: NSPanel {
 
     let geometry: NotchGeometry
     let panelID: String
+    /// Identifies the display this panel was built for, in the terms that decide whether it
+    /// must be rebuilt: which screen, its size, and the notch's height. Menu-bar-derived
+    /// values are left out on purpose, since a full-screen app changes those.
+    let displayKey: String
     private let screenNumber: NSNumber?
     private var hosting: NotchHostingView<AnyView>?
     private var cancellables = Set<AnyCancellable>()
@@ -35,6 +39,7 @@ final class NotchPanel: NSPanel {
         let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         self.screenNumber = number
         self.panelID = "screen-" + (number?.stringValue ?? UUID().uuidString)
+        self.displayKey = NotchPanel.displayKey(for: screen)
         let frame = NotchPanel.frame(for: screen)
         super.init(contentRect: frame,
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -94,6 +99,18 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    static func displayKey(for screen: NSScreen) -> String {
+        let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
+        return "\(number)|\(Int(screen.frame.width))x\(Int(screen.frame.height))|\(Int(screen.safeAreaInsets.top))"
+    }
+
+    /// Whether a point in screen coordinates lies on this panel's island (not merely inside
+    /// the window, whose slack around the island is click-through).
+    func islandContains(screenPoint: NSPoint) -> Bool {
+        guard frame.contains(screenPoint), let hosting else { return false }
+        return hosting.hitTest(convertPoint(fromScreen: screenPoint)) != nil
+    }
+
     /// The resting frame for a screen before any state exists: the bare notch plus slack.
     static func frame(for screen: NSScreen) -> NSRect {
         let geometry = NotchGeometry.detect(on: screen)
@@ -145,6 +162,7 @@ final class NotchPanel: NSPanel {
         let notchX = screenFrame.midX - rect.minX
         let half = max(notchX, rect.width - notchX)
         hosting.frame = NSRect(x: (notchX - half).rounded(), y: 0, width: (half * 2).rounded(), height: rect.height)
+        IslandLog.panel.notice("panel \(self.panelID, privacy: .public) frame \(NSStringFromRect(rect), privacy: .public) hosting \(NSStringFromRect(hosting.frame), privacy: .public)")
     }
 
     /// Several published changes land in one runloop turn; one refit covers them all, after the

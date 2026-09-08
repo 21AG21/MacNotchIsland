@@ -93,8 +93,10 @@ final class NowPlayingService: ObservableObject {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
             mediaRemote.refreshIfStale()
         }
-        if let info, !info.isPlaying, let since = pausedSince {
+        if let info, !info.isPlaying, let since = pausedSince,
+           ActivityCenter.shared.openView != .activity(id: "nowplaying") {
             // 0 means "clear as soon as playback pauses"; otherwise keep the paused track around.
+            // Never while the user has the card open in front of them.
             let limit = Preferences.shared.keepPausedMinutes * 60
             if limit <= 0 || Date().timeIntervalSince(since) > limit { clear() }
         }

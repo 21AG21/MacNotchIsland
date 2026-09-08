@@ -131,8 +131,8 @@ final class MenuBarClearance: ObservableObject {
         let application = AXUIElementCreateApplication(app.processIdentifier)
         var menuBarValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXMenuBarAttribute as CFString, &menuBarValue) == .success,
-              let menuBarValue else { return nil }
-        let menuBar = menuBarValue as! AXUIElement
+              let menuBarValue, CFGetTypeID(menuBarValue) == AXUIElementGetTypeID() else { return nil }
+        let menuBar = menuBarValue as! AXUIElement   // type checked just above
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(menuBar, kAXChildrenAttribute as CFString, &childrenValue) == .success,
               let items = childrenValue as? [AXUIElement], !items.isEmpty else { return nil }
@@ -149,10 +149,11 @@ final class MenuBarClearance: ObservableObject {
         var sizeValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
               AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
-              let positionValue, let sizeValue else { return nil }
+              let positionValue, let sizeValue,
+              CFGetTypeID(positionValue) == AXValueGetTypeID(), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
         var position = CGPoint.zero
         var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),   // type checked just above
               AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: position, size: size)
     }

@@ -48,3 +48,13 @@ jobs:
           name: MacNotchIsland
           path: build/MacNotchIsland.app.zip
           if-no-files-found: error
+      - name: Smoke (real clicks on the island)
+        continue-on-error: true
+        run: Scripts/smoke.sh
+      - name: Upload smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke
+          path: build/smoke/*.png
+          if-no-files-found: ignore

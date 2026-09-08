@@ -270,14 +270,16 @@ final class ActivityCenterTests: XCTestCase {
 
         let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .critical)
         center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 0.15)
-        guard case .compact(let shown, _) = center.presentation else { return XCTFail("a battery warning shows at once") }
-        XCTAssertEqual(shown.id, "battery")
-        XCTAssertTrue(center.isOpen, "the held alert is still open behind it")
+        XCTAssertEqual(center.overlayAlert?.id, "battery", "a battery warning shows at once, as a strip")
+        guard case .expanded(let under) = center.presentation else { return XCTFail("the open panel stays under the strip") }
+        XCTAssertEqual(under.id, "bt")
+        XCTAssertTrue(center.isOpen)
 
         let exp = expectation(description: "battery alert expired")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exp.fulfill() }
         wait(for: [exp], timeout: 2)
-        guard case .expanded(let again) = center.presentation else { return XCTFail("the held alert is back once the warning expires") }
+        XCTAssertNil(center.overlayAlert)
+        guard case .expanded(let again) = center.presentation else { return XCTFail("still open once the warning expires") }
         XCTAssertEqual(again.id, "bt")
 
         center.collapse(reason: "test")
@@ -315,6 +317,20 @@ final class ActivityCenterTests: XCTestCase {
         center.toggle()
         guard case .home = center.openView else { return XCTFail("the shortcut goes to Home instead") }
         center.collapse(reason: "test")
+        center.dismissAlert()
+    }
+
+    func testHUDOverAnOpenPanelIsAStripNotAReplacement() {
+        center.open(.home(tab: "music"))
+        XCTAssertEqual(center.presentation, .home)
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        center.showAlert(hud, duration: 5)
+        XCTAssertEqual(center.presentation, .home, "the panel stays")
+        XCTAssertEqual(center.overlayAlert?.id, "hud")
+        center.collapse(reason: "test")
+        XCTAssertNil(center.overlayAlert)
+        guard case .compact(let shown, _) = center.presentation else { return XCTFail("with nothing open the HUD has the island") }
+        XCTAssertEqual(shown.id, "hud")
         center.dismissAlert()
     }
 

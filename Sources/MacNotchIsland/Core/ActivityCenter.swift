@@ -30,7 +30,7 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var openView: IslandView? = nil {
         didSet {
             if openView != oldValue {
-                IslandLog.island.info("open view: \(String(describing: self.openView), privacy: .public)")
+                IslandLog.island.notice("open view: \(String(describing: self.openView), privacy: .public)")
             }
             if (openView == nil) != (oldValue == nil) { openStateChanged() }
         }
@@ -158,7 +158,7 @@ final class ActivityCenter: ObservableObject {
         hoverPanel = nil
         dragPanel = nil
         pressedPanel = nil
-        if openView != nil { IslandLog.island.info("closing: island hidden") }
+        if openView != nil { IslandLog.island.notice("closing: island hidden") }
         openView = nil
     }
 
@@ -184,7 +184,9 @@ final class ActivityCenter: ObservableObject {
 
         if dragging && prefs.shelfEnabled { return .shelf }
 
-        if let alert {
+        // An alert takes the island unless the user has something open; then it is drawn as a
+        // strip over the open panel instead (`overlayAlert`), so the panel never goes away.
+        if let alert, !isOpen || openView == .activity(id: alert.id) {
             let wantsExpanded = alert.presentation == .expanded || (hovering && prefs.hoverToExpand)
                 || openView == .activity(id: alert.id)
             if wantsExpanded && alert.content.hasExpandedView { return .expanded(alert) }
@@ -216,6 +218,13 @@ final class ActivityCenter: ObservableObject {
 
     func activity(id: String) -> IslandActivity? { activities.first { $0.id == id } }
 
+    /// An alert that arrived while a panel is open (a volume HUD, a battery warning): shown as
+    /// the island's compact form over the top of the panel, which stays where it is.
+    var overlayAlert: IslandActivity? {
+        guard let alert, isOpen, openView != .activity(id: alert.id) else { return nil }
+        return alert
+    }
+
     // MARK: - Live activities
 
     func upsert(_ activity: IslandActivity) {
@@ -245,7 +254,7 @@ final class ActivityCenter: ObservableObject {
         if pinnedID == id { pinnedID = nil }
         if forcedExpandedID == id { forcedExpandedID = nil }
         if openView == .activity(id: id) {
-            IslandLog.island.info("closing: activity \(id, privacy: .public) ended")
+            IslandLog.island.notice("closing: activity \(id, privacy: .public) ended")
             openView = nil
         }
     }
@@ -335,7 +344,7 @@ final class ActivityCenter: ObservableObject {
         // same id (a track-change alert over Now Playing), that view has nothing to show now.
         if let previous = alert, previous.id != activity.id, openView == .activity(id: previous.id),
            self.activity(id: previous.id) == nil {
-            IslandLog.island.info("closing: alert \(previous.id, privacy: .public) replaced")
+            IslandLog.island.notice("closing: alert \(previous.id, privacy: .public) replaced")
             openView = nil
         }
         alert = activity
@@ -360,7 +369,7 @@ final class ActivityCenter: ObservableObject {
                 // A view opened on this alert closes with it, unless a live activity of the
                 // same id is there to carry on.
                 if self.openView == .activity(id: id), self.activity(id: id) == nil {
-                    IslandLog.island.info("closing: alert \(id, privacy: .public) expired")
+                    IslandLog.island.notice("closing: alert \(id, privacy: .public) expired")
                     self.openView = nil
                 }
                 self.showNextPendingAlert()
@@ -429,7 +438,9 @@ final class ActivityCenter: ObservableObject {
     /// menu bar extra toggles. Idle: open the Home panel. Alerts without a large view perform
     /// their action instead.
     func tap(panel: String = "main") {
-        switch presentation(for: panel) {
+        let shown = presentation(for: panel)
+        IslandLog.island.notice("tap on \(panel, privacy: .public): \(shown.contentID, privacy: .public)")
+        switch shown {
         case .compact(let a, _):
             if a.content.hasExpandedView, !Self.isTransientHUD(a, alert: alert) {
                 open(.activity(id: a.id))
@@ -520,7 +531,7 @@ final class ActivityCenter: ObservableObject {
     func collapse(reason: String = "request") {
         homeWork?.cancel()
         navigationDirection = 0
-        if let current = openView { IslandLog.island.info("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
+        if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
         withAnimation(IslandMotion.close) {
@@ -557,8 +568,12 @@ final class ActivityCenter: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
-    /// When the user last clicked or keyed the island; a timed close never cuts that short.
-    private var lastInteraction = Date.distantPast
+    /// When the user last clicked or keyed the island; a timed close never cuts that short,
+    /// and neither does anything that arrives in the tail of the very click that opened it.
+    private(set) var lastInteraction = Date.distantPast
+
+    /// Whether a screen point lies on an island; set by the app delegate from its panels.
+    var islandHitTest: ((NSPoint) -> Bool)?
 
     /// `openView` as the user sees it. A tab picked in the tab bar or by a swipe changes the
     /// stored tab without going through `open`, so the Home case is re-read from the store.
@@ -584,16 +599,31 @@ final class ActivityCenter: ObservableObject {
         if openView != nil {
             HotKeyService.shared.setEscapeArmed(true)
             guard outsideClickMonitor == nil else { return }
-            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-                // Global monitors only see clicks delivered to other apps, so a click on the
-                // island itself (or on our Settings window) never lands here.
-                DispatchQueue.main.async { self?.collapse(reason: "click outside") }
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                let type = event.type.rawValue
+                let window = event.windowNumber
+                DispatchQueue.main.async { self?.clickedElsewhere(type: type, window: window) }
             }
         } else {
             HotKeyService.shared.setEscapeArmed(false)
             if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor) }
             outsideClickMonitor = nil
         }
+    }
+}
+
+extension ActivityCenter {
+    /// A mouse-down the system delivered to another application while something is open.
+    /// Global monitors are documented not to see our own clicks, but nothing here relies on
+    /// that: the click must be past the opening click's tail and land off the island.
+    fileprivate func clickedElsewhere(type: UInt, window: Int) {
+        guard openView != nil else { return }
+        let location = NSEvent.mouseLocation
+        let sinceInteraction = Date().timeIntervalSince(lastInteraction)
+        let onIsland = islandHitTest?(location) ?? false
+        IslandLog.island.notice("mouse-down elsewhere: type \(type, privacy: .public) window \(window, privacy: .public) at \(Double(location.x), privacy: .public),\(Double(location.y), privacy: .public) onIsland \(onIsland, privacy: .public) after \(sinceInteraction, privacy: .public)s")
+        guard sinceInteraction > 0.4, !onIsland else { return }
+        collapse(reason: "click outside")
     }
 }
 

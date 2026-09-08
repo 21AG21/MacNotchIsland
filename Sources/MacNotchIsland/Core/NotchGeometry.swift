@@ -12,6 +12,9 @@ struct NotchGeometry: Equatable {
     /// Detect the notch on a screen. Uses the safe-area inset for the height and the
     /// auxiliary menu-bar areas for the width, which is exact on every notched MacBook
     /// (including the 15-inch MacBook Air). Screens without a notch get a simulated one.
+    /// Notch widths measured per screen, kept for moments when the system reports none.
+    private static var measuredWidths: [String: CGFloat] = [:]
+
     static func detect(on screen: NSScreen, prefs: Preferences = .shared) -> NotchGeometry {
         let top = screen.safeAreaInsets.top
         let hasNotch = top > 0
@@ -20,9 +23,14 @@ struct NotchGeometry: Equatable {
 
         if hasNotch {
             height = top
-            if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
-                let w = screen.frame.width - left.width - right.width
-                if w > 60 && w < 500 { width = w }
+            let key = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
+            if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
+               case let w = screen.frame.width - left.width - right.width, w > 60 && w < 500 {
+                width = w
+                measuredWidths[key] = w
+            } else if let known = measuredWidths[key] {
+                // The auxiliary areas come and go with the menu bar; the cutout does not.
+                width = known
             }
         } else {
             // Simulated island on external displays: menu-bar height, iPhone-like proportions.
