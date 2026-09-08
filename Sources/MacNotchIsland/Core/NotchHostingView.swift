@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+/// The panel's content view: a plain view with no size of its own, so the window is exactly
+/// as large as the panel says and never as large as the SwiftUI content would like. The
+/// hosting view sits inside it, where it may be wider than the window (see `NotchPanel.place`)
+/// without dragging the window along. Clicks that miss the island fall through.
+final class NotchContainerView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        for subview in subviews.reversed() {
+            if let hit = subview.hitTest(local) { return hit }
+        }
+        return nil
+    }
+}
+
 /// Hosting view that only accepts mouse events inside the island's current footprint so the
 /// transparent canvas around it stays click-through (menu bar, windows below keep working).
 final class NotchHostingView<Content: View>: NSHostingView<Content> {

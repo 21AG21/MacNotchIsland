@@ -80,9 +80,17 @@ final class NotchPanel: NSPanel {
             return (layout.hitLeading, layout.hitTrailing, layout.hitHeight)
         }
         // The window decides its own size; SwiftUI must not resize it to the content's ideal.
+        // A hosting view used directly as the content view still does (its intrinsic size
+        // reaches the window through the content view), so it lives inside a plain view that
+        // has no intrinsic size, and keeps the frame it is given.
         view.sizingOptions = []
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = []
         view.frame = NSRect(origin: .zero, size: frame.size)
-        contentView = view
+        let container = NotchContainerView(frame: NSRect(origin: .zero, size: frame.size))
+        container.autoresizingMask = [.width, .height]
+        container.addSubview(view)
+        contentView = container
         hosting = view
         place(frame)
 
