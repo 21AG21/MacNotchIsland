@@ -13,13 +13,7 @@ final class ActivityCenterTests: XCTestCase {
         p.hoverDelay = 0.01
         // Every section on, whatever an earlier test switched off: these preferences are one
         // shared object, and the ring is built from them.
-        p.shelfEnabled = true
-        p.clipboardEnabled = true
-        p.quickActionsEnabled = true
-        p.statsEnabled = true
-        p.notesEnabled = true
-        p.calendarEnabled = true
-        p.windowsEnabled = true
+        HomeSection.allCases.forEach { $0.setEnabled(true, in: p) }
     }
 
     private func custom(_ id: String, priority: Int = 70, title: String = "X", kind: ActivityKind = .custom) -> IslandActivity {
@@ -235,14 +229,9 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(center.wantsKeyboard, "hovering must never take focus from the app in front")
     }
 
+    /// Leaves the ring with Now Playing and nothing else, whatever sections exist.
     private func onlyMusicSection() {
-        let p = Preferences.shared
-        p.shelfEnabled = false
-        p.clipboardEnabled = false
-        p.quickActionsEnabled = false
-        p.statsEnabled = false
-        p.notesEnabled = false
-        p.calendarEnabled = false
+        HomeSection.allCases.forEach { $0.setEnabled(false, in: Preferences.shared) }
     }
 
     func testKeyboardRingCyclesActivitiesThenHomeTabsAndWraps() {

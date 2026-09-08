@@ -5,7 +5,33 @@ the unreleased section is what the next tag will ship.
 
 ## Unreleased
 
+### Added
+- **Windows.** A section that shows every open window as a live tile: click one to bring it
+  forward, or use the zones that appear on it to send it to a half of the screen, fill the
+  screen, centre it, or close it. The pictures come from ScreenCaptureKit and the moving from
+  Accessibility; without those permissions the windows are still listed by app, and the
+  section says what is missing and opens the right pane of System Settings.
+- Wi-Fi, Bluetooth and light/dark in the control rail, under every section.
+- Album art for players that hand over none. A browser or a podcast app leaves the cover
+  empty, so the track is looked up by name and the cover comes from there; the cover then
+  washes into the black behind Now Playing, the way the phone does it. Switchable off in
+  Activities, and nothing but the title, artist and album is ever sent.
+
 ### Fixed
+- Stepping to the next section no longer rebuilds the whole panel. The switcher band and the
+  control rail stay where they are and only the section between them moves; the rail's audio
+  listeners are no longer dropped and rebuilt on every step.
+- Sliders keep the value the user set. CoreAudio and DisplayServices report back a moment
+  late, so the fill used to run backwards under the pointer and snap back on release. A drag
+  now also holds the panel open, so running past the end of the track no longer closes what
+  is being adjusted — the same for the Now Playing scrubber, which no longer jumps back to
+  where the track was before the seek.
+- The rail's brightness slider follows the brightness keys instead of showing whatever it
+  read when it appeared, and dragging the volume up on a muted Mac unmutes it.
+- The island holds its place when windows are moved about: it reclaims the top of the window
+  order whenever an app is activated or launched, or a Space changes, and the menu bar now
+  has to move by more than a hair before the island resizes for it.
+
 - The island's window could never become key, so nothing in it could be typed into. It now
   takes key status only while Notes or the clipboard search is showing, and hands it back
   the moment that section goes or the panel closes.
@@ -35,7 +61,7 @@ the unreleased section is what the next tag will ship.
 
 ### Changed
 - One panel for everything. The expanded views, the Home drawer and its tab bar are gone;
-  in their place is a single 680 pt panel with a switcher in the band beside the notch (live
+  in their place is a single 720 pt panel with a switcher in the band beside the notch (live
   activities on the left, sections on the right), one section or one activity under it, and
   a control rail at the bottom with volume and brightness sliders, Keep Awake, the camera
   mirror, AirDrop for the shelf, and Settings. Stepping between views never resizes the island.

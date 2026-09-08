@@ -10,16 +10,36 @@ struct ControlRail: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var keepAwake = KeepAwake.shared
     @ObservedObject private var brightness = BrightnessControl.shared
+    @ObservedObject private var toggles = SystemToggles.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
 
     var body: some View {
-        // Budget at 632 pt with everything showing: two sliders (208 and 168), four to five
+        // Budget at 672 pt with everything showing: two sliders (182 and 144), up to seven
         // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
         HStack(spacing: 12) {
             volume
             if BrightnessControl.shared.isAvailable { brightnessControl }
             Spacer(minLength: 8)
+            if toggles.hasWiFi {
+                railButton(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
+                           label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn) {
+                    toggles.toggleWiFi()
+                }
+            }
+            if toggles.hasBluetooth {
+                railGlyphButton(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
+                                active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
+                    BluetoothRune()
+                        .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                        .frame(width: 9, height: 14)
+                        .opacity(toggles.bluetoothOn ? 1 : 0.5)
+                }
+            }
+            railButton(symbol: toggles.darkMode ? "moon.fill" : "sun.max.fill",
+                       label: toggles.darkMode ? "Switch to light" : "Switch to dark", active: false) {
+                toggles.toggleAppearance()
+            }
             railButton(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
                        label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
                 keepAwake.toggle()
@@ -42,10 +62,12 @@ struct ControlRail: View {
         .onAppear {
             outputs.viewerAppeared()
             brightness.viewerAppeared()
+            toggles.viewerAppeared()
         }
         .onDisappear {
             outputs.viewerDisappeared()
             brightness.viewerDisappeared()
+            toggles.viewerDisappeared()
         }
     }
 
@@ -70,7 +92,7 @@ struct ControlRail: View {
                          // does in Control Centre; the slider would otherwise write a level
                          // nobody can hear.
                          onBegin: { if outputs.isMuted { outputs.setMuted(false) } })
-                .frame(width: 176)
+                .frame(width: 150)
                 .opacity(outputs.volume == nil ? 0.3 : 1)
                 .disabled(outputs.volume == nil)
                 .accessibilityLabel("Volume")
@@ -86,7 +108,7 @@ struct ControlRail: View {
                 .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
             IslandSlider(value: brightness.level, onChange: { brightness.set($0) })
-                .frame(width: 136)
+                .frame(width: 112)
                 .accessibilityLabel("Brightness")
                 .accessibilityValue("\(Int((brightness.level * 100).rounded())) percent")
         }
@@ -95,11 +117,20 @@ struct ControlRail: View {
     // MARK: - Buttons
 
     private func railButton(symbol: String, label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        railGlyphButton(label: label, active: active, action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .contentTransition(.symbolEffect(.replace))
+        }
+    }
+
+    /// The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
+    private func railGlyphButton<Glyph: View>(label: String, active: Bool = false, action: @escaping () -> Void,
+                                              @ViewBuilder glyph: () -> Glyph) -> some View {
         Button(action: action) {
             ZStack {
                 Circle().fill(Color.white.opacity(active ? 0.9 : 0.10))
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
+                glyph()
                     .foregroundStyle(active ? Color.black : Color.white.opacity(0.85))
             }
             .frame(width: 30, height: 30)

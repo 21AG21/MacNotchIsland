@@ -76,8 +76,12 @@ shape and applies the shared transition. Compact leading / trailing content live
 `CompactContentView`. The panel is under `Views/Panel/`: `PanelView` stacks the
 `SwitcherBand` (activities left of the cutout, sections right of it, a close button when
 pinned), one section (`MusicSectionView`, `TodaySectionView`, the rest in `Sections.swift`)
-or one activity's card content, and the `ControlRail`; `AlertBanner` and `HUDLine` draw a
-transient alert over an open panel. The system cards and the section bodies they share live
+or one activity's card content, and the `ControlRail`; `AlertBanner` draws a transient alert
+over an open panel. Every panel view shares one content identity (`IslandPresentation.contentID`),
+so stepping between sections moves the section and leaves the band and the rail mounted.
+`WindowsSectionView` draws the window switcher over `Services/WindowsMonitor.swift`, which
+lists windows from the window server, captures each with ScreenCaptureKit, and raises, snaps
+or closes one through Accessibility. The system cards and the section bodies they share live
 under `Views/Expanded/`; shared pieces (artwork, progress ring, scrubber, slider, marquee,
 visualizer bars, privacy dots) under `Views/Components/`. The island keeps the iPhone's
 palette (white values, coloured glyphs, artwork-tinted bars); windows (Settings, Welcome)

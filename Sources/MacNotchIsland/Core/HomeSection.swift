@@ -46,6 +46,20 @@ enum HomeSection: String, CaseIterable {
         }
     }
 
+    /// Switches a section on or off. Now Playing has no switch, so it is left alone.
+    func setEnabled(_ enabled: Bool, in prefs: Preferences) {
+        switch self {
+        case .music: break
+        case .today: prefs.calendarEnabled = enabled
+        case .windows: prefs.windowsEnabled = enabled
+        case .shelf: prefs.shelfEnabled = enabled
+        case .clipboard: prefs.clipboardEnabled = enabled
+        case .actions: prefs.quickActionsEnabled = enabled
+        case .notes: prefs.notesEnabled = enabled
+        case .stats: prefs.statsEnabled = enabled
+        }
+    }
+
     static func available(_ prefs: Preferences) -> [HomeSection] {
         allCases.filter { $0.isEnabled(prefs) }
     }

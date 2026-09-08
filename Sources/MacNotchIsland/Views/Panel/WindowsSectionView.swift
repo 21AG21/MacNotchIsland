@@ -108,9 +108,10 @@ struct WindowsSectionView: View {
         .accessibilityAction { monitor.focus(window) }
     }
 
-    /// The zones, over the picture, while the pointer is on the tile.
+    /// The zones, over the picture, while the pointer is on the tile — and the one other thing
+    /// you do to a window from a distance: close it.
     private func zones(_ window: IslandWindow) -> some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.55))
             HStack(spacing: 6) {
                 ForEach(SnapZone.allCases) { zone in
@@ -129,6 +130,21 @@ struct WindowsSectionView: View {
                     .accessibilityLabel("\(zone.title), \(window.label)")
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Button(action: { _ = monitor.close(window) }) {
+                ZStack {
+                    Circle().fill(Color.white.opacity(0.16))
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .frame(width: 18, height: 18)
+                .contentShape(Circle())
+            }
+            .buttonStyle(IslandButtonStyle())
+            .padding(5)
+            .help("Close \(window.label)")
+            .accessibilityLabel("Close \(window.label)")
         }
         .transition(.opacity)
     }

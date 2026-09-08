@@ -14,6 +14,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("IOBluetooth"),
                 .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreWLAN"),
                 .linkedFramework("CoreMediaIO"),
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("EventKit"),
