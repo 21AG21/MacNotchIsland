@@ -72,7 +72,7 @@ the `MacNotchIsland` artifact (sign-in required), then in Terminal:
 ```sh
 cd ~/Downloads
 unzip -o MacNotchIsland.zip                          # GitHub's wrapper, yields MacNotchIsland.app.zip
-ditto -x -k MacNotchIsland.app.zip /Applications     # keeps permissions and the signature intact
+pkill -x MacNotchIsland; ditto -x -k MacNotchIsland.app.zip /Applications   # quit the old copy; keep permissions and signature
 xattr -dr com.apple.quarantine /Applications/MacNotchIsland.app
 open /Applications/MacNotchIsland.app
 ```

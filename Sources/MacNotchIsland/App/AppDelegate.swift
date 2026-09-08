@@ -10,10 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenRebuildWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard Self.isOnlyInstance() else {
-            NSApp.terminate(nil)
-            return
-        }
+        Self.retireOtherCopies()
         NSApp.setActivationPolicy(.accessory)
         rebuildPanels()
         statusItem = StatusItemController()
@@ -58,15 +55,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Two copies (one in /Applications and one in a build folder, say) would draw two islands
-    /// on the same notch and fight over every click; the newcomer bows out.
-    private static func isOnlyInstance() -> Bool {
-        guard let id = Bundle.main.bundleIdentifier else { return true }
+    /// Two copies (one in /Applications and one still running from a Downloads folder, say)
+    /// would draw two islands on the same notch and fight over every click. The copy the user
+    /// just launched is the one they want, so any older copy is asked to quit, and made to if
+    /// it has not within a moment.
+    private static func retireOtherCopies() {
+        guard let id = Bundle.main.bundleIdentifier else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != me }
-        guard let other = others.first else { return true }
-        IslandLog.panel.error("another copy is already running (pid \(Int(other.processIdentifier), privacy: .public)); quitting this one")
-        return false
+        for other in others {
+            IslandLog.panel.error("another copy is running (pid \(Int(other.processIdentifier), privacy: .public)); asking it to quit")
+            other.terminate()
+        }
+        guard !others.isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            for other in others where !other.isTerminated { other.forceTerminate() }
+        }
     }
 
     /// The island belongs to the notch, not to a Space: whatever the user had open stays open

@@ -15,7 +15,8 @@ the unreleased section is what the next tag will ship.
 - Routine alerts (a finished download, a paired device) wait until the panel is closed
   instead of yanking it away; key-press HUDs and battery warnings still show at once.
 - Clicking a volume or brightness HUD no longer opens a card.
-- A second running copy of the app quits at launch instead of drawing a second island.
+- Launching the app while an older copy is still running quits the old copy, instead of
+  drawing two islands on the same notch.
 - A full-screen app hiding the menu bar no longer rebuilds the island windows.
 - The reasons a panel opens or closes are written to the unified log under
   `com.macnotchisland.app`, so a report from another Mac can be diagnosed.

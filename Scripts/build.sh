@@ -66,7 +66,7 @@ SwiftUI's @State is a compiler macro whose plugin (SwiftUIMacros) ships only ins
   download the MacNotchIsland artifact, then in Terminal:
 
       cd ~/Downloads && unzip -o MacNotchIsland.zip
-      ditto -x -k MacNotchIsland.app.zip /Applications
+      pkill -x MacNotchIsland; ditto -x -k MacNotchIsland.app.zip /Applications
       xattr -dr com.apple.quarantine /Applications/MacNotchIsland.app
       open /Applications/MacNotchIsland.app
 
