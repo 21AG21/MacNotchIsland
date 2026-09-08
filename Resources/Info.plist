@@ -48,7 +48,9 @@
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Notch Island reads what Music and Spotify are playing so it can show it in the island and control playback.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Notch Island shows your next calendar event as a Live Activity in the island.</string>
+	<string>Notch Island shows your next calendar event as a Live Activity in the island, and today's agenda in the Home panel.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Notch Island lists the reminders due today in the Home panel, so you can tick them off from the island.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Notch Island shows AirPods and other Bluetooth devices when they connect, with their battery level.</string>
 	<key>NSMicrophoneUsageDescription</key>

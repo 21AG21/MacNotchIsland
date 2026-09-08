@@ -110,8 +110,14 @@ final class LiveActivityAPI {
         case ("shelf", "clear"):
             ShelfStore.shared.clear()
 
-        case ("home", _):
-            center.showHome()
+        case ("home", let tab):
+            // notchisland://home, notchisland://home/shelf, notchisland://home?tab=clipboard
+            let wanted = (q["tab"] ?? tab).lowercased()
+            if GestureRouter.homeTabOrder.contains(wanted) {
+                center.open(.home(tab: wanted))
+            } else {
+                center.showHome()
+            }
         case ("collapse", _):
             center.collapse()
         case ("settings", _):
