@@ -6,6 +6,9 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Fixed
+- The island's window could never become key, so nothing in it could be typed into. It now
+  takes key status only while Notes or the clipboard search is showing, and hands it back
+  the moment that section goes or the panel closes.
 - An open panel no longer closes on its own: switching desktops (a three-finger swipe) kept
   collapsing it, an alert that had been clicked open closed itself when the alert timed out,
   and a momentary empty report from the music player ended the Now Playing card (and the
@@ -59,6 +62,7 @@ the unreleased section is what the next tag will ship.
 - Sneak peek: a track that starts widens the pill for a moment with its title and artist.
 - Output picker under Now Playing, backed by CoreAudio: the devices that can play, the one
   that is, and a live volume slider that follows it.
+- Clipboard search: a field in the section's header filters the history as you type.
 - Keep Awake, in the control rail and the menu bar: a power assertion that holds the Mac
   and its display awake until switched off, and ends with the app.
 - A first-run picker after the welcome page chooses which sections the panel shows and
