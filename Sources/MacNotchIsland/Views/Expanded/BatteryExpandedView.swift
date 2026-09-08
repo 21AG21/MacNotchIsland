@@ -3,48 +3,54 @@ import SwiftUI
 struct BatteryExpandedView: View {
     let state: BatteryState
     let geometry: NotchGeometry
+    @Environment(\.insidePanel) private var insidePanel
+
+    /// Only a real warning colours the numeral; every other state reads in plain white.
+    private var percentTint: Color {
+        (state.event == .low || state.event == .critical) ? Color.named("red") : Color.white
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            NotchClearance(geometry: geometry, extra: 6)
-            HStack(spacing: 16) {
+            NotchClearance(geometry: geometry, extra: 12)
+            HStack(spacing: 14) {
                 BatteryGlyph(percent: state.percent, charging: state.isCharging || state.isPluggedIn, tint: state.tint)
-                    .frame(width: 52, height: 24)
+                    .frame(width: 44, height: 21)
+                    .frame(width: 44, height: 44)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(state.tint)
-                    Text("\(state.percent)%")
-                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    Text(state.title)
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if BatteryFormatting.showsConnectToPower(for: state) {
+                        Text("Connect to power")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
                 }
-                .layoutPriority(1)
                 Spacer(minLength: 12)
-                // Two 11-pt lines (about 28 pt) sit inside the row the big numeral already
-                // needs, so the panel height set by IslandLayout is untouched.
-                VStack(alignment: .trailing, spacing: 2) {
+                // One line beside the numeral, sitting on its baseline. Watts, cycles and
+                // health stay in the accessibility label rather than crowding the card.
+                HStack(alignment: .lastTextBaseline, spacing: 10) {
                     if let time = BatteryFormatting.timeLine(for: state) {
-                        detail(time)
-                    } else if BatteryFormatting.showsConnectToPower(for: state) {
-                        detail("Connect to power")
+                        Text(time)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
                     }
-                    if let power = BatteryFormatting.detailLine(for: state) {
-                        detail(power)
-                    }
+                    Text("\(state.percent)%")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(percentTint)
                 }
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(BatteryFormatting.accessibilityLabel(for: state))
         }
-    }
-
-    private func detail(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .medium).monospacedDigit())
-            .foregroundStyle(.white.opacity(0.6))
-            .lineLimit(1)
-            .truncationMode(.tail)
+        .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
     }
 }
 

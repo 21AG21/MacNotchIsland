@@ -3,24 +3,29 @@ import SwiftUI
 struct HUDExpandedView: View {
     let state: LevelHUD
     let geometry: NotchGeometry
+    @Environment(\.insidePanel) private var insidePanel
 
     var body: some View {
         VStack(spacing: 0) {
-            NotchClearance(geometry: geometry, extra: 6)
+            NotchClearance(geometry: geometry, extra: 12)
             HStack(spacing: 14) {
-                Image(systemName: state.symbolName)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28)
-                    .contentTransition(.symbolEffect(.replace))
-                    .accessibilityHidden(true)
+                ZStack {
+                    Circle().fill(Color.white.opacity(0.18))
+                    Image(systemName: state.symbolName)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
                 LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
-                    .frame(height: 8)
+                    .frame(height: 4)
                     .accessibilityHidden(true)
                 Text(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%")
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.8))
-                    .frame(width: 52, alignment: .trailing)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .frame(width: 62, alignment: .trailing)
             }
             .padding(.horizontal, IslandInsets.horizontal)
             .padding(.bottom, 16)
@@ -28,5 +33,6 @@ struct HUDExpandedView: View {
             .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")
             .accessibilityValue(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent")
         }
+        .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
     }
 }

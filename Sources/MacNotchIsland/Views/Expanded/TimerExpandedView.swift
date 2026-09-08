@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// The Clock app's Timers tab as it appears inside the island: an orange ring, the label, the
-/// countdown in large rounded digits, and circular pause / cancel buttons. Extra timers stack
+/// countdown in large rounded digits, and the pause / cancel controls. Extra timers stack
 /// underneath in one compact row each, most recent first.
 struct TimerExpandedView: View {
     let state: TimerState
     let geometry: NotchGeometry
     @ObservedObject private var store = IslandTimer.shared
+    @Environment(\.insidePanel) private var insidePanel
 
     init(state: TimerState, geometry: NotchGeometry) {
         self.state = state
@@ -18,16 +19,18 @@ struct TimerExpandedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            NotchClearance(geometry: geometry, extra: 6)
+            NotchClearance(geometry: geometry, extra: 12)
             HStack(alignment: .center, spacing: 14) {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     HStack(alignment: .center, spacing: 14) {
                         ring(at: context.date)
-                        VStack(alignment: .leading, spacing: 0) {
+                        // The eyebrow tucks into the whitespace above the digits' cap height,
+                        // which is why the stack closes up rather than spacing out.
+                        VStack(alignment: .leading, spacing: -4) {
                             header
                             Text(state.isFinished ? "0:00" : state.remaining(at: context.date).timerString)
                                 .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(.white)
                                 .contentTransition(.numericText(countsDown: true))
                                 .symbolEffect(.pulse, isActive: state.isFinished)
                                 // While the matched frame is still pill-sized the 40 pt digits scale
@@ -38,25 +41,27 @@ struct TimerExpandedView: View {
                         }
                     }
                     // Ring, headline, session dots and digits as one sentence; the pause and
-                    // cancel buttons beside them keep their own labels.
+                    // cancel controls beside them keep their own labels.
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(spokenLabel(at: context.date))
                 }
                 Spacer(minLength: 0)
-                if state.isFinished {
-                    CircleActionButton(symbol: "arrow.counterclockwise", tint: .orange) { IslandTimer.shared.repeatLast() }
-                    CircleActionButton(symbol: "xmark", tint: .orange, filled: true) { IslandTimer.shared.cancel() }
-                } else {
-                    CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .orange) {
-                        state.isPaused ? IslandTimer.shared.resume() : IslandTimer.shared.pause()
+                HStack(spacing: 20) {
+                    if state.isFinished {
+                        CircleActionButton(symbol: "arrow.counterclockwise", tint: .white) { IslandTimer.shared.repeatLast() }
+                    } else {
+                        CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .white) {
+                            state.isPaused ? IslandTimer.shared.resume() : IslandTimer.shared.pause()
+                        }
                     }
-                    CircleActionButton(symbol: "xmark", tint: .white.opacity(0.85)) { IslandTimer.shared.cancel() }
+                    cancelButton
                 }
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, others.isEmpty ? 14 : 6)
+            .padding(.bottom, others.isEmpty ? 16 : 0)
             if !others.isEmpty { otherTimers }
         }
+        .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
     }
 
     // MARK: - The timer that owns the island
@@ -81,11 +86,25 @@ struct TimerExpandedView: View {
     private var header: some View {
         HStack(spacing: 6) {
             Text(headline)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.orange)
+                .font(.system(size: 12.5))
+                .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
             if let phase = pomodoro { sessionDots(phase) }
         }
+    }
+
+    /// Cancelling is the quietest thing on the card: a bare glyph, no disc, but still a
+    /// 40 pt target to hit.
+    private var cancelButton: some View {
+        Button(action: { IslandTimer.shared.cancel() }) {
+            Image(systemName: "xmark")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.45))
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(IslandButtonStyle())
+        .accessibilityLabel("Cancel")
     }
 
     private var headline: String {
@@ -157,7 +176,6 @@ struct TimerExpandedView: View {
             }
         }
         .padding(.horizontal, IslandInsets.horizontal)
-        .padding(.bottom, 8)
     }
 
     private func otherRow(_ entry: TimerEntry, at date: Date, hidden: Int) -> some View {
@@ -167,32 +185,31 @@ struct TimerExpandedView: View {
                 .frame(width: 13, height: 13)
                 .accessibilityHidden(true)
             Text(entry.label)
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.75))
+                .font(.system(size: 12.5))
+                .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
             Text(entry.state.isFinished ? "0:00" : entry.state.remaining(at: date).timerString)
-                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(.orange)
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.white)
                 .contentTransition(.numericText(countsDown: true))
                 .lineLimit(1)
             if entry.state.isPaused {
                 Image(systemName: "pause.fill")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.45))
             }
             Spacer(minLength: 0)
             if hidden > 0 {
                 Text("+\(hidden) more")
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(.white.opacity(0.45))
             }
             Button(action: { IslandTimer.shared.cancel(id: entry.id) }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 16, height: 16)
-                    .background(Circle().fill(Color.white.opacity(0.14)))
-                    .contentShape(Circle())
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(IslandButtonStyle())
             .accessibilityLabel("Cancel \(entry.label)")

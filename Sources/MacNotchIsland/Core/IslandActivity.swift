@@ -262,6 +262,7 @@ enum ActivityContent: Equatable {
         switch self {
         case .nowPlaying: return Self.cardTwoRows
         case .timer: return Self.cardRow + IslandTimer.extraRowsHeight
+        case .calendar: return Self.cardRowWithBar
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
         case .custom(let c):
             if c.body != nil { return Self.cardTwoRows }

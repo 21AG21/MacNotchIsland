@@ -3,6 +3,7 @@ import SwiftUI
 struct StopwatchExpandedView: View {
     let state: StopwatchState
     let geometry: NotchGeometry
+    @Environment(\.insidePanel) private var insidePanel
 
     @ObservedObject private var energy = EnergyPolicy.shared
 
@@ -12,16 +13,26 @@ struct StopwatchExpandedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            NotchClearance(geometry: geometry, extra: 6)
-            HStack(alignment: .center, spacing: 16) {
+            NotchClearance(geometry: geometry, extra: 12)
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Circle().fill(Color.orange.opacity(0.18))
+                    Image(systemName: "stopwatch.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.orange)
+                }
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
                 TimelineView(.animation(minimumInterval: coarse ? 1 : 0.1, paused: !state.isRunning)) { context in
-                    VStack(alignment: .leading, spacing: 0) {
+                    // The eyebrow tucks into the whitespace above the digits' cap height.
+                    VStack(alignment: .leading, spacing: -4) {
                         Text(state.laps.isEmpty ? "Stopwatch" : "Lap \(state.laps.count + 1)")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.orange)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
                         Text(Self.format(state.elapsed(at: context.date), showTenths: !coarse))
                             .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
-                            .foregroundStyle(state.isRunning ? .orange : .white)
+                            .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: false))
                             // Scales down rather than truncating while the matched frame is
                             // still the size of the compact pill's digits.
@@ -37,25 +48,30 @@ struct StopwatchExpandedView: View {
                 Spacer(minLength: 0)
                 if let lap = lastLap {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("Last lap").font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
+                        Text("Last lap")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.45))
                         Text(Self.format(lap))
                             .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.85))
+                            .foregroundStyle(.white)
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Last lap, \(IslandAccessibility.spokenDuration(lap))")
                 }
-                if state.isRunning {
-                    CircleActionButton(symbol: "flag.fill", tint: .white.opacity(0.85)) { IslandStopwatch.shared.lap() }
-                    CircleActionButton(symbol: "stop.fill", tint: .orange) { IslandStopwatch.shared.stop() }
-                } else {
-                    CircleActionButton(symbol: "arrow.counterclockwise", tint: .white.opacity(0.85), label: "Reset") { IslandStopwatch.shared.reset() }
-                    CircleActionButton(symbol: "play.fill", tint: .orange) { IslandStopwatch.shared.start() }
+                HStack(spacing: 10) {
+                    if state.isRunning {
+                        CircleActionButton(symbol: "flag.fill", tint: .white) { IslandStopwatch.shared.lap() }
+                        CircleActionButton(symbol: "stop.fill", tint: .white) { IslandStopwatch.shared.stop() }
+                    } else {
+                        CircleActionButton(symbol: "arrow.counterclockwise", tint: .white, label: "Reset") { IslandStopwatch.shared.reset() }
+                        CircleActionButton(symbol: "play.fill", tint: .white) { IslandStopwatch.shared.start() }
+                    }
                 }
             }
             .padding(.horizontal, IslandInsets.horizontal)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
         }
+        .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
     }
 
     /// The most recent lap's own duration (laps are stored as cumulative times).

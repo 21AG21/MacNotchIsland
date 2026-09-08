@@ -48,22 +48,26 @@ struct GlyphButton: View {
     }
 }
 
-/// Filled circular button (timer pause / cancel, join call…).
+/// Circular action button. Unfilled is the island's quiet control: a white-12% disc with the
+/// glyph in the tint. Filled is the loud one (the call card's red button), and `glyph` sets the
+/// colour drawn on top of that fill.
 struct CircleActionButton: View {
     let symbol: String
     var tint: Color = .white
-    var size: CGFloat = 44
+    var size: CGFloat = 40
     var filled: Bool = false
+    /// Glyph colour on a filled circle; ignored while the circle is the quiet unfilled one.
+    var glyph: Color = .black
     var label: String? = nil
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().fill(filled ? tint : tint.opacity(0.22))
+                Circle().fill(filled ? tint : tint.opacity(0.12))
                 Image(systemName: symbol)
-                    .font(.system(size: size * 0.4, weight: .bold))
-                    .foregroundStyle(filled ? Color.black : tint)
+                    .font(.system(size: size * 0.36, weight: .semibold))
+                    .foregroundStyle(filled ? glyph : tint)
             }
             .frame(width: size, height: size)
             .contentShape(Circle())
