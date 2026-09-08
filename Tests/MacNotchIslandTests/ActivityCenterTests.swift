@@ -10,8 +10,15 @@ final class ActivityCenterTests: XCTestCase {
         let p = Preferences.shared
         p.hoverToExpand = true
         p.expandOnIdleHover = true
-        p.shelfEnabled = true
         p.hoverDelay = 0.01
+        // Every section on, whatever an earlier test switched off: these preferences are one
+        // shared object, and the ring is built from them.
+        p.shelfEnabled = true
+        p.clipboardEnabled = true
+        p.quickActionsEnabled = true
+        p.statsEnabled = true
+        p.notesEnabled = true
+        p.calendarEnabled = true
     }
 
     private func custom(_ id: String, priority: Int = 70, title: String = "X", kind: ActivityKind = .custom) -> IslandActivity {
@@ -193,6 +200,38 @@ final class ActivityCenterTests: XCTestCase {
         center.end(id: "timer")
         XCTAssertFalse(center.isOpen)
         XCTAssertEqual(center.presentation, .idle)
+    }
+
+    // MARK: - The keyboard
+
+    func testOnlyAPinnedNotesOrClipboardSectionAsksForTheKeyboard() {
+        XCTAssertFalse(center.wantsKeyboard, "an idle island never takes the keyboard")
+
+        center.open(.home(tab: HomeSection.notes.rawValue))
+        XCTAssertTrue(center.wantsKeyboard, "Notes is typed into")
+
+        // Stepping straight from one typed-into section to the next must not read as a moment
+        // with nobody asking: the panel would hand the keyboard back mid-caret.
+        center.open(.home(tab: HomeSection.clipboard.rawValue))
+        XCTAssertTrue(center.wantsKeyboard, "the clipboard search is typed into as well")
+
+        center.open(.home(tab: HomeSection.music.rawValue))
+        XCTAssertFalse(center.wantsKeyboard, "nothing on the music section takes typing")
+
+        center.open(.home(tab: HomeSection.notes.rawValue))
+        center.collapse(reason: "test")
+        XCTAssertFalse(center.wantsKeyboard, "a closed panel hands the keyboard straight back")
+    }
+
+    func testAPeekedNotesSectionDoesNotTakeTheKeyboard() {
+        let exp = expectation(description: "peeking")
+        center.setHovering(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+        center.select(.home(tab: HomeSection.notes.rawValue))
+        XCTAssertEqual(center.currentView, .home(tab: HomeSection.notes.rawValue))
+        XCTAssertFalse(center.isOpen, "the pointer is only resting on the island")
+        XCTAssertFalse(center.wantsKeyboard, "hovering must never take focus from the app in front")
     }
 
     private func onlyMusicSection() {

@@ -30,6 +30,8 @@ final class NotchPanel: NSPanel {
     let displayKey: String
     private let screenNumber: NSNumber?
     private var hosting: NotchHostingView<AnyView>?
+    /// A pending hand-back of key status, see `scheduleKeyRelease`.
+    private var keyReleaseWork: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
     private var refitScheduled = false
     private var settleWork: DispatchWorkItem?
@@ -102,31 +104,49 @@ final class NotchPanel: NSPanel {
         refit()
     }
 
-    /// The island takes key-window status only while something in the panel is typed into
-    /// (Notes, a search), so it never pulls focus from the app the user is working in. Clicks
-    /// land regardless, thanks to acceptsFirstMouse on the hosting view.
+    /// The island takes key-window status only while a section that is typed into (Notes, the
+    /// clipboard search) is pinned open, so it never pulls focus from the app the user is
+    /// working in. Clicks land regardless, thanks to acceptsFirstMouse on the hosting view.
     override var canBecomeKey: Bool { ActivityCenter.shared.wantsKeyboard }
     override var canBecomeMain: Bool { false }
 
-    /// Gives the keyboard to the island under the pointer (or the main screen's), once a
-    /// section that takes typing is showing.
-    static func takeKeyboard() {
-        guard ActivityCenter.shared.wantsKeyboard else { return }
-        let panels = NSApp.windows.compactMap { $0 as? NotchPanel }.filter { $0.isVisible }
-        let mouse = NSEvent.mouseLocation
-        let target = panels.first { $0.screen?.frame.contains(mouse) == true }
-            ?? panels.first { $0.screen == NSScreen.main } ?? panels.first
-        target?.makeKey()
+    /// Follows what the panel needs: key status while a section that is typed into is open,
+    /// handed straight back when that section goes.
+    private func syncKeyboard() {
+        guard ActivityCenter.shared.wantsKeyboard else { return scheduleKeyRelease() }
+        keyReleaseWork?.cancel()
+        keyReleaseWork = nil
+        guard !isKeyWindow, isVisible, ownsKeyboard else { return }
+        makeKey()
     }
 
-    /// Hands key status back to the app in front once nothing in the panel is typed into any
-    /// more. A window that stays on screen has one way to stop being key: out and straight
-    /// back in, within the same pass, so nothing is seen to move.
-    private func releaseKeyIfUnwanted() {
-        guard isKeyWindow, !ActivityCenter.shared.wantsKeyboard else { return }
-        orderOut(nil)
-        orderFrontRegardless()
+    /// With an island on several screens, the one under the pointer takes the keyboard;
+    /// failing that, the main screen's.
+    private var ownsKeyboard: Bool {
+        let mouse = NSEvent.mouseLocation
+        if screen?.frame.contains(mouse) == true { return true }
+        let panels = NSApp.windows.compactMap { $0 as? NotchPanel }.filter { $0.isVisible }
+        guard !panels.contains(where: { $0.screen?.frame.contains(mouse) == true }) else { return false }
+        return screen == NSScreen.main || panels.first === self
     }
+
+    /// Hands key status back to the app in front. A window that stays on screen has one way to
+    /// stop being key: out and straight back in, within the same pass, so nothing is seen to
+    /// move. It waits for the closing animation, so the window is never cycled mid-move.
+    private func scheduleKeyRelease() {
+        guard isKeyWindow, keyReleaseWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.keyReleaseWork = nil
+            guard self.isKeyWindow, !ActivityCenter.shared.wantsKeyboard else { return }
+            self.orderOut(nil)
+            self.orderFrontRegardless()
+        }
+        keyReleaseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyReleaseDelay, execute: work)
+    }
+
+    static let keyReleaseDelay: TimeInterval = 0.35
 
     static func displayKey(for screen: NSScreen) -> String {
         let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
@@ -230,7 +250,7 @@ final class NotchPanel: NSPanel {
     func refit() {
         let suppressed = ActivityCenter.shared.isSuppressed
         if ignoresMouseEvents != suppressed { ignoresMouseEvents = suppressed }
-        releaseKeyIfUnwanted()
+        syncKeyboard()
 
         settleWork?.cancel()
         let target = restFrame()

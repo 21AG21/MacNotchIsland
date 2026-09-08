@@ -41,9 +41,6 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var peekView: IslandView? = nil
     /// The panel whose island is being held down, for the press-in feedback.
     @Published private(set) var pressedPanel: String? = nil
-    /// True while the panel shows something that is typed into (Notes, the clipboard search):
-    /// the only time the island's window may take key status from the app in front.
-    @Published private(set) var wantsKeyboard = false
     /// Which way the last change of view went: +1 forward, -1 back, 0 for a plain open or
     /// close. Read by the views to pick a push or a cross-fade; not published, since it is
     /// always set right before the change that is.
@@ -468,10 +465,6 @@ final class ActivityCenter: ObservableObject {
         if pressedPanel != next { pressedPanel = next }
     }
 
-    func setWantsKeyboard(_ wants: Bool) {
-        if wantsKeyboard != wants { wantsKeyboard = wants }
-    }
-
     func setDragTargeted(_ targeted: Bool, panel: String = "main") {
         if targeted {
             guard dragPanel != panel else { return }
@@ -571,6 +564,19 @@ final class ActivityCenter: ObservableObject {
         return true
     }
 
+    /// Sections the user types into. While one of them is pinned open, and only then, the
+    /// island's window may take key status from the app in front.
+    static let typedSections: Set<HomeSection> = [.notes, .clipboard]
+
+    /// Whether the panel is showing something that is typed into. Derived, never toggled by
+    /// a view appearing or disappearing: stepping straight from one such section to another
+    /// must not read as "nobody wants the keyboard" for the moment their lifetimes overlap.
+    var wantsKeyboard: Bool {
+        guard isOpen, case .home(let tab)? = currentView,
+              let section = HomeSection(rawValue: tab) else { return false }
+        return Self.typedSections.contains(section)
+    }
+
     /// The view the panel is on, pinned or peeking; nil when no panel is showing.
     var currentView: IslandView? {
         if let openView { return validated(openView) }
@@ -641,7 +647,6 @@ final class ActivityCenter: ObservableObject {
         if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
-        wantsKeyboard = false
         withAnimation(IslandMotion.close) {
             openView = nil
             peekView = nil

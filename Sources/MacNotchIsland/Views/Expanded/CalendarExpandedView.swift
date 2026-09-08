@@ -37,7 +37,7 @@ struct CalendarExpandedView: View {
                         .lineLimit(1)
                     // The countdown sits under the time rather than shouting in the tint.
                     TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        Text(countdown(at: ctx.date))
+                        Text(state.countdown(at: ctx.date))
                             .font(.system(size: 13))
                             .foregroundStyle(.white.opacity(0.45))
                             .lineLimit(1)
@@ -60,15 +60,6 @@ struct CalendarExpandedView: View {
             .accessibilityLabel(accessibilitySummary)
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
-    }
-
-    /// The compact pill's "in 7m", spelled out for the card: "in 7 min", "in 2 hr", "Now".
-    private func countdown(at date: Date) -> String {
-        let delta = state.start.timeIntervalSince(date)
-        guard delta > 0 else { return state.end.timeIntervalSince(date) > 0 ? "Now" : "Ended" }
-        let minutes = Int((delta / 60).rounded(.up))
-        if minutes < 60 { return "in \(minutes) min" }
-        return "in \(minutes / 60) hr"
     }
 
     /// "Team standup, 10:00 AM to 10:30 AM, Room 2" — the whole card as one sentence; the

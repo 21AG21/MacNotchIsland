@@ -27,15 +27,6 @@ enum IslandPresentation: Equatable {
         }
     }
 
-    /// The view the panel is showing, if this is a panel.
-    var panelView: IslandView? {
-        switch self {
-        case .panel(let view): return view
-        case .shelf: return .home(tab: HomeSection.shelf.rawValue)
-        default: return nil
-        }
-    }
-
     /// Stable identity used to drive content transitions.
     var contentID: String {
         switch self {

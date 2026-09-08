@@ -16,7 +16,6 @@ struct ShelfSectionView: View {
 
 struct ClipboardSectionView: View {
     @ObservedObject private var store = ClipboardStore.shared
-    @EnvironmentObject private var center: ActivityCenter
     @State private var query = ""
 
     var body: some View {
@@ -29,18 +28,11 @@ struct ClipboardSectionView: View {
             }
             ClipboardView(query: query)
         }
-        .onAppear {
-            guard !RenderMode.isGallery, !store.items.isEmpty else { return }
-            center.setWantsKeyboard(true)
-        }
-        .onDisappear {
-            query = ""
-            center.setWantsKeyboard(false)
-        }
+        .onDisappear { query = "" }
     }
 
-    /// Filters the list as you type. Typing needs the island to be the key window, which the
-    /// section asks for while it shows and hands back when it goes.
+    /// Filters the list as you type. Typing needs the island to be the key window, which it is
+    /// while this section is open: `ActivityCenter.wantsKeyboard`.
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
@@ -62,7 +54,6 @@ struct ClipboardSectionView: View {
         .padding(.horizontal, 10)
         .frame(width: 170, height: 22)
         .background(Capsule().fill(Color.white.opacity(0.08)))
-        .onTapGesture { NotchPanel.takeKeyboard() }
     }
 }
 
@@ -118,6 +109,7 @@ struct ActionsSectionView: View {
 struct NotesSectionView: View {
     @ObservedObject private var notes = NotesStore.shared
     @EnvironmentObject private var center: ActivityCenter
+    @FocusState private var editing: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -140,6 +132,7 @@ struct NotesSectionView: View {
                         .scrollContentBackground(.hidden)
                         .scrollIndicators(.never)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .focused($editing)
                         .accessibilityLabel("Notes")
                 }
                 if notes.text.isEmpty {
@@ -154,12 +147,13 @@ struct NotesSectionView: View {
             }
             .padding(.top, 2)
         }
+        // The panel takes key status the moment this section is pinned open; the caret then
+        // goes into the editor, so there is something to type into rather than a dead field.
         .onAppear {
-            guard !RenderMode.isGallery else { return }
-            center.setWantsKeyboard(true)
-            NotchPanel.takeKeyboard()
+            guard !RenderMode.isGallery, center.wantsKeyboard else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { editing = true }
         }
-        .onDisappear { center.setWantsKeyboard(false) }
+        .onDisappear { editing = false }
     }
 }
 

@@ -103,8 +103,13 @@ final class HotKeyService: ObservableObject {
     private func registerWhileOpen() {
         register(.escape, keyCode: kVK_Escape, modifiers: 0)
         let modifiers = Self.currentModifiers
-        register(.left, keyCode: kVK_LeftArrow, modifiers: modifiers)
-        register(.right, keyCode: kVK_RightArrow, modifiers: modifiers)
+        // Both are registered whatever the other does; `&&` would skip the second.
+        let left = register(.left, keyCode: kVK_LeftArrow, modifiers: modifiers)
+        let right = register(.right, keyCode: kVK_RightArrow, modifiers: modifiers)
+        let arrows = left && right
+        // Another app owning the combo costs the arrows, not the shortcut itself, so this is
+        // logged rather than shown beside the recorder.
+        if !arrows { IslandLog.island.notice("arrow keys unavailable: another app owns the combo") }
     }
 
     private func unregisterWhileOpen() {
@@ -146,7 +151,10 @@ final class HotKeyService: ObservableObject {
     }
 
     static var currentModifiers: Int {
-        normalized(Preferences.shared.hotkeyModifiers, fallback: defaultModifiers)
+        let stored = normalized(Preferences.shared.hotkeyModifiers, fallback: defaultModifiers)
+        // Without a modifier the island would claim Tab and the arrow keys system-wide. The
+        // recorder refuses such a combo; a hand-edited defaults entry is refused here.
+        return stored == 0 ? defaultModifiers : stored
     }
 
     /// Preferences store these as Doubles; a stale or hand-edited defaults entry must never

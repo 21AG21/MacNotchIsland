@@ -36,12 +36,15 @@ struct PanelView: View {
                 .accessibilityHidden(true)
 
             ZStack {
+                // The rail stays mounted under a banner: unmounting it would drop the audio
+                // device listeners and rebuild them a second later, on every volume keypress.
+                ControlRail(showingMirror: $showingMirror)
+                    .opacity(center.overlayAlert == nil ? 1 : 0)
+                    .allowsHitTesting(center.overlayAlert == nil)
+                    .accessibilityHidden(center.overlayAlert != nil)
                 if let alert = center.overlayAlert {
                     AlertBanner(activity: alert)
                         .transition(.asymmetric(insertion: .offset(y: 8).combined(with: .opacity), removal: .opacity))
-                } else {
-                    ControlRail(showingMirror: $showingMirror)
-                        .transition(.opacity)
                 }
             }
             .frame(height: IslandLayout.railHeight)

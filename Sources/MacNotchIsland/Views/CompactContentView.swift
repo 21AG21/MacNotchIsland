@@ -346,6 +346,14 @@ extension LevelHUD {
 }
 
 extension CalendarState {
+    /// The compact pill's "in 7m", spelled out for a card: "in 7 min", "in 2 hr", "Now".
+    func countdown(at date: Date) -> String {
+        let delta = start.timeIntervalSince(date)
+        guard delta > 0 else { return end.timeIntervalSince(date) > 0 ? "Now" : "Ended" }
+        let minutes = Int((delta / 60).rounded(.up))
+        return minutes < 60 ? "in \(minutes) min" : "in \(minutes / 60) hr"
+    }
+
     func relativeStart(at date: Date) -> String {
         let delta = start.timeIntervalSince(date)
         if delta <= 0 { return end.timeIntervalSince(date) > 0 ? "Now" : "Ended" }
