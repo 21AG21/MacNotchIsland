@@ -47,8 +47,12 @@ run_case() {  # name, click y, extra env
   else
     echo "--- app alive: NO, it died"; echo "alive $name: NO" >> "$SUMMARY"; DIED=1
   fi
+  # One `log show` per case: it is the slowest command here, and both the printout and the
+  # navigation check read the same capture.
+  local logfile="$OUT/$name-unified.log"
+  log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact > "$logfile" 2>&1
   echo "--- unified log"
-  log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact 2>&1 | tail -n 120
+  tail -n 120 "$logfile"
   echo "--- errors and faults from the process"
   log show --start "$start" --predicate "process == \"MacNotchIsland\" AND (messageType == error OR messageType == fault)" --style compact 2>&1 | tail -n 40
   # The island is fused to the top of the screen: its black must start on the very first row.
@@ -56,8 +60,7 @@ run_case() {  # name, click y, extra env
   if [ "$name" != "floating" ]; then
     # Which sections the panel actually opened, from what the app logged.
     local sections
-    sections=$(log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact 2>&1 \
-      | grep -o 'home(tab: "[a-z]*")' | sort -u | wc -l | tr -d ' ')
+    sections=$(grep -o 'home(tab: "[a-z]*")' "$logfile" | sort -u | wc -l | tr -d ' ')
     echo "--- sections opened: $sections"
     echo "sections $name: $sections" >> "$SUMMARY"
     if [ "$sections" -lt 2 ]; then

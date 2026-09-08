@@ -272,7 +272,9 @@ final class ClipboardStore: ObservableObject {
     /// Pastes into whatever the user was working in, a moment after the island has handed the
     /// keyboard back. Needs the Accessibility permission to synthesise the keystroke; without
     /// it the item is simply on the pasteboard, ready for a ⌘V of the user's own.
-    static func pasteIntoFrontmostApp(after delay: TimeInterval = 0.6) {
+    /// The wait is a little longer than the island's own hand-back of key status
+    /// (`NotchPanel.keyReleaseDelay`), so the keystroke can never land on the island itself.
+    static func pasteIntoFrontmostApp(after delay: TimeInterval = 0.7) {
         guard AXIsProcessTrusted() else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             let source = CGEventSource(stateID: .combinedSessionState)
