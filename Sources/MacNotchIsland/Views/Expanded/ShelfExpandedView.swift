@@ -207,26 +207,31 @@ struct ShelfItemView: View {
     var body: some View {
         VStack(spacing: 3) {
             thumbnail
-            Text(url.lastPathComponent)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.white.opacity(0.75))
-                .lineLimit(1)
-                .frame(width: 66)
+                // The left mouse on the picture belongs to AppKit: a click selects, a double
+                // click opens, and a drag takes every selected file at once, which SwiftUI's
+                // one-item `onDrag` cannot do. The row of buttons below stays SwiftUI's.
+                .overlay {
+                    if !RenderMode.isGallery {
+                        ShelfDragHandle(urls: targets, onClick: onSelect, onOpen: { shelf.open(targets()) })
+                    }
+                }
+            // Hovering swaps the name for what you would do with the file. Copy first: it is
+            // the thing people want most from a shelf and it was hidden in a menu.
+            ZStack {
+                Text(url.lastPathComponent)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(1)
+                    .opacity(hovering ? 0 : 1)
+                if hovering { actions }
+            }
+            .frame(width: 66, height: 18)
         }
         .contentShape(Rectangle())
         .help(ageText.isEmpty ? url.path : "\(url.path)\nAdded \(ageText) ago")
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { shelf.open([url]) }
         .onTapGesture { onSelect() }
-        // The left mouse belongs to AppKit here: a click selects, a double click opens, and a
-        // drag takes every selected file at once, which SwiftUI's one-item `onDrag` cannot do.
-        // The trailing strip is left to SwiftUI so the remove button stays clickable.
-        .overlay {
-            if !RenderMode.isGallery {
-                ShelfDragHandle(urls: targets, onClick: onSelect, onOpen: { shelf.open(targets()) })
-                    .padding(.trailing, 22)
-            }
-        }
         .contextMenu { menu }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
@@ -260,35 +265,33 @@ struct ShelfItemView: View {
                         .strokeBorder(Color.white, lineWidth: 2)
                 }
             }
-            if hovering {
-                Button(action: { shelf.remove([url]) }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white, .black.opacity(0.7))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(IslandButtonStyle())
-                .accessibilityLabel("Remove")
-                .offset(x: 6, y: -6)
-            }
         }
-        .overlay(alignment: .bottomTrailing) {
-            // Quick Look, where Finder puts the space bar. The island is never the key window,
-            // so there is no space bar to press; this is that gesture.
-            if hovering {
-                Button(action: { ShelfQuickLook.shared.show(targets()) }) {
-                    Image(systemName: "eye.circle.fill")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white, .black.opacity(0.7))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(IslandButtonStyle())
-                .accessibilityLabel("Quick Look")
-                .offset(x: 6, y: 4)
-            }
+    }
+
+    /// Copy, Quick Look, remove — the three things a shelf is for, under the tile.
+    private var actions: some View {
+        HStack(spacing: 4) {
+            tileButton("doc.on.doc", "Copy") { shelf.copyToPasteboard(targets()) }
+            tileButton("eye", "Quick Look") { ShelfQuickLook.shared.show(targets()) }
+            tileButton("xmark", "Remove") { shelf.remove(targets()) }
         }
+        .transition(.opacity)
+    }
+
+    private func tileButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.14))
+                Image(systemName: symbol)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(width: 18, height: 18)
+            .contentShape(Circle())
+        }
+        .buttonStyle(IslandButtonStyle())
+        .help(label)
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder
@@ -302,10 +305,21 @@ struct ShelfItemView: View {
             let view = anchor.view
             shelf.share(targets(), from: view, rect: view?.bounds ?? .zero)
         }
-        Button("Copy") { shelf.copyToPasteboard(targets()) }
+        Button(copyTitle) { shelf.copyToPasteboard(targets()) }
         Divider()
         Button("Remove") { shelf.remove(targets()) }
         Button("Move to Trash") { shelf.moveToTrash(targets()) }
+    }
+
+    /// What "Copy" will put on the pasteboard, so the menu says what it does.
+    private var copyTitle: String {
+        let files = targets()
+        guard files.count == 1 else { return "Copy \(files.count) Files" }
+        switch ShelfStore.copyKind(of: files[0]) {
+        case .text: return "Copy Text"
+        case .image: return "Copy Image"
+        case .file: return "Copy File"
+        }
     }
 
     /// "2h" / "3d" once an item has been sitting on the shelf for at least an hour.

@@ -46,8 +46,22 @@ final class ShortcutsRunner: ObservableObject {
         Self.queue.async { [weak self] in
             let output = Self.capture(arguments: ["list"])
             let names = Self.parseList(output ?? "")
-            DispatchQueue.main.async { self?.available = names }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.available = names
+                self.pruneFavorites(against: names)
+            }
         }
+    }
+
+    /// Drops favourites the Shortcuts app no longer has, so the row never offers a button
+    /// that can only fail. An empty list means the question could not be asked — a Shortcuts
+    /// app that is busy or missing — and nothing is dropped on the strength of that.
+    private func pruneFavorites(against names: [String]) {
+        guard !names.isEmpty else { return }
+        let live = favorites.filter { names.contains($0) }
+        guard live != favorites else { return }
+        favorites = live
     }
 
     /// Parses `shortcuts list` output: one name per line, trimmed, blank lines dropped.

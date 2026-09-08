@@ -26,9 +26,19 @@ final class FavoriteApps: ObservableObject {
     }
 
     /// The apps that are still on disk, as (path, name) pairs in the stored order.
+    ///
+    /// An app that has been deleted or moved is dropped from the list itself, not just from
+    /// what is shown: leaving it stored would keep a slot occupied by something the user can
+    /// no longer see, or remove.
     var apps: [(path: String, name: String)] {
-        paths.filter { FileManager.default.fileExists(atPath: $0) }
-            .map { ($0, Self.name(of: $0)) }
+        let live = paths.filter { FileManager.default.fileExists(atPath: $0) }
+        if live != paths {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.paths != live else { return }
+                self.paths = live
+            }
+        }
+        return live.map { ($0, Self.name(of: $0)) }
     }
 
     static func name(of path: String) -> String {

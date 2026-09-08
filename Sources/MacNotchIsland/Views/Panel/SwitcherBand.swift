@@ -43,8 +43,11 @@ struct SwitcherBand: View {
         // The close button's room is kept whether or not it is showing: the slots must not
         // resize and shuffle along the moment a peeked panel is pinned.
         let closeRoom: CGFloat = Self.slot + 6
-        let left = Self.fit(cards, in: side)
+        // The sections decide the size — there are always more of them — and the activity
+        // slots on the other side of the cutout take the same one, so the band reads as one
+        // row of buttons rather than two rows of different circles.
         let right = Self.fit(sections, in: side - closeRoom)
+        let left = Self.fit(cards, in: side, slot: right.slot, gap: right.gap)
         HStack(spacing: 0) {
             HStack(spacing: left.gap) {
                 ForEach(Array(left.views.enumerated()), id: \.offset) { _, view in slotView(view, size: left.slot) }
@@ -72,7 +75,11 @@ struct SwitcherBand: View {
             .frame(width: side, alignment: .leading)
         }
         .padding(.horizontal, Self.inset)
-        .frame(width: width, height: geometry.notchHeight + IslandLayout.bandExtra)
+        // The row is centred on the notch, not on the band: the band is a couple of points
+        // taller so it straddles the cutout, and centring in that would sit every glyph
+        // lower than the menu bar items either side of it. The extra goes below.
+        .frame(width: width, height: geometry.notchHeight)
+        .frame(height: geometry.notchHeight + IslandLayout.bandExtra, alignment: .top)
         .animation(IslandMotion.quick, value: ring)
         .animation(IslandMotion.quick, value: label)
     }
@@ -98,6 +105,15 @@ struct SwitcherBand: View {
         // Even at the smallest size they do not all fit: drop the ones at the end.
         let fits = max(0, Int((room + minGap) / (minSlot + minGap)))
         return (Array(views.prefix(fits)), minSlot, minGap)
+    }
+
+    /// The same, at a size somebody else has already settled on: only the number of slots is
+    /// decided here.
+    static func fit(_ views: [IslandView], in room: CGFloat, slot: CGFloat, gap: CGFloat)
+        -> (views: [IslandView], slot: CGFloat, gap: CGFloat) {
+        guard !views.isEmpty, room > 0 else { return ([], slot, gap) }
+        let fits = max(0, Int((room + gap) / (slot + gap)))
+        return (Array(views.prefix(fits)), slot, gap)
     }
 
     private func slotView(_ view: IslandView, size: CGFloat) -> some View {

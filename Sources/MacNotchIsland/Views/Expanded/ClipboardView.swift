@@ -79,15 +79,25 @@ private struct ClipboardRowView: View {
 
     @ObservedObject private var store = ClipboardStore.shared
 
+    /// A copied file that has since been moved or deleted. Checked as the row is drawn — a
+    /// handful of rows, one `stat` each — so the list never offers a dead reference silently.
+    private var missing: Bool { item.filesAreGone }
+
     var body: some View {
         HStack(spacing: 10) {
             HStack(spacing: 10) {
                 glyph
                 Text(item.preview)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.white.opacity(missing ? 0.45 : 1))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if missing {
+                    Text("no longer on disk")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .lineLimit(1)
+                }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)

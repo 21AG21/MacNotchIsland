@@ -259,12 +259,83 @@ final class ShelfStore: ObservableObject {
         picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
     }
 
+    /// What a file will paste as, which decides what else goes on the pasteboard beside it.
+    enum CopyKind { case text, image, file }
+
+    static func copyKind(of url: URL) -> CopyKind {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return .file }
+        if type.conforms(to: .image) { return .image }
+        // A .webloc is a link, and its file is a plist: pasting the plist as text would be
+        // nonsense, so it counts as a file and the URL inside it is added separately.
+        if type.conforms(to: .text), !type.conforms(to: .internetShortcut) { return .text }
+        return .file
+    }
+
+    /// Copies the shelf's files so a paste does the right thing wherever it lands.
+    ///
+    /// The file itself always goes on the pasteboard, so ⌘V in Finder makes a copy. A single
+    /// text file also puts its text there, an image its picture and a link its address, so
+    /// the same ⌘V in a text field, an image editor or a browser pastes what the file *is*
+    /// rather than a copy of it. Reading a file to copy it happens off the main thread.
     func copyToPasteboard(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.writeObjects(urls.map { $0 as NSURL })
+        // One item carrying several representations: the reader picks the one it understands,
+        // so the same copy pastes as a file in Finder and as its content everywhere else.
+        if urls.count == 1, let url = urls.first, let extras = Self.pasteboardExtras(for: url) {
+            let item = NSPasteboardItem()
+            item.setString(url.absoluteString, forType: .fileURL)
+            for (type, data) in extras { item.setData(data, forType: type) }
+            pasteboard.writeObjects([item])
+        } else {
+            pasteboard.writeObjects(urls.map { $0 as NSURL })
+        }
+        announceCopy(count: urls.count)
+    }
+
+    /// The extra representations of a file: its text, its picture, or the address inside a
+    /// `.webloc`. Nil for anything too big to hold in the pasteboard, which is also what keeps
+    /// this cheap enough to do where it is called from.
+    static func pasteboardExtras(for url: URL, limit: Int = 8 * 1024 * 1024) -> [(NSPasteboard.PasteboardType, Data)]? {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size <= limit else { return nil }
+        switch copyKind(of: url) {
+        case .text:
+            guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8),
+                  let utf8 = text.data(using: .utf8) else { return nil }
+            return [(.string, utf8)]
+        case .image:
+            guard let data = try? Data(contentsOf: url), let image = NSImage(data: data),
+                  let tiff = image.tiffRepresentation else { return nil }
+            var result: [(NSPasteboard.PasteboardType, Data)] = [(.tiff, tiff)]
+            if let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) {
+                result.append((.png, png))
+            }
+            return result
+        case .file:
+            guard url.pathExtension.lowercased() == "webloc",
+                  let data = try? Data(contentsOf: url),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String],
+                  let address = plist["URL"], let utf8 = address.data(using: .utf8) else { return nil }
+            return [(.string, utf8)]
+        }
+    }
+
+    /// The island's own "Copied" nod, so a copy from the shelf is as visible as one from the
+    /// clipboard section.
+    private func announceCopy(count: Int) {
         Haptics.tap()
+        guard publishesActivity else { return }
+        let title = count == 1 ? "Copied" : "Copied \(count) files"
+        let activity = IslandActivity(id: "shelf-copied", kind: .custom,
+                                      content: .custom(CustomActivity(title: title, symbol: "doc.on.doc",
+                                                                      trailingText: "Copied")),
+                                      priority: 80)
+        ActivityCenter.shared.showAlert(activity, duration: 1.0, haptic: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.dismissAlert() }
+        }
     }
 
     func moveToTrash(_ urls: [URL]) {

@@ -78,6 +78,21 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertLessThanOrEqual(used, room)
     }
 
+    func testBothSidesOfTheBandUseOneSlotSize() {
+        // Sections settle the size; the activity slots take it, whatever room they have.
+        let sections = SwitcherBand.fit(views, in: 190)
+        let activities = SwitcherBand.fit(Array(views.prefix(2)), in: 220, slot: sections.slot, gap: sections.gap)
+        XCTAssertEqual(activities.slot, sections.slot, "one row of buttons, not two sizes of circle")
+        XCTAssertEqual(activities.gap, sections.gap)
+        XCTAssertEqual(activities.views.count, 2, "with room to spare, nothing is dropped")
+    }
+
+    func testAnImposedSizeStillDropsWhatCannotFit() {
+        let fitted = SwitcherBand.fit(views, in: 60, slot: 26, gap: 4)
+        XCTAssertEqual(fitted.slot, 26)
+        XCTAssertEqual(fitted.views.count, 2)
+    }
+
     func testAFewSlotsKeepTheirFullSize() {
         let fitted = SwitcherBand.fit(Array(views.prefix(3)), in: 300)
         XCTAssertEqual(fitted.slot, SwitcherBand.slot)

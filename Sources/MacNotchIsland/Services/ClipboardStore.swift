@@ -41,6 +41,14 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
         return text.split(separator: "\n").map { URL(fileURLWithPath: String($0)) }
     }
 
+    /// True when this entry points at files and none of them are there any more. Copying one
+    /// back would put a dead reference on the pasteboard, so the row says so instead.
+    var filesAreGone: Bool {
+        let urls = fileURLs
+        guard !urls.isEmpty else { return false }
+        return !urls.contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     /// Single-line summary for a row.
     var preview: String {
         switch kind {
@@ -296,7 +304,14 @@ final class ClipboardStore: ObservableObject {
         pasteboard.clearContents()
         switch item.kind {
         case .file where !item.fileURLs.isEmpty:
-            let files: [NSPasteboardWriting] = item.fileURLs.map { $0 as NSURL }
+            // Only the files that are still there; when they have all gone, their paths as
+            // text, which is the one useful thing left to hand over.
+            let live = item.fileURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
+            guard !live.isEmpty else {
+                pasteboard.setString(item.fileURLs.map(\.path).joined(separator: "\n"), forType: .string)
+                return
+            }
+            let files: [NSPasteboardWriting] = live.map { $0 as NSURL }
             pasteboard.writeObjects(files)
         case .image:
             let entry = NSPasteboardItem()
