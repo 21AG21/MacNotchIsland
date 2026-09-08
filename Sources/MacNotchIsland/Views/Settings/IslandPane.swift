@@ -11,11 +11,12 @@ struct IslandPane: View {
                 LabeledContent("Toggle island", value: HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode, carbonModifiers: HotKeyService.currentModifiers))
                 LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
                 LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
+                LabeledContent("Step sideways", value: HotKeyService.displayString(keyCode: kVK_LeftArrow, carbonModifiers: HotKeyService.currentModifiers) + " and " + HotKeyService.displayString(keyCode: kVK_RightArrow, carbonModifiers: HotKeyService.currentModifiers))
                 LabeledContent("Close", value: "Escape")
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("Change the shortcut under Shortcuts. Tab steps through the live activities and every section in the order the switcher shows them. What you open stays open across desktops.")
+                Text("Change the shortcut under Shortcuts. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
             }
 
             Section {

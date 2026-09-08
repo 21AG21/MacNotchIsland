@@ -5,8 +5,9 @@ import Foundation
 
 /// Global shortcuts that drive the island without touching the trackpad. The main combo lives
 /// in preferences (⌃⌥Space out of the box) and toggles the island; the same modifiers with Tab
-/// step forward through every view, with Shift+Tab backward; Escape closes whatever is open and
-/// is only registered while something is. Uses Carbon's RegisterEventHotKey, which works for
+/// step forward through every view, with Shift+Tab backward; Escape closes whatever is open,
+/// and the modifiers with the arrow keys step sideways; those are only registered while
+/// something is open. Uses Carbon's RegisterEventHotKey, which works for
 /// background apps with no permissions.
 final class HotKeyService: ObservableObject {
     /// One owner for the registration, so Settings can watch it while ServiceHub drives it.
@@ -20,7 +21,7 @@ final class HotKeyService: ObservableObject {
     static let defaultKeyCode = kVK_Space
     static let defaultModifiers = controlKey | optionKey
 
-    private enum Slot: UInt32 { case toggle = 1, next = 2, previous = 3, escape = 4 }
+    private enum Slot: UInt32 { case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6 }
 
     private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
@@ -94,7 +95,22 @@ final class HotKeyService: ObservableObject {
         // already holds Shift the two coincide, and only the forward step registers.
         register(.next, keyCode: kVK_Tab, modifiers: modifiers)
         if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
-        if escapeArmed { register(.escape, keyCode: kVK_Escape, modifiers: 0) }
+        if escapeArmed { registerWhileOpen() }
+    }
+
+    /// Escape, and the main combo's modifiers with the arrow keys, are claimed only while the
+    /// island has something open: the arrows step between sections the way a swipe does.
+    private func registerWhileOpen() {
+        register(.escape, keyCode: kVK_Escape, modifiers: 0)
+        let modifiers = Self.currentModifiers
+        register(.left, keyCode: kVK_LeftArrow, modifiers: modifiers)
+        register(.right, keyCode: kVK_RightArrow, modifiers: modifiers)
+    }
+
+    private func unregisterWhileOpen() {
+        unregister(.escape)
+        unregister(.left)
+        unregister(.right)
     }
 
     @discardableResult
@@ -122,7 +138,7 @@ final class HotKeyService: ObservableObject {
         guard armed != escapeArmed else { return }
         escapeArmed = armed
         guard handlerRef != nil else { return }
-        if armed { register(.escape, keyCode: kVK_Escape, modifiers: 0) } else { unregister(.escape) }
+        if armed { registerWhileOpen() } else { unregisterWhileOpen() }
     }
 
     static var currentKeyCode: Int {
@@ -150,6 +166,8 @@ final class HotKeyService: ObservableObject {
         case .toggle: center.toggle()
         case .next: center.cycleView(forward: true)
         case .previous: center.cycleView(forward: false)
+        case .left: _ = center.step(forward: false, wrap: false)
+        case .right: _ = center.step(forward: true, wrap: false)
         case .escape:
             // Escape is registered the instant something opens; nothing in the tail of that
             // click may pass for a key press.

@@ -36,8 +36,9 @@ the unreleased section is what the next tag will ship.
   mirror, AirDrop for the shelf, and Settings. Stepping between views never resizes the island.
 - Peek and pin. Resting the pointer on the island opens the panel on what is playing or
   running; it closes when the pointer leaves. A click pins it until a click elsewhere,
-  Escape or the shortcut. The shortcut's modifiers with Tab (and Shift + Tab), a sideways
-  swipe on the panel, or the switcher step through the same list everywhere.
+  Escape or the shortcut. The shortcut's modifiers with Tab (and Shift + Tab) or with the
+  arrow keys, a sideways swipe on the panel, or the switcher step through the same list
+  everywhere.
 - The compact pill reads like the iPhone's: a coloured glyph in a 34 pt slot on the left, a
   white value on the right (red only for a battery warning), thinner bars blended toward
   white, a 4 pt HUD bar. A key-press HUD over a live activity keeps that activity's glyph.
