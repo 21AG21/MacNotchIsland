@@ -66,3 +66,8 @@ jobs:
           name: gallery
           path: build/gallery/*.jpg
           if-no-files-found: ignore
+
+      # Last, so it survives the log's tail: the gallery's base64 dump is thousands of lines.
+      - name: Smoke summary
+        if: always()
+        run: cat build/smoke/summary.txt 2>/dev/null || echo "the smoke test wrote no summary"

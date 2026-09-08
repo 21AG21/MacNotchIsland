@@ -18,6 +18,8 @@ defaults write "$ID" updateChecksEnabled -bool false
 defaults write "$ID" screenshotsToShelfEnabled -bool false
 
 DIED=0
+SUMMARY="$OUT/summary.txt"
+: > "$SUMMARY"
 
 run_case() {  # name, click y, extra env
   local name=$1 y=$2 env=${3:-}
@@ -32,7 +34,11 @@ run_case() {  # name, click y, extra env
   screencapture -x "$OUT/$name-2-after-second-click.png"
   echo "--- click 3: far away (should close)"; "$OUT/click" 120 500; sleep 1.5
   screencapture -x "$OUT/$name-3-after-outside-click.png"
-  if kill -0 "$pid" 2>/dev/null; then echo "--- app alive: yes"; else echo "--- app alive: NO, it died"; DIED=1; fi
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "--- app alive: yes"; echo "alive $name: yes" >> "$SUMMARY"
+  else
+    echo "--- app alive: NO, it died"; echo "alive $name: NO" >> "$SUMMARY"; DIED=1
+  fi
   echo "--- unified log"
   log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact 2>&1 | tail -n 120
   echo "--- errors and faults from the process"
@@ -45,6 +51,7 @@ run_case() {  # name, click y, extra env
       [ -f "$png" ] || continue
       local gap; gap=$("$OUT/topgap" "$png")
       echo "--- topgap $name-$shot: $gap px"
+      echo "topgap $name-$shot: $gap px" >> "$SUMMARY"
       if [ "$gap" -gt 4 ]; then echo "SMOKE FAILED: the island sits ${gap}px below the top of the screen"; DIED=1; fi
     done
   fi
