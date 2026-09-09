@@ -209,7 +209,11 @@ struct SwitcherBand: View {
             // The drag may have moved on in the meantime; only the slot it is still on opens.
             guard springTarget == view else { return }
             Haptics.tap()
-            ActivityCenter.shared.select(view, direction: step)
+            // Pinned, not peeked. A peek is what the pointer happens to be over; holding a
+            // file on a slot is a decision — and only a pinned section counts as one whose
+            // own tiles take the drop, so a peek would show the shelf's well over the tiles
+            // the file was being carried to.
+            ActivityCenter.shared.open(view, direction: step)
         }
         springWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.springDelay, execute: work)

@@ -79,8 +79,12 @@ struct WindowsSectionView: View {
         // A window that closed, or an app that quit, must not stay picked out: the pill would
         // then offer to lay out something that is not there.
         .onChange(of: monitor.windows) { _, current in
-            let live = Set(current.map(\.id))
-            selection = selection.intersection(live)
+            // Every capture gives the tiles new pictures, so this runs several times a second
+            // while the section is open: it writes only when the selection has actually lost
+            // something.
+            guard !selection.isEmpty else { return }
+            let kept = selection.intersection(Set(current.map(\.id)))
+            if kept != selection { selection = kept }
         }
     }
 
