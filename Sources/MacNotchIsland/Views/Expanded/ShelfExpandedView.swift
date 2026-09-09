@@ -69,8 +69,9 @@ struct ShelfStripView: View {
         // Only where the well cannot say it itself. An empty shelf puts "Drop to add" in the
         // middle of the lit well, under a tray the size of a thumbnail and right where the
         // file is going; the header saying the same thing on the line above is one sentence
-        // twice. With tiles in the well there is no room for it there, so it comes up here.
-        if isDropTarget, !shelf.items.isEmpty { return "Drop to keep here" }
+        // twice. With tiles in the well there is no room for it there, so it comes up here —
+        // in the same words, which is the point: it is the same moment.
+        if isDropTarget, !shelf.items.isEmpty { return "Drop to add" }
         guard !shelf.items.isEmpty else { return "Shelf" }
         // The strip scrolls, so say how much there is to scroll to.
         return "Shelf · \(shelf.items.count) \(shelf.items.count == 1 ? "item" : "items")"
@@ -141,7 +142,9 @@ struct ShelfStripView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
             if !isDropTarget {
-                Text("Drag files onto the notch to park them here.")
+                // "Onto the island", the way the tour and every other line in the app say it.
+                // The notch is the hole in the screen; the island is the thing you drop on.
+                Text("Drag anything onto the island and it waits here.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.white.opacity(0.4))
             }
