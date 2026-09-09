@@ -10,6 +10,11 @@ final class ShortcutsRunner: ObservableObject {
     /// Every shortcut installed on this Mac, as reported by `shortcuts list`.
     @Published private(set) var available: [String] = []
 
+    /// Whether this Mac has the `shortcuts` command at all. It has shipped with macOS since
+    /// Monterey, so this is practically always true — but "no shortcuts found, add some" is
+    /// the wrong thing to say when the thing that lists them is what is missing.
+    @Published private(set) var isAvailable = true
+
     /// Names pinned to the island's quick actions row, in display order. Capped at 8.
     @Published var favorites: [String] {
         didSet { UserDefaults.standard.set(favorites, forKey: Self.favoritesKey) }
@@ -32,6 +37,7 @@ final class ShortcutsRunner: ObservableObject {
     /// Clears in-memory state. Used by the test suite.
     func resetForTesting() {
         available = []
+        isAvailable = true
         favorites = []
         symbolOverrides = [:]
     }
@@ -39,7 +45,8 @@ final class ShortcutsRunner: ObservableObject {
     // MARK: - Discovery
 
     func refresh() {
-        guard FileManager.default.isExecutableFile(atPath: Self.binaryPath) else {
+        isAvailable = FileManager.default.isExecutableFile(atPath: Self.binaryPath)
+        guard isAvailable else {
             available = []
             return
         }
@@ -79,7 +86,18 @@ final class ShortcutsRunner: ObservableObject {
     /// Runs a shortcut by name, showing a Live Activity while it's in flight and a
     /// Done/Failed alert when it exits.
     func run(_ name: String) {
-        guard FileManager.default.isExecutableFile(atPath: Self.binaryPath) else { return }
+        guard FileManager.default.isExecutableFile(atPath: Self.binaryPath) else {
+            // A button that does nothing at all is the one outcome that must never be
+            // possible, however unlikely the cause.
+            isAvailable = false
+            ActivityCenter.shared.showAlert(IslandActivity(
+                id: "shortcuts-missing", kind: .custom,
+                content: .custom(CustomActivity(title: "Shortcuts is not available",
+                                                subtitle: "This Mac has no shortcuts command to run them with.",
+                                                symbol: "exclamationmark.triangle.fill", tint: "orange")),
+                priority: 90, presentation: .expanded), duration: 4)
+            return
+        }
         let activityID = "shortcut-\(name)"
 
         ActivityCenter.shared.upsert(IslandActivity(

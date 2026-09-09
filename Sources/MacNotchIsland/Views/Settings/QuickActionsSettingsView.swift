@@ -16,7 +16,13 @@ struct QuickActionsSettingsView: View {
                 Text("\(runner.favorites.count) of 8 chosen")
             }
 
-            if runner.available.isEmpty {
+            if !runner.isAvailable {
+                // Not "add some in the Shortcuts app": there is nothing here to ask them of.
+                Text("This Mac has no shortcuts command, so none can be listed or run.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if runner.available.isEmpty {
                 Text("No shortcuts found. Add some in the Shortcuts app, then refresh.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
