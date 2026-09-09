@@ -48,7 +48,7 @@ struct WindowsSectionView: View {
                               subtitle: "Everything you open shows up here.")
         } else {
             IslandScrollStrip {
-                HStack(spacing: 10) {
+                HStack(spacing: Self.tileGap) {
                     ForEach(windows) { window in
                         tile(window)
                     }
@@ -61,9 +61,13 @@ struct WindowsSectionView: View {
 
     // MARK: - A tile
 
-    /// 148 x 88 is close to the shape of a Mac screen, and four of them plus their names fill
-    /// the section's body exactly, with room under the last line for the scroller.
-    static let tileWidth: CGFloat = 148
+    /// Four tiles and the three gaps between them fill the section's width exactly, and the
+    /// tile plus its name fills the body with room under the last line for the scroller. At a
+    /// fixed 148 they stopped fifty points short of the right edge — where the header's count
+    /// sits — so a row of exactly four read as a row that had come up short rather than as a
+    /// strip that scrolls.
+    static let tileGap: CGFloat = 10
+    static var tileWidth: CGFloat { ((IslandLayout.panelContentWidth - 3 * tileGap) / 4).rounded(.down) }
     static let tileHeight: CGFloat = 88
     static let labelHeight: CGFloat = 15
     static let labelGap: CGFloat = 4

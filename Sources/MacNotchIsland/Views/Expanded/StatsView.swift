@@ -112,7 +112,7 @@ struct StatsView: View {
             .animation(IslandMotion.digits, value: stats.sample.networkDownBytesPerSec)
         } footer: {
             Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
-                .frame(height: 22)
+                .frame(height: 30)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
@@ -234,9 +234,17 @@ struct StatsView: View {
             value()
             Spacer(minLength: 8)
             VStack(alignment: .leading, spacing: 4) { footer() }
+                .frame(height: Self.footerHeight, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+
+    /// Every cell's meter starts at the same height, because the footer is a slot of one size
+    /// filled from the top rather than a stack pushed against the floor. Pushed against the
+    /// floor, the battery's bar sat thirteen points above the memory and disk bars beside it
+    /// — the battery is the one column with two lines of small print under its meter, and the
+    /// extra line lifted the meter instead of hanging below it.
+    private static let footerHeight: CGFloat = 40
 
     /// The hairline between two columns, the same distance from each. It used to sit 16 pt
     /// from the column on its left and 14 from the one on its right.

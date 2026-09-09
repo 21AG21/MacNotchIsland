@@ -32,6 +32,13 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **Two rows that did not line up.** In Stats, the battery's meter sat thirteen points above
+  the memory and disk meters beside it: the footers were pushed against the floor of each
+  column, and the battery is the one column with two lines of small print under its bar, so
+  the extra line lifted the bar instead of hanging below it. Every meter now starts at the
+  same height. In Windows, four tiles stopped fifty points short of the right edge — the edge
+  the header's "4 open" is aligned to — so a full row read as a row that had come up short;
+  four tiles and their gaps now fill the section exactly.
 - **The scratchpad and the clipboard history are written before the app goes away.** Both are
   saved eight tenths of a second after they change, and a quit from the menu bar is quicker
   than that — so the last sentence somebody typed, and the last thing they copied, were the

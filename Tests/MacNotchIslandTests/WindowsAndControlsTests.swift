@@ -151,6 +151,16 @@ final class WindowsAndControlsTests: XCTestCase {
                                  "the two rows and the rule between them must fit with their gaps")
     }
 
+    func testFourWindowTilesFillTheRowTheHeaderIsMeasuredAgainst() {
+        let used = 4 * WindowsSectionView.tileWidth + 3 * WindowsSectionView.tileGap
+        XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth,
+                                 "a fourth tile that does not fit turns a full row into a scroll")
+        // The header's count sits on the right edge of this same column, so a row that stops
+        // short of it reads as a mistake rather than as a strip with more to come.
+        XCTAssertGreaterThan(used, IslandLayout.panelContentWidth - 6,
+                             "the strip stops \(IslandLayout.panelContentWidth - used) pt short of the right edge")
+    }
+
     // MARK: - Favourite apps
 
     func testADeletedAppLeavesTheFavouritesButAnUnpluggedOneStays() throws {
