@@ -31,7 +31,19 @@ final class VolumeMonitorTests: XCTestCase {
         let state = drive(total: 100, free: 25)
         XCTAssertEqual(state.used, 75)
         XCTAssertEqual(state.fill ?? 0, 0.75, accuracy: 0.0001)
+        XCTAssertTrue(state.showsFill)
         XCTAssertEqual(ActivityContent.drive(state).cardHeight, ActivityContent.cardRowWithBar)
+    }
+
+    func testADiskThatHasGoneDrawsNoBar() {
+        // How full a disk *was* is not news, and a bar under "Safe to unplug" with no buttons
+        // beside it reads as a card that has not finished loading.
+        for event in [DriveState.Event.ejected, .surprise] {
+            let state = drive(event, total: 100, free: 25)
+            XCTAssertFalse(state.showsFill, "\(event)")
+            XCTAssertEqual(ActivityContent.drive(state).cardHeight, ActivityContent.cardRow)
+        }
+        XCTAssertTrue(drive(.busy, total: 100, free: 25).showsFill, "it is still plugged in")
     }
 
     func testFreeSpaceIsNeverNegativeWhateverTheDiskReports() {

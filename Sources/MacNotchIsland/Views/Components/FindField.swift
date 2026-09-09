@@ -36,7 +36,9 @@ struct FindField: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))
                 .frame(width: Self.height, height: Self.height)
-                .background(Circle().fill(Color.white.opacity(0.08)))
+                // The same fill the pills beside it wear, so the glass reads as a control
+                // on that line rather than as a decoration printed on the black.
+                .background(Circle().fill(Color.white.opacity(0.12)))
                 .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())

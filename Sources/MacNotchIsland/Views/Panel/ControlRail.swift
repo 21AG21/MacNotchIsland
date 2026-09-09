@@ -145,8 +145,13 @@ struct ControlRail: View {
             .frame(width: RailMetrics.button, height: RailMetrics.button)
             .contentShape(Circle())
         }
-        .menuStyle(.button)
+        // Borderless, with no indicator: `.button` draws AppKit's own bezel, which put a
+        // rounded rectangle in a row of discs and was the one control on the rail that did
+        // not look like it belonged to the island.
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .buttonStyle(.plain)
+        .fixedSize()
         .menuIndicator(.hidden)
         .fixedSize()
         .help(outputs.current.map { "Sound is going to \($0.name)" } ?? "Choose the output")

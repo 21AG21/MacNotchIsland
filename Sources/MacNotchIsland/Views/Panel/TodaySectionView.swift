@@ -152,6 +152,10 @@ struct TodaySectionView: View {
             PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
                 if let url { NSWorkspace.shared.open(url) }
             }
+            // A row's control, at the size a row's controls are. At the full size it was the
+            // largest thing on the section and the only saturated one — a web page's call to
+            // action sitting in a list of appointments.
+            .environment(\.islandCompactControls, true)
             .opacity(url == nil ? 0 : 1)
             .allowsHitTesting(url != nil)
             .accessibilityHidden(url == nil)

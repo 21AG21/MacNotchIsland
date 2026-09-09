@@ -35,6 +35,12 @@ struct MusicSectionView: View {
         .onDisappear { outputs.viewerDisappeared() }
     }
 
+    /// One size for every transport glyph. 24 pt is what the phone's island uses: big enough
+    /// to hit with a pointer, small enough that three of them are a row rather than a bar.
+    static let transportGlyph: CGFloat = 24
+    /// The row the three of them sit on.
+    static let transportRow: CGFloat = 36
+
     private func player(_ info: NowPlayingInfo) -> some View {
         let accent = Color(nsColor: info.accent)
         return VStack(spacing: 0) {
@@ -93,14 +99,18 @@ struct MusicSectionView: View {
             }
             .padding(.top, 10)
 
-            HStack(spacing: 34) {
-                GlyphButton(symbol: "backward.fill", size: 22, weight: .medium) { service.previous() }
-                GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill", size: 30, weight: .medium) { service.togglePlayPause() }
+            // One size and one weight for all three, the way the phone's island sets them.
+            // A 30 pt `pause.fill` beside 22 pt triangles is a third again as much ink in the
+            // middle of the row: the two skips read as faint and the row lost its centre.
+            HStack(spacing: 30) {
+                GlyphButton(symbol: "backward.fill", size: Self.transportGlyph, weight: .medium) { service.previous() }
+                GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill",
+                            size: Self.transportGlyph, weight: .medium) { service.togglePlayPause() }
                     .animation(IslandMotion.fade, value: info.isPlaying)
-                GlyphButton(symbol: "forward.fill", size: 22, weight: .medium) { service.next() }
+                GlyphButton(symbol: "forward.fill", size: Self.transportGlyph, weight: .medium) { service.next() }
             }
-            .frame(height: 30)
-            .padding(.top, 4)
+            .frame(height: Self.transportRow)
+            .padding(.top, 6)
         }
         .background(alignment: .top) { backdrop(info) }
     }
@@ -116,13 +126,12 @@ struct MusicSectionView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.sectionHeight)
                 .blur(radius: 40)
-                .opacity(0.32)
-                .mask {
-                    LinearGradient(colors: [.black, .black.opacity(0.35), .clear],
-                                   startPoint: .leading, endPoint: .trailing)
-                }
-                // And out again at the bottom, so the wash does not end in a straight line
-                // where the section is clipped above the divider.
+                .opacity(0.26)
+                // Across the whole width, not a band down the left. Masked to a third of its
+                // strength by the halfway mark, the wash ended in a visible edge under the
+                // title — a rendering seam rather than a colour. The phone tints the whole
+                // card and trusts white text to carry over it, which at this blur and this
+                // opacity it does.
                 .mask {
                     LinearGradient(stops: [.init(color: .black, location: 0),
                                            .init(color: .black, location: 0.55),

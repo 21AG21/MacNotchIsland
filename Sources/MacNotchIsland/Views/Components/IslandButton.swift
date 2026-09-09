@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct IslandButtonStyle: ButtonStyle {
@@ -111,6 +112,15 @@ struct PillButton: View {
         compact ? (11, 10, 4, 9, 4) : (12, 11, 5, 12, 7)
     }
 
+    /// What a filled pill writes on itself: black on a light fill, white on a saturated one,
+    /// the way every filled control on the Mac picks its text colour. Black on the system
+    /// green read as a highlighter rather than as a button.
+    static func ink(on tint: Color) -> Color {
+        guard let rgb = NSColor(tint).usingColorSpace(.sRGB) else { return .black }
+        let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+        return luminance >= 0.7 ? .black : .white
+    }
+
     var body: some View {
         let m = metrics
         return Button(action: action) {
@@ -118,7 +128,7 @@ struct PillButton: View {
                 if let symbol { Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold)) }
                 Text(title).font(.system(size: m.text, weight: .semibold))
             }
-            .foregroundStyle(prominent ? Color.black : tint)
+            .foregroundStyle(prominent ? Self.ink(on: tint) : tint)
             .padding(.horizontal, m.h)
             .padding(.vertical, m.v)
             // On a header line every control is exactly the line's height, so a pill and the

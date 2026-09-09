@@ -301,6 +301,14 @@ struct DriveState: Equatable {
         return min(1, Double(used) / Double(total))
     }
 
+    /// Whether the card draws the bar. Only while the disk is still attached: how full a disk
+    /// *was* is not news, and a bar under "Safe to unplug" with no buttons beside it reads as
+    /// a card that has not finished loading.
+    var showsFill: Bool {
+        guard fill != nil else { return false }
+        return event == .connected || event == .busy
+    }
+
     static let formatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.countStyle = .file
@@ -445,8 +453,9 @@ enum ActivityContent: Equatable {
         case .timer: return Self.cardRowWithBar + IslandTimer.extraRowsHeight
         case .stopwatch, .calendar: return Self.cardRowWithBar
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
-        // The bar is how full the disk is, and it is only drawn where the size could be read.
-        case .drive(let d): return d.fill == nil ? Self.cardRow : Self.cardRowWithBar
+        // The bar is how full the disk is, drawn only where the size could be read and only
+        // while there is still a disk to be full.
+        case .drive(let d): return d.showsFill ? Self.cardRowWithBar : Self.cardRow
         case .capture: return Self.cardRow
         case .custom(let c):
             if c.body != nil { return Self.cardTwoRows }

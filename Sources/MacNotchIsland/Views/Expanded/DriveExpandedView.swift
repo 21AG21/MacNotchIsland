@@ -42,7 +42,7 @@ struct DriveExpandedView: View {
             .islandContentColumn()
             .accessibilityElement(children: .contain)
             .accessibilityLabel("\(state.name), \(state.subtitle)")
-            if let fill = state.fill {
+            if state.showsFill, let fill = state.fill {
                 LevelBar(level: fill, tint: .white)
                     .frame(height: 4)
                     .islandContentColumn()

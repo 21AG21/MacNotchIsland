@@ -302,14 +302,15 @@ struct SwitcherBand: View {
     /// the right third.
     private func closeButton(size: CGFloat) -> some View {
         Button(action: { center.collapse(reason: "close button") }) {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.10))
-                Image(systemName: "xmark")
-                    .font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            .frame(width: size, height: size)
-            .contentShape(Circle())
+            // Drawn like every other slot on the band: a glyph, no disc. With a filled disc it
+            // was the only thing on that line with a background, which made the one control
+            // there that does not navigate the loudest thing in the panel. The disc that marks
+            // the view you are on is now the only fill in the band, which is its whole job.
+            Image(systemName: "xmark")
+                .font(.system(size: size * 0.44, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: size, height: size)
+                .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
         .opacity(center.isOpen ? 1 : 0)
