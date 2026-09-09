@@ -32,6 +32,10 @@ struct HUDExpandedView: View {
                             .lineLimit(1)
                     }
                 }
+                // The bar is the only thing in this row that wants width, so without it the
+                // card would shrink to its contents and re-centre — a different shape for one
+                // state out of three.
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityHidden(true)
                 Text(LevelHUD.readout(state))
                     .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())

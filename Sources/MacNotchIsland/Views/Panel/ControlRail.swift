@@ -180,6 +180,9 @@ final class BrightnessControl: ObservableObject {
         LocalWrite.isRecent(lastLocalWrite, now: now)
     }
 
+    /// See `AudioOutputs.markLocalWriteForTesting`.
+    static func markLocalWriteForTesting(_ date: Date) { lastLocalWrite = date }
+
     func set(_ value: Double) {
         let clamped = min(1, max(0, value))
         Self.lastLocalWrite = Date()

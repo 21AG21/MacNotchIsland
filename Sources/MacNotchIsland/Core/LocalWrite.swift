@@ -13,6 +13,10 @@ enum LocalWrite {
     static let window: TimeInterval = 0.6
 
     static func isRecent(_ stamp: Date, within seconds: TimeInterval = window, now: Date = Date()) -> Bool {
-        now.timeIntervalSince(stamp) < seconds
+        let age = now.timeIntervalSince(stamp)
+        // Bounded below as well as above. The clock can step backwards — an NTP correction, a
+        // wake with a bad real-time clock — and an unbounded comparison would read a stamp
+        // from the future as "just now" and swallow every display until the clock caught up.
+        return age >= 0 && age < seconds
     }
 }

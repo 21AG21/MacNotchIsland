@@ -65,6 +65,31 @@ final class SystemHUDTests: XCTestCase {
                        "one from five seconds ago is not")
         XCTAssertFalse(LocalWrite.isRecent(.distantPast, now: now),
                        "and never having written is not either")
+        XCTAssertFalse(LocalWrite.isRecent(now.addingTimeInterval(60), now: now),
+                       "nor is one from the future, which is what a clock stepping backwards "
+                       + "leaves behind — unbounded, it would swallow every display until the "
+                       + "clock caught up")
+    }
+
+    /// Two sliders, two stamps. Wiring one of these to the other's would suppress the wrong
+    /// display, and would do it silently.
+    func testEachDisplayAsksAboutItsOwnSlider() {
+        let now = Date()
+        defer {
+            AudioOutputs.markLocalWriteForTesting(.distantPast)
+            BrightnessControl.markLocalWriteForTesting(.distantPast)
+        }
+
+        AudioOutputs.markLocalWriteForTesting(now.addingTimeInterval(-0.1))
+        BrightnessControl.markLocalWriteForTesting(.distantPast)
+        XCTAssertTrue(AudioOutputs.wroteRecently(now: now))
+        XCTAssertFalse(BrightnessControl.wroteRecently(now: now),
+                       "the volume slider having just moved says nothing about the brightness one")
+
+        AudioOutputs.markLocalWriteForTesting(.distantPast)
+        BrightnessControl.markLocalWriteForTesting(now.addingTimeInterval(-0.1))
+        XCTAssertFalse(AudioOutputs.wroteRecently(now: now))
+        XCTAssertTrue(BrightnessControl.wroteRecently(now: now))
     }
 
     func testTheIslandStartsOutLeavingTheSystemBezelAlone() {

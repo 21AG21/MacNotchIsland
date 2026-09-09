@@ -189,22 +189,38 @@ final class AudioMonitor {
         return status == noErr ? device : 0
     }
 
-    static func readOutputVolume() -> Float32? {
-        let device = defaultOutputDevice()
+    /// Where an output's level can live: the virtual main volume the HAL synthesises on the
+    /// main element, then the per-channel scalars that aggregate and USB devices use instead.
+    ///
+    /// One list, asked in one order, by everything that reads, writes or merely wonders
+    /// whether there is a level here at all. When the reader looked at two of these and the
+    /// question "has this a level?" looked at three, a device that kept its level on the
+    /// second channel was called settable and then never read — and the key died holding
+    /// both answers.
+    static let volumeElements: [AudioObjectPropertyElement] = [kAudioObjectPropertyElementMain, 1, 2]
+
+    static func readOutputVolume() -> Float32? { readOutputVolume(device: defaultOutputDevice()) }
+
+    static func readOutputVolume(device: AudioDeviceID) -> Float32? {
         guard device != 0 else { return nil }
-        if let v = scalarVolume(device: device, element: kAudioObjectPropertyElementMain) { return v }
-        // Some aggregate / USB devices only expose per-channel volume.
-        return scalarVolume(device: device, element: 1)
+        for element in volumeElements {
+            if let v = scalarVolume(device: device, element: element) { return v }
+        }
+        return nil
     }
 
     @discardableResult
     static func writeOutputVolume(_ level: Float32) -> Bool {
-        let device = defaultOutputDevice()
+        writeOutputVolume(level, device: defaultOutputDevice())
+    }
+
+    @discardableResult
+    static func writeOutputVolume(_ level: Float32, device: AudioDeviceID) -> Bool {
         guard device != 0 else { return false }
         let value = max(0, min(1, level))
         if setScalarVolume(value, device: device, element: kAudioObjectPropertyElementMain) { return true }
         var ok = false
-        for channel in UInt32(1)...UInt32(2) {
+        for channel in volumeElements.dropFirst() {
             if setScalarVolume(value, device: device, element: channel) { ok = true }
         }
         if !ok { NSLog("Notch Island: could not set the output volume on device \(device).") }
@@ -218,18 +234,20 @@ final class AudioMonitor {
     /// Asking for the virtual one on a channel always answers no, because the HAL only
     /// synthesises it on the main element — which is why this belongs here, beside the
     /// address it shares, rather than anywhere that has to guess at it.
-    static func outputHasVolumeControl() -> Bool {
-        let device = defaultOutputDevice()
+    static func outputHasVolumeControl() -> Bool { outputHasVolumeControl(device: defaultOutputDevice()) }
+
+    static func outputHasVolumeControl(device: AudioDeviceID) -> Bool {
         guard device != 0 else { return false }
-        for element in [kAudioObjectPropertyElementMain, AudioObjectPropertyElement(1), AudioObjectPropertyElement(2)] {
+        for element in volumeElements {
             var address = volumeAddress(element: element)
             if AudioObjectHasProperty(device, &address) { return true }
         }
         return false
     }
 
-    static func readOutputMute() -> Bool? {
-        let device = defaultOutputDevice()
+    static func readOutputMute() -> Bool? { readOutputMute(device: defaultOutputDevice()) }
+
+    static func readOutputMute(device: AudioDeviceID) -> Bool? {
         guard device != 0 else { return nil }
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
                                                  mScope: kAudioDevicePropertyScopeOutput,
@@ -242,8 +260,10 @@ final class AudioMonitor {
     }
 
     @discardableResult
-    static func writeOutputMute(_ muted: Bool) -> Bool {
-        let device = defaultOutputDevice()
+    static func writeOutputMute(_ muted: Bool) -> Bool { writeOutputMute(muted, device: defaultOutputDevice()) }
+
+    @discardableResult
+    static func writeOutputMute(_ muted: Bool, device: AudioDeviceID) -> Bool {
         guard device != 0 else { return false }
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
                                                  mScope: kAudioDevicePropertyScopeOutput,

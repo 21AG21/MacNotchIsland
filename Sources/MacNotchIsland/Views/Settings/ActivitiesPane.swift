@@ -79,10 +79,14 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Show volume and brightness in the island", isOn: $prefs.hudReplacementEnabled)
                     .help("The island takes the media keys over and becomes the only heads-up display for volume, mute and brightness.")
+                // Not disabled with the master switch: it also owns the display a scroll on
+                // the island puts up, which works either way, and a display with no way to
+                // turn it off is worse than one setting that does two things.
                 Toggle("Volume and silent mode", isOn: $prefs.volumeHUDEnabled)
-                    .disabled(!prefs.hudReplacementEnabled)
                 Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
                     .disabled(!prefs.hudReplacementEnabled)
+                    .help("There is no way to change the brightness from the island itself, so this "
+                          + "has nothing to show unless the island is answering the keys.")
                 if prefs.hudReplacementEnabled && !hud.isActive {
                     Button("Open Accessibility Settings…") {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {

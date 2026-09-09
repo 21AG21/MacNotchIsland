@@ -63,13 +63,19 @@ final class VolumeFeedbackSound {
     private lazy var voices: [NSSound] = {
         // The first path that both exists and opens — a file that is there but that NSSound
         // will not decode should fall through to the next candidate, not end the search.
+        var best: [NSSound] = []
         for path in Self.candidates where FileManager.default.fileExists(atPath: path) {
-            let loaded = (0..<3).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
-            if !loaded.isEmpty { return loaded }
+            let loaded = (0..<Self.voiceCount).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
+            if loaded.count == Self.voiceCount { return loaded }
+            // One voice is the buzz again, so a partial load is only a last resort: keep
+            // looking through the remaining candidates first.
+            if loaded.count > best.count { best = loaded }
         }
-        return []
+        return best
     }()
     private var nextVoice = 0
+    /// Enough that a click is never cut off by the next one at a key's repeat rate.
+    static let voiceCount = 3
 
     private init() {}
 
@@ -167,6 +173,10 @@ final class MediaKeyInterceptor {
     func start() {
         guard !running else { return }
         running = true
+        // Switching the feature off and on again is the user's way of saying "try again", and
+        // it has to actually try: without this a run of failures would be permanent for the
+        // life of the process, with nothing but a relaunch to clear it.
+        tapFailures = 0
         lock.lock()
         stopRequested = false
         lock.unlock()
@@ -274,7 +284,8 @@ final class MediaKeyInterceptor {
         lock.lock()
         let alreadyInstalled = tapPort != nil
         lock.unlock()
-        guard running, !alreadyInstalled, tapFailures < Self.maxTapAttempts else { return }
+        guard running, !alreadyInstalled else { return }
+        guard tapFailures < Self.maxTapAttempts else { return }
 
         let mask = CGEventMask(1 << 14) // NSEvent.EventType.systemDefined
         guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap,
@@ -288,12 +299,17 @@ final class MediaKeyInterceptor {
             NSLog("Notch Island: could not create the media-key event tap (attempt \(tapFailures) of \(Self.maxTapAttempts)); the system HUD stays in charge.")
             return
         }
-        tapFailures = 0
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else {
-            NSLog("Notch Island: could not create a run loop source for the media-key event tap.")
+            // Counted like any other failure: the watch timer will come back every few
+            // seconds for as long as the feature is on, and something that cannot be built
+            // must not be asked for and logged forever.
+            tapFailures += 1
+            NSLog("Notch Island: could not create a run loop source for the media-key event tap "
+                  + "(attempt \(tapFailures) of \(Self.maxTapAttempts)).")
             CFMachPortInvalidate(port)
             return
         }
+        tapFailures = 0
 
         lock.lock()
         tapPort = port
@@ -391,13 +407,25 @@ final class MediaKeyInterceptor {
     /// tap goes up, and after each key, so plugging a display in or picking a new output
     /// corrects the answer by the next press.
     private func refreshCapabilities() {
-        let brightnessOK = brightness.currentBrightness() != nil
-        let volumeOK = AudioMonitor.readOutputVolume() != nil || AudioMonitor.outputHasVolumeControl()
-        lock.lock()
-        canSetBrightness = brightnessOK
-        canSetVolume = volumeOK
-        lock.unlock()
+        // Off the main thread: these are blocking round trips to the display server and to
+        // coreaudiod, and coreaudiod is at its busiest exactly when a device is arriving —
+        // which is the moment this most wants to be asked. The flags are already behind the
+        // lock the tap thread reads them through, so there is nothing else to arrange.
+        Self.capabilityQueue.async { [weak self] in
+            guard let self else { return }
+            let brightnessOK = self.brightness.currentBrightness() != nil
+            let device = AudioMonitor.defaultOutputDevice()
+            let volumeOK = AudioMonitor.readOutputVolume(device: device) != nil
+                || AudioMonitor.outputHasVolumeControl(device: device)
+            self.lock.lock()
+            self.canSetBrightness = brightnessOK
+            self.canSetVolume = volumeOK
+            self.lock.unlock()
+        }
     }
+
+    private static let capabilityQueue = DispatchQueue(label: "com.notchisland.mediakeys.capabilities",
+                                                       qos: .utility)
 
     // MARK: - Decoding
 
@@ -444,8 +472,7 @@ final class MediaKeyInterceptor {
 
     /// A remembered level or mute state belongs to the device it was read from; stepping from
     /// a stranger's number would write a stranger's number.
-    private func forgetOtherDevices() {
-        let device = AudioMonitor.defaultOutputDevice()
+    private func forgetOtherDevices(_ device: AudioDeviceID) {
         guard device != lastVolumeDevice else { return }
         lastVolume = nil
         lastMuted = nil
@@ -453,7 +480,11 @@ final class MediaKeyInterceptor {
     }
 
     private func adjustVolume(delta: Int, step: Float, isRepeat: Bool, flags: CGEventFlags) {
-        forgetOtherDevices()
+        // Resolved once. Every one of these questions would otherwise ask the HAL which
+        // device is the default all over again, six times for a press that repeats twenty
+        // times a second.
+        let device = AudioMonitor.defaultOutputDevice()
+        forgetOtherDevices(device)
         // Some outputs — HDMI, a few AirPlay targets — carry the sound at whatever level the
         // thing at the other end is set to. The key has already been swallowed by the time we
         // get here, so saying so is the only alternative to the press doing nothing at all.
@@ -461,30 +492,30 @@ final class MediaKeyInterceptor {
         // used as one.
         // The remembered level stands in for a read that failed on the same device; only a
         // device that has no level at all is a device with nothing to say.
-        guard let current = AudioMonitor.readOutputVolume() ?? lastVolume else {
+        guard let current = AudioMonitor.readOutputVolume(device: device) ?? lastVolume else {
             lastVolume = nil
             // Only call it unavailable when the device really has no control of its own; a
             // read that merely failed is not a read that could never succeed, and should not
             // be reported as one.
             guard !isRepeat, Preferences.shared.volumeHUDEnabled,
-                  !AudioMonitor.outputHasVolumeControl() else { return }
+                  !AudioMonitor.outputHasVolumeControl(device: device) else { return }
             ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud,
                                                            content: .hud(.unavailableVolume(output: AudioOutputs.currentOutput())),
                                                            priority: 85),
                                             duration: 1.5, haptic: false)
             return
         }
-        var muted = AudioMonitor.readOutputMute() ?? lastMuted ?? false
+        var muted = AudioMonitor.readOutputMute(device: device) ?? lastMuted ?? false
         let target = Self.stepped(from: current, delta: delta, step: step)
         // Holding a key against 0 or 1 should not keep re-announcing the same value.
         if isRepeat, target == current, !(muted && delta > 0) {
             lastVolume = target
             return
         }
-        let applied = AudioMonitor.writeOutputVolume(target)
+        let applied = AudioMonitor.writeOutputVolume(target, device: device)
         if applied { lastVolume = target }
         // Turning the volume up unmutes, the way the system keys do.
-        if muted, delta > 0, AudioMonitor.writeOutputMute(false) {
+        if muted, delta > 0, AudioMonitor.writeOutputMute(false, device: device) {
             muted = false
             lastMuted = false
         }
@@ -495,10 +526,11 @@ final class MediaKeyInterceptor {
     }
 
     private func toggleMute() {
-        forgetOtherDevices()
-        guard let muted = AudioMonitor.readOutputMute() ?? lastMuted else { return }
+        let device = AudioMonitor.defaultOutputDevice()
+        forgetOtherDevices(device)
+        guard let muted = AudioMonitor.readOutputMute(device: device) ?? lastMuted else { return }
         let next = !muted
-        guard AudioMonitor.writeOutputMute(next) else { return }
+        guard AudioMonitor.writeOutputMute(next, device: device) else { return }
         lastMuted = next
         guard Preferences.shared.volumeHUDEnabled else { return }
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: next)), priority: 85)

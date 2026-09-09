@@ -207,7 +207,7 @@ struct CompactTrailingView: View {
                 // cannot express gets said in words rather than shown as an empty bar that
                 // reads as silence.
                 if h.isUnavailable {
-                    Text("\u{2014}")
+                    Text(LevelHUD.readout(h))
                         .font(numeralFont)
                         .foregroundStyle(.white.opacity(0.7))
                 } else {
@@ -359,8 +359,11 @@ extension LevelHUD {
             return level < 0.05 ? "sun.min" : (level < 0.5 ? "sun.min.fill" : "sun.max.fill")
         case .volume:
             // An output that carries its own level is not a muted Mac, and must not be drawn
-            // as one: it is named instead, and the em dash beside it says there is no number.
-            if isUnavailable { return deviceSymbol ?? "speaker.slash.fill" }
+            // as one: it is named where it can be named, and where it cannot — a device that
+            // has not said what it is called yet — it is still sound going somewhere, so it
+            // keeps a speaker rather than borrowing mute's slash. The em dash beside it is
+            // what says there is no number.
+            if isUnavailable { return deviceSymbol ?? "speaker.wave.2.fill" }
             if isMuted || level <= 0.001 { return "speaker.slash.fill" }
             // Where the sound is going, when that is somewhere worth saying. The bar beside
             // it already carries the level, so the glyph is free to carry the better fact,

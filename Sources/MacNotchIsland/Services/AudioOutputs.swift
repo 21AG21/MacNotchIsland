@@ -158,6 +158,11 @@ final class AudioOutputs: ObservableObject {
         LocalWrite.isRecent(lastLocalWrite, now: now)
     }
 
+    /// Nothing in the app can set this stamp without writing to real hardware, so a test that
+    /// wants to know whether this reads *its own* slider — rather than the brightness one —
+    /// has no other way in.
+    static func markLocalWriteForTesting(_ date: Date) { lastLocalWrite = date }
+
     func setVolume(_ level: Float) {
         let clamped = max(0, min(1, level))
         Self.lastLocalWrite = Date()
