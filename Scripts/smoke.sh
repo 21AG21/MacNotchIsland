@@ -13,6 +13,8 @@ mkdir -p "$OUT"
 swiftc -O -o "$OUT/click" Scripts/click.swift || exit 1
 swiftc -O -o "$OUT/topgap" Scripts/topgap.swift || exit 1
 swiftc -O -o "$OUT/notify" Scripts/notify.swift || exit 1
+swiftc -O -o "$OUT/windowid" Scripts/windowid.swift || exit 1
+swiftc -O -o "$OUT/key" Scripts/key.swift || exit 1
 defaults write "$ID" hasSeenWelcome -bool true
 defaults write "$ID" hapticsEnabled -bool false
 defaults write "$ID" updateChecksEnabled -bool false
@@ -50,6 +52,9 @@ run_case() {  # name, click y, extra env
       echo "--- click switcher slot at mid+$offset"; "$OUT/click" "mid+$offset" 17; sleep 1.2
     done
     screencapture -x "$OUT/$name-4-after-switcher.png"
+    # Escape closes it. The app registers a global hot key for that the moment something
+    # opens, and nothing had ever pressed it.
+    echo "--- Escape"; "$OUT/key" 53; sleep 1.2
   fi
   echo "--- click 3: far away (should close)"; "$OUT/click" 120 500; sleep 1.5
   screencapture -x "$OUT/$name-3-after-outside-click.png"
@@ -77,6 +82,10 @@ run_case() {  # name, click y, extra env
     if [ "$sections" -lt 2 ]; then
       echo "SMOKE FAILED: clicking the switcher did not step between sections"; DIED=1
     fi
+    local escaped; escaped=$(grep -c ': escape' "$logfile" || true)
+    echo "--- escape closed it: $escaped"
+    echo "escape $name: $escaped" >> "$SUMMARY"
+    if [ "$escaped" -lt 1 ]; then echo "SMOKE FAILED: Escape did not close the panel"; DIED=1; fi
     for shot in 1-after-open 3-after-outside-click; do
       local png="$OUT/$name-$shot.png"
       [ -f "$png" ] || continue
@@ -117,26 +126,49 @@ run_case() {  # name, click y, extra env
 # Cropped around the middle of the screen, where a new window lands, and scaled down: the job
 # log is read back through an API that truncates it, and the island's own gallery is in there
 # too.
+# One window, photographed by its own number rather than cropped out of a picture of the
+# screen: it is a quarter of the bytes, and it does not depend on guessing where the window
+# landed. The job log these come back through has the island's whole gallery in it too.
+shoot() {  # name
+  local name=$1 id
+  id=$("$OUT/windowid" MacNotchIsland 200) || { echo "--- $name: no window to photograph"; return; }
+  screencapture -x -o -l"$id" "$OUT/$name.png" || return
+  sips -Z 720 "$OUT/$name.png" >/dev/null 2>&1
+  sips -s format jpeg -s formatOptions 50 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null 2>&1
+  echo "--- strip $name (base64 jpeg)"
+  base64 -i "$OUT/$name.jpg" | fold -w 400
+}
+
+# The welcome tour is what a new Mac sees first, and nothing has ever looked at that either.
+# It comes up on its own when the app has not been seen before, so this case simply says it
+# has not.
+run_welcome() {
+  echo "=== case welcome"
+  defaults delete "$ID" hasSeenWelcome 2>/dev/null
+  "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/welcome-app.log" 2>&1 &
+  local pid=$!
+  sleep 7
+  shoot "welcome-1"
+  # The second page: the switches a new Mac is offered. Continue is the window's default
+  # button, so Return presses it wherever the window happens to have landed.
+  "$OUT/key" 36
+  sleep 1
+  shoot "welcome-2"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  defaults write "$ID" hasSeenWelcome -bool true
+  sleep 1
+}
+
 run_settings() {
   echo "=== case settings"
   local start; start=$(date '+%Y-%m-%d %H:%M:%S')
   "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/settings-app.log" 2>&1 &
   local pid=$!
   sleep 6
-  for pane in general island about; do
+  for pane in general island activities home media shortcuts privacy about; do
     "$OUT/notify" "notchisland://settings/$pane"
     sleep 2
-    screencapture -x "$OUT/settings-$pane.png"
-    local w h; w=$(sips -g pixelWidth "$OUT/settings-$pane.png" | awk '/pixelWidth/ {print $2}')
-    h=$(sips -g pixelHeight "$OUT/settings-$pane.png" | awk '/pixelHeight/ {print $2}')
-    local cw=1200 ch=820
-    [ "$cw" -gt "$w" ] && cw=$w
-    [ "$ch" -gt "$h" ] && ch=$h
-    sips -c "$ch" "$cw" "$OUT/settings-$pane.png" --out "$OUT/settings-$pane-crop.png" >/dev/null 2>&1
-    sips -Z 900 "$OUT/settings-$pane-crop.png" >/dev/null 2>&1
-    sips -s format jpeg -s formatOptions 50 "$OUT/settings-$pane-crop.png" --out "$OUT/settings-$pane.jpg" >/dev/null 2>&1
-    echo "--- strip settings-$pane (base64 jpeg)"
-    base64 -i "$OUT/settings-$pane.jpg" | fold -w 400
+    shoot "settings-$pane"
   done
   if kill -0 "$pid" 2>/dev/null; then
     echo "alive settings: yes" >> "$SUMMARY"
@@ -170,5 +202,6 @@ run_case notch 16 "NOTCH_SIMULATE=1"
 # the Now Playing card. Simulated notch and a made-up track, so the runner needs no player.
 run_case nowplaying 16 "NOTCH_SIMULATE=1 NOTCH_FAKE_TRACK=1"
 run_settings
+run_welcome
 echo "--- done"
 if [ "$DIED" -ne 0 ]; then echo "SMOKE FAILED: see the failures above"; exit 1; fi
