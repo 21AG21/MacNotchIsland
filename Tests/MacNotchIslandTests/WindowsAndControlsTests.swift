@@ -84,13 +84,13 @@ final class WindowsAndControlsTests: XCTestCase {
     /// pinning a peeked panel would shunt every card along.
     func testTheCloseButtonsRoomHoldsItAndItsGap() {
         let sections = SwitcherBand.fit(views, in: bandSide)
-        XCTAssertGreaterThanOrEqual(SwitcherBand.closeRoom, sections.slot + sections.gap,
-                                    "the reservation must cover the button and the gap after it")
+        XCTAssertGreaterThanOrEqual(SwitcherBand.closeRoom, sections.slot + SwitcherBand.groupGap,
+                                    "the reservation must cover the button and the step after it")
         // Three live activities beside it still fit on the leading side.
         let cards = SwitcherBand.fit(Array(views.prefix(3)), in: bandSide - SwitcherBand.closeRoom,
                                      slot: sections.slot, gap: sections.gap)
         XCTAssertEqual(cards.views.count, 3)
-        let used = SwitcherBand.closeRoom + CGFloat(cards.views.count) * cards.slot
+        let used = sections.slot + SwitcherBand.groupGap + CGFloat(cards.views.count) * cards.slot
             + CGFloat(cards.views.count - 1) * cards.gap
         XCTAssertLessThanOrEqual(used, bandSide)
     }

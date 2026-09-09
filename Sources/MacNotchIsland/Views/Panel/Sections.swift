@@ -7,7 +7,7 @@ struct ShelfSectionView: View {
     var isDropTarget: Bool
 
     var body: some View {
-        ShelfStripView(isDropTarget: isDropTarget, wide: true)
+        ShelfStripView(isDropTarget: isDropTarget)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }

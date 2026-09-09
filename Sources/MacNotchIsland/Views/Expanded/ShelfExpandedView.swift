@@ -33,8 +33,6 @@ struct ShelfStripView: View {
     static let tilePadding: CGFloat = 3
 
     var isDropTarget: Bool
-    /// The full-width shelf panel. Home passes the default and gets the narrow column.
-    var wide: Bool = false
 
     @ObservedObject private var shelf = ShelfStore.shared
     @State private var selection: Set<URL> = []
@@ -83,12 +81,10 @@ struct ShelfStripView: View {
     private var header: some View {
         SectionHeader(headerTitle) {
             if !shelf.items.isEmpty {
-                // The narrow Home column only has room for two pills; Open lives on the
-                // double-click and in the context menu there.
-                if wide && !selection.isEmpty {
+                if !selection.isEmpty {
                     PillButton(title: "Open") { shelf.open(orderedSelection) }
                 }
-                PillButton(title: "AirDrop", symbol: wide ? "dot.radiowaves.right" : nil) {
+                PillButton(title: "AirDrop", symbol: "dot.radiowaves.right") {
                     shelf.airDrop(orderedSelection.isEmpty ? shelf.urls : orderedSelection)
                 }
                 // With a selection the destructive pill takes only that: emptying the whole
@@ -232,7 +228,12 @@ struct ShelfItemView: View {
     static let thumbnailSize: CGFloat = 72
     /// The same gap the window tiles put between a picture and its name.
     static let labelGap: CGFloat = 4
-    static let labelHeight: CGFloat = 18
+    /// Two lines of it, the way Finder's icon view sets a file's name. On one line, in the
+    /// 72 pt the picture is wide, "Screenshot 2026-09-08.png" came out as "Scree…8.png" —
+    /// which does not tell one screenshot from the next, and telling one from the next is
+    /// what a shelf is for.
+    static let labelLines = 2
+    static let labelHeight: CGFloat = 26
     static var height: CGFloat { thumbnailSize + labelGap + labelHeight }
 
     var body: some View {
@@ -252,7 +253,8 @@ struct ShelfItemView: View {
                 Text(url.lastPathComponent)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75))
-                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(Self.labelLines)
                     .truncationMode(.middle)
                     .opacity(hovering ? 0 : 1)
                 if hovering { actions }

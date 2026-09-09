@@ -77,12 +77,18 @@ struct SwitcherBand: View {
         let right = Self.fit(sections, in: side)
         let left = Self.fit(cards, in: side - Self.closeRoom, slot: right.slot, gap: right.gap)
         return HStack(spacing: 0) {
-            HStack(spacing: left.gap) {
+            HStack(spacing: 0) {
                 closeButton(size: right.slot)
+                // A step, not a gap: closing the panel is not the next thing along the row
+                // from the things that navigate it, and at four points it read as the first
+                // of them.
+                Color.clear.frame(width: Self.groupGap)
                 // Identified by the view, not by where it sits: a slot arriving pushes the
                 // others across and fades in beside them, where by position every glyph after
                 // it would swap symbol in place and nothing would appear to have moved.
-                ForEach(left.views, id: \.self) { view in slotView(view, size: left.slot) }
+                HStack(spacing: left.gap) {
+                    ForEach(left.views, id: \.self) { view in slotView(view, size: left.slot) }
+                }
                 Spacer(minLength: 0)
                 // The left of the band is empty unless something is live, and a row of small
                 // round glyphs says nothing about itself. So the name of whatever the pointer
@@ -113,7 +119,7 @@ struct SwitcherBand: View {
         // measured for.
         return HStack(spacing: 0) {
             closeButton(size: row.slot)
-            Color.clear.frame(width: row.gap)
+            Color.clear.frame(width: Self.groupGap)
             HStack(spacing: row.gap) {
                 ForEach(shownCards, id: \.self) { view in slotView(view, size: row.slot) }
             }
@@ -200,8 +206,10 @@ struct SwitcherBand: View {
     }
 
     /// Room the close button keeps at the leading edge whether or not it is showing: the
-    /// slots must not resize and shuffle along the moment a peeked panel is pinned.
-    static var closeRoom: CGFloat { slot + 6 }
+    /// button and the step that separates it from the row it is not part of. Kept whether or
+    /// not it is showing, or the slots would resize and shuffle along the moment a peeked
+    /// panel is pinned.
+    static var closeRoom: CGFloat { slot + groupGap }
 
     /// The same circle as a slot, so the row is one size across.
     ///

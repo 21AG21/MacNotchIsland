@@ -63,13 +63,17 @@ struct StopwatchExpandedView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Last lap, \(IslandAccessibility.spokenDuration(lap))")
                 }
+                // The same rule the timer card is built on, since this is the same card with
+                // the same orange in it: the stopwatch's own colour for what it does next,
+                // white for the one that ends it — and in that order, whichever state it is
+                // in, so the hand goes to the same place either way.
                 HStack(spacing: 10) {
                     if state.isRunning {
-                        CircleActionButton(symbol: "flag.fill", tint: .white) { IslandStopwatch.shared.lap() }
-                        CircleActionButton(symbol: "stop.fill", tint: .white) { IslandStopwatch.shared.stop() }
+                        CircleActionButton(symbol: "flag.fill", tint: .orange, label: "Lap") { IslandStopwatch.shared.lap() }
+                        CircleActionButton(symbol: "stop.fill", tint: .white, label: "Stop") { IslandStopwatch.shared.stop() }
                     } else {
+                        CircleActionButton(symbol: "play.fill", tint: .orange, label: "Start") { IslandStopwatch.shared.start() }
                         CircleActionButton(symbol: "arrow.counterclockwise", tint: .white, label: "Reset") { IslandStopwatch.shared.reset() }
-                        CircleActionButton(symbol: "play.fill", tint: .white) { IslandStopwatch.shared.start() }
                     }
                 }
             }

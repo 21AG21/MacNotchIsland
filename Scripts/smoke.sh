@@ -34,8 +34,14 @@ run_case() {  # name, click y, extra env
   screencapture -x "$OUT/$name-2-after-second-click.png"
   # Step between sections the way a user does: click two of the switcher's slots beside the
   # cutout. The panel must move to each one and must not resize or die doing it.
+  #
+  # The offsets are slot centres, not guesses: with NOTCH_SIMULATE the cutout is 200 wide and
+  # the band keeps 10 either side of it, so the sections start 110 right of the notch centre
+  # and run at a 26 pt slot every 30 pt. That puts slot 1 at 123 and slot 3 at 183. Clicking
+  # 2 pt inside a slot's edge, which is where the old 172 landed once the slots grew, is a
+  # test that passes on the arithmetic rather than on the thing it is checking.
   if [ "$name" != "floating" ]; then
-    for offset in 122 172; do
+    for offset in 123 183; do
       echo "--- click switcher slot at mid+$offset"; "$OUT/click" "mid+$offset" 17; sleep 1.2
     done
     screencapture -x "$OUT/$name-4-after-switcher.png"

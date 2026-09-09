@@ -51,6 +51,12 @@ the unreleased section is what the next tag will ship.
 - The button that closes the panel moved to the leading edge of the band, where every window
   on the Mac keeps it. At the far end it left the whole left of the band empty whenever
   nothing was live, with every glyph in the panel crowded into the right third.
+- A file on the shelf shows its name over two lines, the way Finder's icon view does, so one
+  screenshot can be told from the next.
+- The empty Actions section offered the same pane of Settings twice, once in its header and
+  once in its body. The stopwatch's card follows the timer card's rule for colour — the
+  activity's own for what it does next, white for the one that ends it — and puts them in
+  that order whichever state it is in.
 - **One display for one key press.** With the system bezel replaced, a key the Mac cannot
   answer — an HDMI output with no level of its own, a Mac driving only external displays —
   now goes back to macOS, which still has a bezel for it, rather than being swallowed into
