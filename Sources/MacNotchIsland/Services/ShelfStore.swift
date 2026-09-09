@@ -395,9 +395,22 @@ final class ShelfStore: ObservableObject {
     /// holds files and anything on it can be dragged straight into another app.
     static let acceptedTypes: [UTType] = [.fileURL, .image, .url, .text]
 
-    /// Where text, pictures and links dropped on the island are kept. Inside our own
-    /// Application Support folder, so nothing lands in the user's Downloads without asking.
+    static let shelfSubdirectory = "Shelf"
+
+    /// Where text, pictures and links dropped on the island are kept: inside the app's own
+    /// folder, so nothing lands in the user's Downloads without asking, and inside the *same*
+    /// one as everything else it remembers. It used to write to "Notch Island/Shelf" while
+    /// the clipboard, the notes and the lyrics went to "MacNotchIsland" — two Application
+    /// Support folders for one app, and deleting the one with the app's name on it left the
+    /// other behind full of the user's files.
     static var dropFolder: URL {
+        IslandFiles.folder?.appendingPathComponent(shelfSubdirectory, isDirectory: true)
+            ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(shelfSubdirectory, isDirectory: true)
+    }
+
+    /// The folder an earlier build wrote to. Anything still sitting in it is still this app's
+    /// to tidy up when it leaves the shelf, so it counts as owned; nothing new goes there.
+    static var legacyDropFolder: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base.appendingPathComponent("Notch Island/Shelf", isDirectory: true)
@@ -406,7 +419,8 @@ final class ShelfStore: ObservableObject {
     /// True for a file this app made from a drop. Those are ours to delete when they leave the
     /// shelf; a file the user dropped from Finder is never touched.
     static func isOwned(_ url: URL) -> Bool {
-        url.standardizedFileURL.path.hasPrefix(dropFolder.standardizedFileURL.path + "/")
+        let path = url.standardizedFileURL.path
+        return [dropFolder, legacyDropFolder].contains { path.hasPrefix($0.standardizedFileURL.path + "/") }
     }
 
     /// SwiftUI `.onDrop` handler. Each provider is asked for the best thing it has, in the
@@ -516,11 +530,10 @@ final class ShelfStore: ObservableObject {
 
     /// A unique file inside `dropFolder`, with the folder made if it is not there yet.
     private static func destination(name: String, extension ext: String) -> URL? {
-        let folder = dropFolder
-        do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        } catch {
-            IslandLog.store.error("could not make the drop folder: \(error.localizedDescription, privacy: .public)")
+        // Made through `IslandFiles`, which shuts the folder to every other account: what
+        // somebody drops on the island is theirs.
+        guard let folder = IslandFiles.makeFolder(shelfSubdirectory) else {
+            IslandLog.store.error("could not make the drop folder")
             return nil
         }
         let safe = name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)

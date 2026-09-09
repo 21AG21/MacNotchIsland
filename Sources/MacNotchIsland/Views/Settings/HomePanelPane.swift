@@ -69,7 +69,7 @@ struct HomePanelPane: View {
             } header: {
                 Text("Clipboard")
             } footer: {
-                Text("Items marked as concealed by password managers are never recorded.")
+                Text("Kept on this Mac, in Notch Island's own folder, where only your account can read it. Anything a password manager marks as concealed, or another tool marks as its own, is never recorded at all.")
             }
             .disabled(!prefs.clipboardEnabled)
 

@@ -393,11 +393,8 @@ final class LyricsService: ObservableObject {
         var hasPlain: Bool
     }
 
-    private static let cacheDirectory: URL? = {
-        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        return base.appendingPathComponent("MacNotchIsland", isDirectory: true)
-            .appendingPathComponent("lyrics", isDirectory: true)
-    }()
+    static let cacheSubdirectory = "lyrics"
+    private static var cacheDirectory: URL? { IslandFiles.folder?.appendingPathComponent(cacheSubdirectory, isDirectory: true) }
 
     private static func cacheFile(for key: TrackKey) -> URL? {
         cacheDirectory?.appendingPathComponent(fnv1a(key.identity) + ".json")
@@ -439,9 +436,9 @@ final class LyricsService: ObservableObject {
     private func saveToDisk(_ cached: CachedLyrics, for key: TrackKey) {
         guard let url = Self.cacheFile(for: key), let data = try? JSONEncoder().encode(cached) else { return }
         ioQueue.async {
-            let directory = url.deletingLastPathComponent()
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.write(to: url, options: .atomic)
+            // Through the same door as the notes and the clipboard: what somebody listens to
+            // is not for the other accounts on the Mac either.
+            try? IslandFiles.write(data, to: url.lastPathComponent, in: Self.cacheSubdirectory)
         }
     }
 

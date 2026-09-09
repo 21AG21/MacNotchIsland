@@ -12,13 +12,10 @@ final class NotesStore: ObservableObject {
     }
 
     private var persistWork: DispatchWorkItem?
-    private static let file: URL? = {
-        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        return base.appendingPathComponent("MacNotchIsland", isDirectory: true).appendingPathComponent("notes.txt")
-    }()
+    private static let fileName = "notes.txt"
 
     private init() {
-        text = Self.file.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        text = IslandFiles.read(Self.fileName).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
     func clear() { text = "" }
@@ -33,9 +30,11 @@ final class NotesStore: ObservableObject {
         persistWork?.cancel()
         let snapshot = text
         let work = DispatchWorkItem {
-            guard let url = Self.file else { return }
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? snapshot.write(to: url, atomically: true, encoding: .utf8)
+            do {
+                try IslandFiles.write(Data(snapshot.utf8), to: Self.fileName)
+            } catch {
+                IslandLog.store.error("notes save failed: \(String(describing: error), privacy: .public)")
+            }
         }
         persistWork = work
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.8, execute: work)
