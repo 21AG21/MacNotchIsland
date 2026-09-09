@@ -62,6 +62,11 @@ the unreleased section is what the next tag will ship.
   you have selected. It stands down on that section and stays everywhere else, which is what
   it is for. While there: the rail's buttons slide over when one of them comes or goes rather
   than jumping, which they also do when a Mac has no Wi-Fi or no Bluetooth to offer.
+- Settings' Island pane had its keyboard shortcuts listed at the top and the control that
+  sets them at the bottom, with two unrelated sections in between, and the list told you to
+  change the shortcut "under Actions", where there has never been anything to change it with.
+  One section now, and it lists the shortcuts only while they exist: switching the keyboard
+  off takes all of them away together, since they are registered off the one combination.
 - The Mac's appearance is read from AppKit rather than from a cached copy of a defaults key
   that carries no promise of being fresh at the one instant it is asked about — the instant it
   changes. A Wi-Fi switch the system refuses now says no straight away instead of showing what

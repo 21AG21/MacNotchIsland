@@ -7,16 +7,24 @@ struct IslandPane: View {
 
     var body: some View {
         Form {
+            // One section, not two at opposite ends of the pane: what the shortcuts are and
+            // the control that sets them belong on the same screenful. And listed only while
+            // they exist — the switch below takes every one of them away together, since they
+            // are all registered off the same recorded combination.
             Section {
-                LabeledContent("Toggle island", value: HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode, carbonModifiers: HotKeyService.currentModifiers))
-                LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
-                LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
-                LabeledContent("Step sideways", value: HotKeyService.displayString(keyCode: kVK_LeftArrow, carbonModifiers: HotKeyService.currentModifiers) + " and " + HotKeyService.displayString(keyCode: kVK_RightArrow, carbonModifiers: HotKeyService.currentModifiers))
-                LabeledContent("Close", value: "Escape")
+                Toggle("Use a keyboard shortcut", isOn: $prefs.hotkeyEnabled)
+                    .help("Summon the island from anywhere, even in full-screen apps.")
+                if prefs.hotkeyEnabled {
+                    ShortcutRecorderView()
+                    LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
+                    LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
+                    LabeledContent("Step sideways", value: HotKeyService.displayString(keyCode: kVK_LeftArrow, carbonModifiers: HotKeyService.currentModifiers) + " and " + HotKeyService.displayString(keyCode: kVK_RightArrow, carbonModifiers: HotKeyService.currentModifiers))
+                    LabeledContent("Close", value: "Escape")
+                }
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("Change the shortcut under Actions. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
+                Text("The shortcut opens the panel on what is playing, or on Now Playing when nothing is; press it again to close. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
             }
 
             Section {
@@ -44,18 +52,6 @@ struct IslandPane: View {
                 Text("Alerts and gestures")
             } footer: {
                 Text("Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for volume.")
-            }
-
-            Section {
-                Toggle("Use a keyboard shortcut", isOn: $prefs.hotkeyEnabled)
-                    .help("Summon the island from anywhere, even in full-screen apps.")
-                if prefs.hotkeyEnabled {
-                    ShortcutRecorderView()
-                }
-            } header: {
-                Text("Keyboard shortcut")
-            } footer: {
-                Text("The shortcut opens the panel on what is playing, or on Now Playing when nothing is. Press it again to close.")
             }
         }
         .formStyle(.grouped)
