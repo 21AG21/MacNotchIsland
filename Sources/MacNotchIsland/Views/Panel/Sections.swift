@@ -179,9 +179,12 @@ struct NotesSectionView: View {
                         .accessibilityLabel("Notes")
                 }
                 if notes.text.isEmpty {
+                    // 0.4, like every other line of small print in the panel. At 0.3 this was
+                    // the one piece of running text in the app under the contrast a 13 pt line
+                    // needs — and it is the line that tells you the section is for typing in.
                     Text("Jot something down. It stays here, on this Mac.")
                         .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.3))
+                        .foregroundStyle(.white.opacity(0.4))
                         .padding(.top, 1)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
