@@ -31,6 +31,11 @@ the unreleased section is what the next tag will ship.
   washes into the black behind Now Playing, the way the phone does it. Switchable off in
   Activities, and nothing but the title, artist and album is ever sent.
 
+- **Clearing the scratchpad can be taken back.** "Clear" emptied a note somebody may have
+  been keeping for weeks, with no confirmation and no way back — and the panel closes the
+  moment you look away, so there was nowhere to put a warning either. For twelve seconds
+  after a Clear the button becomes "Undo Clear", and only while the scratchpad is still
+  empty, so it can never overwrite something typed since.
 - **A drop that comes to nothing says so.** A drag can advertise a kind of content and then
   refuse to hand it over. The island lit up for it, took the drop, and then nothing appeared
   on the shelf and nothing was said — the highlight simply went out. It now says "Nothing to

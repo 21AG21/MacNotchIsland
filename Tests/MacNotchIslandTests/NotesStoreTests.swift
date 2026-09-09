@@ -17,6 +17,10 @@ final class NotesStoreTests: XCTestCase {
         folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("notes-tests-\(UUID().uuidString)", isDirectory: true)
         IslandFiles.overrideFolder = folder
+        // The store is a singleton, so each test starts from an empty scratchpad with no
+        // standing offer to take a Clear back.
+        NotesStore.shared.text = ""
+        NotesStore.shared.clear()
     }
 
     override func tearDown() {
@@ -46,6 +50,32 @@ final class NotesStoreTests: XCTestCase {
         // Not the old text: an emptied scratchpad that came back on the next launch would be
         // the same bug the other way round.
         XCTAssertEqual(try String(data: Data(contentsOf: file), encoding: .utf8), "")
+    }
+
+    // MARK: - Taking a Clear back
+
+    func testClearCanBeUndone() {
+        NotesStore.shared.text = "a week of jottings"
+        NotesStore.shared.clear()
+        XCTAssertEqual(NotesStore.shared.text, "")
+        XCTAssertEqual(NotesStore.shared.clearedText, "a week of jottings")
+        NotesStore.shared.undoClear()
+        XCTAssertEqual(NotesStore.shared.text, "a week of jottings")
+        XCTAssertNil(NotesStore.shared.clearedText, "the offer is spent once it is taken")
+    }
+
+    func testClearingAnEmptyScratchpadOffersNothing() {
+        NotesStore.shared.text = ""
+        NotesStore.shared.clear()
+        XCTAssertNil(NotesStore.shared.clearedText)
+    }
+
+    func testUndoNeverOverwritesSomethingTypedSince() {
+        NotesStore.shared.text = "the old note"
+        NotesStore.shared.clear()
+        NotesStore.shared.text = "a new one"
+        NotesStore.shared.undoClear()
+        XCTAssertEqual(NotesStore.shared.text, "a new one")
     }
 
     func testAScratchpadNobodyTouchedWritesNothing() {

@@ -151,6 +151,11 @@ struct NotesSectionView: View {
                 if !notes.text.isEmpty {
                     PillButton(title: "Copy", tint: .white.opacity(0.85)) { notes.copyAll() }
                     PillButton(title: "Clear", tint: .white.opacity(0.85)) { notes.clear() }
+                } else if notes.clearedText != nil {
+                    // The one click here that can lose a week of jottings is the one click
+                    // that can be taken back. Offered only while the scratchpad is still
+                    // empty, so it can never overwrite something typed since.
+                    PillButton(title: "Undo Clear", tint: .white.opacity(0.85)) { notes.undoClear() }
                 }
             }
             ZStack(alignment: .topLeading) {

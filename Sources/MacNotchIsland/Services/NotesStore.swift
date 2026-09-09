@@ -20,7 +20,40 @@ final class NotesStore: ObservableObject {
         text = IslandFiles.read(Self.fileName).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
-    func clear() { text = "" }
+    /// What the last Clear took away, for as long as the offer to put it back stands. One
+    /// stray click on a scratchpad somebody has been keeping for a week is not a pairing to
+    /// leave alone, and a panel that closes when you look away is no place for a modal.
+    @Published private(set) var clearedText: String?
+    private var clearedWork: DispatchWorkItem?
+    /// How long "Undo Clear" is offered for.
+    static let undoWindow: TimeInterval = 12
+
+    func clear() {
+        let previous = text
+        text = ""
+        // A second Clear supersedes the first: there is one offer at a time, and it is always
+        // the most recent thing that was taken away.
+        forgetUndo()
+        guard !previous.isEmpty else { return }
+        clearedText = previous
+        let work = DispatchWorkItem { [weak self] in self?.forgetUndo() }
+        clearedWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: work)
+    }
+
+    /// Puts back what Clear took. The offer is only ever shown while the scratchpad is still
+    /// empty, so this can never overwrite something typed since.
+    func undoClear() {
+        guard let clearedText, text.isEmpty else { return }
+        text = clearedText
+        forgetUndo()
+    }
+
+    private func forgetUndo() {
+        clearedWork?.cancel()
+        clearedWork = nil
+        clearedText = nil
+    }
 
     /// Writes anything still waiting, now, on the calling thread. The debounce below is eight
     /// tenths of a second and a quit from the menu bar is faster than that, so without this
