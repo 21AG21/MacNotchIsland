@@ -44,13 +44,14 @@ struct StatsView: View {
         .accessibilityValue("\(Int(stats.sample.cpuPercent.rounded())) percent")
     }
 
+    /// The headline is the share in use, so the row reads as one scale across five columns
+    /// rather than one column of gigabytes among four percentages; the gigabytes are the
+    /// small print under the bar, where the disk's free space is.
     private var memoryCell: some View {
         cell(label: "Memory") {
-            Text(SystemStats.memoryText(used: stats.sample.memoryUsedBytes, total: stats.sample.memoryTotalBytes))
+            Text(memoryValue)
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
         } footer: {
             MeterBar(fraction: fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes))
                 .accessibilityHidden(true)
@@ -58,10 +59,11 @@ struct StatsView: View {
                 .font(Self.detailFont)
                 .foregroundStyle(.white.opacity(0.4))
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Memory")
-        .accessibilityValue(SystemStats.memoryText(used: stats.sample.memoryUsedBytes, total: stats.sample.memoryTotalBytes))
+        .accessibilityValue("\(memoryValue), \(memoryDetail)")
     }
 
     private var diskCell: some View {
@@ -181,12 +183,16 @@ struct StatsView: View {
         return Self.percentText(fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes) * 100)
     }
 
-    /// "8 GB free" - what is left, said the same way the disk column says it.
+    /// How full the memory is, as a percentage: the same scale as the CPU and the disk.
+    private var memoryValue: String {
+        guard stats.sample.memoryTotalBytes > 0 else { return "\u{2014}" }
+        return Self.percentText(fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes) * 100)
+    }
+
+    /// "17.1 / 22.4 GB" under the bar, where the disk puts what is free.
     private var memoryDetail: String {
-        let total = stats.sample.memoryTotalBytes
-        guard total > 0 else { return " " }
-        let free = total - min(total, stats.sample.memoryUsedBytes)
-        return "\(SystemStats.memoryFormatter.string(fromByteCount: Int64(clamping: free))) free"
+        guard stats.sample.memoryTotalBytes > 0 else { return " " }
+        return SystemStats.memoryText(used: stats.sample.memoryUsedBytes, total: stats.sample.memoryTotalBytes)
     }
 
     /// "412 GB free", or nothing at all when the volume did not answer.
@@ -194,7 +200,7 @@ struct StatsView: View {
         let total = stats.sample.diskTotalBytes
         guard total > 0 else { return nil }
         let free = total - min(total, stats.sample.diskUsedBytes)
-        return "\(SystemStats.memoryFormatter.string(fromByteCount: Int64(clamping: free))) free"
+        return "\(SystemStats.gigabytes(free)) GB free"
     }
 
     private func fraction(_ part: UInt64, of whole: UInt64) -> Double {

@@ -40,9 +40,12 @@ struct ClipboardSectionView: View {
                 .foregroundStyle(.white.opacity(0.45))
                 .accessibilityHidden(true)
             if RenderMode.isGallery {
+                // The real field takes the width and pushes the magnifier to the leading
+                // edge; the stand-in has to do the same or the gallery lies about it.
                 Text("Search")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.35))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 TextField("Search", text: $query)
                     .textFieldStyle(.plain)

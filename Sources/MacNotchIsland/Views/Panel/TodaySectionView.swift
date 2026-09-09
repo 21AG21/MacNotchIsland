@@ -10,6 +10,13 @@ struct TodaySectionView: View {
 
     private static let eventRow: CGFloat = 36
     private static let reminderRow: CGFloat = 28
+    /// The gutter every row's leading mark stands in — an event's colour bar and a reminder's
+    /// tick box alike — so both kinds of title start on the same line down the section. They
+    /// used to start 13 pt apart.
+    private static let rail: CGFloat = 16
+    /// The countdown's column. Without it "in 1 hr" on a row with no Join button landed 44 pt
+    /// right of "in 7 min" on the row above.
+    private static let countdown: CGFloat = 62
     private static var listHeight: CGFloat { SectionMetrics.bodyHeight }
 
     var body: some View {
@@ -123,6 +130,7 @@ struct TodaySectionView: View {
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(tint)
                 .frame(width: 3, height: 24)
+                .frame(width: Self.rail, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(event.title)
                     .font(.system(size: 13, weight: .semibold))
@@ -139,6 +147,7 @@ struct TodaySectionView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(tint)
                     .lineLimit(1)
+                    .frame(minWidth: Self.countdown, alignment: .trailing)
             }
             if let url = event.joinURL {
                 PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
@@ -157,8 +166,9 @@ struct TodaySectionView: View {
             Button(action: { agenda.setCompleted(true, reminderID: reminder.id) }) {
                 Circle()
                     .strokeBorder(Color.named(reminder.tint), lineWidth: 1.5)
-                    .frame(width: 16, height: 16)
-                    .contentShape(Circle())
+                    .frame(width: 14, height: 14)
+                    .frame(width: Self.rail, height: Self.rail, alignment: .leading)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(IslandButtonStyle())
             .accessibilityLabel("Complete \(reminder.title)")
@@ -171,6 +181,8 @@ struct TodaySectionView: View {
                 Text(due)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(due == "Overdue" ? Color.named("red") : .white.opacity(0.45))
+                    .lineLimit(1)
+                    .frame(minWidth: Self.countdown, alignment: .trailing)
             }
         }
         .frame(height: Self.reminderRow)

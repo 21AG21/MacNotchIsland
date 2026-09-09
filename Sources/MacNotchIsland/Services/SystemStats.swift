@@ -432,15 +432,6 @@ final class SystemStats: ObservableObject {
         return formatter
     }()
 
-    /// Sizes as the Finder writes them ("412 GB"), shared by the memory and disk cells.
-    static let memoryFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .memory
-        formatter.allowsNonnumericFormatting = false
-        formatter.allowedUnits = [.useGB]
-        return formatter
-    }()
-
     /// "1.2 MB/s". Anything negative or not-a-number reads as zero.
     static func rateText(_ bytesPerSecond: Double) -> String {
         let clamped = bytesPerSecond.isFinite ? Swift.max(0, bytesPerSecond) : 0
@@ -448,15 +439,22 @@ final class SystemStats: ObservableObject {
         return byteFormatter.string(fromByteCount: bytes) + "/s"
     }
 
-    /// "12.4 / 16 GB" — the used figure drops its unit when it matches the total's.
+    /// "12.4 / 16 GB" — one unit for the pair, and one decimal at most.
+    ///
+    /// `ByteCountFormatter` gives gigabytes two decimal places, which made this "17.14 / 22.35
+    /// GB": four digits of precision on a number that is only ever glanced at, and wide enough
+    /// to be truncated by its own column.
     static func memoryText(used: UInt64, total: UInt64) -> String {
-        let usedText = memoryFormatter.string(fromByteCount: Int64(clamping: used))
-        let totalText = memoryFormatter.string(fromByteCount: Int64(clamping: total))
-        let usedParts = usedText.split(separator: " ")
-        let totalParts = totalText.split(separator: " ")
-        if usedParts.count == 2, totalParts.count == 2, usedParts[1] == totalParts[1] {
-            return "\(usedParts[0]) / \(totalText)"
-        }
-        return "\(usedText) / \(totalText)"
+        "\(gigabytes(used)) / \(gigabytes(total)) GB"
+    }
+
+    /// Gigabytes as a bare number: whole above 100, one decimal below it, and never a
+    /// trailing ".0".
+    static func gigabytes(_ bytes: UInt64) -> String {
+        let gb = Double(bytes) / 1_073_741_824
+        guard gb.isFinite else { return "0" }
+        if gb >= 100 { return String(Int(gb.rounded())) }
+        let rounded = (gb * 10).rounded() / 10
+        return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
     }
 }

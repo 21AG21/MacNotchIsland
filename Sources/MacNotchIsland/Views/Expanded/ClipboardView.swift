@@ -38,7 +38,7 @@ struct ClipboardView: View {
                         Rectangle()
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 0.5)
-                            .padding(.leading, 34)
+                            .padding(.leading, ClipboardRowView.textInset)
                             .accessibilityHidden(true)
                     }
                 }
@@ -79,13 +79,21 @@ private struct ClipboardRowView: View {
 
     @ObservedObject private var store = ClipboardStore.shared
 
+    /// The row's leading mark stands on the section's column, like every other section's
+    /// content, rather than six points inside it. The hover highlight is the column exactly:
+    /// the section clips at its edges, so a highlight that bled past them would be cut square.
+    static let glyphBox: CGFloat = 16
+    static let glyphGap: CGFloat = 10
+    /// Where a row's text starts, and so where the hairline between two rows starts.
+    static var textInset: CGFloat { glyphBox + glyphGap }
+
     /// A copied file that has since been moved or deleted. Checked as the row is drawn — a
     /// handful of rows, one `stat` each — so the list never offers a dead reference silently.
     private var missing: Bool { item.filesAreGone }
 
     var body: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 10) {
+            HStack(spacing: Self.glyphGap) {
                 glyph
                 Text(item.preview)
                     .font(.system(size: 12))
@@ -109,7 +117,6 @@ private struct ClipboardRowView: View {
             Spacer(minLength: 8)
             trailing
         }
-        .padding(.horizontal, 6)
         .frame(height: 28)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -126,13 +133,13 @@ private struct ClipboardRowView: View {
             Image(nsImage: thumbnail)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: 18, height: 18)
+                .frame(width: Self.glyphBox, height: Self.glyphBox)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         } else {
             Image(systemName: item.kind.symbol)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.5))
-                .frame(width: 18, height: 18)
+                .frame(width: Self.glyphBox, height: Self.glyphBox, alignment: .leading)
         }
     }
 
