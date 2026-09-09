@@ -13,6 +13,14 @@ struct SwitcherBand: View {
     @EnvironmentObject private var center: ActivityCenter
     /// The slot the pointer is on, so the band can name it. Nothing else depends on it.
     @State private var hovered: IslandView?
+    /// The slot a drag is resting on, and the switch it will make if it stays.
+    @State private var springTarget: IslandView?
+    @State private var springWork: DispatchWorkItem?
+
+    /// How long a drag rests on a slot before the panel goes there. The same beat a Finder
+    /// window's spring-loaded folder takes: long enough that passing over one does nothing,
+    /// short enough that waiting on purpose is not waiting.
+    static let springDelay: TimeInterval = 0.45
 
     /// The size a slot likes to be, and the smallest it will accept before slots start being
     /// dropped. Sections can be switched on and off, so the row has to hold anything from two
@@ -169,9 +177,42 @@ struct SwitcherBand: View {
     /// header, and two labels for one thing is one too many. Clicking a slot leaves the
     /// pointer on it, so without this the name you just chose was printed twice on the same
     /// screen for as long as the hand stayed still.
+    ///
+    /// A drag resting on a slot names it too, and for the same reason: it is the one place
+    /// that can say where holding still is about to take you.
     private var label: String? {
-        guard let hovered, hovered != current else { return nil }
-        return Self.entry(for: hovered, center: center).title
+        guard let on = springTarget ?? hovered, on != current else { return nil }
+        return Self.entry(for: on, center: center).title
+    }
+
+    // MARK: - Spring loading
+
+    /// A drag arriving on a slot, or leaving it. Holding still on one opens it, so a file can
+    /// be carried to a section that takes drops of its own — a quick action, a window's tile —
+    /// without putting it down first. Passing over a slot on the way somewhere else does
+    /// nothing, which is what the pause is for.
+    private func springLoad(_ view: IslandView, inside: Bool) {
+        springWork?.cancel()
+        springWork = nil
+        // A slot taking the drag takes it off the island's own drop target, and the island is
+        // told the drag has left. It has not: it is right here.
+        center.holdDrag(inside)
+        guard inside else {
+            if springTarget == view { springTarget = nil }
+            return
+        }
+        springTarget = view
+        guard view != current else { return }
+        // Settled now rather than in the closure, where the ring may have moved under it.
+        let step = direction(to: view)
+        let work = DispatchWorkItem {
+            // The drag may have moved on in the meantime; only the slot it is still on opens.
+            guard springTarget == view else { return }
+            Haptics.tap()
+            ActivityCenter.shared.select(view, direction: step)
+        }
+        springWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.springDelay, execute: work)
     }
 
     /// How to lay a row of slots out in the room there is: at the size they like where they
@@ -201,6 +242,7 @@ struct SwitcherBand: View {
     private func slotView(_ view: IslandView, size: CGFloat) -> some View {
         let entry = Self.entry(for: view, center: center)
         let selected = current == view
+        let springing = springTarget == view
         return Button(action: { center.select(view, direction: direction(to: view)) }) {
             ZStack {
                 // One disc, moved from slot to slot, rather than one fading out where it was
@@ -211,16 +253,31 @@ struct SwitcherBand: View {
                         .fill(Color.white.opacity(0.14))
                         .matchedGeometryEffect(id: Self.selectionID, in: selection)
                 }
+                // Lit the way every other destination in the app is while something is held
+                // over it, so a slot that is about to open looks like one.
+                Circle().fill(Color.accentColor.opacity(springing ? 0.55 : 0))
                 Image(systemName: entry.symbol)
                     .font(.system(size: size * 0.54, weight: .semibold))
-                    .foregroundStyle(selected ? Color.white : entry.tint.opacity(0.55))
+                    .foregroundStyle(selected || springing ? Color.white : entry.tint.opacity(0.55))
             }
             .frame(width: size, height: size)
+            .scaleEffect(springing ? 1.12 : 1)
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
+        .animation(IslandMotion.hover, value: springing)
         .onHover { inside in
             if inside { hovered = view } else if hovered == view { hovered = nil }
+        }
+        // Carry a file to a section rather than putting it down first: hold it on a slot and
+        // the panel goes there. Dropping on the slot itself is a drop on the island, which
+        // means the shelf, the way it does anywhere else on the band.
+        .islandDrop(isTargeted: Binding(
+            get: { springTarget == view },
+            set: { inside in springLoad(view, inside: inside) }
+        )) { providers in
+            guard Preferences.shared.shelfEnabled else { return false }
+            return ShelfStore.shared.acceptDrop(providers)
         }
         .help(entry.title)
         .accessibilityLabel(entry.title)

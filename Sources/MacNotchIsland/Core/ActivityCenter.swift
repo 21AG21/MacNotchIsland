@@ -78,6 +78,8 @@ final class ActivityCenter: ObservableObject {
     /// A hover exit that arrived mid-drag and is waiting for the button to come up.
     private var deferredHoverExit: String?
     private var hoverWork: DispatchWorkItem?
+    /// The pending "the drag has left" — see `setDragTargeted`.
+    private var dragExitWork: DispatchWorkItem?
     private var homeWork: DispatchWorkItem?
     private var forcedWork: DispatchWorkItem?
     /// Watches for clicks outside the island while it is open, the way a transient popover does.
@@ -108,6 +110,8 @@ final class ActivityCenter: ObservableObject {
         pressedPanel = nil
         controlDragging = false
         deferredHoverExit = nil
+        dragExitWork?.cancel()
+        dragExitWork = nil
         openView = nil
         peekView = nil
         findQuery = nil
@@ -544,15 +548,48 @@ final class ActivityCenter: ObservableObject {
         open(view)
     }
 
+    /// How long the island goes on counting as a drop target after the drag appears to leave
+    /// it. Short enough to be invisible, long enough to cover the gap.
+    static let dragExitGrace: TimeInterval = 0.25
+
     func setDragTargeted(_ targeted: Bool, panel: String = "main") {
         if targeted {
+            dragExitWork?.cancel()
+            dragExitWork = nil
             guard dragPanel != panel else { return }
             dragPanel = panel
             Haptics.tap()
         } else {
             guard dragPanel == panel || panel == "main" else { return }
-            dragPanel = nil
+            // Every drop target inside the island — a quick action's tile, a window's tile, a
+            // slot of the switcher — takes the drag off the island's own target for as long as
+            // the pointer is over it, and the island is told the drag has left. So leaving is
+            // deferred: a drag that comes back within a moment never left, and the shelf's
+            // well does not blink out from under the hand that is over it.
+            scheduleDragExit()
         }
+    }
+
+    /// An inner drop target has the drag — a slot of the switcher, a quick action's tile — so
+    /// the island is not to count as having lost it. Panel-agnostic on purpose: the inner view
+    /// does not know which display's island it is part of, only that the drag is on it.
+    func holdDrag(_ held: Bool) {
+        if held {
+            dragExitWork?.cancel()
+            dragExitWork = nil
+        } else if dragPanel != nil {
+            scheduleDragExit()
+        }
+    }
+
+    private func scheduleDragExit() {
+        dragExitWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.dragExitWork = nil
+            self?.dragPanel = nil
+        }
+        dragExitWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dragExitGrace, execute: work)
     }
 
     /// A click on the island. Compact: open what is showing. Expanded: close it again, the way a

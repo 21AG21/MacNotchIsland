@@ -33,6 +33,7 @@ and the same content layout as iOS.
 | A–Z | Start typing on Windows, the Clipboard or the Shelf and a find opens with that letter in it, narrowing the list as you type. Return takes the first match, Escape leaves the find. |
 | — | Screenshots: the capture you just took, as a card with the picture on it. Drag it straight into a message, copy the picture, copy the words in it (read with Vision, offered only when there are any), or open it. |
 | — | External disks: a card when a drive is plugged in, with its name, how full it is and an Eject button on it — and a word when one is unplugged, whether or not it was ejected first. |
+| — | The switcher's slots are spring-loaded: drag a file onto the island, rest it on a slot, and the panel goes there — so a file can reach a quick action or a window tile without being put down first. |
 | — | Drop a file on a quick action and the shortcut runs with that file as its input — the Actions row is a rack of droplets. Drop one on a window tile and it opens in that app. |
 | — | A shelf that takes anything: files, a picture, a link or selected text dragged onto the notch. Drag the whole selection back out in one go, Quick Look any of it, AirDrop or share it. |
 | — | Clipboard history that pastes: pick an item and it goes straight into whatever you were typing — or drag one out of the panel and into a document, a message or a folder. |

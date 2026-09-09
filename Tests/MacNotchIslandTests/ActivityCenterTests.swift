@@ -44,6 +44,18 @@ final class ActivityCenterTests: XCTestCase {
         }
     }
 
+    func testASlotTakingTheDragDoesNotCountAsTheDragLeaving() {
+        // Every drop target inside the island takes the drag off the island's own, and the
+        // island is told it has left. It has not: it is on a slot of the switcher.
+        center.open(.home(tab: HomeSection.music.rawValue))
+        center.setDragTargeted(true)
+        center.setDragTargeted(false)
+        center.holdDrag(true)
+        XCTAssertEqual(center.presentation, .shelf, "the well stays under the hand that is over it")
+        center.holdDrag(false)
+        center.setDragTargeted(false)
+    }
+
     func testTheShelfSectionItselfStillShowsTheWell() {
         center.open(.home(tab: HomeSection.shelf.rawValue))
         center.setDragTargeted(true)

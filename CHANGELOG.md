@@ -6,6 +6,15 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Carry a file to a section instead of putting it down first.** The switcher's slots are
+  spring-loaded, the way a Finder window's folders are: drag a file onto the island, rest it on
+  a slot for a moment, and the panel goes there — so a file picked up anywhere can reach a
+  quick action's tile or a window's tile without a round trip through the shelf. Passing over a
+  slot on the way somewhere else does nothing; the slot lights up and grows while it is holding
+  the drag, and the band names the section you are about to open. Dropping on a slot itself is
+  a drop on the island, which means the shelf, the way it is anywhere else on the band. The
+  island also stops counting a drag as having left the moment one of its own tiles takes it,
+  which is what used to make the shelf's well blink out from under the hand that was over it.
 - **The screenshot you just took, on the island.** A capture used to be a camera glyph and the
   words "On the shelf". It is a card now, with the picture itself on it — drag it from there
   into a message or a document and it never has to touch the Desktop — and the three things
