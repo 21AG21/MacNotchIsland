@@ -115,4 +115,15 @@ final class HotKeyServiceTests: XCTestCase {
         XCTAssertEqual(HotKeyService.normalized(-1, fallback: 49), 49)
         XCTAssertEqual(HotKeyService.normalized(1_000_000, fallback: 49), 49)
     }
+
+    // MARK: - The letters
+
+    func testTheAlphabetIsClaimedInAlphabeticalOrder() {
+        // The slot a letter key is registered in is its position in this list, so the list
+        // being A to Z is what makes a key press come back as the right letter.
+        XCTAssertEqual(HotKeyService.letterKeyCodes.count, 26)
+        XCTAssertEqual(Set(HotKeyService.letterKeyCodes).count, 26, "no key is claimed twice")
+        let names = HotKeyService.letterKeyCodes.map { HotKeyService.keyName(for: $0) }
+        XCTAssertEqual(names, (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) })
+    }
 }

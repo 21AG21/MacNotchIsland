@@ -35,6 +35,8 @@ struct ShelfStripView: View {
     var isDropTarget: Bool
 
     @ObservedObject private var shelf = ShelfStore.shared
+    /// Watched for the find, which lives on the panel rather than on this view.
+    @ObservedObject private var center = ActivityCenter.shared
     @State private var selection: Set<URL> = []
     @State private var selectionAnchor: URL? = nil
     @State private var shareAnchor = ShelfShareAnchor()
@@ -64,6 +66,16 @@ struct ShelfStripView: View {
 
     // MARK: - Header
 
+    /// Whether this strip is the pinned Shelf section rather than the drop well the island
+    /// turns into mid-drag.
+    private var canFind: Bool { PanelFind.searches(center.openSection) }
+
+    /// What the strip shows: everything on the shelf, or the files whose names answer to what
+    /// was typed on this section.
+    private var shown: [ShelfItem] {
+        shelf.items.filter { PanelFind.matches([$0.url.lastPathComponent], query: center.findQuery) }
+    }
+
     private var headerTitle: String {
         if !selection.isEmpty { return "\(selection.count) selected" }
         // Only where the well cannot say it itself. An empty shelf puts "Drop to add" in the
@@ -81,6 +93,17 @@ struct ShelfStripView: View {
     /// as Windows', Today's and the rest.
     private var header: some View {
         SectionHeader(headerTitle) {
+            // Only where a find is possible: the same strip stands in for the whole island
+            // while a file is being dragged onto it, and a search field has no business
+            // under somebody's hand mid-drag.
+            if canFind, !shelf.items.isEmpty || center.findQuery != nil {
+                // Return opens the first file whose name matches — the shelf's version of
+                // typing at a Finder window and pressing Return.
+                FindField(matches: shown.count) {
+                    guard let first = shown.first else { return }
+                    shelf.open([first.url])
+                }
+            }
             if !shelf.items.isEmpty {
                 if !selection.isEmpty {
                     PillButton(title: "Open") { shelf.open(orderedSelection) }
@@ -121,6 +144,9 @@ struct ShelfStripView: View {
                 .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.9 : 0), lineWidth: 2)
             if shelf.items.isEmpty {
                 emptyState
+            } else if shown.isEmpty {
+                // There are files here; none of them answers to what was typed.
+                SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
             } else {
                 // The tiles start under the header, the way the window tiles do; the rest of
                 // the strip stays theirs to be dropped into.
@@ -154,7 +180,7 @@ struct ShelfStripView: View {
     private var items: some View {
         IslandScrollStrip(axis: .horizontal) {
             HStack(spacing: 12) {
-                ForEach(shelf.items) { item in
+                ForEach(shown) { item in
                     ShelfItemView(item: item,
                                   isSelected: selection.contains(item.url),
                                   anchor: shareAnchor,

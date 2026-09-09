@@ -27,11 +27,24 @@ final class HotKeyService: ObservableObject {
         case panelLeft = 7, panelRight = 8, volumeUp = 9, volumeDown = 10, playPause = 11
         case slot1 = 21, slot2 = 22, slot3 = 23, slot4 = 24, slot5 = 25
         case slot6 = 26, slot7 = 27, slot8 = 28, slot9 = 29
+        /// The twenty-six letter keys, in alphabetical order, claimed alongside the rest so
+        /// that typing on a section which is a list of things starts a find in it.
+        case letterA = 31, letterB = 32, letterC = 33, letterD = 34, letterE = 35, letterF = 36
+        case letterG = 37, letterH = 38, letterI = 39, letterJ = 40, letterK = 41, letterL = 42
+        case letterM = 43, letterN = 44, letterO = 45, letterP = 46, letterQ = 47, letterR = 48
+        case letterS = 49, letterT = 50, letterU = 51, letterV = 52, letterW = 53, letterX = 54
+        case letterY = 55, letterZ = 56
 
         /// The switcher slot a digit key stands for, counting from zero.
         var switcherIndex: Int? {
             guard (21...29).contains(rawValue) else { return nil }
             return Int(rawValue) - 21
+        }
+
+        /// The virtual key code this slot was registered for, when it is one of the letters.
+        var letterKeyCode: Int? {
+            guard (31...56).contains(rawValue) else { return nil }
+            return HotKeyService.letterKeyCodes[Int(rawValue) - 31]
         }
     }
 
@@ -39,16 +52,29 @@ final class HotKeyService: ObservableObject {
     private static let panelSlots: [Slot] =
         [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause]
         + (0..<9).compactMap { Slot(rawValue: UInt32(21 + $0)) }
+        + (0..<26).compactMap { Slot(rawValue: UInt32(31 + $0)) }
 
     /// The ANSI digits 1 to 9, in that order. Their virtual key codes are not consecutive,
     /// which is why they are written out rather than counted.
     private static let digitKeyCodes = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                                         kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
 
+    /// A to Z, in that order. Virtual key codes are positions rather than letters, so what
+    /// these twenty-six are is "the keys that carry the alphabet"; which letter each of them
+    /// types on the layout in force is `KeyLayout`'s question, asked when one is pressed.
+    static let letterKeyCodes = [kVK_ANSI_A, kVK_ANSI_B, kVK_ANSI_C, kVK_ANSI_D, kVK_ANSI_E,
+                                 kVK_ANSI_F, kVK_ANSI_G, kVK_ANSI_H, kVK_ANSI_I, kVK_ANSI_J,
+                                 kVK_ANSI_K, kVK_ANSI_L, kVK_ANSI_M, kVK_ANSI_N, kVK_ANSI_O,
+                                 kVK_ANSI_P, kVK_ANSI_Q, kVK_ANSI_R, kVK_ANSI_S, kVK_ANSI_T,
+                                 kVK_ANSI_U, kVK_ANSI_V, kVK_ANSI_W, kVK_ANSI_X, kVK_ANSI_Y,
+                                 kVK_ANSI_Z]
+
     private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
     private var escapeArmed = false
     private var panelKeysArmed = false
+    /// Whether the alphabet is claimed too, which depends on the section as well as the panel.
+    private var letterKeysArmed = false
     private var cancellables = Set<AnyCancellable>()
     private static let signature: OSType = 0x4E4F5443 // "NOTC"
 
@@ -167,6 +193,13 @@ final class HotKeyService: ObservableObject {
             guard let slot = Slot(rawValue: UInt32(21 + index)) else { continue }
             register(slot, keyCode: code, modifiers: 0)
         }
+        // The alphabet, but only where there is a list to look through: on Now Playing or
+        // Stats a letter is nobody's to take, so it is left alone.
+        guard letterKeysArmed else { return }
+        for (index, code) in Self.letterKeyCodes.enumerated() {
+            guard let slot = Slot(rawValue: UInt32(31 + index)) else { continue }
+            register(slot, keyCode: code, modifiers: 0)
+        }
     }
 
     private func unregisterPanelKeys() {
@@ -202,12 +235,18 @@ final class HotKeyService: ObservableObject {
     }
 
     /// Armed while the panel is pinned open on a section nobody types into. See
-    /// `ActivityCenter.ownsPanelKeys`, which decides it.
-    func setPanelKeysArmed(_ armed: Bool) {
-        guard armed != panelKeysArmed else { return }
+    /// `ActivityCenter.ownsPanelKeys`, which decides it. `letters` is the narrower question of
+    /// whether this section is a list worth searching, and it changes as the panel steps from
+    /// one section to the next while the rest of the keys stay claimed — so both are settled
+    /// here, and a change to either re-registers the set.
+    func setPanelKeysArmed(_ armed: Bool, letters: Bool = false) {
+        let wantsLetters = armed && letters
+        guard armed != panelKeysArmed || wantsLetters != letterKeysArmed else { return }
         panelKeysArmed = armed
+        letterKeysArmed = wantsLetters
         guard handlerRef != nil else { return }
-        if armed { registerPanelKeys() } else { unregisterPanelKeys() }
+        unregisterPanelKeys()
+        if armed { registerPanelKeys() }
     }
 
     static var currentKeyCode: Int {
@@ -244,6 +283,9 @@ final class HotKeyService: ObservableObject {
             // Escape is registered the instant something opens; nothing in the tail of that
             // click may pass for a key press.
             guard sinceInteraction > 0.3 else { return }
+            // One step back at a time: a find in progress is what Escape leaves first, the
+            // way it does in every window on the Mac that has a search field.
+            if center.endFind() { return }
             center.collapse(reason: "escape")
         case .panelLeft: _ = center.step(forward: false, wrap: false)
         case .panelRight: _ = center.step(forward: true, wrap: false)
@@ -257,9 +299,13 @@ final class HotKeyService: ObservableObject {
             } else {
                 NowPlayingService.shared.togglePlayPause()
             }
-        // The digits, which are the only slots left.
+        // The digits and the letters, which are the only slots left.
         default:
-            if let index = slot.switcherIndex { center.selectSlot(index) }
+            if let index = slot.switcherIndex {
+                center.selectSlot(index)
+            } else if let code = slot.letterKeyCode, let character = KeyLayout.character(for: code) {
+                center.beginFind(with: character)
+            }
         }
     }
 

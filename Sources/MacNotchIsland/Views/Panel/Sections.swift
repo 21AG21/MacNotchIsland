@@ -16,47 +16,33 @@ struct ShelfSectionView: View {
 
 struct ClipboardSectionView: View {
     @ObservedObject private var store = ClipboardStore.shared
-    @State private var query = ""
+    /// The find is the panel's, not this view's: it is opened by typing on the section as
+    /// much as by clicking the glass, and it has to survive the row that is redrawn under it.
+    @ObservedObject private var center = ActivityCenter.shared
+
+    private var matches: [ClipboardItem] { ClipboardView.ordered(store.items, query: center.findQuery) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader(store.items.isEmpty ? "Clipboard" : "Clipboard · \(store.items.count) \(store.items.count == 1 ? "item" : "items")") {
+                // The glass appears with the first copy; a find already under way keeps its
+                // field whatever the list does, so an entry expiring underneath it never
+                // takes the caret away mid-word.
+                if !store.items.isEmpty || center.findQuery != nil {
+                    // Return puts the first match back on the pasteboard: type three letters
+                    // of something copied an hour ago and press Return, without ever leaving
+                    // the keyboard or looking at the list.
+                    FindField(matches: matches.count) {
+                        guard let first = matches.first else { return }
+                        store.pick(item: first)
+                    }
+                }
                 if !store.items.isEmpty {
-                    searchField
                     PillButton(title: "Clear", tint: .white.opacity(0.85)) { store.clear() }
                 }
             }
-            ClipboardView(query: query)
+            ClipboardView(query: center.findQuery ?? "")
         }
-        .onDisappear { query = "" }
-    }
-
-    /// Filters the list as you type. Typing needs the island to be the key window, which it is
-    /// while this section is open: `ActivityCenter.wantsKeyboard`.
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
-                .accessibilityHidden(true)
-            if RenderMode.isGallery {
-                // The real field takes the width and pushes the magnifier to the leading
-                // edge; the stand-in has to do the same or the gallery lies about it.
-                Text("Search")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                TextField("Search", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white)
-                    .accessibilityLabel("Search the clipboard")
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 170, height: 22)
-        .background(Capsule().fill(Color.white.opacity(0.08)))
     }
 }
 

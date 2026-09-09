@@ -160,9 +160,10 @@ final class NotchPanel: NSPanel {
         orderFrontRegardless()
     }
 
-    /// The island takes key-window status only while a section that is typed into (Notes, the
-    /// clipboard search) is pinned open, so it never pulls focus from the app the user is
-    /// working in. Clicks land regardless, thanks to acceptsFirstMouse on the hosting view.
+    /// The island takes key-window status only while something is being typed into — the Notes
+    /// scratchpad, or a find open on one of the sections that are lists — so it never pulls
+    /// focus from the app the user is working in. Clicks land regardless, thanks to
+    /// acceptsFirstMouse on the hosting view.
     override var canBecomeKey: Bool { ActivityCenter.shared.wantsKeyboard }
     override var canBecomeMain: Bool { false }
 

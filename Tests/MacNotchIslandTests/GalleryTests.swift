@@ -366,10 +366,22 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-today", setup: panel("today") { _ in today() }),
             Scene(name: "panel-today-empty", setup: panel("today")),
             Scene(name: "panel-windows", setup: panel("windows")),
+            // Type-to-find, narrowing a list of four to the one window that answers.
+            Scene(name: "panel-windows-find") { c in
+                c.open(.home(tab: "windows"))
+                c.beginFind(with: "m")
+                c.updateFind("ma")
+            },
             Scene(name: "panel-shelf", setup: panel("shelf") { _ in ShelfStore.shared.add(files) }),
             Scene(name: "panel-shelf-empty", setup: panel("shelf")),
             Scene(name: "panel-clipboard", setup: panel("clipboard") { _ in clipboard() }),
             Scene(name: "panel-clipboard-empty", setup: panel("clipboard")),
+            Scene(name: "panel-clipboard-find") { c in
+                clipboard()
+                c.open(.home(tab: "clipboard"))
+                c.beginFind(with: "a")
+                c.updateFind("app")
+            },
             Scene(name: "panel-actions", setup: panel("actions") { _ in favouriteApps() }),
             Scene(name: "panel-actions-empty", setup: panel("actions")),
             Scene(name: "panel-notes", setup: panel("notes")),

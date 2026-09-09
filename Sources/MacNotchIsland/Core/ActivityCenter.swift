@@ -31,6 +31,10 @@ final class ActivityCenter: ObservableObject {
         didSet {
             if openView != oldValue {
                 IslandLog.island.notice("open view: \(String(describing: self.openView), privacy: .public)")
+                // A find belongs to the list it was typed into; stepping to the next section
+                // starts again rather than carrying somebody's search somewhere it means
+                // nothing. Set before the keys are settled, which read it.
+                findQuery = nil
                 // Every change, not only opening and closing: the keys the panel answers
                 // depend on which section it is on.
                 keyboardControlChanged()
@@ -106,6 +110,7 @@ final class ActivityCenter: ObservableObject {
         deferredHoverExit = nil
         openView = nil
         peekView = nil
+        findQuery = nil
         forcedExpandedID = nil
         pinnedID = nil
         micInUse = false
@@ -648,6 +653,46 @@ final class ActivityCenter: ObservableObject {
         return HomeSection(rawValue: tab) == .shelf
     }
 
+    /// What has been typed into the panel's find field, or nil when nobody is searching.
+    /// Published so the section showing can narrow to it and the field can draw itself.
+    @Published private(set) var findQuery: String? = nil
+
+    /// Start a find with the letter that was just pressed. The panel has to be pinned open on
+    /// a section that is a list of things — anywhere else the letters were never claimed, so
+    /// this is never reached — and anything but a letter is left alone.
+    func beginFind(with character: String) {
+        guard PanelFind.opensFind(character), PanelFind.searches(openSection) else { return }
+        lastInteraction = Date()
+        IslandLog.keys.notice("find opened by a key press")
+        withAnimation(IslandMotion.content) { findQuery = character }
+        keyboardControlChanged()
+    }
+
+    /// Open the field with nothing in it: the magnifying glass in a section's header, clicked.
+    func beginFind() {
+        guard PanelFind.searches(openSection), findQuery == nil else { return }
+        lastInteraction = Date()
+        withAnimation(IslandMotion.content) { findQuery = "" }
+        keyboardControlChanged()
+    }
+
+    /// What the field types into.
+    func updateFind(_ text: String) {
+        guard findQuery != nil else { return }
+        findQuery = text
+    }
+
+    /// Leave the find, keeping the panel where it is. Returns false when there was no find to
+    /// leave, which is how Escape knows to close the panel instead.
+    @discardableResult
+    func endFind() -> Bool {
+        guard findQuery != nil else { return false }
+        lastInteraction = Date()
+        withAnimation(IslandMotion.content) { findQuery = nil }
+        keyboardControlChanged()
+        return true
+    }
+
     /// Whether the island owns the bare arrow keys, the digits and Space at this moment.
     ///
     /// Only while the panel is pinned open: a peek follows the pointer and takes nothing from
@@ -672,7 +717,8 @@ final class ActivityCenter: ObservableObject {
     private func keyboardControlChanged() {
         HotKeyService.shared.setPanelKeysArmed(
             Self.ownsPanelKeys(open: openView != nil, typing: wantsKeyboard,
-                               enabled: Preferences.shared.panelKeysEnabled))
+                               enabled: Preferences.shared.panelKeysEnabled),
+            letters: PanelFind.searches(openSection))
     }
 
     /// One step along the ring. Without `wrap` the ends are ends (a swipe is spatial); with it
@@ -696,7 +742,12 @@ final class ActivityCenter: ObservableObject {
 
     /// Sections the user types into. While one of them is pinned open, and only then, the
     /// island's window may take key status from the app in front.
-    static let typedSections: Set<HomeSection> = [.notes, .clipboard]
+    ///
+    /// Only Notes, whose whole body is an editor. The clipboard used to be here for the sake
+    /// of a search field that was always up; its field is opened by typing now, and a find
+    /// asks for the keyboard on its own — so on that section the arrows, the digits and Space
+    /// are the island's again until somebody starts a find.
+    static let typedSections: Set<HomeSection> = [.notes]
 
     /// Whether the panel is showing something that is typed into. Derived, never toggled by
     /// a view appearing or disappearing: stepping straight from one such section to another
@@ -704,7 +755,9 @@ final class ActivityCenter: ObservableObject {
     var wantsKeyboard: Bool {
         guard isOpen, case .home(let tab)? = currentView,
               let section = HomeSection(rawValue: tab) else { return false }
-        return Self.typedSections.contains(section)
+        // A find is typing too: the field it opens needs the keyboard for as long as it is up,
+        // and every key the island had claimed goes back to the person doing the typing.
+        return Self.typedSections.contains(section) || findQuery != nil
     }
 
     /// The view the panel is on, pinned or peeking; nil when no panel is showing.

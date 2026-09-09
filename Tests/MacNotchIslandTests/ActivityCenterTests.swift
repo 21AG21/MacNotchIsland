@@ -299,16 +299,18 @@ final class ActivityCenterTests: XCTestCase {
 
     // MARK: - The keyboard
 
-    func testOnlyAPinnedNotesOrClipboardSectionAsksForTheKeyboard() {
+    func testOnlyAPinnedNotesSectionOrALiveFindAsksForTheKeyboard() {
         XCTAssertFalse(center.wantsKeyboard, "an idle island never takes the keyboard")
 
         center.open(.home(tab: HomeSection.notes.rawValue))
         XCTAssertTrue(center.wantsKeyboard, "Notes is typed into")
 
-        // Stepping straight from one typed-into section to the next must not read as a moment
-        // with nobody asking: the panel would hand the keyboard back mid-caret.
+        // The clipboard is a list until somebody starts a find in it; then the field is what
+        // wants the keys, and it says so itself.
         center.open(.home(tab: HomeSection.clipboard.rawValue))
-        XCTAssertTrue(center.wantsKeyboard, "the clipboard search is typed into as well")
+        XCTAssertFalse(center.wantsKeyboard, "nothing is being typed into yet")
+        center.beginFind(with: "a")
+        XCTAssertTrue(center.wantsKeyboard, "the find field is typed into")
 
         center.open(.home(tab: HomeSection.music.rawValue))
         XCTAssertFalse(center.wantsKeyboard, "nothing on the music section takes typing")

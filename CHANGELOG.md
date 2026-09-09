@@ -6,6 +6,19 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Start typing to find something.** The three sections that are lists of many things —
+  Windows, the Clipboard and the Shelf — now answer the alphabet. Type on one while the panel
+  is pinned open and a field opens with what you typed already in it, narrowing the list as you
+  go: a window by its app's name or its title, a copy by its text, a file by its name. Return
+  takes the first match — brings that window forward, puts that copy back on the pasteboard,
+  opens that file — and Escape leaves the find without closing the panel. The letters are
+  claimed from the system only on those three sections and handed straight back the moment a
+  find begins, so the field itself is yours to type in; and what a key types is read from the
+  layout that is switched on, so the first letter is the right one on a French keyboard as much
+  as an American one. There is a magnifying glass in each of those headers for the people who
+  would rather click, and the clipboard's own search field is that glass now — which also gives
+  that section back the arrows, the digits and Space it used to hold onto for a field nobody
+  was typing in.
 - **Drop a file on a window tile to open it in that app.** The same thing as dropping it on
   the app's Dock icon, except in front of the window you want it in — and it needs no
   permission at all.

@@ -6,12 +6,22 @@ import UniformTypeIdentifiers
 /// use the row of zones that appears on it to put it somewhere. Mission Control, in the notch.
 struct WindowsSectionView: View {
     @ObservedObject private var monitor = WindowsMonitor.shared
+    /// Watched for the find, which lives on the panel rather than on this view.
+    @ObservedObject private var center = ActivityCenter.shared
     @State private var hovered: CGWindowID?
     /// The tile a file is being held over, if any.
     @State private var dropTarget: CGWindowID?
 
-    private var windows: [IslandWindow] {
+    /// Every window there is, before the find narrows it.
+    private var allWindows: [IslandWindow] {
         RenderMode.isGallery ? WindowsSectionView.sampleWindows : monitor.windows
+    }
+
+    /// What the strip shows: everything, or what the letters typed on this section match. A
+    /// window is found by its app's name as readily as by its title, because half the time
+    /// what you want is "the other Safari one".
+    private var windows: [IslandWindow] {
+        allWindows.filter { PanelFind.matches([$0.appName, $0.label], query: center.findQuery) }
     }
 
     var body: some View {
@@ -25,10 +35,20 @@ struct WindowsSectionView: View {
                     PillButton(title: "Show pictures", tint: .white.opacity(0.85)) { monitor.requestCapture() }
                 } else if !monitor.canMove {
                     PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
-                } else if !windows.isEmpty {
-                    Text(windows.count == 1 ? "1 open" : "\(windows.count) open")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.4))
+                } else if !allWindows.isEmpty || center.findQuery != nil {
+                    // Return brings the first match forward: type "mai", press Return, and
+                    // Mail is in front — a window switcher that needs no window switcher.
+                    FindField(matches: windows.count) {
+                        guard let first = windows.first else { return }
+                        monitor.focus(first)
+                    }
+                    // The field counts the matches itself while it is up, so the tally that
+                    // lives here the rest of the time steps aside rather than saying it twice.
+                    if center.findQuery == nil {
+                        Text(allWindows.count == 1 ? "1 open" : "\(allWindows.count) open")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
                 }
             }
             content
@@ -40,15 +60,18 @@ struct WindowsSectionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if windows.isEmpty && !monitor.canCapture {
+        if allWindows.isEmpty && !monitor.canCapture {
             SectionEmptyState(symbol: "macwindow.on.rectangle",
                               title: "Let the notch see your windows",
                               subtitle: "Screen Recording is what draws each window's picture.") {
                 PillButton(title: "Allow", prominent: true) { monitor.requestCapture() }
             }
-        } else if windows.isEmpty {
+        } else if allWindows.isEmpty {
             SectionEmptyState(symbol: "macwindow", title: "No windows open",
                               subtitle: "Everything you open shows up here.")
+        } else if windows.isEmpty {
+            // Windows are open; none of them answers to what was typed.
+            SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
         } else {
             IslandScrollStrip {
                 HStack(spacing: Self.tileGap) {

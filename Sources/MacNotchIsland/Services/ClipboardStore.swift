@@ -391,6 +391,33 @@ final class ClipboardStore: ObservableObject {
         lastChangeCount = pasteboard.changeCount
     }
 
+    /// Picking a row: put it back on the pasteboard, and then either paste it where the user
+    /// was typing or say that it has been copied. Lives here rather than in the row that
+    /// draws it, because Return in the find field picks one too.
+    func pick(item: ClipboardItem) {
+        copy(item: item)
+        // "Put this where I was typing". The panel goes first, so the keyboard is back with
+        // that app before the keystroke lands; without the permission to synthesise one, the
+        // item is on the pasteboard and the user pastes it themselves.
+        if Preferences.shared.pasteOnPick, MediaKeyInterceptor.isTrusted {
+            ActivityCenter.shared.collapse(reason: "clipboard item picked")
+            Self.pasteIntoFrontmostApp()
+            return
+        }
+        let activity = IslandActivity(id: "clipboard-copied",
+                                      kind: .custom,
+                                      content: .custom(CustomActivity(title: "Copied",
+                                                                      symbol: "doc.on.clipboard",
+                                                                      trailingText: "Copied")),
+                                      priority: 80)
+        ActivityCenter.shared.showAlert(activity, duration: 1.0, haptic: false)
+        // Alerts linger while the pointer is on the island, and the pointer is by definition
+        // still here after a click, so retire this one ourselves.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.dismissAlert() }
+        }
+    }
+
     func remove(item: ClipboardItem) {
         guard items.contains(where: { $0.id == item.id }) else { return }
         items.removeAll { $0.id == item.id }

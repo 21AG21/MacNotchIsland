@@ -46,12 +46,14 @@ struct ClipboardView: View {
         }
     }
 
-    /// Pinned items first, then the rest, newest first; only what matches the search.
-    private var ordered: [ClipboardItem] {
-        let all = store.items.filter(\.pinned) + store.items.filter { !$0.pinned }
-        let needle = query.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return all }
-        return all.filter { $0.preview.localizedCaseInsensitiveContains(needle) }
+    private var ordered: [ClipboardItem] { Self.ordered(store.items, query: query) }
+
+    /// Pinned items first, then the rest, newest first; only what matches the search. Static
+    /// so the header can count the matches and Return can pick the first of them without
+    /// working the rule out a second time.
+    static func ordered(_ items: [ClipboardItem], query: String?) -> [ClipboardItem] {
+        let all = items.filter(\.pinned) + items.filter { !$0.pinned }
+        return all.filter { PanelFind.matches([$0.preview], query: query) }
     }
 
     private var emptyState: some View {
@@ -173,29 +175,7 @@ private struct ClipboardRowView: View {
         .accessibilityHidden(true)
     }
 
-    private func copyBack() {
-        store.copy(item: item)
-        // Picking an item means "put this where I was typing". The panel goes first, so the
-        // keyboard is back with that app before the keystroke lands; without the permission
-        // to synthesise one, the item is on the pasteboard and the user pastes it themselves.
-        if Preferences.shared.pasteOnPick, MediaKeyInterceptor.isTrusted {
-            ActivityCenter.shared.collapse(reason: "clipboard item picked")
-            ClipboardStore.pasteIntoFrontmostApp()
-            return
-        }
-        let activity = IslandActivity(id: "clipboard-copied",
-                                      kind: .custom,
-                                      content: .custom(CustomActivity(title: "Copied",
-                                                                      symbol: "doc.on.clipboard",
-                                                                      trailingText: "Copied")),
-                                      priority: 80)
-        ActivityCenter.shared.showAlert(activity, duration: 1.0, haptic: false)
-        // Alerts linger while the pointer is on the island, and the pointer is by definition
-        // still here after a click, so retire this one ourselves.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
-            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.dismissAlert() }
-        }
-    }
+    private func copyBack() { store.pick(item: item) }
 }
 
 /// Small hairline-free glyph button used only inside a clipboard row.
