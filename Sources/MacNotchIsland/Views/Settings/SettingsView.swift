@@ -93,6 +93,16 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    /// The pane somebody named, forgiving the one place where the name on the screen and the
+    /// name in the code differ: the Actions pane is `shortcuts` inside the app, and anyone
+    /// writing a URL is reading the sidebar rather than the source.
+    static func named(_ raw: String) -> SettingsSection? {
+        let key = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !key.isEmpty else { return nil }
+        if let exact = SettingsSection(rawValue: key) { return exact }
+        return allCases.first { $0.title.lowercased() == key }
+    }
+
     /// Pane names are titles, so they take title-style capitalization.
     var title: String {
         switch self {

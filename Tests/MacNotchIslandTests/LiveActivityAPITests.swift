@@ -86,4 +86,26 @@ final class LiveActivityAPITests: XCTestCase {
         handle("notchisland://collapse")
         XCTAssertEqual(center.presentation, .idle)
     }
+
+    // MARK: - Naming a settings pane
+
+    func testAPaneCanBeNamedTheWayTheSidebarNamesIt() {
+        // The one pane whose name on screen is not its name in the code. Somebody writing a
+        // URL is reading the sidebar.
+        XCTAssertEqual(SettingsSection.named("actions"), .shortcuts)
+        XCTAssertEqual(SettingsSection.named("Actions"), .shortcuts)
+        XCTAssertEqual(SettingsSection.named("shortcuts"), .shortcuts)
+        XCTAssertEqual(SettingsSection.named("home"), .home)
+        XCTAssertEqual(SettingsSection.named("home panel"), .home)
+        XCTAssertEqual(SettingsSection.named(" About "), .about)
+        XCTAssertNil(SettingsSection.named(""))
+        XCTAssertNil(SettingsSection.named("nonsense"))
+    }
+
+    func testEveryPaneAnswersToBothItsNames() {
+        for section in SettingsSection.allCases {
+            XCTAssertEqual(SettingsSection.named(section.rawValue), section)
+            XCTAssertEqual(SettingsSection.named(section.title), section)
+        }
+    }
 }

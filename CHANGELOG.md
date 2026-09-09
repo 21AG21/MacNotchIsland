@@ -35,6 +35,10 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **`notchisland://settings/actions` opens the Actions pane.** Inside the app that pane is
+  called `shortcuts`, and the URL scheme only answered to that — but somebody writing a URL
+  is reading the sidebar, where it says Actions. Every pane now answers to the name on the
+  screen as well as the one in the code.
 - **A quick action with nothing to run it says so, and the same name is never listed twice.**
   Running a shortcut when `/usr/bin/shortcuts` is missing returned without a word — a button
   in the panel that did nothing at all — and the Actions pane blamed the empty list on there

@@ -11,7 +11,7 @@
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
 #   notchctl home [music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
-#   notchctl settings [general|island|activities|home|media|shortcuts|privacy|about]
+#   notchctl settings [general|island|activities|home|media|actions|privacy|about]
 set -euo pipefail
 
 urlencode() {

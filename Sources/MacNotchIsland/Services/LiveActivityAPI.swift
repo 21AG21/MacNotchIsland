@@ -11,6 +11,7 @@ import AppKit
 ///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
 ///   notchisland://home                            notchisland://settings/island
+///   Panes: general, island, activities, home, media, actions (or shortcuts), privacy, about
 final class LiveActivityAPI {
     static let shared = LiveActivityAPI()
     static let notificationName = Notification.Name("com.macnotchisland.api")
@@ -122,7 +123,7 @@ final class LiveActivityAPI {
             center.collapse()
         case ("settings", let pane):
             // notchisland://settings, notchisland://settings/island, notchisland://settings?pane=about
-            SettingsWindow.open(SettingsSection(rawValue: (q["pane"] ?? pane).lowercased()))
+            SettingsWindow.open(SettingsSection.named(q["pane"] ?? pane))
         default:
             IslandLog.island.error("unknown notchisland URL: \(url.absoluteString, privacy: .private)")
         }
