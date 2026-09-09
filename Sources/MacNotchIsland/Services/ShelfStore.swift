@@ -417,19 +417,20 @@ final class ShelfStore: ObservableObject {
         }
         guard !usable.isEmpty else { return false }
         let group = DispatchGroup()
-        var urls: [URL] = []
+        // Kept in the order they were dragged. Appending as each provider answers puts them
+        // on the shelf in whatever order the answers came back, which for a pile of files
+        // dragged together is no order at all.
+        var collected = [URL?](repeating: nil, count: usable.count)
         let lock = NSLock()
-        for provider in usable {
+        for (index, provider) in usable.enumerated() {
             group.enter()
             Self.url(from: provider) { url in
-                if let url {
-                    lock.lock(); urls.append(url); lock.unlock()
-                }
+                lock.lock(); collected[index] = url; lock.unlock()
                 group.leave()
             }
         }
         group.notify(queue: .main) { [weak self] in
-            self?.add(urls)
+            self?.add(collected.compactMap { $0 })
             ActivityCenter.shared.setDragTargeted(false)
         }
         return true
