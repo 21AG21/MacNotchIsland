@@ -12,7 +12,7 @@ struct ExpandedContentView: View {
             case .nowPlaying:
                 MusicSectionView(geometry: geometry)
                     .islandContentColumn()
-                    .padding(.top, insidePanel ? 0 : geometry.notchHeight + 12)
+                    .padding(.top, insidePanel ? 0 : IslandLayout.cardTopBand(geometry) + 12)
             case .timer(let t):
                 TimerExpandedView(state: t, geometry: geometry)
             case .stopwatch(let s):
@@ -36,7 +36,7 @@ struct ExpandedContentView: View {
             case .shelf:
                 ShelfSectionView(isDropTarget: false)
                     .islandContentColumn()
-                    .padding(.top, insidePanel ? 0 : geometry.notchHeight + 12)
+                    .padding(.top, insidePanel ? 0 : IslandLayout.cardTopBand(geometry) + 12)
             case .unlock, .silent:
                 EmptyView()
             }
@@ -49,8 +49,9 @@ struct ExpandedContentView: View {
     @Environment(\.insidePanel) private var insidePanel
 }
 
-/// Shared header spacing: content starts below the physical notch. Inside the panel the band
-/// above already cleared the notch, so this collapses to nothing.
+/// Shared header spacing: content starts below the physical notch — or, on a screen with
+/// none, below the breath of air that stands in for it (`IslandLayout.cardTopBand`). Inside
+/// the panel the band above already cleared the notch, so this collapses to nothing.
 struct NotchClearance: View {
     let geometry: NotchGeometry
     var extra: CGFloat = 8

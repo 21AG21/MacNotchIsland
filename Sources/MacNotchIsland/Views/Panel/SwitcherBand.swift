@@ -115,8 +115,10 @@ struct SwitcherBand: View {
             ForEach(Array(shown.prefix(cards.count)), id: \.self) { view in slotView(view, size: row.slot) }
             if step > 0 { Color.clear.frame(width: step) }
             ForEach(Array(shown.dropFirst(cards.count)), id: \.self) { view in slotView(view, size: row.slot) }
+            // Before the spacer, not after it: on the far side the name would push the close
+            // button left every time the pointer crossed a slot.
+            if let name = label { hoverName(name).padding(.leading, 6) }
             Spacer(minLength: 0)
-            if let name = label { hoverName(name) }
             if center.isOpen { closeButton(size: row.slot) }
         }
     }
