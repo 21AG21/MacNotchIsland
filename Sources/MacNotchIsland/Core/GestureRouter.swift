@@ -288,7 +288,7 @@ final class GestureRouter {
     /// itself.
     private func postVolumeHUD(level: Float, muted: Bool) {
         guard Preferences.shared.volumeHUDEnabled else { return }
-        let hud = LevelHUD(kind: .volume, level: Double(level), isMuted: muted)
+        let hud = LevelHUD.volume(level: Double(level), isMuted: muted, output: AudioOutputs.currentOutput())
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85),
                                         duration: 1.5, haptic: false)
     }

@@ -46,9 +46,15 @@ final class ServiceHub {
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
         p.batteryEnabled ? battery.start() : battery.stop()
         p.bluetoothEnabled ? bluetooth.start() : bluetooth.stop()
-        // The audio monitor feeds the volume HUD, silent-mode alert, mic indicator and call detection.
-        (p.volumeHUDEnabled || p.privacyIndicatorsEnabled || p.callDetectionEnabled) ? audio.start() : audio.stop()
-        p.brightnessHUDEnabled ? brightness.start() : brightness.stop()
+        // The audio monitor feeds the volume display, the silent-mode alert, the microphone
+        // indicator and call detection — but the first two only exist while the island is the
+        // one answering the media keys, so on their own they are not a reason to listen.
+        let showsVolume = p.hudReplacementEnabled && p.volumeHUDEnabled
+        (showsVolume || p.privacyIndicatorsEnabled || p.callDetectionEnabled) ? audio.start() : audio.stop()
+        // The brightness monitor exists only to raise that display, and polls a private
+        // display call four times a second to do it. With the island not answering the keys
+        // there is nothing for it to raise, so it does not run at all.
+        (p.hudReplacementEnabled && p.brightnessHUDEnabled) ? brightness.start() : brightness.stop()
         p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
         p.callDetectionEnabled ? calls.start() : calls.stop()
         p.focusEnabled ? focus.start() : focus.stop()

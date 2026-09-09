@@ -74,7 +74,7 @@ final class AudioMonitor {
         // Only once the island has actually taken the media keys over. Otherwise macOS is
         // already drawing its bezel for this, and a second one beside it is pure noise.
         guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive,
-              !ActivityCenter.shared.controlDragging, let v = readVolume() else { return }
+              !AudioOutputs.wroteRecently(), let v = readVolume() else { return }
         let muted = readMute() ?? false
         guard abs(v - lastVolume) > 0.001 else { return }
         lastVolume = v

@@ -74,7 +74,8 @@ struct TimerExpandedView: View {
     // MARK: - The timer that owns the island
 
     private func ring(at date: Date) -> some View {
-        ProgressRing(progress: state.isFinished ? 1 : state.progress(at: date), lineWidth: 3, tint: .orange)
+        ProgressRing(progress: state.isFinished ? 1 : state.progress(at: date), lineWidth: 3, tint: .orange,
+                     animation: IslandMotion.meter(cadence: 1))
             .frame(width: 44, height: 44)
             .overlay(
                 Image(systemName: ringSymbol)
@@ -182,7 +183,7 @@ struct TimerExpandedView: View {
     private func otherRow(_ entry: TimerEntry, at date: Date, hidden: Int) -> some View {
         HStack(spacing: 8) {
             ProgressRing(progress: entry.state.isFinished ? 1 : entry.state.progress(at: date),
-                         lineWidth: 2, tint: .orange)
+                         lineWidth: 2, tint: .orange, animation: IslandMotion.meter(cadence: 1))
                 .frame(width: 13, height: 13)
                 .accessibilityHidden(true)
             Text(entry.label)

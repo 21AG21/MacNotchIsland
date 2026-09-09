@@ -56,12 +56,14 @@ final class VolumeFeedbackSound {
     /// is changed" checkbox in Sound settings.
     static let feedbackKey = "com.apple.sound.beep.feedback"
 
-    private lazy var sound: NSSound? = {
-        for path in Self.candidates where FileManager.default.fileExists(atPath: path) {
-            if let sound = NSSound(contentsOfFile: path, byReference: true) { return sound }
-        }
-        return nil
+    /// A handful of copies, used in turn. Holding a volume key repeats far faster than one
+    /// click takes to finish, and restarting a single sound on each repeat cuts every click
+    /// off a few milliseconds in and turns sixteen notches into a buzz.
+    private lazy var voices: [NSSound] = {
+        guard let path = Self.candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else { return [] }
+        return (0..<3).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
     }()
+    private var nextVoice = 0
 
     private init() {}
 
@@ -80,7 +82,9 @@ final class VolumeFeedbackSound {
     }
 
     func play(flags: CGEventFlags) {
-        guard Self.shouldPlay(flags: flags, setting: Self.systemSetting), let sound else { return }
+        guard Self.shouldPlay(flags: flags, setting: Self.systemSetting), !voices.isEmpty else { return }
+        let sound = voices[nextVoice % voices.count]
+        nextVoice = (nextVoice + 1) % voices.count
         if sound.isPlaying { sound.stop() }
         sound.play()
     }
@@ -118,6 +122,10 @@ final class MediaKeyInterceptor {
 
     private let brightness = BrightnessMonitor()
 
+    /// How often the tap is checked over: often enough that revoking Accessibility stops the
+    /// island claiming the keys within a few seconds, rarely enough to cost nothing.
+    static let watchInterval: TimeInterval = 5
+
     // Main thread only.
     private var running = false
     private var promptedForTrust = false
@@ -127,12 +135,21 @@ final class MediaKeyInterceptor {
     private var lastVolume: Float?
     private var lastMuted: Bool?
     private var lastBrightness: Float?
+    /// The device the remembered level belongs to. A level read from some other output is not
+    /// a level for this one, and stepping from it would write a stranger's number.
+    private var lastVolumeDevice: AudioDeviceID?
 
     // Shared with the tap thread.
     private let lock = NSLock()
     private var tapPort: CFMachPort?
     private var tapRunLoop: CFRunLoop?
     private var stopRequested = false
+    /// Whether this Mac can actually do what the key asks. A Mac driving only external
+    /// displays has no brightness to set, and an HDMI output has no level of its own; keys we
+    /// cannot answer are left for macOS rather than swallowed into silence, which is what
+    /// made them dead keys.
+    private var canSetVolume = true
+    private var canSetBrightness = true
 
     // MARK: - Lifecycle
 
@@ -146,8 +163,10 @@ final class MediaKeyInterceptor {
             installTap()
         } else {
             requestTrust()
-            pollForTrust()
         }
+        // Kept running either way: on the way in it waits for access to be granted, and
+        // afterwards it notices access being taken away.
+        pollForTrust()
     }
 
     func stop() {
@@ -185,20 +204,51 @@ final class MediaKeyInterceptor {
         _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 
-    /// There is no notification for the trust state, so poll until it flips. The interval
-    /// follows the energy policy so a forgotten prompt costs nothing on battery.
+    /// There is no notification for the trust state, so it is polled — both on the way in,
+    /// while the user is deciding, and afterwards.
+    ///
+    /// Afterwards matters: revoking Accessibility invalidates the tap without calling the
+    /// callback, so nothing would ever tell us the keys had gone back to macOS. The island
+    /// would keep drawing its own display next to the system's — the one thing the whole
+    /// arrangement exists to prevent. The interval follows the energy policy, so a forgotten
+    /// prompt costs nothing on battery.
     private func pollForTrust() {
         trustTimer?.invalidate()
-        let interval = 3.0 * EnergyPolicy.shared.pollingMultiplier
+        let interval = Self.watchInterval * EnergyPolicy.shared.pollingMultiplier
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self, self.running else { return }
-            guard Self.isTrusted else { return }
-            self.trustTimer?.invalidate()
-            self.trustTimer = nil
+            guard Self.isTrusted else {
+                self.dropTap()
+                return
+            }
             self.installTap()
+            self.verifyTap()
         }
         timer.tolerance = 1
         trustTimer = timer
+    }
+
+    /// Access was taken away: let the tap go and stop claiming the keys.
+    private func dropTap() {
+        SystemHUDReplacement.shared.set(false)
+        lock.lock()
+        let port = tapPort
+        tapPort = nil
+        lock.unlock()
+        guard let port else { return }
+        CGEvent.tapEnable(tap: port, enable: false)
+        CFMachPortInvalidate(port)
+        if let loop = tapRunLoop { CFRunLoopStop(loop) }
+        tapThread = nil
+    }
+
+    /// The tap can be turned off under us; say so if it has been.
+    private func verifyTap() {
+        lock.lock()
+        let port = tapPort
+        lock.unlock()
+        guard let port else { return SystemHUDReplacement.shared.set(false) }
+        SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
     }
 
     // MARK: - Event tap
@@ -233,7 +283,8 @@ final class MediaKeyInterceptor {
         tapPort = port
         lock.unlock()
         CGEvent.tapEnable(tap: port, enable: true)
-        SystemHUDReplacement.shared.set(true)
+        SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
+        refreshCapabilities()
 
         // The tap runs on its own thread: a synchronous tap on a busy main thread would
         // delay every key press system-wide and get itself disabled for timing out.
@@ -266,14 +317,20 @@ final class MediaKeyInterceptor {
         lock.unlock()
     }
 
-    /// macOS disables a tap that timed out or that the user interrupted; turn it back on.
+    /// macOS disables a tap that timed out or that the user interrupted; turn it back on,
+    /// and only claim the keys again once it says it really is carrying them.
     fileprivate func reenableTap() {
         lock.lock()
         let port = tapPort
         lock.unlock()
-        guard let port else { return }
+        guard let port else {
+            DispatchQueue.main.async { SystemHUDReplacement.shared.set(false) }
+            return
+        }
         CGEvent.tapEnable(tap: port, enable: true)
-        NSLog("Notch Island: the media-key event tap was disabled by the system and has been re-enabled.")
+        let live = CGEvent.tapIsEnabled(tap: port)
+        DispatchQueue.main.async { SystemHUDReplacement.shared.set(live) }
+        NSLog("Notch Island: the media-key event tap was disabled by the system; re-enabled: \(live).")
     }
 
     /// Called on the tap thread. Returns true when the event should be swallowed.
@@ -284,6 +341,10 @@ final class MediaKeyInterceptor {
                   nsEvent.subtype.rawValue == Self.auxControlSubtype else { return }
             let decoded = Self.decode(data1: nsEvent.data1)
             guard Self.interceptedKeyCodes.contains(decoded.keyCode) else { return }
+            // A key this Mac cannot answer goes back to macOS, which still has its own bezel
+            // for it. Swallowing it here would make it a dead key: no change, no display,
+            // nothing at all.
+            guard canAnswer(decoded.keyCode) else { return }
             swallow = true
             guard decoded.isDown else { return }
             let flags = event.flags
@@ -292,6 +353,35 @@ final class MediaKeyInterceptor {
             }
         }
         return swallow
+    }
+
+    /// Read on the tap thread, written on the main one.
+    private func canAnswer(_ keyCode: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        switch keyCode {
+        case MediaKey.brightnessUp, MediaKey.brightnessDown: return canSetBrightness
+        default: return canSetVolume
+        }
+    }
+
+    /// Asks the hardware what it can do. Cheap, and only ever from the main thread: when the
+    /// tap goes up, and after each key, so plugging a display in or picking a new output
+    /// corrects the answer by the next press.
+    private func refreshCapabilities() {
+        let brightnessOK = brightness.currentBrightness() != nil
+        let volumeOK: Bool
+        if AudioMonitor.readOutputVolume() != nil {
+            volumeOK = true
+        } else if let output = AudioOutputs.currentOutput() {
+            volumeOK = AudioOutputs.hasVolumeControl(output.id)
+        } else {
+            volumeOK = false
+        }
+        lock.lock()
+        canSetBrightness = brightnessOK
+        canSetVolume = volumeOK
+        lock.unlock()
     }
 
     // MARK: - Decoding
@@ -331,15 +421,27 @@ final class MediaKeyInterceptor {
         case MediaKey.brightnessDown: adjustBrightness(delta: -1, step: step, isRepeat: isRepeat)
         default: break
         }
+        // Plugging a display in or picking a different output changes what the keys can do,
+        // so the answer is refreshed by the press that follows.
+        refreshCapabilities()
     }
 
     private func adjustVolume(delta: Int, step: Float, isRepeat: Bool, flags: CGEventFlags) {
+        // A remembered level belongs to the device it was read from.
+        let device = AudioMonitor.defaultOutputDevice()
+        if device != lastVolumeDevice {
+            lastVolume = nil
+            lastMuted = nil
+            lastVolumeDevice = device
+        }
         // Some outputs — HDMI, a few AirPlay targets — carry the sound at whatever level the
         // thing at the other end is set to. The key has already been swallowed by the time we
         // get here, so saying so is the only alternative to the press doing nothing at all.
         // The last level read from some *other* device is not an answer either, so it is not
         // used as one.
-        guard let current = AudioMonitor.readOutputVolume() else {
+        // The remembered level stands in for a read that failed on the same device; only a
+        // device that has no level at all is a device with nothing to say.
+        guard let current = AudioMonitor.readOutputVolume() ?? lastVolume else {
             lastVolume = nil
             // Only call it unavailable when the device really has no control of its own; a
             // read that merely failed is not a read that could never succeed, and should not

@@ -4,10 +4,12 @@ struct ProgressRing: View {
     var progress: Double
     var lineWidth: CGFloat = 3
     var tint: Color = .white
-    /// How often a new value arrives, in seconds. The sweep takes exactly that long, so a
-    /// ring that is really redrawn once a second reads as one that never stops moving. A
-    /// spring here made every tick a small, visible jolt.
-    var cadence: Double = 1
+    /// How the ring travels to a new value. A timer's arrives on a one-second clock, and
+    /// sweeping for exactly that long is what makes a ring redrawn once a second read as one
+    /// that never stops moving — but a download's arrives whenever the poll happens to be,
+    /// and a live activity's whenever it is pushed, and for those a spring that lands is
+    /// right. Linear everywhere would leave those two permanently a second behind.
+    var animation: Animation = IslandMotion.control
 
     var body: some View {
         ZStack {
@@ -17,6 +19,6 @@ struct ProgressRing: View {
                 .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
-        .animation(IslandMotion.meter(cadence: cadence), value: progress)
+        .animation(animation, value: progress)
     }
 }

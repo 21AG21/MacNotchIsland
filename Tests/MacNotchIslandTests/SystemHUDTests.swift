@@ -54,6 +54,16 @@ final class SystemHUDTests: XCTestCase {
         XCTAssertFalse(hud.isMuted, "not being settable is not the same as being off")
     }
 
+    /// A slider you are holding is its own feedback, so the island does not put a display
+    /// over it — but only for a change the island itself just made, not for any drag anywhere.
+    func testTheIslandKnowsWhenItWasTheOneThatSetTheLevel() {
+        let now = Date()
+        XCTAssertFalse(AudioOutputs.wroteRecently(now: now),
+                       "nothing has written, so nothing should be suppressed")
+        XCTAssertFalse(AudioOutputs.wroteRecently(within: 0.6, now: now.addingTimeInterval(5)),
+                       "and a write from five seconds ago is not a slider under the finger")
+    }
+
     func testTheIslandStartsOutLeavingTheSystemBezelAlone() {
         XCTAssertFalse(SystemHUDReplacement.shared.isActive,
                        "nothing has installed an event tap in a test run, so the island must not "

@@ -29,19 +29,20 @@ struct MarqueeText: View {
                     if scrolling { label }
                 }
                 .offset(x: -CGFloat(offset))
-            }
-            .frame(width: geo.size.width, alignment: .leading)
-            .clipped()
-            // A title that is moving dissolves at the edges rather than being cut off at
-            // them: a hard edge makes the letters look like they are hitting a wall, and
-            // every marquee Apple ships — Now Playing, the Music app's ticker — fades. Only
-            // while it is scrolling: a title that fits is not going anywhere and should not
-            // have its first and last letters dimmed for nothing.
-            .mask(alignment: .leading) {
-                if scrolling {
-                    Self.edgeFade(across: geo.size.width)
-                } else {
-                    Rectangle()
+                .frame(width: geo.size.width, alignment: .leading)
+                .clipped()
+                // A title that is moving dissolves at the edges rather than being cut off at
+                // them: a hard edge makes the letters look like they are hitting a wall, and
+                // every marquee Apple ships — Now Playing, the Music app's ticker — fades.
+                //
+                // Only the edge that has something behind it, though. A title that fits is
+                // not going anywhere, and one that has not started moving yet — every cycle
+                // waits over a second before it does — still begins at its first letter,
+                // which should not be dimmed for nothing.
+                .mask(alignment: .leading) {
+                    Self.edgeFade(across: geo.size.width,
+                                  leading: offset > 0.5,
+                                  trailing: scrolling)
                 }
             }
         }
@@ -58,15 +59,17 @@ struct MarqueeText: View {
     /// How much of each end the fade covers.
     private static let fadeWidth: CGFloat = 12
 
-    /// Opaque through the middle, clear at both ends, in whatever proportion `fadeWidth` is
-    /// of the room there is — clamped so a very narrow slot fades rather than disappears.
-    private static func edgeFade(across width: CGFloat) -> some View {
-        let inset = min(0.35, fadeWidth / max(width, 1))
+    /// Opaque through the middle and clear at whichever ends are asked for, in whatever
+    /// proportion `fadeWidth` is of the room there is — clamped, so a slot as narrow as the
+    /// pill's sneak peek keeps most of itself readable rather than becoming mostly gradient.
+    /// With neither end asked for, every stop is opaque and this is a plain rectangle.
+    private static func edgeFade(across width: CGFloat, leading: Bool, trailing: Bool) -> LinearGradient {
+        let inset = min(0.2, fadeWidth / max(width, 1))
         return LinearGradient(stops: [
-            .init(color: .black.opacity(0), location: 0),
-            .init(color: .black, location: inset),
-            .init(color: .black, location: 1 - inset),
-            .init(color: .black.opacity(0), location: 1),
+            .init(color: .black.opacity(leading ? 0 : 1), location: 0),
+            .init(color: .black, location: leading ? inset : 0),
+            .init(color: .black, location: trailing ? 1 - inset : 1),
+            .init(color: .black.opacity(trailing ? 0 : 1), location: 1),
         ], startPoint: .leading, endPoint: .trailing)
     }
 

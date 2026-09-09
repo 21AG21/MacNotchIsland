@@ -49,7 +49,7 @@ struct CustomExpandedView: View {
             // A ring-less progress activity gets the bar under the header; one that asked for a
             // ring wears it in the leading slot instead, so the card stays one row tall.
             if let progress = state.progress, !state.showsRing {
-                LevelBar(level: progress, tint: .white, animation: IslandMotion.meter(cadence: 1))
+                LevelBar(level: progress, tint: .white)
                     .frame(height: 4)
                     .islandContentColumn()
                     .padding(.top, 8)

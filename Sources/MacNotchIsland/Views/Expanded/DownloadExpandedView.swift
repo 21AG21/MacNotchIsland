@@ -45,7 +45,7 @@ struct DownloadExpandedView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilitySummary)
             if let p = state.progress, !state.isComplete {
-                LevelBar(level: p, tint: .white, animation: IslandMotion.meter(cadence: 1))
+                LevelBar(level: p, tint: .white)
                     .frame(height: 4)
                     .islandContentColumn()
                     .padding(.top, 8)

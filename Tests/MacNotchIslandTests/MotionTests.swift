@@ -45,13 +45,23 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(IslandMotion.shape(from: a, to: b, direction: -1), IslandMotion.navigate)
     }
 
-    func testReduceMotionReplacesEverySpringWithAFade() throws {
+    /// The live answer comes from a cached watcher there is no way to set from a test, so
+    /// the choice itself is exercised with the setting handed in. Without this the ternary
+    /// could be inverted and every other test here would still pass.
+    func testReduceMotionReplacesASpringWithAFadeOfItsOwnLength() {
+        let spring = Animation.spring(duration: 0.44, bounce: 0.28)
+        XCTAssertEqual(IslandMotion.moving(spring, still: 0.18, reduced: false), spring,
+                       "with the setting off a spring stays a spring")
+        XCTAssertEqual(IslandMotion.moving(spring, still: 0.18, reduced: true), .easeOut(duration: 0.18),
+                       "and with it on it becomes a fade, not a shorter spring")
+    }
+
+    func testTheSpringsAreAllDifferentFromEachOther() throws {
         try XCTSkipIf(IslandMotion.reduceMotion, "this machine is already asking for less motion")
-        // With the setting off, the springs are springs and no two of them are the same.
         XCTAssertNotEqual(IslandMotion.open, IslandMotion.navigate)
         XCTAssertNotEqual(IslandMotion.content, IslandMotion.control)
         XCTAssertNotEqual(IslandMotion.bubble, IslandMotion.open)
-        // And the eases are unaffected by it either way.
+        // The eases are unaffected by the setting either way.
         XCTAssertEqual(IslandMotion.hover, .easeOut(duration: 0.12))
     }
 }

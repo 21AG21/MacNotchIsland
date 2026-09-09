@@ -27,7 +27,13 @@ enum IslandMotion {
     /// Reduce Motion asks for a change of state, not a journey to it, so every spring becomes
     /// a short fade of its own length.
     private static func moving(_ spring: Animation, still: Double) -> Animation {
-        reduceMotion ? .easeOut(duration: still) : spring
+        moving(spring, still: still, reduced: reduceMotion)
+    }
+
+    /// The same choice with the setting handed in, so both halves of it can be tested. The
+    /// live answer comes from a cached watcher with nothing to inject.
+    static func moving(_ spring: Animation, still: Double, reduced: Bool) -> Animation {
+        reduced ? .easeOut(duration: still) : spring
     }
 
     // MARK: - Springs: things that move

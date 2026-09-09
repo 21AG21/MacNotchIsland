@@ -149,7 +149,8 @@ struct CompactTrailingView: View {
             case .timer(let t):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     if minimal {
-                        ProgressRing(progress: t.progress(at: ctx.date), lineWidth: 2.5, tint: .orange)
+                        ProgressRing(progress: t.progress(at: ctx.date), lineWidth: 2.5, tint: .orange,
+                                     animation: IslandMotion.meter(cadence: 1))
                             .frame(width: height * 0.5, height: height * 0.5)
                     } else {
                         let remaining = t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString
@@ -202,8 +203,17 @@ struct CompactTrailingView: View {
             case .focus(let f):
                 Text(f.isOn ? "On" : "Off").font(wordFont).foregroundStyle(.white)
             case .hud(let h):
-                LevelBar(level: h.isMuted ? 0 : h.level, tint: .white)
-                    .frame(width: minimal ? 28 : 52, height: 4)
+                // The pill is where a key press is actually answered, so the one state a bar
+                // cannot express gets said in words rather than shown as an empty bar that
+                // reads as silence.
+                if h.isUnavailable {
+                    Text("\u{2014}")
+                        .font(numeralFont)
+                        .foregroundStyle(.white.opacity(0.7))
+                } else {
+                    LevelBar(level: h.isMuted ? 0 : h.level, tint: .white)
+                        .frame(width: minimal ? 28 : 52, height: 4)
+                }
             case .silent(let s):
                 Text(s.isSilent ? "Silent" : "Ring")
                     .font(wordFont)
@@ -348,7 +358,10 @@ extension LevelHUD {
         case .brightness:
             return level < 0.05 ? "sun.min" : (level < 0.5 ? "sun.min.fill" : "sun.max.fill")
         case .volume:
-            if isUnavailable || isMuted || level <= 0.001 { return "speaker.slash.fill" }
+            // An output that carries its own level is not a muted Mac, and must not be drawn
+            // as one: it is named instead, and the em dash beside it says there is no number.
+            if isUnavailable { return deviceSymbol ?? "speaker.slash.fill" }
+            if isMuted || level <= 0.001 { return "speaker.slash.fill" }
             // Where the sound is going, when that is somewhere worth saying. The bar beside
             // it already carries the level, so the glyph is free to carry the better fact,
             // and it costs no width at all — which is why the system's bezel cannot do it.

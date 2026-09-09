@@ -150,8 +150,22 @@ final class AudioOutputs: ObservableObject {
         reloadDevices()
     }
 
+    /// When the island last set the level itself, from its own slider.
+    ///
+    /// A slider you are holding is its own feedback, and a display popping up over it says
+    /// nothing you cannot already see. This is what tells the two apart — the panel's own
+    /// write from anything else on the Mac — rather than "some control somewhere is being
+    /// dragged", which also caught the scrubber and swallowed unrelated displays.
+    private(set) static var lastLocalWrite = Date.distantPast
+
+    /// Whether the island wrote the level itself a moment ago.
+    static func wroteRecently(within seconds: TimeInterval = 0.6, now: Date = Date()) -> Bool {
+        now.timeIntervalSince(lastLocalWrite) < seconds
+    }
+
     func setVolume(_ level: Float) {
         let clamped = max(0, min(1, level))
+        Self.lastLocalWrite = Date()
         if AudioMonitor.writeOutputVolume(clamped) {
             volume = clamped
             if clamped > 0, isMuted, AudioMonitor.writeOutputMute(false) { isMuted = false }
@@ -159,6 +173,7 @@ final class AudioOutputs: ObservableObject {
     }
 
     func setMuted(_ muted: Bool) {
+        Self.lastLocalWrite = Date()
         if AudioMonitor.writeOutputMute(muted) { isMuted = muted }
     }
 
@@ -199,26 +214,40 @@ final class AudioOutputs: ObservableObject {
 
     /// The output the Mac is playing through right now, read straight from CoreAudio.
     ///
-    /// The published `current` only exists while a view is watching, and the volume HUD fires
-    /// whether or not one is; this asks the two questions it needs and nothing else.
+    /// The published `current` only exists while a view is watching, and the volume display
+    /// fires whether or not one is. Held between calls because a key held down repeats twenty
+    /// times a second and each of those would otherwise cost three blocking property reads on
+    /// the main thread: the device's id is asked for every time, its name and kind only when
+    /// that id turns out to have changed. Main thread only.
+    private static var cachedOutput: Device?
+
     static func currentOutput() -> Device? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var id = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
-              id != 0 else { return nil }
-        return Device(id: id, name: name(of: id), transport: transport(of: id))
+        let id = AudioMonitor.defaultOutputDevice()
+        guard id != 0 else {
+            cachedOutput = nil
+            return nil
+        }
+        if let cachedOutput, cachedOutput.id == id { return cachedOutput }
+        let device = Device(id: id, name: name(of: id), transport: transport(of: id))
+        cachedOutput = device
+        return device
     }
 
     /// Whether the Mac can set this device's level at all. HDMI and some AirPlay targets
     /// simply carry the sound at whatever the thing at the other end is set to, and asking
     /// for the level returns nothing — which is a different thing from a read that failed.
     static func hasVolumeControl(_ device: AudioDeviceID) -> Bool {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-                                                 mScope: kAudioDevicePropertyScopeOutput,
-                                                 mElement: kAudioObjectPropertyElementMain)
-        return AudioObjectHasProperty(device, &address)
+        // The same elements the writer writes: some aggregate and USB devices carry the
+        // control on their channels rather than on the main element, and asking only about
+        // the main one would call a device unsettable that `writeOutputVolume` can in fact
+        // set through the channel loop.
+        for element in [kAudioObjectPropertyElementMain, UInt32(1), UInt32(2)] {
+            var address = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+                                                     mScope: kAudioDevicePropertyScopeOutput,
+                                                     mElement: element)
+            if AudioObjectHasProperty(device, &address) { return true }
+        }
+        return false
     }
 
     private static func name(of device: AudioDeviceID) -> String {
