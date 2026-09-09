@@ -571,7 +571,9 @@ final class ShelfStore: ObservableObject {
         }
     }
 
-    private static func fileURL(from item: Any?) -> URL? {
+    /// The file a provider handed over, whichever of the three shapes it used. Internal
+    /// because the Actions row decodes a drop the same way.
+    static func fileURL(from item: Any?) -> URL? {
         if let data = item as? Data { return URL(dataRepresentation: data, relativeTo: nil) }
         if let url = item as? URL { return url }
         if let string = item as? String { return URL(string: string) }

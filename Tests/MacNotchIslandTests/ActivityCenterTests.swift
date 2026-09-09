@@ -24,6 +24,23 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.presentation, .idle)
     }
 
+    // MARK: - A drag over the Actions section
+
+    func testADragOverTheIslandOpensTheShelf() {
+        center.open(.home(tab: HomeSection.music.rawValue))
+        center.setDragTargeted(true)
+        XCTAssertEqual(center.presentation, .shelf)
+        center.setDragTargeted(false)
+    }
+
+    func testADragLeavesTheActionsSectionAloneSoAFileCanReachATile() {
+        center.open(.home(tab: HomeSection.actions.rawValue))
+        center.setDragTargeted(true)
+        // Its tiles are drop targets of their own; the shelf's well would cover them.
+        XCTAssertEqual(center.presentation, .panel(.home(tab: HomeSection.actions.rawValue)))
+        center.setDragTargeted(false)
+    }
+
     // MARK: - What a Focus holds back
 
     private func holds(_ content: ActivityContent, id: String = "x") -> Bool {

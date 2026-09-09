@@ -196,7 +196,10 @@ final class ActivityCenter: ObservableObject {
         let hovering = hoverPanel != nil && (panel == nil || hoverPanel == panel)
         let dragging = dragPanel != nil && (panel == nil || dragPanel == panel)
 
-        if dragging && prefs.shelfEnabled { return .shelf }
+        // A drag means the shelf everywhere but one place: the Actions section, whose tiles
+        // are drop targets of their own. The shelf's well would cover them before a file could
+        // reach one, and a file dropped anywhere else on the island still goes to the shelf.
+        if dragging && prefs.shelfEnabled && openSection != .actions { return .shelf }
 
         let peeking = hovering && prefs.hoverToExpand
         // An alert takes the island unless a panel is showing; then it is drawn over the panel
@@ -624,6 +627,13 @@ final class ActivityCenter: ObservableObject {
         let here = currentView.flatMap { ring.firstIndex(of: $0) } ?? 0
         select(target, direction: index > here ? 1 : -1)
         return true
+    }
+
+    /// The section the panel is pinned on, if it is pinned on one. Not the peek: a peek
+    /// follows the pointer, and during a drag the pointer is holding something.
+    var openSection: HomeSection? {
+        guard case .home(let tab)? = openView else { return nil }
+        return HomeSection(rawValue: tab)
     }
 
     /// Whether the panel is open on the Shelf section at this moment. Space means Quick Look

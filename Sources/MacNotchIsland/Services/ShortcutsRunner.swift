@@ -94,7 +94,11 @@ final class ShortcutsRunner: ObservableObject {
 
     /// Runs a shortcut by name, showing a Live Activity while it's in flight and a
     /// Done/Failed alert when it exits.
-    func run(_ name: String) {
+    ///
+    /// With `inputPaths`, the shortcut is run once for each file — `shortcuts run` takes one
+    /// input at a time — under a single activity, so dropping five files on a tile is one
+    /// thing happening rather than five.
+    func run(_ name: String, inputPaths: [String] = []) {
         guard FileManager.default.isExecutableFile(atPath: Self.binaryPath) else {
             // A button that does nothing at all is the one outcome that must never be
             // possible, however unlikely the cause.
@@ -109,13 +113,19 @@ final class ShortcutsRunner: ObservableObject {
         }
         let activityID = "shortcut-\(name)"
 
+        let subtitle: String
+        switch inputPaths.count {
+        case 0: subtitle = "Running…"
+        case 1: subtitle = "Running on " + ((inputPaths[0] as NSString).lastPathComponent)
+        default: subtitle = "Running on \(inputPaths.count) files"
+        }
         ActivityCenter.shared.upsert(IslandActivity(
             id: activityID, kind: .custom,
-            content: .custom(CustomActivity(title: name, subtitle: "Running…", symbol: symbol(for: name), tint: "purple")),
+            content: .custom(CustomActivity(title: name, subtitle: subtitle, symbol: symbol(for: name), tint: "purple")),
             priority: 75))
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Self.execute(arguments: ["run", name])
+            let result = Self.runEach(name, inputPaths: inputPaths)
             DispatchQueue.main.async {
                 ActivityCenter.shared.end(id: activityID)
                 if result.succeeded {
@@ -148,6 +158,18 @@ final class ShortcutsRunner: ObservableObject {
     private struct ProcessResult {
         var succeeded: Bool
         var stderrFirstLine: String?
+    }
+
+    /// Runs the shortcut once with no input, or once per input file. The first failure is the
+    /// one reported: five files that all failed the same way is one thing to say, not five.
+    private static func runEach(_ name: String, inputPaths: [String]) -> ProcessResult {
+        guard !inputPaths.isEmpty else { return execute(arguments: ["run", name]) }
+        var firstFailure: ProcessResult?
+        for path in inputPaths {
+            let result = execute(arguments: ["run", name, "--input-path", path])
+            if !result.succeeded, firstFailure == nil { firstFailure = result }
+        }
+        return firstFailure ?? ProcessResult(succeeded: true, stderrFirstLine: nil)
     }
 
     /// What `shortcuts` printed, tidied into one line of a card: trimmed, and cut at a length

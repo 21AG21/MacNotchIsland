@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The Actions row: favourite apps first, then favourited Shortcuts, as round buttons.
 /// Clicking an app opens it and closes the panel; clicking a shortcut runs it where it is.
@@ -123,12 +124,16 @@ private struct QuickActionButton: View {
     let name: String
     @ObservedObject private var runner = ShortcutsRunner.shared
     @State private var hovering = false
+    /// A file being held over this tile. A shortcut that takes an input is a droplet, and
+    /// this is the only place on the island where dropping a file means something other than
+    /// "put it on the shelf".
+    @State private var dropping = false
 
     var body: some View {
         Button(action: { runner.run(name) }) {
             VStack(spacing: 5) {
                 ZStack {
-                    Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
+                    Circle().fill(Color.white.opacity(dropping ? 0.32 : (hovering ? 0.2 : 0.12)))
                     Image(systemName: runner.symbol(for: name))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
@@ -148,7 +153,33 @@ private struct QuickActionButton: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(IslandMotion.hover, value: hovering)
-        .help("Run \(name)")
+        .animation(IslandMotion.hover, value: dropping)
+        .onDrop(of: [UTType.fileURL], isTargeted: $dropping) { providers in
+            QuickActionButton.paths(from: providers) { paths in
+                guard !paths.isEmpty else { return }
+                runner.run(name, inputPaths: paths)
+            }
+            return true
+        }
+        .help("Run \(name), or drop files on it to run it with them.")
         .accessibilityLabel("Run shortcut \(name)")
+    }
+
+    /// The files a drop carried, in the order they were dragged, once every provider has
+    /// answered. A provider that answers with nothing is simply left out.
+    private static func paths(from providers: [NSItemProvider], completion: @escaping ([String]) -> Void) {
+        let group = DispatchGroup()
+        var found = [URL?](repeating: nil, count: providers.count)
+        let lock = NSLock()
+        for (index, provider) in providers.enumerated() {
+            guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { continue }
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url = ShelfStore.fileURL(from: item)
+                lock.lock(); found[index] = url; lock.unlock()
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { completion(found.compactMap { $0?.path }) }
     }
 }
