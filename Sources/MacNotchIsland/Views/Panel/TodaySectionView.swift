@@ -17,10 +17,6 @@ struct TodaySectionView: View {
     /// The countdown's column. Without it "in 1 hr" on a row with no Join button landed 44 pt
     /// right of "in 7 min" on the row above.
     private static let countdown: CGFloat = 62
-    /// The Join button's column, held open on every row as soon as one row has a link — a
-    /// column of countdowns that steps 74 pt sideways at the one row you can join is worse
-    /// than a little air on the rows you cannot. Nobody joinable, nobody reserves it.
-    private static let action: CGFloat = 66
     private static var listHeight: CGFloat { SectionMetrics.bodyHeight }
 
     var body: some View {
@@ -136,6 +132,23 @@ struct TodaySectionView: View {
         }
     }
 
+    /// The trailing action column. Every row carries it once anything on screen can be
+    /// joined, so the countdowns beside it line up instead of one of them stepping 74 pt
+    /// sideways at the single row you can act on; a row with nothing to join lays the button
+    /// out and leaves it invisible, which is also how the column stays exactly as wide as the
+    /// button in every language rather than as wide as a number somebody guessed.
+    @ViewBuilder
+    private func joinColumn(_ url: URL?) -> some View {
+        if showsJoinColumn {
+            PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
+                if let url { NSWorkspace.shared.open(url) }
+            }
+            .opacity(url == nil ? 0 : 1)
+            .allowsHitTesting(url != nil)
+            .accessibilityHidden(url == nil)
+        }
+    }
+
     private func eventRow(_ event: AgendaStore.Event) -> some View {
         let tint = Color.named(event.tint)
         return HStack(spacing: 10) {
@@ -161,18 +174,7 @@ struct TodaySectionView: View {
                     .lineLimit(1)
                     .frame(minWidth: Self.countdown, alignment: .trailing)
             }
-            if showsJoinColumn {
-                Group {
-                    if let url = event.joinURL {
-                        PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
-                            NSWorkspace.shared.open(url)
-                        }
-                    } else {
-                        Color.clear.frame(height: 1).accessibilityHidden(true)
-                    }
-                }
-                .frame(width: Self.action, alignment: .trailing)
-            }
+            joinColumn(event.joinURL)
         }
         .frame(height: Self.eventRow)
         .contentShape(Rectangle())
@@ -203,9 +205,7 @@ struct TodaySectionView: View {
                     .lineLimit(1)
                     .frame(minWidth: Self.countdown, alignment: .trailing)
             }
-            if showsJoinColumn {
-                Color.clear.frame(width: Self.action, height: 1).accessibilityHidden(true)
-            }
+            joinColumn(nil)
         }
         .frame(height: Self.reminderRow)
         .accessibilityElement(children: .contain)
