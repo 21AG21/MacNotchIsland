@@ -6,6 +6,12 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Hold Option while scrolling on the island for the brightness.** A scroll has always been
+  the volume; with Option held it is the display instead — the rail's two sliders, without
+  opening the panel. It reads the display once when the gesture starts and carries it from
+  there, shows the same heads-up display a volume scroll does, and leaves a Mac whose display
+  will not say what it is set to on the volume. A section that scrolls by itself still keeps
+  its own scroll, whichever key is held.
 - **Where the sound is going moved to the control rail.** The output picker was in the Now
   Playing header, which meant it existed only while something was playing and only on that one
   section — and switching to headphones is not something you only want to do mid-track. It is

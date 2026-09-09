@@ -66,13 +66,13 @@ struct IslandPane: View {
                 Toggle("Trackpad haptics", isOn: $prefs.hapticsEnabled)
                     .help("A light tap when an alert arrives, a timer rings, or a file is dragged onto the island. Never for a click: the trackpad has already clicked.")
                 Toggle("Trackpad gestures", isOn: $prefs.gesturesEnabled)
-                    .help("Swipe and scroll on the island to control playback and volume.")
+                    .help("Swipe and scroll on the island to control playback, volume and brightness.")
                 Toggle("Keep clear of menu bar items", isOn: $prefs.keepClearOfMenuBar)
                     .help("The island only widens into menu bar space that is free, so it never covers a menu title or a status item. Grant Accessibility under Privacy to include app menus.")
             } header: {
                 Text("Alerts and gestures")
             } footer: {
-                Text("Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for volume.")
+                Text("Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for the volume, and hold Option while you scroll for the brightness — the rail's two sliders, without opening the panel. A section that scrolls by itself, like the clipboard, keeps its own scroll.")
             }
         }
         .formStyle(.grouped)

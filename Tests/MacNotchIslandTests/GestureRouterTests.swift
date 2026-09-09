@@ -173,4 +173,37 @@ final class GestureRouterTests: XCTestCase {
         XCTAssertEqual(HomeSection.allCases.map(\.rawValue).first, HomeSection.fallback.rawValue)
         XCTAssertTrue(GestureRouter.scrollingSections.contains(.clipboard))
     }
+
+    // MARK: - Option turns the scroll into the brightness
+
+    func testOptionScrollMovesTheBrightnessInstead() {
+        let up = GestureRouter.decide(dx: 0, dy: -40, context: .idle, wantsBrightness: true)
+        guard case .brightness(let delta) = up else { return XCTFail("expected brightness, got \(up)") }
+        XCTAssertGreaterThan(delta, 0, "scrolling up brightens, the way it raises the volume")
+
+        let down = GestureRouter.decide(dx: 0, dy: 40, context: .idle, wantsBrightness: true)
+        guard case .brightness(let dim) = down else { return XCTFail("expected brightness, got \(down)") }
+        XCTAssertLessThan(dim, 0)
+    }
+
+    func testTheScrollIsStillTheVolumeWithoutOption() {
+        guard case .volume = GestureRouter.decide(dx: 0, dy: -40, context: .idle) else {
+            return XCTFail("a bare scroll is the volume")
+        }
+    }
+
+    func testBothTravelTheSameDistancePerPoint() {
+        let volume = GestureRouter.decide(dx: 0, dy: -100, context: .idle)
+        let brightness = GestureRouter.decide(dx: 0, dy: -100, context: .idle, wantsBrightness: true)
+        guard case .volume(let v) = volume, case .brightness(let b) = brightness else {
+            return XCTFail("expected one of each")
+        }
+        XCTAssertEqual(v, b, accuracy: 0.0001, "one scroll, two things it can move, one feel")
+    }
+
+    func testASectionThatScrollsKeepsItsScrollWhicheverKeyIsHeld() {
+        let list = GestureRouter.Context.panel(index: 0, count: 4, scrolls: true)
+        XCTAssertEqual(GestureRouter.decide(dx: 0, dy: -40, context: list, wantsBrightness: true), .none)
+        XCTAssertEqual(GestureRouter.decide(dx: 0, dy: -40, context: list), .none)
+    }
 }

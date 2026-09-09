@@ -252,7 +252,9 @@ final class BrightnessControl: ObservableObject {
     var isAvailable: Bool { monitor.currentBrightness() != nil }
     func current() -> Double? { monitor.currentBrightness().map { Double($0) } }
 
-    private static func read() -> Double? { BrightnessMonitor().currentBrightness().map { Double($0) } }
+    /// What the display says it is set to, straight from DisplayServices. Internal because
+    /// the gesture router reads it too, for the scroll that carries Option.
+    static func read() -> Double? { BrightnessMonitor().currentBrightness().map { Double($0) } }
 
     /// When the rail's own slider last wrote the brightness. See `LocalWrite`.
     private(set) static var lastLocalWrite = LocalWrite.never

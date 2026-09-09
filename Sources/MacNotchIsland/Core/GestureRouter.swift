@@ -42,6 +42,8 @@ final class GestureRouter {
         case stepView(forward: Bool)
         /// Change in output volume, on the 0...1 scale.
         case volume(delta: Double)
+        /// The same, for the display's brightness: what the scroll means with Option held.
+        case brightness(delta: Double)
         case none
     }
 
@@ -51,6 +53,9 @@ final class GestureRouter {
     static let viewSwipeThreshold: CGFloat = 55
     /// Volume change per point of vertical scrolling.
     static let volumeStep: Double = 0.004
+    /// The same for the brightness, which the scroll moves while Option is held. Its own
+    /// constant because the two are free to diverge; they simply have not yet.
+    static let brightnessStep: Double = 0.004
     /// How far a gesture has to travel before it is locked to one axis.
     static let axisLockThreshold: CGFloat = 6
     /// A classic wheel reports lines, not points; this makes one line comparable with a
@@ -93,7 +98,7 @@ final class GestureRouter {
     /// them up a negative `dy`. So a swipe to the left advances (next track, next view) and a
     /// swipe up raises the volume. A step past either end of the ring is `.none`: a swipe is
     /// spatial, only Tab wraps.
-    static func decide(dx: CGFloat, dy: CGFloat, context: Context) -> Action {
+    static func decide(dx: CGFloat, dy: CGFloat, context: Context, wantsBrightness: Bool = false) -> Action {
         let threshold: CGFloat
         if case .panel = context { threshold = viewSwipeThreshold } else { threshold = swipeThreshold }
         if abs(dx) > threshold, abs(dx) >= abs(dy), consumesHorizontalSwipes(context) {
@@ -110,7 +115,9 @@ final class GestureRouter {
             }
         }
         if dy != 0, consumesVerticalScroll(context) {
-            return .volume(delta: Double(-dy) * volumeStep)
+            let travel = Double(-dy)
+            return wantsBrightness ? .brightness(delta: travel * brightnessStep)
+                                   : .volume(delta: travel * volumeStep)
         }
         return .none
     }
@@ -185,7 +192,10 @@ final class GestureRouter {
             guard Self.consumesVerticalScroll(context) else { return false }
             consumedGesture = true
             guard now.timeIntervalSince(lastVolumeAt) >= Self.volumeInterval else { return true }
-            let action = Self.decide(dx: 0, dy: pendingY, context: context)
+            // Option turns the scroll into the brightness, the way the rail has a slider for
+            // each. A Mac whose display will not say what it is set to keeps the volume.
+            let wantsBrightness = event.modifierFlags.contains(.option) && brightnessAvailable(now: now)
+            let action = Self.decide(dx: 0, dy: pendingY, context: context, wantsBrightness: wantsBrightness)
             pendingY = 0
             lastVolumeAt = now
             perform(action, now: now)
@@ -195,6 +205,7 @@ final class GestureRouter {
 
     private func beginGesture(panel: String) {
         activePanel = panel
+        brightnessBase = nil
         axis = .undecided
         accumulatedX = 0
         pendingY = 0
@@ -265,9 +276,50 @@ final class GestureRouter {
             return true
         case .volume(let delta):
             return applyVolume(delta: delta)
+        case .brightness(let delta):
+            return applyBrightness(delta: delta)
         case .none:
             return false
         }
+    }
+
+    /// Whether this Mac's display answers a brightness read at all. Asked at most once a
+    /// second: it is a DisplayServices round trip and a scroll is thirty events a second.
+    private var brightnessCheckedAt = Date.distantPast
+    private var brightnessIsAvailable = false
+
+    private func brightnessAvailable(now: Date) -> Bool {
+        if now.timeIntervalSince(brightnessCheckedAt) > 1 {
+            brightnessCheckedAt = now
+            brightnessIsAvailable = BrightnessControl.read() != nil
+        }
+        return brightnessIsAvailable
+    }
+
+    /// Where the brightness was when this gesture started, carried from event to event.
+    private var brightnessBase: Double?
+
+    @discardableResult
+    private func applyBrightness(delta: Double) -> Bool {
+        guard delta != 0 else { return false }
+        // Read once at the start of a gesture and carried from there. A DisplayServices read
+        // on every event of a thirty-a-second scroll is not worth its cost, and the value in
+        // between is one this router has just written itself.
+        guard let current = brightnessBase ?? BrightnessControl.read() else { return false }
+        let target = min(1, max(0, current + delta))
+        brightnessBase = target
+        BrightnessControl.shared.set(target)
+        postBrightnessHUD(level: target)
+        return true
+    }
+
+    /// The same reasoning as the volume's: macOS draws nothing for a scroll on the island, and
+    /// no slider moves where anybody can see it, so this display is the only answer there is.
+    private func postBrightnessHUD(level: Double) {
+        guard Preferences.shared.brightnessHUDEnabled else { return }
+        let hud = LevelHUD(kind: .brightness, level: level)
+        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85),
+                                        duration: 1.5, haptic: false)
     }
 
     /// One key press of volume, through the same path a scroll takes — the same write, the
