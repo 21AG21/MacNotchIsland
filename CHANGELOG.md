@@ -53,6 +53,15 @@ the unreleased section is what the next tag will ship.
   nothing was live, with every glyph in the panel crowded into the right third.
 - A file on the shelf shows its name over two lines, the way Finder's icon view does, so one
   screenshot can be told from the next.
+- The switcher band no longer names the section you are already looking at. Clicking a slot
+  leaves the pointer on it, so the name you had just chosen was printed twice on one screen —
+  once in the band and once in that section's own header — for as long as your hand stayed
+  still.
+- One AirDrop control per screen. The control rail's stood beside the Shelf section's own,
+  under the same name and the same glyph, and sent everything where the section's sends what
+  you have selected. It stands down on that section and stays everywhere else, which is what
+  it is for. While there: the rail's buttons slide over when one of them comes or goes rather
+  than jumping, which they also do when a Mac has no Wi-Fi or no Bluetooth to offer.
 - The empty Actions section offered the same pane of Settings twice, once in its header and
   once in its body. The stopwatch's card follows the timer card's rule for colour — the
   activity's own for what it does next, white for the one that ends it — and puts them in

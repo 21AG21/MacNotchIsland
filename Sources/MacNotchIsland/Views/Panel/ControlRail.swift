@@ -1,18 +1,25 @@
 import AppKit
 import SwiftUI
 
-/// The strip under every section: the Mac's two most-reached-for controls, then Keep Awake,
-/// the mirror, AirDrop and Settings. Identical whatever the panel shows, so hands learn where
-/// things are.
+/// The strip under every section: the Mac's two most-reached-for controls, then Wi-Fi,
+/// Bluetooth, appearance, Keep Awake, the mirror, AirDrop and Settings. The same strip
+/// whatever the panel shows, so hands learn where things are — with the two exceptions the
+/// Mac itself makes, a control the hardware does not have, and the one control that would be
+/// on screen twice.
 struct ControlRail: View {
     @Binding var showingMirror: Bool
+    /// The Shelf section is the one on screen. It carries an AirDrop control of its own, in
+    /// its header, and that one sends the selection where this one always sends everything:
+    /// two controls with the same name and the same glyph that do different things is worse
+    /// than two that do the same. This is the way to the shelf from every other section, so
+    /// it stands down on that one.
+    var showingShelf = false
     @ObservedObject private var outputs = AudioOutputs.shared
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var keepAwake = KeepAwake.shared
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var toggles = SystemToggles.shared
     @EnvironmentObject private var prefs: Preferences
-    @EnvironmentObject private var center: ActivityCenter
 
     var body: some View {
         // Budget at 672 pt with everything showing: two sliders (178 and 140), up to seven
@@ -50,7 +57,7 @@ struct ControlRail: View {
                     withAnimation(IslandMotion.fade) { showingMirror.toggle() }
                 }
             }
-            if prefs.shelfEnabled && !shelf.items.isEmpty {
+            if prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf {
                 railButton(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
             }
             railButton(symbol: "gearshape", label: "Settings") {
@@ -59,6 +66,10 @@ struct ControlRail: View {
             }
         }
         .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.railHeight)
+        // The row is not a fixed set: Wi-Fi and Bluetooth appear with the hardware, the
+        // brightness slider with a display that has one, AirDrop with something on the shelf.
+        // Whatever changes, the buttons beside it slide over rather than jumping.
+        .animation(IslandMotion.content, value: shown)
         .onAppear {
             outputs.viewerAppeared()
             brightness.viewerAppeared()
@@ -69,6 +80,13 @@ struct ControlRail: View {
             brightness.viewerDisappeared()
             toggles.viewerDisappeared()
         }
+    }
+
+    /// What the row is holding right now, so a change to it can be animated.
+    private var shown: String {
+        [BrightnessControl.shared.isAvailable ? "b" : "", toggles.hasWiFi ? "w" : "",
+         toggles.hasBluetooth ? "t" : "", prefs.mirrorEnabled ? "m" : "",
+         prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf ? "a" : ""].joined()
     }
 
     // MARK: - Sliders

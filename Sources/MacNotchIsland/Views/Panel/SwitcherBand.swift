@@ -144,11 +144,13 @@ struct SwitcherBand: View {
             .accessibilityHidden(true)
     }
 
-    /// The name of the slot the pointer is on. Only while the pointer is on one: the section
-    /// showing already says what it is, in its own header, and two labels for one thing is
-    /// one too many.
+    /// The name of the slot the pointer is on. Only while the pointer is on one, and never
+    /// for the one you are already looking at: that section says what it is in its own
+    /// header, and two labels for one thing is one too many. Clicking a slot leaves the
+    /// pointer on it, so without this the name you just chose was printed twice on the same
+    /// screen for as long as the hand stayed still.
     private var label: String? {
-        guard let hovered else { return nil }
+        guard let hovered, hovered != current else { return nil }
         return Self.entry(for: hovered, center: center).title
     }
 

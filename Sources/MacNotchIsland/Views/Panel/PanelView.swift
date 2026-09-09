@@ -38,7 +38,7 @@ struct PanelView: View {
             ZStack {
                 // The rail stays mounted under a banner: unmounting it would drop the audio
                 // device listeners and rebuild them a second later, on every volume keypress.
-                ControlRail(showingMirror: $showingMirror)
+                ControlRail(showingMirror: $showingMirror, showingShelf: view == .home(tab: HomeSection.shelf.rawValue))
                     .opacity(center.overlayAlert == nil ? 1 : 0)
                     .allowsHitTesting(center.overlayAlert == nil)
                     .accessibilityHidden(center.overlayAlert != nil)
