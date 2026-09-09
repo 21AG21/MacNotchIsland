@@ -26,6 +26,23 @@ final class SystemHUDTests: XCTestCase {
                      "a device that cannot be read is not a device worth naming")
     }
 
+    /// The banner has one line of room. It spends it on the thing the system's bezel cannot
+    /// say, not on the half of the state the figure beside it is already showing.
+    func testTheBannerNamesTheOutputRatherThanRepeatingTheState() {
+        let pods = AudioOutputs.Device(id: 2, name: "AirPods Pro",
+                                       transport: kAudioDeviceTransportTypeBluetooth)
+        XCTAssertEqual(LevelHUD.volume(level: 0.6, isMuted: false, output: pods).label, "AirPods Pro")
+        let mutedPods = LevelHUD.volume(level: 0, isMuted: true, output: pods)
+        XCTAssertEqual(mutedPods.label, "AirPods Pro")
+        XCTAssertEqual(LevelHUD.readout(mutedPods), "Muted", "which is where the state is said")
+
+        let built = AudioOutputs.Device(id: 1, name: "MacBook Air Speakers",
+                                        transport: kAudioDeviceTransportTypeBuiltIn)
+        XCTAssertEqual(LevelHUD.volume(level: 0.6, isMuted: false, output: built).label, "Volume",
+                       "naming the Mac's own speakers every time is clutter")
+        XCTAssertEqual(LevelHUD(kind: .brightness, level: 0.4).label, "Brightness")
+    }
+
     /// Taking the media key away takes the system's click with it, so the island plays it —
     /// under the user's own setting, with the same Shift gesture the system honours.
     func testTheVolumeClickFollowsTheSettingAndShiftFlipsItForOnePress() {

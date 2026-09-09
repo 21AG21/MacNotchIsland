@@ -252,7 +252,7 @@ final class AudioMonitor {
 
     static func outputHasVolumeControl() -> Bool { outputHasVolumeControl(device: defaultOutputDevice()) }
 
-    /// Whether the Mac can set the default output's level at all.
+    /// Whether the Mac can set this output's level at all.
     ///
     /// Asked about the same property, on the same elements, that `writeOutputVolume` writes:
     /// the virtual main volume on the main element, the per-channel scalar on the channels.

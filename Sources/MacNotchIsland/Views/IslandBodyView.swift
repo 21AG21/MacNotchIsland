@@ -81,11 +81,17 @@ struct IslandBodyView: View {
             .accessibilityHidden(true)
         if layout.floating {
             outline
-        } else if !isResting {
-            outline.mask {
-                LinearGradient(colors: [.clear, .black], startPoint: .top,
-                               endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, layout.bodyHeight)))
-            }
+        } else {
+            outline
+                .mask {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top,
+                                   endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, layout.bodyHeight)))
+                }
+                // Faded rather than taken away: the island is already growing out of the
+                // notch when this changes, and an edge that snaps into existence on frame one
+                // of that is the one part of the move that did not move.
+                .opacity(isResting ? 0 : 1)
+                .animation(IslandMotion.fade, value: isResting)
         }
     }
 

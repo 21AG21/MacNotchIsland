@@ -659,15 +659,32 @@ final class MediaKeyInterceptor {
     }
 
     private func adjustBrightness(delta: Int, step: Float, isRepeat: Bool) {
-        guard let current = brightness.currentBrightness() ?? lastBrightness else { return }
+        // The same rule the volume path follows: the key is already swallowed by the time
+        // this runs, so a press that changes nothing has to say so rather than disappear. A
+        // Mac driving only an external display over DDC can answer the first question and
+        // refuse the second, and either way the bar the user expected is not coming.
+        guard let current = brightness.currentBrightness() ?? lastBrightness else {
+            return postUnavailableBrightness(isRepeat: isRepeat)
+        }
         let target = Self.stepped(from: current, delta: delta, step: step)
         if isRepeat, target == current {
             lastBrightness = target
             return
         }
-        guard brightness.setBrightness(target) else { return }
+        guard brightness.setBrightness(target) else {
+            return postUnavailableBrightness(isRepeat: isRepeat)
+        }
         lastBrightness = target
         brightness.notifyChange(value: target)
+    }
+
+    /// Repeats stay quiet: the first press of a held key has already said it.
+    private func postUnavailableBrightness(isRepeat: Bool) {
+        guard !isRepeat, Preferences.shared.brightnessHUDEnabled else { return }
+        var hud = LevelHUD(kind: .brightness, level: 0)
+        hud.isUnavailable = true
+        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85),
+                                        duration: 1.5, haptic: false)
     }
 
     /// What the island says when a key has been taken and there was nothing it could do with

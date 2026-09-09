@@ -23,7 +23,7 @@ struct AlertBanner: View {
                     // there reads as a Mac turned all the way down, which is the opposite.
                     if hud.isUnavailable {
                         // The output is named in the title; this says what to do about it.
-                        Text("Set on the device")
+                        Text(hud.kind == .volume ? "Set on the device" : "Set on the display")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                             .lineLimit(1)
@@ -67,7 +67,7 @@ struct AlertBanner: View {
         // glyph beside it is already that device's, and the bar and the figure to the right
         // say the level, so the word "Volume" here would be the only thing in the row that
         // said nothing.
-        case .hud(let h): return h.isMuted ? "Muted" : (h.device ?? h.title)
+        case .hud(let h): return h.label
         default: return IslandAccessibility.compactLabel(for: activity.content)
         }
     }

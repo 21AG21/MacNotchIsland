@@ -295,7 +295,12 @@ enum IslandAccessibility {
             return f.isOn ? "\(f.name) Focus on" : "\(f.name) Focus off"
 
         case .hud(let h):
-            if h.isUnavailable { return "Volume is not set here" + (h.device.map { ", \($0)" } ?? "") }
+            if h.isUnavailable {
+                // Brightness reaches this too, on a display that answers what it is set to
+                // and then refuses to be set.
+                let what = h.kind == .volume ? "Volume" : "Brightness"
+                return "\(what) is not set here" + (h.device.map { ", \($0)" } ?? "")
+            }
             if h.kind == .volume && h.isMuted { return "Volume muted" }
             let where_ = h.device.map { ", \($0)" } ?? ""
             return "\(h.title), \(percent(h.level)) percent\(where_)"
@@ -356,6 +361,11 @@ extension LevelHUD {
     var symbolName: String {
         switch kind {
         case .brightness:
+            // A display that will not be set is not a display turned all the way down, and
+            // must not borrow the glyph that says so — the same misreading the volume branch
+            // below avoids. A plain sun says "brightness" and nothing about a level; the em
+            // dash beside it is what says there is no number.
+            if isUnavailable { return "sun.max" }
             return level < 0.05 ? "sun.min" : (level < 0.5 ? "sun.min.fill" : "sun.max.fill")
         case .volume:
             // An output that carries its own level is not a muted Mac, and must not be drawn
@@ -376,6 +386,12 @@ extension LevelHUD {
     }
 
     var title: String { kind == .volume ? (isMuted ? "Muted" : "Volume") : "Brightness" }
+
+    /// What the display is *of*, for somewhere with room to say it: where the sound is going
+    /// when that is worth saying, and otherwise what is being set. Never the state — the
+    /// figure beside it already carries that, and a row that says "Muted" twice has spent the
+    /// one line it had on the half the user could already see.
+    var label: String { device ?? (kind == .volume ? "Volume" : "Brightness") }
 }
 
 extension CalendarState {
