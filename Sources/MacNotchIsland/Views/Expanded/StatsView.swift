@@ -38,7 +38,7 @@ struct StatsView: View {
                 .animation(IslandMotion.digits, value: stats.sample.cpuPercent)
         } footer: {
             Sparkline(values: stats.cpuHistory, ceiling: 20)
-                .frame(height: 30)
+                .frame(height: Self.footerHeight)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
@@ -112,7 +112,7 @@ struct StatsView: View {
             .animation(IslandMotion.digits, value: stats.sample.networkDownBytesPerSec)
         } footer: {
             Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
-                .frame(height: 30)
+                .frame(height: Self.footerHeight)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
@@ -244,7 +244,10 @@ struct StatsView: View {
     /// floor, the battery's bar sat thirteen points above the memory and disk bars beside it
     /// — the battery is the one column with two lines of small print under its meter, and the
     /// extra line lifted the meter instead of hanging below it.
-    private static let footerHeight: CGFloat = 40
+    ///
+    /// Sized to exactly what the tallest of them needs — the battery's bar, its time and its
+    /// health — so the two traces, drawn at the same height, fill it to the floor as well.
+    private static let footerHeight: CGFloat = 36
 
     /// The hairline between two columns, the same distance from each. It used to sit 16 pt
     /// from the column on its left and 14 from the one on its right.
