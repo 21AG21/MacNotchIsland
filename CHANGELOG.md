@@ -45,6 +45,10 @@ the unreleased section is what the next tag will ship.
   check. Each is listed now with what it sends, who it asks, and whether it is switched on at
   this moment. A blanket promise is the worst thing to be wrong about on the screen people
   come to in order to check.
+- Unlocking the Mac says "Unlocked". The island's compact state is two slots with the camera
+  between them, and that one filled only the first, so it came out of the notch as a single
+  lock at one end of a long black bar with a void after it. Every other alert made of words
+  answers with one on that side.
 - **A new Mac is not asked for the calendar before it has been told what this is.** Starting
   the calendar asks macOS for access, and that sheet was the first thing Notch Island put on a
   new machine — ahead of the window that introduces the app, and ahead of the page where Today

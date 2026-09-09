@@ -104,6 +104,37 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertFalse(ActivityContent.silent(SilentState(isSilent: true)).hasExpandedView)
     }
 
+    /// Both sides of the cutout say something.
+    ///
+    /// The compact island is two slots with a camera between them, and an activity that fills
+    /// only one of them comes out of the notch as a single mark at one end of a long black
+    /// bar with a void after it. Unlocking the Mac looked exactly like that: a lock, and
+    /// nothing. The two states that have no expanded view are the ones that get missed, so
+    /// they are named here rather than left out.
+    func testEveryCompactStateSaysSomethingOnBothSidesOfTheCutout() {
+        var contents: [ActivityContent] = [
+            .unlock,
+            .silent(SilentState(isSilent: true)),
+            .shelf(ShelfState(count: 2, latestName: "a.png", latestIsImage: true)),
+        ]
+        contents += [
+            .timer(TimerState(label: "t", total: 1, endDate: Date())),
+            .stopwatch(StopwatchState(startedAt: Date())),
+            .call(CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: Date())),
+            .battery(BatteryState(percent: 50, isCharging: true, isPluggedIn: true, event: .pluggedIn)),
+            .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods")),
+            .focus(FocusState(name: "Work", symbol: "moon.fill", isOn: true, tint: "indigo")),
+            .hud(LevelHUD(kind: .volume, level: 0.5)),
+            .calendar(CalendarState(title: "Standup", start: Date(), end: Date(), location: nil, joinURL: nil, tint: "blue")),
+            .download(DownloadState(name: "file.zip", bytes: 10, total: 100, app: "Safari")),
+            .custom(CustomActivity(title: "Custom", body: "body", url: nil)),
+        ]
+        for content in contents {
+            XCTAssertGreaterThan(content.compactWidths.leading, 0, "\(content) has nothing to say before the cutout")
+            XCTAssertGreaterThan(content.compactWidths.trailing, 0, "\(content) has nothing to say after the cutout")
+        }
+    }
+
     func testNotchShapeStaysInsideRectAndIsClosed() {
         let shape = NotchShape(topRadius: 8, bottomRadius: 16)
         let rect = CGRect(x: 0, y: 0, width: 300, height: 32)

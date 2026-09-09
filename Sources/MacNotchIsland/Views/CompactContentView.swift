@@ -218,7 +218,12 @@ struct CompactTrailingView: View {
                     .font(wordFont)
                     .foregroundStyle(.white)
             case .unlock:
-                EmptyView()
+                // Every alert made of words answers with one on this side: "Silent", "On",
+                // "Connected". This one answered with nothing, so the island came out of the
+                // notch as a single mark at one end of a long black bar with a void after it.
+                Text("Unlocked")
+                    .font(wordFont)
+                    .foregroundStyle(.white)
             case .calendar(let c):
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
                     Text(c.relativeStart(at: ctx.date)).font(wordFont).foregroundStyle(.white)

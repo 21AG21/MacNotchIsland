@@ -230,7 +230,7 @@ enum ActivityContent: Equatable {
         case .focus: return (34, 40)
         case .hud: return (34, 72)
         case .silent: return (34, 56)
-        case .unlock: return (34, 0)
+        case .unlock: return (34, 72)
         case .calendar: return (34, 64)
         case .download(let d): return (34, d.progress != nil ? 40 : 70)
         case .custom(let c):
