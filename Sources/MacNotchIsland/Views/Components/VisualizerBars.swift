@@ -37,20 +37,25 @@ struct VisualizerBars: View {
         // used to give every one of them the same height, and four marks of one height are
         // not bars at all — they are dots, which is what a paused track and a Mac on battery
         // were both showing in the pill.
-        guard isPlaying else { return bar(Self.resting(index) * Self.quietScale) }
+        guard isPlaying else { return bar(resting(index: index) * Self.quietScale) }
         // Playing, but the policy has stopped continuous animation (asleep, Low Power, or on
         // battery by the user's setting): the wave holds its shape at full size, so the pill
         // still reads as "something is playing" without moving.
-        guard !energy.animationsPaused else { return bar(Self.resting(index)) }
+        guard !energy.animationsPaused else { return bar(resting(index: index)) }
         return bar(tap.isRunning ? reactiveFraction(index: index, time: t)
                                  : syntheticFraction(index: index, time: t))
     }
 
     /// The shape the bars hold when nothing is driving them. Uneven on purpose: a wave at
     /// rest is still a wave.
-    private static func resting(_ index: Int) -> Double {
-        let pattern = [0.34, 0.78, 0.52, 0.92]
-        return pattern[abs(index) % pattern.count]
+    ///
+    /// The same centre weighting the live bars use, so a still wave and a moving one are the
+    /// same wave, plus a small alternating detune so no two neighbours ever match. Derived
+    /// rather than listed, because the pill draws four of these and the bubble three, and a
+    /// list of four handed its first three to the bubble put the tallest bar on its edge.
+    private func resting(index: Int) -> Double {
+        let detune = index.isMultiple(of: 2) ? -0.16 : 0.12
+        return weight(index: index) * 0.7 + detune
     }
 
     /// How far that shape is flattened when the music is not playing at all.

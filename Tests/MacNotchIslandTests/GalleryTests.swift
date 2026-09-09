@@ -293,6 +293,11 @@ final class GalleryTests: XCTestCase {
             Scene(name: "dark-notch-idle", dark: true) { _ in },
             Scene(name: "dark-compact-nowplaying", dark: true) { c in c.upsert(nowPlaying()) },
             Scene(name: "dark-panel-music", dark: true, setup: panel("music") { c in c.upsert(nowPlaying()) }),
+            // The floating pill on a dark desktop: the one geometry whose outline is a closed
+            // loop, with a real top edge of its own, and the only place the rim can be seen
+            // all the way round.
+            Scene(name: "dark-floating-idle", floating: true, dark: true) { _ in },
+            Scene(name: "dark-floating-compact-nowplaying", floating: true, dark: true) { c in c.upsert(nowPlaying()) },
             Scene(name: "compact-timer") { c in c.upsert(timer()) },
             Scene(name: "compact-timer-bubble-nowplaying") { c in c.upsert(nowPlaying()); c.upsert(timer()) },
             Scene(name: "compact-stopwatch") { c in c.upsert(stopwatch()) },

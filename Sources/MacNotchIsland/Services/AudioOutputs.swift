@@ -122,10 +122,10 @@ final class AudioOutputs: ObservableObject {
             remove(&deviceRegistrations)
             boundDevice = defaultID
             if defaultID != 0 {
-                // Wherever this device keeps its level — see `AudioMonitor.volumeElements(on:)`.
+                // Wherever this device might keep its level — see `AudioMonitor.volumeElements`.
                 // Watching only the synthesised main one left the rail's slider frozen on a
                 // device that has none, while the media keys moved it.
-                for element in AudioMonitor.volumeElements(on: defaultID) {
+                for element in AudioMonitor.volumeElements {
                     deviceRegistrations.append(listen(defaultID, address: AudioMonitor.volumeAddress(element: element)) {
                         [weak self] in self?.reloadLevel()
                     })

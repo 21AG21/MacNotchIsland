@@ -86,6 +86,12 @@ struct NotchShape: Shape {
     /// When set, decides the capsule-vs-continuous-corner branch from the layout's target
     /// state; the animated `bottomRadius` overshoots on the open spring and would flip it mid-flight.
     var isPill: Bool? = nil
+    /// Leaves the notch outline open across the top, so a stroke of it draws the three edges
+    /// the fused island really has. The closing edge runs along the top of the screen, where
+    /// the island's black is continuous with the bezel; a line there is a seam, not an edge.
+    /// Filling is unaffected — an open path fills as though closed — and the floating pill,
+    /// whose top edge is real, ignores this.
+    var openTop: Bool = false
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(topRadius, bottomRadius) }
@@ -151,7 +157,7 @@ struct NotchShape: Shape {
                                                   exit: CGVector(dx: 1, dy: 0),
                                                   span: t))
         }
-        p.closeSubpath()
+        if !openTop { p.closeSubpath() }
         return p
     }
 

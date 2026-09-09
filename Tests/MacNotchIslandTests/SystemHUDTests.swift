@@ -35,6 +35,39 @@ final class SystemHUDTests: XCTestCase {
         XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift], setting: false))
     }
 
+    /// A tap that is momentarily down is not a Mac that has lost its volume control.
+    ///
+    /// macOS disables a tap that timed out and the island turns it straight back on. Throwing
+    /// the hardware's answers away in between meant that for the seconds until the next probe
+    /// every media key went back to the system — bezel and all — which is the doubling this
+    /// whole arrangement exists to avoid. `answersVolume` already requires an active tap, so
+    /// there is nothing for the answers underneath to say while it is down.
+    func testATapGoingDownDoesNotThrowAwayWhatTheHardwareCanDo() {
+        let hud = SystemHUDReplacement.shared
+        let saved = SystemHUDReplacement.Capabilities(volume: hud.can(\.volume), mute: hud.can(\.mute),
+                                                      brightness: hud.can(\.brightness))
+        let savedActive = hud.isActive
+        defer {
+            hud.setCapabilities(saved)
+            hud.set(savedActive)
+        }
+
+        hud.set(true)
+        hud.setCapabilities(SystemHUDReplacement.Capabilities(volume: true, mute: true, brightness: true))
+        XCTAssertTrue(hud.answersVolume)
+
+        hud.set(false)
+        XCTAssertTrue(hud.can(\.volume), "the output still has a level; only the tap went away")
+        XCTAssertFalse(hud.answersVolume, "and with no tap the island says nothing regardless")
+
+        hud.set(true)
+        XCTAssertTrue(hud.answersVolume, "so the keys are answered again the moment it is back")
+
+        hud.forgetCapabilities()
+        XCTAssertFalse(hud.can(\.volume), "a real teardown takes the answers with it")
+        XCTAssertFalse(hud.isActive)
+    }
+
     func testShiftWithOptionIsAQuarterStepRatherThanAskingForSilence() {
         XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: true))
         XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: false))

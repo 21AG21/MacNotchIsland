@@ -53,10 +53,12 @@ final class AudioMonitor {
         guard outputDevice != 0 else { return }
         lastVolume = readVolume() ?? -1
         lastMute = readMute()
-        // Wherever this device's level actually is, not just the synthesised main one: an
-        // aggregate or USB device that keeps it on a channel would otherwise never report a
-        // change, while the media-key path showed one — two behaviours for one device.
-        for element in Self.volumeElements(on: outputDevice) {
+        // Every element a level can live on, without first asking which of them this device
+        // has. An aggregate or USB device that keeps its level on a channel rather than on
+        // the synthesised main one would otherwise never report a change, while the
+        // media-key path showed one — two behaviours for one device. See `volumeElements`
+        // for why the question is not asked.
+        for element in Self.volumeElements {
             outputRegistrations.append(listen(outputDevice, address: Self.volumeAddress(element: element)) {
                 [weak self] in self?.volumeChanged()
             })
@@ -201,11 +203,18 @@ final class AudioMonitor {
     /// Where an output's level can live: the virtual main volume the HAL synthesises on the
     /// main element, then the per-channel scalars that aggregate and USB devices use instead.
     ///
-    /// One list, asked in one order, by everything that reads, writes or merely wonders
-    /// whether there is a level here at all. When the reader looked at two of these and the
-    /// question "has this a level?" looked at three, a device that kept its level on the
-    /// second channel was called settable and then never read — and the key died holding
+    /// One list, asked in one order, by everything that reads, writes, listens or merely
+    /// wonders whether there is a level here at all. When the reader looked at two of these
+    /// and the question "has this a level?" looked at three, a device that kept its level on
+    /// the second channel was called settable and then never read — and the key died holding
     /// both answers.
+    ///
+    /// Listeners are registered for all of it and never for a chosen subset. Choosing means
+    /// asking the device which properties it has at the moment it is bound, and a device that
+    /// becomes the default before coreaudiod has finished publishing its volume answers
+    /// "none" — after which its id never changes again and nothing is ever watched. The
+    /// registrations that miss simply fail; the ones that land cost nothing extra, because
+    /// every listener here reads the level and says nothing unless it has really moved.
     static let volumeElements: [AudioObjectPropertyElement] = [kAudioObjectPropertyElementMain] + volumeChannelElements
 
     /// The channels, on a device that has no synthesised main volume. Named separately
@@ -214,10 +223,6 @@ final class AudioMonitor {
     static let volumeChannelElements: [AudioObjectPropertyElement] = [1, 2]
 
     static func readOutputVolume() -> Float32? { readOutputVolume(device: defaultOutputDevice()) }
-
-    /// Marks a write as the island's own, so the listener does not announce a change the
-    /// island has already answered for itself. See `LocalWrite`.
-    static func markLocalWrite() { AudioOutputs.markLocalWrite() }
 
     static func readOutputVolume(device: AudioDeviceID) -> Float32? {
         guard device != 0 else { return nil }
@@ -245,6 +250,8 @@ final class AudioMonitor {
         return ok
     }
 
+    static func outputHasVolumeControl() -> Bool { outputHasVolumeControl(device: defaultOutputDevice()) }
+
     /// Whether the Mac can set the default output's level at all.
     ///
     /// Asked about the same property, on the same elements, that `writeOutputVolume` writes:
@@ -252,22 +259,6 @@ final class AudioMonitor {
     /// Asking for the virtual one on a channel always answers no, because the HAL only
     /// synthesises it on the main element — which is why this belongs here, beside the
     /// address it shares, rather than anywhere that has to guess at it.
-    /// Where this device's level actually lives.
-    ///
-    /// The synthesised main volume if it has one — that is the whole device in a single
-    /// property — and only otherwise the channels it keeps it on instead. A stereo device has
-    /// all three, and watching all three would report one notch of the volume key three times.
-    static func volumeElements(on device: AudioDeviceID) -> [AudioObjectPropertyElement] {
-        guard device != 0 else { return [] }
-        var main = volumeAddress(element: kAudioObjectPropertyElementMain)
-        if AudioObjectHasProperty(device, &main) { return [kAudioObjectPropertyElementMain] }
-        return volumeChannelElements.filter { element in
-            var address = volumeAddress(element: element)
-            return AudioObjectHasProperty(device, &address)
-        }
-    }
-
-    static func outputHasVolumeControl() -> Bool { outputHasVolumeControl(device: defaultOutputDevice()) }
 
     static func outputHasVolumeControl(device: AudioDeviceID) -> Bool {
         guard device != 0 else { return false }

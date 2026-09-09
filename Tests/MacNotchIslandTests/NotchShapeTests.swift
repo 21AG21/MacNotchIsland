@@ -274,6 +274,46 @@ final class NotchShapeTests: XCTestCase {
         XCTAssertTrue(path.contains(CGPoint(x: 1, y: 1)), "nothing to round off")
     }
 
+    /// The fused island has three edges. Its fourth runs along the top of the screen, where
+    /// its black is continuous with the bezel, and a stroked line there is a seam rather than
+    /// an edge — the thing `IslandBodyView.topBleed` exists to keep out of the picture.
+    func testOpenTopLeavesTheScreenEdgeOutOfTheOutline() {
+        let rect = CGRect(x: 0, y: 0, width: 212, height: 32)
+        let closed = NotchShape(topRadius: 6, bottomRadius: 10).path(in: rect)
+        let open = NotchShape(topRadius: 6, bottomRadius: 10, openTop: true).path(in: rect)
+
+        XCTAssertTrue(closesItsSubpath(closed), "the default outline is a closed loop")
+        XCTAssertFalse(closesItsSubpath(open), "the top edge belongs to the screen, not the island")
+
+        // A stroke of it lays nothing across the middle of the top edge.
+        let hairline = StrokeStyle(lineWidth: 1)
+        XCTAssertTrue(closed.strokedPath(hairline).contains(CGPoint(x: rect.midX, y: rect.minY)),
+                      "the closed outline is exactly what would draw the seam")
+        XCTAssertFalse(open.strokedPath(hairline).contains(CGPoint(x: rect.midX, y: rect.minY)))
+
+        // And filling is untouched: an open subpath fills as though it were closed.
+        XCTAssertEqual(open.boundingRect.minY, closed.boundingRect.minY, accuracy: 0.01)
+        XCTAssertEqual(open.boundingRect.maxY, closed.boundingRect.maxY, accuracy: 0.01)
+        for point in [CGPoint(x: rect.midX, y: 1), CGPoint(x: rect.midX, y: 16),
+                      CGPoint(x: 8, y: 30), CGPoint(x: 1, y: 1)] {
+            XCTAssertEqual(open.contains(point), closed.contains(point), "\(point)")
+        }
+    }
+
+    func testFloatingPillKeepsItsWholeOutlineWhateverOpenTopSays() {
+        let path = NotchShape(topRadius: 15, bottomRadius: 15, floating: true, openTop: true)
+            .path(in: floatingIdleRect)
+        XCTAssertTrue(closesItsSubpath(path), "a pill's top edge is its own and gets drawn")
+    }
+
+    private func closesItsSubpath(_ path: Path) -> Bool {
+        var closed = false
+        path.forEach { element in
+            if case .closeSubpath = element { closed = true }
+        }
+        return closed
+    }
+
     func testFloatingIsNotAnimated() {
         var shape = NotchShape(topRadius: 15, bottomRadius: 15, floating: true)
         shape.animatableData = AnimatablePair<CGFloat, CGFloat>(20, 30)
