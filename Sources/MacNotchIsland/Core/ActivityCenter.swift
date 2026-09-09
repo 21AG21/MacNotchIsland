@@ -353,7 +353,7 @@ final class ActivityCenter: ObservableObject {
         case .custom: return activity.id == "capslock" ? 1 : 3
         case .nowPlaying: return 3
         case .focus, .unlock: return 3
-        case .download, .bluetooth: return 4
+        case .download, .bluetooth, .drive: return 4
         case .battery(let b): return (b.event == .low || b.event == .critical) ? 6 : 5
         default: return 3
         }
@@ -380,6 +380,10 @@ final class ActivityCenter: ObservableObject {
     static func focusHolds(_ activity: IslandActivity) -> Bool {
         switch activity.content {
         case .download, .bluetooth, .calendar: return true
+        // A disk arriving is held; a disk that has gone is not. "Safe to unplug" is the
+        // answer to something the person is doing with their hands right now, and the
+        // warning that one was pulled out early is the one thing a Focus must not swallow.
+        case .drive(let d): return d.event == .connected
         case .battery(let b): return !(b.event == .low || b.event == .critical)
         case .custom: return activity.id.hasPrefix("api-")
         default: return false

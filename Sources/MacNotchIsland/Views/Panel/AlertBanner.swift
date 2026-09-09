@@ -56,6 +56,7 @@ struct AlertBanner: View {
         case .bluetooth(let d): return d.isConnected ? "\(d.name) connected" : "\(d.name) disconnected"
         case .focus(let f): return f.isOn ? "\(f.name) on" : "\(f.name) off"
         case .download(let d): return d.isComplete ? "\(d.name) downloaded" : "Downloading \(d.name)"
+        case .drive(let d): return "\(d.name) — \(d.subtitle)"
         case .calendar(let c): return c.title
         case .custom(let c): return c.title
         case .call(let c): return "Call in \(c.appName)"

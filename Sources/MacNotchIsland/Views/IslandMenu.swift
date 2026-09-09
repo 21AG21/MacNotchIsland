@@ -43,7 +43,7 @@ struct IslandMenu: View {
     /// separator above them is never drawn over nothing.
     static func hasCommands(_ content: ActivityContent) -> Bool {
         switch content {
-        case .nowPlaying, .timer, .stopwatch, .shelf, .call: return true
+        case .nowPlaying, .timer, .stopwatch, .shelf, .call, .drive: return true
         default: return false
         }
     }
@@ -79,6 +79,13 @@ struct IslandMenu: View {
             Button("AirDrop the Shelf") { ShelfStore.shared.airDrop(ShelfStore.shared.urls) }
         case .call(let call):
             Button("Open \(call.appName)") { activity.openAction?.perform() }
+        case .drive(let drive):
+            Button("Open \(drive.name)") { activity.openAction?.perform() }
+            // Only while there is still a disk to eject: after it has gone the card is a
+            // receipt, not a control.
+            if drive.isEjectable, drive.event != .ejected {
+                Button("Eject \(drive.name)") { VolumeMonitor.shared.eject(drive) }
+            }
         default:
             EmptyView()
         }

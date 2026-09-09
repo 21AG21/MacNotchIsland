@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum ActivityKind: String {
-    case nowPlaying, timer, stopwatch, call, battery, bluetooth, focus, hud, silent, unlock, calendar, download, custom, shelf
+    case nowPlaying, timer, stopwatch, call, battery, bluetooth, focus, hud, silent, unlock, calendar, download, drive, custom, shelf
 }
 
 enum InitialPresentation: Equatable { case compact, expanded }
@@ -212,6 +212,92 @@ struct CustomActivity: Equatable {
     var showsRing: Bool = false
 }
 
+/// An external disk: what it is called, how full it is, and what has just happened to it.
+///
+/// The Mac's own answer to plugging a drive in is an icon appearing on a desktop nobody can
+/// see under their windows, and its answer to pulling one out is a scolding dialog. The island
+/// says both where you are already looking, and puts Eject on the one it says first.
+struct DriveState: Equatable {
+    enum Event: Equatable {
+        /// Mounted and ready.
+        case connected
+        /// Unmounted cleanly — the moment it is safe to unplug.
+        case ejected
+        /// Pulled out with the disk still mounted; macOS itself scolds, so this is the
+        /// island's quieter version of that.
+        case surprise
+        /// Asked to eject and refused, almost always because something is still using it.
+        case busy
+    }
+
+    var name: String
+    /// The mount point, so the card can open it in Finder or ask for it to be ejected.
+    var path: String
+    var total: Int64 = 0
+    var free: Int64 = 0
+    var event: Event = .connected
+    /// Whether the Eject button belongs on the card at all: a disk image or a card reader
+    /// ejects, an internal partition does not.
+    var isEjectable = true
+
+    var used: Int64 { max(0, total - free) }
+
+    /// How full it is, or nil where the size could not be read.
+    var fill: Double? {
+        guard total > 0 else { return nil }
+        return min(1, Double(used) / Double(total))
+    }
+
+    static let formatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return f
+    }()
+
+    /// "238 GB free of 1 TB", or nothing at all where the size is unknown.
+    var sizeText: String? {
+        guard total > 0 else { return nil }
+        return "\(Self.formatter.string(fromByteCount: free)) free of \(Self.formatter.string(fromByteCount: total))"
+    }
+
+    /// The line under the name: what has happened, and how much room there is.
+    var subtitle: String {
+        switch event {
+        case .connected: return sizeText ?? "Connected"
+        case .ejected: return "Safe to unplug"
+        case .surprise: return "Unplugged before it was ejected"
+        case .busy: return "Something is still using it"
+        }
+    }
+
+    var symbol: String {
+        switch event {
+        case .connected: return "externaldrive.fill"
+        case .ejected: return "eject.fill"
+        case .surprise: return "exclamationmark.triangle.fill"
+        case .busy: return "externaldrive.badge.exclamationmark"
+        }
+    }
+
+    var tint: String {
+        switch event {
+        case .connected: return "white"
+        case .ejected: return "green"
+        case .surprise, .busy: return "orange"
+        }
+    }
+
+    /// The word the pill shows on its trailing edge: short enough for the menu bar.
+    var trailingText: String {
+        switch event {
+        case .connected: return total > 0 ? Self.formatter.string(fromByteCount: free) : "Ready"
+        case .ejected: return "Ejected"
+        case .surprise: return "Careful"
+        case .busy: return "In use"
+        }
+    }
+}
+
 enum ActivityContent: Equatable {
     case nowPlaying(NowPlayingInfo)
     case timer(TimerState)
@@ -225,6 +311,7 @@ enum ActivityContent: Equatable {
     case unlock
     case calendar(CalendarState)
     case download(DownloadState)
+    case drive(DriveState)
     case custom(CustomActivity)
     case shelf(ShelfState)
 
@@ -246,6 +333,7 @@ enum ActivityContent: Equatable {
         case .unlock: return (34, 72)
         case .calendar: return (34, 64)
         case .download(let d): return (34, d.progress != nil ? 40 : 70)
+        case .drive(let d): return (34, d.event == .connected && d.total > 0 ? 72 : 64)
         case .custom(let c):
             if c.progress != nil && c.showsRing { return (34, 40) }
             let text = c.trailingText ?? ""
@@ -272,6 +360,7 @@ enum ActivityContent: Equatable {
         case .unlock: return (28, 0)
         case .calendar: return (28, 0)
         case .download(let d): return (28, d.progress != nil && !d.isComplete ? 28 : 0)
+        case .drive: return (28, 0)
         case .custom(let c): return (28, c.progress != nil && c.showsRing ? 28 : 0)
         case .shelf: return (28, 28)
         }
@@ -298,6 +387,8 @@ enum ActivityContent: Equatable {
         case .timer: return Self.cardRowWithBar + IslandTimer.extraRowsHeight
         case .stopwatch, .calendar: return Self.cardRowWithBar
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
+        // The bar is how full the disk is, and it is only drawn where the size could be read.
+        case .drive(let d): return d.fill == nil ? Self.cardRow : Self.cardRowWithBar
         case .custom(let c):
             if c.body != nil { return Self.cardTwoRows }
             return c.progress != nil && !c.showsRing ? Self.cardRowWithBar : Self.cardRow

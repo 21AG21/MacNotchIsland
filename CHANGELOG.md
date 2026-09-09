@@ -6,6 +6,15 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **The island knows about your disks.** Plug an external drive in and its card arrives with
+  its name, how full it is, and — where the Mac itself has never put one — an Eject button. The
+  reason people yank a drive out is that ejecting it means hunting for its icon on a desktop
+  buried under every window; here it is on the thing that just said the drive was ready. Pull
+  one out properly and the island says "Safe to unplug"; pull one out early and it says so,
+  quietly, instead of the dialog macOS throws. A drive that will not eject says what is true —
+  something is still using it — rather than failing in silence. Right-clicking the island while
+  a disk is showing offers Open and Eject too, and a Focus holds back the disk that arrives
+  while never holding back the one that has gone. Switchable off in Activities.
 - **Start typing to find something.** The three sections that are lists of many things —
   Windows, the Clipboard and the Shelf — now answer the alphabet. Type on one while the panel
   is pinned open and a field opens with what you typed already in it, narrowing the list as you

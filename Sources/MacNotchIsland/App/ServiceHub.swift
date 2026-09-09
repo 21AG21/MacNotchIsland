@@ -14,6 +14,7 @@ final class ServiceHub {
     let calendar = CalendarMonitor()
     let screenLock = ScreenLockMonitor()
     let downloads = DownloadMonitor()
+    let volumes = VolumeMonitor.shared
     let lowPower = LowPowerMonitor()
     let hotkey = HotKeyService.shared
     let clipboard = ClipboardStore.shared
@@ -76,6 +77,7 @@ final class ServiceHub {
         Self.wantsCalendar(p) ? calendar.start() : calendar.stop()
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
         p.downloadsEnabled ? downloads.start() : downloads.stop()
+        p.drivesEnabled ? volumes.start() : volumes.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
         // Either feature needs the Carbon handler installed: the summon combination, and the
         // keys the panel answers on its own while it is open.

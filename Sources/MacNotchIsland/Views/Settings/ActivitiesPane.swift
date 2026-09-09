@@ -131,12 +131,14 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Downloads", isOn: $prefs.downloadsEnabled)
                     .help("Safari, Chrome and Firefox downloads in your Downloads folder, with a progress ring.")
+                Toggle("External disks", isOn: $prefs.drivesEnabled)
+                    .help("A card when a drive is plugged in, with Eject on it, and a word when one is unplugged.")
                 Toggle("Timer sound", isOn: $prefs.timerSoundEnabled)
                     .help("Play a sound when an island timer finishes.")
             } header: {
-                Text("Downloads and timers")
+                Text("Downloads, disks and timers")
             } footer: {
-                Text("Finished downloads and screenshots can also land on the shelf. Turn that on in Home Panel.")
+                Text("Finished downloads and screenshots can also land on the shelf. Turn that on in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
             }
         }
         .formStyle(.grouped)

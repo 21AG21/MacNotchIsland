@@ -182,6 +182,14 @@ final class GalleryTests: XCTestCase {
                        priority: 45)
     }
 
+    private static func drive(_ event: DriveState.Event = .connected) -> IslandActivity {
+        IslandActivity(id: "drive", kind: .drive,
+                       content: .drive(DriveState(name: "Backup", path: "/Volumes/Backup",
+                                                  total: 1_000_000_000_000, free: 238_000_000_000, event: event)),
+                       priority: 80, presentation: .expanded,
+                       openAction: .url(URL(fileURLWithPath: "/Volumes/Backup")))
+    }
+
     private static func calendar() -> IslandActivity {
         IslandActivity(id: "calendar", kind: .calendar,
                        content: .calendar(CalendarState(title: "Design review", start: Date().addingTimeInterval(7 * 60),
@@ -319,6 +327,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "compact-stopwatch") { c in c.upsert(stopwatch()) },
             Scene(name: "compact-call") { c in c.upsert(call()) },
             Scene(name: "compact-download") { c in c.upsert(download()) },
+            Scene(name: "compact-drive") { c in c.upsert(drive()) },
             Scene(name: "compact-calendar") { c in c.upsert(calendar()) },
             Scene(name: "compact-custom-delivery") { c in c.upsert(custom()) },
             Scene(name: "compact-shelf") { c in ShelfStore.shared.add(files); c.upsert(shelf(count: files.count)) },
@@ -390,6 +399,17 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-stopwatch", setup: card(stopwatch)),
             Scene(name: "panel-call", setup: card(call)),
             Scene(name: "panel-download", setup: card(download)),
+            Scene(name: "panel-drive", setup: card({ drive() })),
+            Scene(name: "card-drive") { c in
+                let a = drive()
+                c.upsert(a)
+                c.forceExpanded(id: a.id, for: 60)
+            },
+            Scene(name: "card-drive-ejected") { c in
+                let a = drive(.ejected)
+                c.upsert(a)
+                c.forceExpanded(id: a.id, for: 60)
+            },
             Scene(name: "panel-calendar", setup: card(calendar)),
             Scene(name: "panel-custom-delivery", setup: card(custom)),
             Scene(name: "panel-battery", setup: card(charging)),

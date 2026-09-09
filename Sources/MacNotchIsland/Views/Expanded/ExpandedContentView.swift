@@ -31,6 +31,8 @@ struct ExpandedContentView: View {
                 CalendarExpandedView(state: c, geometry: geometry)
             case .download(let d):
                 DownloadExpandedView(state: d, activity: activity, geometry: geometry)
+            case .drive(let d):
+                DriveExpandedView(state: d, activity: activity, geometry: geometry)
             case .custom(let c):
                 CustomExpandedView(state: c, activity: activity, geometry: geometry)
             case .shelf:

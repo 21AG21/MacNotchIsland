@@ -38,6 +38,7 @@ struct BubbleView: View {
         case .timer: return "Timer"
         case .stopwatch: return "Stopwatch"
         case .download: return "Download"
+        case .drive(let d): return d.name
         case .call: return "Call"
         case .calendar(let c): return c.title
         case .custom(let c): return c.title
@@ -79,6 +80,8 @@ struct BubbleView: View {
             } else {
                 Image(systemName: c.symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.named(c.tint))
             }
+        case .drive(let d):
+            Image(systemName: d.symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.named(d.tint))
         case .shelf:
             Image(systemName: "tray.full.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
         default:

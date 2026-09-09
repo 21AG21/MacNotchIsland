@@ -98,6 +98,11 @@ struct CompactLeadingView: View {
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(d.isComplete ? Color.named("green") : Color.named("blue"))
                     .contentTransition(.symbolEffect(.replace))
+            case .drive(let d):
+                Image(systemName: d.symbol)
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(Color.named(d.tint))
+                    .contentTransition(.symbolEffect(.replace))
             case .custom(let c):
                 Image(systemName: c.symbol)
                     .font(.system(size: iconSize, weight: .semibold))
@@ -240,6 +245,9 @@ struct CompactTrailingView: View {
                     Text(DownloadState.formatter.string(fromByteCount: d.bytes))
                         .font(numeralFont).foregroundStyle(.white).lineLimit(1)
                 }
+            case .drive(let d):
+                Text(d.trailingText).font(d.event == .connected ? numeralFont : wordFont)
+                    .foregroundStyle(.white).lineLimit(1)
             case .custom(let c):
                 if let p = c.progress, c.showsRing {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named(c.tint))
@@ -324,6 +332,9 @@ enum IslandAccessibility {
             if d.isComplete { return "\(d.name) downloaded" }
             if let p = d.progress { return "Downloading \(d.name), \(percent(p)) percent" }
             return "Downloading \(d.name)"
+
+        case .drive(let d):
+            return "\(d.name), \(d.subtitle)"
 
         case .custom(let c):
             if let sub = c.subtitle ?? c.trailingText, !sub.isEmpty { return "\(c.title), \(sub)" }
