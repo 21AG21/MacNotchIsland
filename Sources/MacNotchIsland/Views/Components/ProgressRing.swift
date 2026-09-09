@@ -4,6 +4,10 @@ struct ProgressRing: View {
     var progress: Double
     var lineWidth: CGFloat = 3
     var tint: Color = .white
+    /// How often a new value arrives, in seconds. The sweep takes exactly that long, so a
+    /// ring that is really redrawn once a second reads as one that never stops moving. A
+    /// spring here made every tick a small, visible jolt.
+    var cadence: Double = 1
 
     var body: some View {
         ZStack {
@@ -13,6 +17,6 @@ struct ProgressRing: View {
                 .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
-        .animation(IslandMotion.quick, value: progress)
+        .animation(IslandMotion.meter(cadence: cadence), value: progress)
     }
 }

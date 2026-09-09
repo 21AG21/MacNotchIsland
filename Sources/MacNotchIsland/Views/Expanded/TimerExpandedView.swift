@@ -28,11 +28,15 @@ struct TimerExpandedView: View {
                         // which is why the stack closes up rather than spacing out.
                         VStack(alignment: .leading, spacing: -4) {
                             header
-                            Text(state.isFinished ? "0:00" : state.remaining(at: context.date).timerString)
+                            let remaining = state.isFinished ? "0:00" : state.remaining(at: context.date).timerString
+                            Text(remaining)
                                 .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
                                 .foregroundStyle(.white)
+                                // A timeline's tick carries no animation of its own, so the
+                                // numeric transition declared here never actually ran: the
+                                // digits were swapped, not rolled. This is what rolls them.
                                 .contentTransition(.numericText(countsDown: true))
-                                .symbolEffect(.pulse, isActive: state.isFinished)
+                                .animation(IslandMotion.digits, value: remaining)
                                 // While the matched frame is still pill-sized the 40 pt digits scale
                                 // down to fit instead of truncating, so they read as growing.
                                 .lineLimit(1)
@@ -76,6 +80,12 @@ struct TimerExpandedView: View {
                 Image(systemName: ringSymbol)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.orange)
+                    // The glyph is the thing that can pulse; the same modifier on the digits
+                    // beside it was quietly doing nothing, because a symbol effect needs a
+                    // symbol. A timer's phases swap here too, so they cross over rather than
+                    // cutting: timer to cup at the break, cup to bell when it rings.
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.pulse, isActive: state.isFinished)
             )
             .accessibilityHidden(true)
     }
@@ -179,10 +189,12 @@ struct TimerExpandedView: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
-            Text(entry.state.isFinished ? "0:00" : entry.state.remaining(at: date).timerString)
+            let remaining = entry.state.isFinished ? "0:00" : entry.state.remaining(at: date).timerString
+            Text(remaining)
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.white)
                 .contentTransition(.numericText(countsDown: true))
+                .animation(IslandMotion.digits, value: remaining)
                 .lineLimit(1)
             if entry.state.isPaused {
                 Image(systemName: "pause.fill")

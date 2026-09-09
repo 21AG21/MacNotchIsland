@@ -53,7 +53,7 @@ struct ScrubberView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleWindow, execute: work)
                     }
             )
-            .animation(IslandMotion.quick, value: active)
+            .animation(IslandMotion.control, value: active)
             .onChange(of: progress) { _, new in
                 guard dragging == nil, let held, abs(new - held) < Self.agreement else { return }
                 self.held = nil

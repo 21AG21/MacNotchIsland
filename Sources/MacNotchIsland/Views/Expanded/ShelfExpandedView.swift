@@ -125,7 +125,7 @@ struct ShelfStripView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: Self.stripHeight)
         .background(anchorView)
-        .animation(IslandMotion.quick, value: isDropTarget)
+        .animation(IslandMotion.hover, value: isDropTarget)
     }
 
     private var emptyState: some View {

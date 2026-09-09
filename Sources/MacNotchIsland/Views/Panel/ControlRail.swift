@@ -47,7 +47,7 @@ struct ControlRail: View {
             if prefs.mirrorEnabled {
                 railButton(symbol: showingMirror ? "camera.fill" : "camera", label: showingMirror ? "Hide mirror" : "Mirror",
                            active: showingMirror) {
-                    withAnimation(IslandMotion.quick) { showingMirror.toggle() }
+                    withAnimation(IslandMotion.fade) { showingMirror.toggle() }
                 }
             }
             if prefs.shelfEnabled && !shelf.items.isEmpty {

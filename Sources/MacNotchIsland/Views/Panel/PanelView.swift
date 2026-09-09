@@ -48,7 +48,7 @@ struct PanelView: View {
                 }
             }
             .frame(height: IslandLayout.railHeight)
-            .animation(IslandMotion.quick, value: center.overlayAlert?.id)
+            .animation(IslandMotion.content, value: center.overlayAlert?.id)
 
             Color.clear.frame(height: IslandLayout.panelBottomInset)
         }

@@ -30,10 +30,15 @@ struct StopwatchExpandedView: View {
                             .font(.system(size: 12.5))
                             .foregroundStyle(.white.opacity(0.55))
                             .lineLimit(1)
-                        Text(Self.format(state.elapsed(at: context.date), showTenths: !coarse))
+                        let elapsed = Self.format(state.elapsed(at: context.date), showTenths: !coarse)
+                        Text(elapsed)
                             .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
                             .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: false))
+                            // Tenths arrive ten times a second, and a roll that long would
+                            // still be running when the next one started; at that rate the
+                            // digits just change.
+                            .animation(coarse ? IslandMotion.digits : nil, value: elapsed)
                             // Scales down rather than truncating while the matched frame is
                             // still the size of the compact pill's digits.
                             .lineLimit(1)

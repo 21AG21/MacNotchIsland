@@ -27,7 +27,7 @@ struct VisualizerBars: View {
                         .frame(width: barWidth, height: height(index: index, time: t))
                 }
             }
-            .animation(IslandMotion.quick, value: isPlaying)
+            .animation(IslandMotion.fade, value: isPlaying)
         }
         .frame(height: maxHeight)
     }

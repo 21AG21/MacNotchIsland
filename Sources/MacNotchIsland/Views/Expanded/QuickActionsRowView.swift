@@ -95,7 +95,7 @@ private struct AppButton: View {
         .buttonStyle(IslandButtonStyle())
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .animation(IslandMotion.quick, value: hovering)
+        .animation(IslandMotion.hover, value: hovering)
         .help("Open \(name)")
         .accessibilityLabel("Open \(name)")
     }
@@ -128,7 +128,7 @@ private struct QuickActionButton: View {
         .buttonStyle(IslandButtonStyle())
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .animation(IslandMotion.quick, value: hovering)
+        .animation(IslandMotion.hover, value: hovering)
         .help("Run \(name)")
         .accessibilityLabel("Run shortcut \(name)")
     }

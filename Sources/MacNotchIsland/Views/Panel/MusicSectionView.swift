@@ -96,7 +96,7 @@ struct MusicSectionView: View {
             HStack(spacing: 34) {
                 GlyphButton(symbol: "backward.fill", size: 22, weight: .medium) { service.previous() }
                 GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill", size: 30, weight: .medium) { service.togglePlayPause() }
-                    .animation(IslandMotion.quick, value: info.isPlaying)
+                    .animation(IslandMotion.fade, value: info.isPlaying)
                 GlyphButton(symbol: "forward.fill", size: 22, weight: .medium) { service.next() }
             }
             .frame(height: 30)

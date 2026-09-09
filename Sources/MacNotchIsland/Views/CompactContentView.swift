@@ -53,6 +53,7 @@ struct CompactLeadingView: View {
                 Image(systemName: t.isFinished ? "bell.fill" : "timer")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.orange)
+                    .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.pulse, isActive: t.isFinished)
             case .stopwatch(let s):
                 Image(systemName: "stopwatch.fill")
@@ -151,29 +152,35 @@ struct CompactTrailingView: View {
                         ProgressRing(progress: t.progress(at: ctx.date), lineWidth: 2.5, tint: .orange)
                             .frame(width: height * 0.5, height: height * 0.5)
                     } else {
-                        Text(t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
+                        let remaining = t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString
+                        Text(remaining)
                             .font(numeralFont)
                             .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: true))
+                            .animation(IslandMotion.digits, value: remaining)
                             .lineLimit(1)
                     }
                 }
                 .islandMatched(IslandMatchedID.timerTime)
             case .stopwatch(let s):
                 TimelineView(.periodic(from: .now, by: s.isRunning ? 1 : 3600)) { ctx in
-                    Text(s.elapsed(at: ctx.date).mmss)
+                    let elapsed = s.elapsed(at: ctx.date).mmss
+                    Text(elapsed)
                         .font(numeralFont)
                         .foregroundStyle(s.isRunning ? .white : .white.opacity(0.55))
                         .contentTransition(.numericText(countsDown: false))
+                        .animation(IslandMotion.digits, value: elapsed)
                         .lineLimit(1)
                 }
                 .islandMatched(IslandMatchedID.stopwatchTime)
             case .call(let c):
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text(ctx.date.timeIntervalSince(c.startedAt).mmss)
+                    let running = ctx.date.timeIntervalSince(c.startedAt).mmss
+                    Text(running)
                         .font(numeralFont)
                         .foregroundStyle(.white)
                         .contentTransition(.numericText(countsDown: false))
+                        .animation(IslandMotion.digits, value: running)
                         .lineLimit(1)
                 }
                 .islandMatched(IslandMatchedID.callTime)
@@ -182,9 +189,13 @@ struct CompactTrailingView: View {
                 Text("\(b.percent)%")
                     .font(numeralFont)
                     .foregroundStyle(b.event == .low || b.event == .critical ? Color.named("red") : .white)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.digits, value: b.percent)
             case .bluetooth(let d):
                 if let p = d.summaryPercent {
                     Text("\(p)%").font(numeralFont).foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                        .animation(IslandMotion.digits, value: p)
                 } else {
                     Text("Connected").font(wordFont).foregroundStyle(.white)
                 }
@@ -227,7 +238,7 @@ struct CompactTrailingView: View {
                     .font(numeralFont)
                     .foregroundStyle(.white)
                     .contentTransition(.numericText())
-                    .animation(IslandMotion.quick, value: s.count)
+                    .animation(IslandMotion.digits, value: s.count)
             }
         }
         .padding(.leading, 6)

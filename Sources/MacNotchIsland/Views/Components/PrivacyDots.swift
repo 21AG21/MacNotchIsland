@@ -13,7 +13,7 @@ struct PrivacyDots: View {
                 Circle().fill(Color.named("green")).frame(width: 7, height: 7)
             }
         }
-        .animation(IslandMotion.quick, value: center.micInUse)
-        .animation(IslandMotion.quick, value: center.cameraInUse)
+        .animation(IslandMotion.content, value: center.micInUse)
+        .animation(IslandMotion.content, value: center.cameraInUse)
     }
 }

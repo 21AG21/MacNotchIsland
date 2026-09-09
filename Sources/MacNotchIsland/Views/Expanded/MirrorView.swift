@@ -11,7 +11,7 @@ struct MirrorView: View {
         ZStack {
             CameraPreviewLayerView(previewLayer: camera.previewLayer)
                 .opacity(camera.state == .running ? 1 : 0)
-                .animation(IslandMotion.quick, value: camera.state)
+                .animation(IslandMotion.fade, value: camera.state)
                 .accessibilityHidden(true)
             overlay
         }

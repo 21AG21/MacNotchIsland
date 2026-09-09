@@ -5,7 +5,9 @@ struct IslandButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
             .opacity(configuration.isPressed ? 0.8 : 1)
-            .animation(IslandMotion.quick, value: configuration.isPressed)
+            // Down at once, back on a spring: a press that eases in as slowly as it eases
+            // out feels like the button answered a moment late.
+            .animation(IslandMotion.press(down: configuration.isPressed), value: configuration.isPressed)
     }
 }
 

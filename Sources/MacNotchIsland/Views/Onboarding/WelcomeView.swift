@@ -69,7 +69,7 @@ struct WelcomeView: View {
             Spacer(minLength: 24)
 
             VStack(spacing: 12) {
-                Button(action: { withAnimation(.easeInOut(duration: 0.3)) { page = 1 } }) {
+                Button(action: { withAnimation(IslandMotion.navigate) { page = 1 } }) {
                     Text("Continue")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(maxWidth: .infinity)

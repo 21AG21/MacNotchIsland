@@ -23,6 +23,10 @@ struct SwitcherBand: View {
 
     private var ring: [IslandView] { center.ring }
 
+    /// The namespace the selected slot's disc travels in, and the one name it goes by.
+    @Namespace private var selection
+    private static let selectionID = "switcherSelection"
+
     private var cards: [IslandView] {
         ring.filter { if case .activity = $0 { return true } else { return false } }
     }
@@ -50,7 +54,10 @@ struct SwitcherBand: View {
         let left = Self.fit(cards, in: side, slot: right.slot, gap: right.gap)
         HStack(spacing: 0) {
             HStack(spacing: left.gap) {
-                ForEach(Array(left.views.enumerated()), id: \.offset) { _, view in slotView(view, size: left.slot) }
+                // Identified by the view, not by where it sits: a slot arriving pushes the
+                // others across and fades in beside them, where by position every glyph after
+                // it would swap symbol in place and nothing would appear to have moved.
+                ForEach(left.views, id: \.self) { view in slotView(view, size: left.slot) }
                 Spacer(minLength: 0)
                 // The left of the band is empty unless something is live, and a row of small
                 // round glyphs says nothing about itself. So the name of whatever the pointer
@@ -68,7 +75,7 @@ struct SwitcherBand: View {
             .frame(width: side, alignment: .leading)
             Color.clear.frame(width: middle)
             HStack(spacing: right.gap) {
-                ForEach(Array(right.views.enumerated()), id: \.offset) { _, view in slotView(view, size: right.slot) }
+                ForEach(right.views, id: \.self) { view in slotView(view, size: right.slot) }
                 Spacer(minLength: 0)
                 if center.isOpen { closeButton(size: right.slot) }
             }
@@ -80,8 +87,11 @@ struct SwitcherBand: View {
         // lower than the menu bar items either side of it. The extra goes below.
         .frame(width: width, height: geometry.notchHeight)
         .frame(height: geometry.notchHeight + IslandLayout.bandExtra, alignment: .top)
-        .animation(IslandMotion.quick, value: ring)
-        .animation(IslandMotion.quick, value: label)
+        // The slots themselves arrive and leave; the name under the pointer and the disc that
+        // marks the view you are on only change where they are or how they look.
+        .animation(IslandMotion.content, value: ring)
+        .animation(IslandMotion.fade, value: label)
+        .animation(IslandMotion.navigate, value: current)
     }
 
     /// The name of the slot the pointer is on. Only while the pointer is on one: the section
@@ -121,7 +131,14 @@ struct SwitcherBand: View {
         let selected = current == view
         return Button(action: { center.select(view, direction: direction(to: view)) }) {
             ZStack {
-                Circle().fill(Color.white.opacity(selected ? 0.14 : 0))
+                // One disc, moved from slot to slot, rather than one fading out where it was
+                // while another fades in where you are going. A mark that travels tells you
+                // which way you just went; two cross-fades tell you nothing.
+                if selected {
+                    Circle()
+                        .fill(Color.white.opacity(0.14))
+                        .matchedGeometryEffect(id: Self.selectionID, in: selection)
+                }
                 Image(systemName: entry.symbol)
                     .font(.system(size: size * 0.54, weight: .semibold))
                     .foregroundStyle(selected ? Color.white : entry.tint.opacity(0.55))

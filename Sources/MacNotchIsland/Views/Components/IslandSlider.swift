@@ -58,7 +58,7 @@ struct IslandSlider: View {
                         end()
                     }
             )
-            .animation(IslandMotion.quick, value: active)
+            .animation(IslandMotion.control, value: active)
             // Follow the feed again as soon as it agrees with what the user asked for.
             .onChange(of: value) { _, new in
                 guard !dragging, let held, abs(new - held) < Self.agreement else { return }

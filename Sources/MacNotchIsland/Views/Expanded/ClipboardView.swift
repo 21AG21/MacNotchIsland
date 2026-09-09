@@ -124,7 +124,7 @@ private struct ClipboardRowView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { copyBack() }
-        .animation(IslandMotion.quick, value: isHovered)
+        .animation(IslandMotion.hover, value: isHovered)
     }
 
     @ViewBuilder

@@ -42,7 +42,7 @@ struct IslandBodyView: View {
         // Press-in feedback while the whole island is the button (compact and idle); the
         // expanded panels have controls of their own that give their own feedback.
         .scaleEffect(pressed ? 0.97 : 1, anchor: .top)
-        .animation(IslandMotion.quick, value: pressed)
+        .animation(IslandMotion.press(down: pressed), value: pressed)
         // A floating pill hangs below the top edge instead of fusing into it; zero otherwise.
         .offset(y: layout.topInset)
         .onHover { hovering in center.setHovering(hovering, panel: panelID) }
@@ -78,6 +78,10 @@ struct IslandBodyView: View {
         }
         .id(presentation.contentID)
         .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
+        // The content crosses over on its own, shorter curve rather than riding the outline's.
+        // The shape is what bounces; the thing inside it settles first and holds still while
+        // the outline finishes arriving, which is the layering the phone's island has.
+        .animation(IslandMotion.content, value: presentation.contentID)
         .environment(\.islandNamespace, islandNamespace)
     }
 }
@@ -97,6 +101,6 @@ struct IdleContentView: View {
             }
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)
-        .animation(IslandMotion.quick, value: center.privacyIndicatorsVisible)
+        .animation(IslandMotion.content, value: center.privacyIndicatorsVisible)
     }
 }

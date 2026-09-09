@@ -37,6 +37,6 @@ struct LyricsView: View {
             }
         }
         .clipped()
-        .animation(IslandMotion.quick, value: line)
+        .animation(IslandMotion.fade, value: line)
     }
 }

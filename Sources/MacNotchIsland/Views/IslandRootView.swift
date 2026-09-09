@@ -38,7 +38,7 @@ struct IslandRootView: View {
             .transition(.opacity)
             }
         }
-        .animation(IslandMotion.quick, value: center.isSuppressed)
+        .animation(IslandMotion.fade, value: center.isSuppressed)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(animation, value: layout)
         .onChange(of: layout, initial: true) { _, new in previousLayout = new }

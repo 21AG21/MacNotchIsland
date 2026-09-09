@@ -34,6 +34,8 @@ struct StatsView: View {
             Text(Self.percentText(stats.sample.cpuPercent))
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .animation(IslandMotion.digits, value: stats.sample.cpuPercent)
         } footer: {
             Sparkline(values: stats.cpuHistory, ceiling: 20)
                 .frame(height: 30)
@@ -52,6 +54,8 @@ struct StatsView: View {
             Text(memoryValue)
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .animation(IslandMotion.digits, value: memoryValue)
         } footer: {
             MeterBar(fraction: fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes))
                 .accessibilityHidden(true)
@@ -71,6 +75,8 @@ struct StatsView: View {
             Text(diskValue)
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .animation(IslandMotion.digits, value: diskValue)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         } footer: {
@@ -102,6 +108,8 @@ struct StatsView: View {
             }
             .lineLimit(1)
             .padding(.top, 1)
+            .contentTransition(.numericText())
+            .animation(IslandMotion.digits, value: stats.sample.networkDownBytesPerSec)
         } footer: {
             Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
                 .frame(height: 22)
@@ -119,6 +127,8 @@ struct StatsView: View {
             Text(batteryValue)
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .animation(IslandMotion.digits, value: batteryValue)
         } footer: {
             if let percent = stats.sample.batteryPercent {
                 MeterBar(fraction: Double(percent) / 100)

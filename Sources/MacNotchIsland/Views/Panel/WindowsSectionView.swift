@@ -114,7 +114,7 @@ struct WindowsSectionView: View {
             }
             .frame(width: Self.tileWidth, height: Self.labelHeight, alignment: .leading)
         }
-        .animation(IslandMotion.quick, value: showsZones)
+        .animation(IslandMotion.hover, value: showsZones)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(window.appName), \(window.label)")
         .accessibilityAddTraits(.isButton)
