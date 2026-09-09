@@ -62,6 +62,10 @@ the unreleased section is what the next tag will ship.
   you have selected. It stands down on that section and stays everywhere else, which is what
   it is for. While there: the rail's buttons slide over when one of them comes or goes rather
   than jumping, which they also do when a Mac has no Wi-Fi or no Bluetooth to offer.
+- The Mac's appearance is read from AppKit rather than from a cached copy of a defaults key
+  that carries no promise of being fresh at the one instant it is asked about — the instant it
+  changes. A Wi-Fi switch the system refuses now says no straight away instead of showing what
+  was asked for and sliding back on its own a couple of seconds later.
 - The empty Actions section offered the same pane of Settings twice, once in its header and
   once in its body. The stopwatch's card follows the timer card's rule for colour — the
   activity's own for what it does next, white for the one that ends it — and puts them in

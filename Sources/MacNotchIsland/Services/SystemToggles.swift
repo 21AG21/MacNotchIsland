@@ -91,8 +91,18 @@ final class SystemToggles: ObservableObject {
         }
     }
 
+    /// From AppKit rather than the `AppleInterfaceStyle` default. That key is read out of this
+    /// process's cached copy of the global domain, and there is no promise it is fresh at the
+    /// instant the appearance changes — which is the only instant this is ever asked about.
+    /// Nothing here overrides the application's own appearance, so its effective one is the
+    /// system's. Main thread, which is where the rail and its timer both are.
     static func systemIsDark() -> Bool {
-        UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased() == "dark"
+        // `NSApp` is nil until an application exists — under `swift test`, and in principle
+        // before launch finishes — and the default is the only reading there is then.
+        guard let app = NSApp else {
+            return UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased() == "dark"
+        }
+        return app.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
     // MARK: - Switching
@@ -102,8 +112,21 @@ final class SystemToggles: ObservableObject {
         let wanted = !interface.powerOn()
         expect(.wifi, wanted)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            try? interface.setPower(wanted)
-            DispatchQueue.main.async { self?.refresh() }
+            var refused = false
+            do {
+                try interface.setPower(wanted)
+            } catch {
+                // Wi-Fi held off by policy, or the interface busy. Without this the switch
+                // showed what was asked for, held it for the settle window, and then slid
+                // back on its own with nothing said — which reads as the app being broken
+                // rather than as the answer being no.
+                refused = true
+                IslandLog.network.error("wi-fi switch refused: \(error.localizedDescription, privacy: .public)")
+            }
+            DispatchQueue.main.async {
+                if refused { self?.pending[Switch.wifi.rawValue] = nil }
+                self?.refresh()
+            }
         }
     }
 
@@ -149,13 +172,20 @@ final class SystemToggles: ObservableObject {
 
     private static let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
 
+    /// Looked up once. The reader is on a poll that runs while the panel is open, and asking
+    /// the dynamic linker for the same two symbols a couple of times a second is work nobody
+    /// asked for.
+    private static let getPower: GetPower? = dlsym(rtldDefault, "IOBluetoothPreferenceGetControllerPowerState")
+        .map { unsafeBitCast($0, to: GetPower.self) }
+    private static let putPower: SetPower? = dlsym(rtldDefault, "IOBluetoothPreferenceSetControllerPowerState")
+        .map { unsafeBitCast($0, to: SetPower.self) }
+
     static func bluetoothPower() -> Bool? {
-        guard let symbol = dlsym(rtldDefault, "IOBluetoothPreferenceGetControllerPowerState") else { return nil }
-        return unsafeBitCast(symbol, to: GetPower.self)() != 0
+        guard let getPower else { return nil }
+        return getPower() != 0
     }
 
     static func setBluetoothPower(_ on: Bool) {
-        guard let symbol = dlsym(rtldDefault, "IOBluetoothPreferenceSetControllerPowerState") else { return }
-        unsafeBitCast(symbol, to: SetPower.self)(on ? 1 : 0)
+        putPower?(on ? 1 : 0)
     }
 }

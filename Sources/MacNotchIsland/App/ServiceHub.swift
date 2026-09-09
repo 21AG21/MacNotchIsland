@@ -33,6 +33,10 @@ final class ServiceHub {
 
     func start() {
         energy.start()
+        // Warmed here rather than the first time the panel opens. Its first reading builds a
+        // CoreWLAN client and talks to the Wi-Fi daemon, and the first time anything asks for
+        // it is when the rail is mounted — which is during the spring that opens the panel.
+        _ = SystemToggles.shared
         apply()
         LiveActivityAPI.shared.start()
         Preferences.shared.objectWillChange

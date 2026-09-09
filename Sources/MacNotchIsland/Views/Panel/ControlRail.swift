@@ -22,11 +22,15 @@ struct ControlRail: View {
     @EnvironmentObject private var prefs: Preferences
 
     var body: some View {
+        // Read once, not once per mention: `isAvailable` is a DisplayServices round trip, and
+        // the rail is rebuilt on every volume change and every hover.
+        let hasBrightness = brightness.isAvailable
+        let showsAirDrop = prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf
         // Budget at 672 pt with everything showing: two sliders (178 and 140), up to seven
         // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
-        HStack(spacing: 12) {
+        return HStack(spacing: 12) {
             volume
-            if BrightnessControl.shared.isAvailable { brightnessControl }
+            if hasBrightness { brightnessControl }
             Spacer(minLength: 8)
             if toggles.hasWiFi {
                 railButton(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
@@ -57,7 +61,7 @@ struct ControlRail: View {
                     withAnimation(IslandMotion.fade) { showingMirror.toggle() }
                 }
             }
-            if prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf {
+            if showsAirDrop {
                 railButton(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
             }
             railButton(symbol: "gearshape", label: "Settings") {
@@ -69,7 +73,8 @@ struct ControlRail: View {
         // The row is not a fixed set: Wi-Fi and Bluetooth appear with the hardware, the
         // brightness slider with a display that has one, AirDrop with something on the shelf.
         // Whatever changes, the buttons beside it slide over rather than jumping.
-        .animation(IslandMotion.content, value: shown)
+        .animation(IslandMotion.content,
+                   value: [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled, showsAirDrop])
         .onAppear {
             outputs.viewerAppeared()
             brightness.viewerAppeared()
@@ -80,13 +85,6 @@ struct ControlRail: View {
             brightness.viewerDisappeared()
             toggles.viewerDisappeared()
         }
-    }
-
-    /// What the row is holding right now, so a change to it can be animated.
-    private var shown: String {
-        [BrightnessControl.shared.isAvailable ? "b" : "", toggles.hasWiFi ? "w" : "",
-         toggles.hasBluetooth ? "t" : "", prefs.mirrorEnabled ? "m" : "",
-         prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf ? "a" : ""].joined()
     }
 
     // MARK: - Sliders
