@@ -160,8 +160,10 @@ final class BrightnessControl: ObservableObject {
     private var timer: Timer?
     private var viewers = 0
     /// A write the display has not reported back yet. Until it does, the slider keeps showing
-    /// what the user set instead of flickering back for one poll.
-    private var pending: (value: Double, until: Date)?
+    /// what the user set instead of flickering back for one poll. Held on the clock that only
+    /// counts forwards: on the wall clock a backwards step would freeze the slider for as long
+    /// as the offset lasted, and a forwards one would clear it at once.
+    private var pending: (value: Double, until: TimeInterval)?
 
     @Published private(set) var level: Double = BrightnessControl.read() ?? 0.5
 
@@ -186,7 +188,7 @@ final class BrightnessControl: ObservableObject {
     func set(_ value: Double) {
         let clamped = min(1, max(0, value))
         Self.lastLocalWrite = LocalWrite.now()
-        pending = (clamped, Date().addingTimeInterval(Self.writeSettle))
+        pending = (clamped, LocalWrite.now() + Self.writeSettle)
         if level != clamped { level = clamped }
         _ = monitor.setBrightness(Float(clamped))
     }
@@ -211,7 +213,7 @@ final class BrightnessControl: ObservableObject {
     private func refresh() {
         guard let value = current() else { return }
         if let pending {
-            guard Date() >= pending.until || abs(pending.value - value) < 0.02 else { return }
+            guard LocalWrite.now() >= pending.until || abs(pending.value - value) < 0.02 else { return }
             self.pending = nil
         }
         if abs(level - value) > 0.001 { level = value }

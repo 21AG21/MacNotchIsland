@@ -28,30 +28,55 @@ final class SystemHUDReplacement: ObservableObject {
     /// The tap is up, so every media key reaches the island and none reaches OSDUIHelper.
     @Published private(set) var isActive = false
 
-    /// What this Mac can actually be asked for. A key the island cannot answer is handed back
-    /// to macOS, which then draws its own bezel for it — so a display the island put up for
-    /// that change would be the second one, which is the whole thing this is here to stop.
-    /// Not published: nothing on screen depends on them, only what is allowed to appear.
-    private(set) var canVolume = false
-    private(set) var canMute = false
-    private(set) var canBrightness = false
+    /// What this Mac can actually be asked for.
+    ///
+    /// A key the island cannot answer is handed back to macOS, which then draws its own bezel
+    /// for it — so a display the island put up for that change would be the second one, which
+    /// is the whole thing this is here to stop. Kept here rather than beside the tap so there
+    /// is one store, one lock and one default: two copies with opposite defaults and a hop
+    /// between them is how "is the island answering this?" gets two answers at once.
+    ///
+    /// Read from the tap thread as well as the main one, so it lives behind a lock rather
+    /// than in a published property. False until the first probe has actually asked.
+    struct Capabilities: Equatable {
+        var volume = false
+        var mute = false
+        var brightness = false
+    }
 
-    /// Whether a change of this kind is the island's to announce.
-    var answersVolume: Bool { isActive && canVolume }
-    var answersMute: Bool { isActive && canMute }
-    var answersBrightness: Bool { isActive && canBrightness }
+    private let lock = NSLock()
+    private var capabilities = Capabilities()
 
     private init() {}
+
+    /// Safe from any thread.
+    func can(_ keyPath: KeyPath<Capabilities, Bool>) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return capabilities[keyPath: keyPath]
+    }
+
+    func setCapabilities(_ new: Capabilities) {
+        lock.lock()
+        capabilities = new
+        lock.unlock()
+    }
+
+    func capabilitiesSnapshot() -> Capabilities {
+        lock.lock()
+        defer { lock.unlock() }
+        return capabilities
+    }
+
+    /// Whether a change of this kind is the island's to announce. Main thread.
+    var answersVolume: Bool { isActive && can(\.volume) }
+    var answersMute: Bool { isActive && can(\.mute) }
+    var answersBrightness: Bool { isActive && can(\.brightness) }
 
     func set(_ active: Bool) {
         guard isActive != active else { return }
         isActive = active
-    }
-
-    func setCapabilities(volume: Bool, mute: Bool, brightness: Bool) {
-        canVolume = volume
-        canMute = mute
-        canBrightness = brightness
+        if !active { setCapabilities(Capabilities()) }
     }
 }
 
@@ -82,14 +107,19 @@ final class VolumeFeedbackSound {
     private lazy var voices: [NSSound] = {
         // The first path that both exists and opens — a file that is there but that NSSound
         // will not decode should fall through to the next candidate, not end the search.
+        var best: [NSSound] = []
         for path in Self.candidates where FileManager.default.fileExists(atPath: path) {
-            // One that opens means they all will — same file, same initialiser, and
-            // `byReference` does not even read the samples yet. A file that is there and will
-            // not open falls through to the next candidate.
-            guard NSSound(contentsOfFile: path, byReference: true) != nil else { continue }
-            return (0..<Self.voiceCount).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
+            // The first one is the probe as well as a voice: a file that is there and will not
+            // open falls through to the next candidate rather than ending the search.
+            guard let first = NSSound(contentsOfFile: path, byReference: true) else { continue }
+            let voices = [first] + (1..<Self.voiceCount).compactMap { _ in
+                NSSound(contentsOfFile: path, byReference: true)
+            }
+            if voices.count == Self.voiceCount { return voices }
+            // A short pool is the buzz again, so it is only ever a last resort.
+            if voices.count > best.count { best = voices }
         }
-        return []
+        return best
     }()
     private var nextVoice = 0
     /// Enough that a click is never cut off by the next one at a key's repeat rate.
@@ -179,13 +209,7 @@ final class MediaKeyInterceptor {
     private var tapPort: CFMachPort?
     private var tapRunLoop: CFRunLoop?
     private var stopRequested = false
-    /// Whether this Mac can actually do what the key asks. A Mac driving only external
-    /// displays has no brightness to set, and an HDMI output has no level of its own; keys we
-    /// cannot answer are left for macOS rather than swallowed into silence, which is what
-    /// made them dead keys.
-    private var canSetVolume = true
-    private var canSetMute = true
-    private var canSetBrightness = true
+
 
     // MARK: - Lifecycle
 
@@ -334,19 +358,30 @@ final class MediaKeyInterceptor {
         lock.lock()
         tapPort = port
         lock.unlock()
-        CGEvent.tapEnable(tap: port, enable: true)
-        SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
-        refreshCapabilities(waiting: true)
-
-        // The tap runs on its own thread: a synchronous tap on a busy main thread would
-        // delay every key press system-wide and get itself disabled for timing out.
-        let thread = Thread { [weak self] in
-            self?.runTapLoop(source: source)
+        // Not enabled yet. The tap carries keys the instant it is, and until the first answer
+        // has landed the island does not know which of them it can do anything with — nor is
+        // there a run loop reading the port, and a tap nobody reads is one the system turns
+        // off for timing out. Both wait on the answer. Asking for it on the main thread
+        // instead would have been a dozen blocking round trips to coreaudiod at exactly the
+        // moment a device is arriving, which is when they are slowest.
+        refreshCapabilities { [weak self] in
+            guard let self, self.running else { return }
+            self.lock.lock()
+            let stillOurs = self.tapPort != nil
+            self.lock.unlock()
+            guard stillOurs, self.tapThread == nil else { return }
+            // The tap runs on its own thread: a synchronous tap on a busy main thread would
+            // delay every key press system-wide and get itself disabled for timing out.
+            let thread = Thread { [weak self] in
+                self?.runTapLoop(source: source)
+            }
+            thread.name = "com.notchisland.mediakeys"
+            thread.qualityOfService = .userInteractive
+            self.tapThread = thread
+            thread.start()
+            CGEvent.tapEnable(tap: port, enable: true)
+            SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
         }
-        thread.name = "com.notchisland.mediakeys"
-        thread.qualityOfService = .userInteractive
-        tapThread = thread
-        thread.start()
     }
 
     private func runTapLoop(source: CFRunLoopSource) {
@@ -413,14 +448,18 @@ final class MediaKeyInterceptor {
         return swallow
     }
 
-    /// Read on the tap thread, written on the main one.
+    /// Whether this Mac can do what the key asks. A Mac driving only external displays has no
+    /// brightness to set and an HDMI output has no level of its own; keys we cannot answer are
+    /// left for macOS, which still has a bezel for them, rather than swallowed into silence.
+    /// Asked from the tap thread.
     private func canAnswer(_ keyCode: Int) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         switch keyCode {
-        case MediaKey.brightnessUp, MediaKey.brightnessDown: return canSetBrightness
-        case MediaKey.mute: return canSetMute
-        default: return canSetVolume
+        case MediaKey.brightnessUp, MediaKey.brightnessDown:
+            return SystemHUDReplacement.shared.can(\.brightness)
+        case MediaKey.mute:
+            return SystemHUDReplacement.shared.can(\.mute)
+        default:
+            return SystemHUDReplacement.shared.can(\.volume)
         }
     }
 
@@ -432,31 +471,33 @@ final class MediaKeyInterceptor {
     /// which is the moment this most wants asking. `waiting` is for the one call that cannot
     /// be late: the tap begins carrying keys the instant its thread is up, and until the first
     /// answer lands the flags are only optimistic guesses.
-    private func refreshCapabilities(waiting: Bool = false) {
-        let work = { [weak self] in
+    private func refreshCapabilities(then finished: (() -> Void)? = nil) {
+        Self.capabilityQueue.async { [weak self] in
             guard let self else { return }
+            // The display question is one cheap call, so it is always asked. The audio ones
+            // are a dozen round trips to coreaudiod, and the answers only change when the
+            // default output does — so they are asked when it has.
             let brightnessOK = self.brightness.currentBrightness() != nil
             let device = AudioMonitor.defaultOutputDevice()
-            let volumeOK = AudioMonitor.readOutputVolume(device: device) != nil
-                || AudioMonitor.outputHasVolumeControl(device: device)
-            let muteOK = AudioMonitor.outputHasMuteControl(device: device)
-            self.lock.lock()
-            self.canSetBrightness = brightnessOK
-            self.canSetVolume = volumeOK
-            self.canSetMute = muteOK
-            self.lock.unlock()
-            // What the island is allowed to announce follows what it can answer: a key handed
-            // back to macOS is answered by macOS's bezel, and a display beside that is two.
-            DispatchQueue.main.async {
-                SystemHUDReplacement.shared.setCapabilities(volume: volumeOK, mute: muteOK,
-                                                            brightness: brightnessOK)
+            var current = SystemHUDReplacement.shared.capabilitiesSnapshot()
+            current.brightness = brightnessOK
+            if device != self.probedDevice {
+                self.probedDevice = device
+                // Settable, not readable: a level that can be read and not written is a key
+                // swallowed into a bar that never moves, and the message written for that
+                // case is guarded on this same answer.
+                current.volume = AudioMonitor.outputHasVolumeControl(device: device)
+                current.mute = AudioMonitor.outputHasMuteControl(device: device)
             }
+            SystemHUDReplacement.shared.setCapabilities(current)
+            if let finished { DispatchQueue.main.async(execute: finished) }
         }
-        waiting ? Self.capabilityQueue.sync(execute: work) : Self.capabilityQueue.async(execute: work)
     }
 
     private static let capabilityQueue = DispatchQueue(label: "com.notchisland.mediakeys.capabilities",
                                                        qos: .utility)
+    /// The output the audio half of the answer was asked about. Only on `capabilityQueue`.
+    private var probedDevice: AudioDeviceID?
 
     // MARK: - Decoding
 
@@ -528,12 +569,8 @@ final class MediaKeyInterceptor {
             // Only call it unavailable when the device really has no control of its own; a
             // read that merely failed is not a read that could never succeed, and should not
             // be reported as one.
-            guard !isRepeat, Preferences.shared.volumeHUDEnabled,
-                  !AudioMonitor.outputHasVolumeControl(device: device) else { return }
-            ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud,
-                                                           content: .hud(.unavailableVolume(output: AudioOutputs.currentOutput())),
-                                                           priority: 85),
-                                            duration: 1.5, haptic: false)
+            guard !isRepeat else { return }
+            postUnavailable()
             return
         }
         var muted = AudioMonitor.readOutputMute(device: device) ?? lastMuted ?? false
@@ -559,9 +596,14 @@ final class MediaKeyInterceptor {
     private func toggleMute() {
         let device = AudioMonitor.defaultOutputDevice()
         forgetOtherDevices(device)
-        guard let muted = AudioMonitor.readOutputMute(device: device) ?? lastMuted else { return }
+        // The key is already swallowed by the time this runs, so every way out of here that
+        // is not a change has to say something. A device that will not report or take a mute
+        // gets the same answer as one with no level at all: an em dash and its name.
+        guard let muted = AudioMonitor.readOutputMute(device: device) ?? lastMuted else {
+            return postUnavailable()
+        }
         let next = !muted
-        guard AudioMonitor.writeOutputMute(next, device: device) else { return }
+        guard AudioMonitor.writeOutputMute(next, device: device) else { return postUnavailable() }
         lastMuted = next
         guard Preferences.shared.volumeHUDEnabled else { return }
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: next)), priority: 85)
@@ -578,6 +620,16 @@ final class MediaKeyInterceptor {
         guard brightness.setBrightness(target) else { return }
         lastBrightness = target
         brightness.notifyChange(value: target)
+    }
+
+    /// What the island says when a key has been taken and there was nothing it could do with
+    /// it: the output's name and an em dash where the number would be.
+    private func postUnavailable() {
+        guard Preferences.shared.volumeHUDEnabled else { return }
+        ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud,
+                                                       content: .hud(.unavailableVolume(output: AudioOutputs.currentOutput())),
+                                                       priority: 85),
+                                        duration: 1.5, haptic: false)
     }
 
     /// The CoreAudio listener in `AudioMonitor` normally reports our own write too, but it

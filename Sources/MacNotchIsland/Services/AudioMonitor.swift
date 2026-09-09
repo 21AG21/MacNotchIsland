@@ -53,8 +53,17 @@ final class AudioMonitor {
         guard outputDevice != 0 else { return }
         lastVolume = readVolume() ?? -1
         lastMute = readMute()
-        outputRegistrations.append(listen(outputDevice, selector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-                                          scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.volumeChanged() })
+        // Every element a level can live on, not just the synthesised main one: an aggregate
+        // or USB device that keeps its level on a channel would otherwise never report a
+        // change, while the media-key path showed one — two behaviours for one device.
+        for element in Self.volumeElements {
+            let selector: AudioObjectPropertySelector = element == kAudioObjectPropertyElementMain
+                ? kAudioHardwareServiceDeviceProperty_VirtualMainVolume
+                : kAudioDevicePropertyVolumeScalar
+            outputRegistrations.append(listen(outputDevice, selector: selector,
+                                              scope: kAudioDevicePropertyScopeOutput,
+                                              element: element) { [weak self] in self?.volumeChanged() })
+        }
         outputRegistrations.append(listen(outputDevice, selector: kAudioDevicePropertyMute,
                                           scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.muteChanged() })
     }
@@ -92,7 +101,8 @@ final class AudioMonitor {
         guard let muted = readMute() else { return }
         let moved = muted != lastMute
         lastMute = muted
-        guard moved, Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.answersMute else { return }
+        guard moved, Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.answersMute,
+              !AudioOutputs.wroteRecently() else { return }
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: muted)), priority: 85)
         ActivityCenter.shared.showAlert(activity, duration: 2, haptic: false)
     }
@@ -108,8 +118,9 @@ final class AudioMonitor {
     // MARK: CoreAudio helpers
 
     private func listen(_ object: AudioObjectID, selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope,
+                        element: AudioObjectPropertyElement = kAudioObjectPropertyElementMain,
                         handler: @escaping () -> Void) -> Registration {
-        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
         let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
         _ = AudioObjectAddPropertyListenerBlock(object, &address, queue, block)
         return Registration(object: object, address: address, block: block)
@@ -130,15 +141,9 @@ final class AudioMonitor {
         return status == noErr ? device : 0
     }
 
-    private func readVolume() -> Float32? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-                                                 mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectHasProperty(outputDevice, &address) else { return nil }
-        var value: Float32 = 0
-        var size = UInt32(MemoryLayout<Float32>.size)
-        guard AudioObjectGetPropertyData(outputDevice, &address, 0, nil, &size, &value) == noErr else { return nil }
-        return value
-    }
+    /// The bound device's level, asked for the same way and in the same order as everywhere
+    /// else in this type.
+    private func readVolume() -> Float32? { Self.readOutputVolume(device: outputDevice) }
 
     private func readMute() -> Bool? {
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
@@ -198,7 +203,12 @@ final class AudioMonitor {
     /// question "has this a level?" looked at three, a device that kept its level on the
     /// second channel was called settable and then never read — and the key died holding
     /// both answers.
-    static let volumeElements: [AudioObjectPropertyElement] = [kAudioObjectPropertyElementMain, 1, 2]
+    static let volumeElements: [AudioObjectPropertyElement] = [kAudioObjectPropertyElementMain] + volumeChannelElements
+
+    /// The channels, on a device that has no synthesised main volume. Named separately
+    /// because writing is not "the first one that takes it": a stereo device needs the value
+    /// on both channels, where the main element sets the device outright.
+    static let volumeChannelElements: [AudioObjectPropertyElement] = [1, 2]
 
     static func readOutputVolume() -> Float32? { readOutputVolume(device: defaultOutputDevice()) }
 
@@ -219,9 +229,9 @@ final class AudioMonitor {
     static func writeOutputVolume(_ level: Float32, device: AudioDeviceID) -> Bool {
         guard device != 0 else { return false }
         let value = max(0, min(1, level))
-        if setScalarVolume(value, device: device, element: volumeElements[0]) { return true }
+        if setScalarVolume(value, device: device, element: kAudioObjectPropertyElementMain) { return true }
         var ok = false
-        for channel in volumeElements.dropFirst() {
+        for channel in volumeChannelElements {
             if setScalarVolume(value, device: device, element: channel) { ok = true }
         }
         if !ok { NSLog("Notch Island: could not set the output volume on device \(device).") }

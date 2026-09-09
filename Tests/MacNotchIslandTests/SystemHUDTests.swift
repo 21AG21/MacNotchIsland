@@ -58,7 +58,7 @@ final class SystemHUDTests: XCTestCase {
     /// over it — but only for a change the island itself just made, and only for as long as
     /// the hand is plausibly still on it.
     func testTheIslandKnowsWhenItWasTheOneThatSetTheLevel() {
-        let now: TimeInterval = 1000
+        let now: TimeInterval = 0
         XCTAssertTrue(LocalWrite.isRecent(now - 0.1, now: now),
                       "a write a tenth of a second ago is a slider under the finger")
         XCTAssertFalse(LocalWrite.isRecent(now - 5, now: now),
@@ -70,10 +70,13 @@ final class SystemHUDTests: XCTestCase {
     /// Two sliders, two stamps. Wiring one of these to the other's would suppress the wrong
     /// display, and would do it silently.
     func testEachDisplayAsksAboutItsOwnSlider() {
-        let now: TimeInterval = 1000
-        // Restored to what was found rather than to "never": these are process-wide and
-        // shared with the live singletons, and a test that tidies up to the wrong value makes
-        // the next one order-dependent.
+        // Zero, so every stamp written below is older than any real reading of the clock the
+        // app uses: these statics are process-wide and shared with the live singletons, and a
+        // stamp from the future would have a running listener believe a slider was under the
+        // finger for as long as this test took.
+        let now: TimeInterval = 0
+        // Restored to what was found rather than to "never", for the same reason: a test that
+        // tidies up to the wrong value makes the next one order-dependent.
         let savedAudio = AudioOutputs.lastLocalWrite
         let savedBrightness = BrightnessControl.lastLocalWrite
         defer {
