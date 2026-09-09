@@ -35,6 +35,57 @@ final class SystemHUDReplacement: ObservableObject {
     }
 }
 
+/// The click macOS plays when the volume keys change the level.
+///
+/// Taking the key means taking the sound with it, and its absence is the kind of small
+/// missing thing that makes a replacement feel like a downgrade even when it looks better.
+/// The user's own Sound setting decides whether it plays; holding Shift inverts it for one
+/// press, the way the system's does. Everything about it fails soft: an unknown macOS that
+/// keeps the file somewhere new simply gets no click.
+final class VolumeFeedbackSound {
+    static let shared = VolumeFeedbackSound()
+
+    /// Where macOS has kept the file across releases. The first one that is really there wins.
+    static let candidates = [
+        "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/volume_change.aif",
+        "/System/Library/Components/CoreAudio.component/Contents/Resources/SystemSounds/system/volume_change.aif",
+        "/System/Library/LoginPlugins/BezelServices.loginPlugin/Contents/Resources/volume.aiff",
+    ]
+
+    /// `com.apple.sound.beep.feedback` in the global domain — the "Play feedback when volume
+    /// is changed" checkbox in Sound settings.
+    static let feedbackKey = "com.apple.sound.beep.feedback"
+
+    private lazy var sound: NSSound? = {
+        for path in Self.candidates where FileManager.default.fileExists(atPath: path) {
+            if let sound = NSSound(contentsOfFile: path, byReference: true) { return sound }
+        }
+        return nil
+    }()
+
+    private init() {}
+
+    /// The checkbox as the system has it, or nil on a Mac that has never been asked.
+    static var systemSetting: Bool? {
+        (UserDefaults.standard.object(forKey: feedbackKey) as? NSNumber)?.boolValue
+    }
+
+    /// Whether a press with these modifiers should click. Never having been asked means yes:
+    /// that is how a Mac with speakers ships, and it is why the volume keys click out of the
+    /// box. Shift on its own flips the answer for that one press, the way the system's does;
+    /// Shift with Option is the quarter-step gesture and is left alone.
+    static func shouldPlay(flags: CGEventFlags, setting: Bool?) -> Bool {
+        let inverting = flags.contains(.maskShift) && !flags.contains(.maskAlternate)
+        return (setting ?? true) != inverting
+    }
+
+    func play(flags: CGEventFlags) {
+        guard Self.shouldPlay(flags: flags, setting: Self.systemSetting), let sound else { return }
+        if sound.isPlaying { sound.stop() }
+        sound.play()
+    }
+}
+
 final class MediaKeyInterceptor {
     /// Key codes from IOKit's `ev_keymap.h` (`NX_KEYTYPE_*`), redeclared so we do not
     /// depend on a private header being visible to Swift.
@@ -273,8 +324,8 @@ final class MediaKeyInterceptor {
         // macOS uses quarter notches while Shift+Option are held.
         let step = (flags.contains(.maskAlternate) && flags.contains(.maskShift)) ? Self.fineStep : Self.coarseStep
         switch keyCode {
-        case MediaKey.soundUp: adjustVolume(delta: 1, step: step, isRepeat: isRepeat)
-        case MediaKey.soundDown: adjustVolume(delta: -1, step: step, isRepeat: isRepeat)
+        case MediaKey.soundUp: adjustVolume(delta: 1, step: step, isRepeat: isRepeat, flags: flags)
+        case MediaKey.soundDown: adjustVolume(delta: -1, step: step, isRepeat: isRepeat, flags: flags)
         case MediaKey.mute: if !isRepeat { toggleMute() }
         case MediaKey.brightnessUp: adjustBrightness(delta: 1, step: step, isRepeat: isRepeat)
         case MediaKey.brightnessDown: adjustBrightness(delta: -1, step: step, isRepeat: isRepeat)
@@ -282,7 +333,7 @@ final class MediaKeyInterceptor {
         }
     }
 
-    private func adjustVolume(delta: Int, step: Float, isRepeat: Bool) {
+    private func adjustVolume(delta: Int, step: Float, isRepeat: Bool, flags: CGEventFlags) {
         guard let current = AudioMonitor.readOutputVolume() ?? lastVolume else { return }
         var muted = AudioMonitor.readOutputMute() ?? lastMuted ?? false
         let target = Self.stepped(from: current, delta: delta, step: step)
@@ -298,6 +349,9 @@ final class MediaKeyInterceptor {
             muted = false
             lastMuted = false
         }
+        // The system plays its click as part of answering the key; since the key never got
+        // there, the click has to come from here or it is simply gone.
+        if applied, !muted { VolumeFeedbackSound.shared.play(flags: flags) }
         postVolumeHUD(level: applied ? target : current, muted: muted)
     }
 

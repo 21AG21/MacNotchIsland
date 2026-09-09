@@ -1,4 +1,5 @@
 import CoreAudio
+import CoreGraphics
 import XCTest
 @testable import MacNotchIsland
 
@@ -23,6 +24,24 @@ final class SystemHUDTests: XCTestCase {
 
         XCTAssertNil(LevelHUD.volume(level: 0.5, isMuted: false, output: nil).device,
                      "a device that cannot be read is not a device worth naming")
+    }
+
+    /// Taking the media key away takes the system's click with it, so the island plays it —
+    /// under the user's own setting, with the same Shift gesture the system honours.
+    func testTheVolumeClickFollowsTheSettingAndShiftFlipsItForOnePress() {
+        XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [], setting: true))
+        XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [.maskShift], setting: true))
+        XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [], setting: false))
+        XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift], setting: false))
+    }
+
+    func testShiftWithOptionIsAQuarterStepRatherThanAskingForSilence() {
+        XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: true))
+        XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: false))
+    }
+
+    func testAMacThatHasNeverBeenAskedStillClicks() {
+        XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [], setting: nil))
     }
 
     func testTheIslandStartsOutLeavingTheSystemBezelAlone() {
