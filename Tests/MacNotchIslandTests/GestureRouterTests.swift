@@ -168,8 +168,9 @@ final class GestureRouterTests: XCTestCase {
         prefs.shelfEnabled = false
         prefs.clipboardEnabled = true
         XCTAssertEqual(HomeSection.resolve("shelf", prefs: prefs), .clipboard, "a section that is off resolves to the nearest one that is on")
-        XCTAssertEqual(HomeSection.resolve("nonsense", prefs: prefs), .music)
-        XCTAssertEqual(HomeSection.available(prefs).first, .music, "Now Playing can never be switched off")
+        XCTAssertEqual(HomeSection.resolve("nonsense", prefs: prefs), .home)
+        XCTAssertEqual(HomeSection.available(prefs).first, .home, "the grid is the front door and has no switch")
+        XCTAssertTrue(HomeSection.available(prefs).contains(.music), "and Now Playing can never be switched off")
         XCTAssertEqual(HomeSection.allCases.map(\.rawValue).first, HomeSection.fallback.rawValue)
         XCTAssertTrue(GestureRouter.scrollingSections.contains(.clipboard))
     }

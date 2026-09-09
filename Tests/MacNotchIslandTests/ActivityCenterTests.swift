@@ -407,7 +407,8 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(center.wantsKeyboard, "hovering must never take focus from the app in front")
     }
 
-    /// Leaves the ring with Now Playing and nothing else, whatever sections exist.
+    /// Leaves the ring with Home and Now Playing and nothing else, whatever sections exist.
+    /// Neither of those two has a switch, so neither can be taken out of it.
     private func onlyMusicSection() {
         HomeSection.allCases.forEach { $0.setEnabled(false, in: Preferences.shared) }
     }
@@ -416,13 +417,15 @@ final class ActivityCenterTests: XCTestCase {
         onlyMusicSection()
         center.upsert(IslandActivity(id: "timer", kind: .timer,
                                      content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(timeIntervalSinceNow: 60))), priority: 90))
-        XCTAssertEqual(center.keyboardRing, [.activity(id: "timer"), .home(tab: "music")])
+        XCTAssertEqual(center.keyboardRing, [.activity(id: "timer"), .home(tab: "home"), .home(tab: "music")])
 
         center.cycleView(forward: true)
         XCTAssertEqual(center.openView, .activity(id: "timer"))
         center.cycleView(forward: true)
+        XCTAssertEqual(center.openView, .home(tab: "home"))
+        XCTAssertEqual(center.presentation, .panel(.home(tab: "home")))
+        center.cycleView(forward: true)
         XCTAssertEqual(center.openView, .home(tab: "music"))
-        XCTAssertEqual(center.presentation, .panel(.home(tab: "music")))
         center.cycleView(forward: true)
         XCTAssertEqual(center.openView, .activity(id: "timer"), "wraps around")
         center.cycleView(forward: false)
@@ -549,9 +552,9 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.openView, .home(tab: "clipboard"), "a switcher click moves a pinned panel")
         XCTAssertEqual(UserDefaults.standard.string(forKey: GestureRouter.homeTabKey), "clipboard", "and remembers the section")
         center.cycleView(forward: true)
-        XCTAssertEqual(center.openView, .home(tab: "music"), "from the last section, Tab wraps to the first")
+        XCTAssertEqual(center.openView, .home(tab: "home"), "from the last section, Tab wraps to the first")
         center.cycleView(forward: true)
-        XCTAssertEqual(center.openView, .home(tab: "shelf"))
+        XCTAssertEqual(center.openView, .home(tab: "music"))
         center.collapse()
     }
 
@@ -573,6 +576,8 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertTrue(center.step(forward: false, wrap: false))
         XCTAssertEqual(center.currentView, .home(tab: "music"))
         XCTAssertTrue(center.step(forward: false, wrap: false))
+        XCTAssertEqual(center.currentView, .home(tab: "home"))
+        XCTAssertTrue(center.step(forward: false, wrap: false))
         XCTAssertEqual(center.currentView, .activity(id: "timer"))
         XCTAssertFalse(center.step(forward: false, wrap: false), "a swipe stops at the end of the ring")
 
@@ -590,7 +595,7 @@ final class ActivityCenterTests: XCTestCase {
         onlyMusicSection()
         let track = NowPlayingService.fakeTrack()
         center.upsert(IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(track), priority: 50))
-        XCTAssertEqual(center.keyboardRing, [.home(tab: "music")])
+        XCTAssertEqual(center.keyboardRing, [.home(tab: "home"), .home(tab: "music")])
         center.tap()
         XCTAssertEqual(center.openView, .home(tab: "music"), "the music pill opens the Now Playing section")
         center.collapse(reason: "test")
