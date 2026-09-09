@@ -150,6 +150,7 @@ run_settings() {
   grep -c . "$logfile" >/dev/null 2>&1 && tail -n 40 "$logfile"
   local opened; opened=$(grep -c 'settings window opened' "$logfile" || true)
   echo "--- settings opened: $opened"
+  echo "--- windows the app had"; grep 'app windows:' "$logfile" | tail -n 3
   echo "settings opened: $opened" >> "$SUMMARY"
   if [ "$opened" -lt 1 ]; then echo "SMOKE FAILED: notchisland://settings never opened the window"; DIED=1; fi
   echo "--- app stderr"; tail -n 20 "$OUT/settings-app.log"

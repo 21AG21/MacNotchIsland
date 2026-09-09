@@ -21,11 +21,31 @@ enum SettingsWindow {
         for name in selectors {
             guard NSApp.sendAction(Selector((name)), to: nil, from: nil) else { continue }
             IslandLog.island.notice("settings window opened by \(name, privacy: .public) on \(section?.rawValue ?? "the last pane", privacy: .public)")
+            reportWindows()
             return true
         }
         IslandLog.island.error("settings window refused: nothing in the responder chain opens it")
+        reportWindows()
         return false
     }
+
+    /// What windows the app has a moment after asking for one.
+    ///
+    /// The action being accepted is not the same as a window arriving — a responder can claim
+    /// the selector and put nothing on screen — and the difference is invisible from the
+    /// outside. This is the line that says which of the two happened, in the support report
+    /// and in the smoke test, and it costs one log line per time anybody opens Settings.
+    private static func reportWindows() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + windowSettle) {
+            let list = NSApp.windows
+                .filter { !($0 is NotchPanel) }
+                .map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible)" }
+            IslandLog.island.notice("app windows: \(list.isEmpty ? "none" : list.joined(separator: " | "), privacy: .public)")
+        }
+    }
+
+    /// Long enough for SwiftUI to have built and shown the window it was asked for.
+    static let windowSettle: TimeInterval = 0.6
 }
 
 /// The panes in the Settings sidebar, in the order System Settings would list them.
