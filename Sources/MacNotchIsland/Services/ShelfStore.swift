@@ -444,10 +444,28 @@ final class ShelfStore: ObservableObject {
             }
         }
         group.notify(queue: .main) { [weak self] in
-            self?.add(collected.compactMap { $0 })
+            let files = collected.compactMap { $0 }
+            // A drag can advertise a kind and then refuse to hand it over. The shelf took the
+            // drop, the island lit up for it, and nothing arrived — so it says so, rather than
+            // letting the highlight simply go out and leave somebody wondering where the file
+            // went.
+            if files.isEmpty { Self.announceNothingTaken() } else { self?.add(files) }
             ActivityCenter.shared.setDragTargeted(false)
         }
         return true
+    }
+
+    /// A drop the shelf accepted and could make nothing of.
+    private static func announceNothingTaken() {
+        // As the card, not the pill: somebody is looking straight at the island, having just
+        // let go over it, and the sentence is the whole point of the alert.
+        let custom = CustomActivity(title: "Nothing to keep",
+                                     subtitle: "That drag carried nothing the shelf could take.",
+                                     symbol: "tray", tint: "orange")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "shelf-drop-empty", kind: .custom,
+                                                       content: .custom(custom), priority: 80,
+                                                       presentation: .expanded),
+                                        duration: 2.5)
     }
 
     /// The picture formats a drag can carry, best first.
