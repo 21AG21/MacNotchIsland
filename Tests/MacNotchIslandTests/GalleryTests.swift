@@ -61,6 +61,7 @@ final class GalleryTests: XCTestCase {
         let files = Self.sampleFiles(in: dir)
 
         var rendered: [String] = []
+        var blind: [String] = []
         for scene in Self.scenes(files: files) {
             center.resetForTesting()
             center.setHovering(false)
@@ -77,11 +78,61 @@ final class GalleryTests: XCTestCase {
             let shot = render(geometry: geometry, dark: scene.dark)
             try write(shot, name: scene.name, dir: dir)
             rendered.append(scene.name)
+            if let full = shot.full {
+                let placeholder = Self.unsupportedFraction(of: full)
+                if placeholder > Self.unsupportedLimit {
+                    blind.append("\(scene.name) (\(Int((placeholder * 100).rounded()))%)")
+                }
+            }
         }
         center.resetForTesting()
         ShelfStore.shared.clear()
         print("GALLERY rendered \(rendered.count) scenes: \(rendered.joined(separator: " "))")
+        if !blind.isEmpty { print("GALLERY BLIND SPOTS: \(blind.joined(separator: ", "))") }
         XCTAssertGreaterThan(rendered.count, 40)
+        // The gallery is the only eye this project has, and a picture that draws a yellow
+        // block where a control should be is a picture that lies about the app. The window
+        // tiles were four of them for several commits before anybody noticed, so noticing is
+        // the build's job now.
+        XCTAssertTrue(blind.isEmpty,
+                      "drew SwiftUI's unsupported-view placeholder instead of the app: \(blind.joined(separator: ", "))")
+    }
+
+    // MARK: - Is the picture telling the truth?
+
+    /// How much of a scene came out as SwiftUI's "this cannot be drawn" placeholder: a
+    /// saturated yellow rectangle with a red line through it, which `ImageRenderer` puts
+    /// wherever an AppKit-backed view stands — a drop target, a menu, a scroll view.
+    ///
+    /// Measured against the real gallery, every honest scene sits at or under 0.05% of its
+    /// pixels (a glyph in orange here and there); the two scenes that were actually broken
+    /// were at 4% and 17%. The limit is three times the noise, which is low enough to catch a
+    /// single 30 pt control that has gone.
+    static let unsupportedLimit = 0.0015
+
+    static func unsupportedFraction(of image: CGImage) -> Double {
+        let width = min(image.width, 600)
+        guard width > 0, image.width > 0 else { return 0 }
+        let height = max(1, image.height * width / image.width)
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        var hits = 0
+        bytes.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress,
+                  let context = CGContext(data: base, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            // Nearest neighbour: smoothing a shrunk picture blends the placeholder's yellow
+            // into the black around it, and a small enough control would blend away entirely.
+            context.interpolationQuality = .none
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let pixels = raw.bindMemory(to: UInt8.self)
+            for i in stride(from: 0, to: pixels.count - 3, by: 4) {
+                let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                if r > 230, g > 160, g < 225, b < 60 { hits += 1 }
+            }
+        }
+        return Double(hits) / Double(width * height)
     }
 
     // MARK: - Rendering
