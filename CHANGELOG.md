@@ -32,6 +32,14 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **"Check for Updates…" no longer says "Up to date" when it could not ask.** A Mac with no
+  network, or GitHub answering 403, took the same branch as a successful check and got the
+  green tick — the one thing a check like this must never get wrong. There are now three
+  answers: the update, "Up to date" (which includes GitHub replying that nothing is published
+  yet), and "Couldn't check for updates" with the reason and a way to the releases page. A
+  failed check is also no longer recorded as a check, so the next one is an hour away rather
+  than a day; and both answers to a manual check open as the card, since "Up to date" as the
+  pill was a green tick beside an ellipsis.
 - **What Notch Island keeps on this Mac is yours alone.** Everything you have copied, the
   notes you jot down and the lyrics it caches were written with whatever permissions the
   system happened to hand out — 644 on a stock Mac, which is readable by every other account

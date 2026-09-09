@@ -14,6 +14,8 @@ final class UpdateChecker: ObservableObject {
     @Published private(set) var updateAvailable = false
 
     private static let releasesURL = URL(string: "https://api.github.com/repos/21AG21/MacNotchIsland/releases/latest")!
+    /// Where a person can look for themselves when the check could not be made.
+    private static let releasesPageURL = URL(string: "https://github.com/21AG21/MacNotchIsland/releases")!
     private static let userAgent = "NotchIsland/1.0 (https://github.com/21AG21/MacNotchIsland)"
     /// How often a check is actually allowed to hit the network.
     private static let checkInterval: TimeInterval = 24 * 60 * 60
@@ -80,28 +82,51 @@ final class UpdateChecker: ObservableObject {
     }
 
     private func handle(data: Data?, response: URLResponse?, error: Error?, forced: Bool) {
-        UserDefaults.standard.set(Date(), forKey: Self.lastCheckKey)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard error == nil, (200..<300).contains(status), let data, let release = Self.parse(data) else {
-            let why = error?.localizedDescription ?? "HTTP \(status)"
-            IslandLog.network.error("update check failed: \(why, privacy: .public)")
-            if forced { showUpToDateAlert() }
+        switch Self.outcome(data: data, status: status, error: error) {
+        case .cancelled:
+            // A newer check took over, or the feature was switched off mid-flight. Nothing was
+            // learned, so nothing is recorded and nothing is said.
             return
-        }
-        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
-        latestVersion = release.version
-        let newer = Self.isNewer(release.version, than: current)
-        updateAvailable = newer
-        guard newer else {
+
+        case .unreachable(let reason, let detail):
+            IslandLog.network.error("update check failed: \(detail, privacy: .public)")
+            // Deliberately not stamped: the day between checks is a day between *answers*. A
+            // Mac that was asleep in a hotel lift must not go quiet until tomorrow because of
+            // it, so the hourly timer simply tries again.
+            if forced { showUnreachableAlert(reason) }
+
+        case .noReleases:
+            // GitHub answered, and there is nothing published to be behind.
+            stampCheck()
+            updateAvailable = false
             if forced { showUpToDateAlert() }
-            return
+
+        case .latest(let release):
+            stampCheck()
+            let current = Self.currentVersion
+            latestVersion = release.version
+            let newer = Self.isNewer(release.version, than: current)
+            updateAvailable = newer
+            guard newer else {
+                if forced { showUpToDateAlert() }
+                return
+            }
+            // Avoid re-alerting on every automatic re-check once a tag has already been shown;
+            // a manual "Check for Updates…" always confirms, even for an already-announced tag.
+            let announced = UserDefaults.standard.string(forKey: Self.announcedTagKey)
+            guard forced || announced != release.version else { return }
+            UserDefaults.standard.set(release.version, forKey: Self.announcedTagKey)
+            showUpdateAlert(release)
         }
-        // Avoid re-alerting on every automatic re-check once a tag has already been shown;
-        // a manual "Check for Updates…" always confirms, even for an already-announced tag.
-        let announced = UserDefaults.standard.string(forKey: Self.announcedTagKey)
-        guard forced || announced != release.version else { return }
-        UserDefaults.standard.set(release.version, forKey: Self.announcedTagKey)
-        showUpdateAlert(release)
+    }
+
+    private func stampCheck() {
+        UserDefaults.standard.set(Date(), forKey: Self.lastCheckKey)
+    }
+
+    static var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
     }
 
     private func showUpdateAlert(_ release: Release) {
@@ -113,13 +138,65 @@ final class UpdateChecker: ObservableObject {
         ActivityCenter.shared.showAlert(activity, duration: 6)
     }
 
+    /// Both answers to a manual check open as the card, not the pill. A pill has room for a
+    /// glyph and a short value, and neither of these has a value — as the pill, "Up to date"
+    /// was a green tick beside an ellipsis, which is not an answer to the question that was
+    /// just asked.
     private func showUpToDateAlert() {
-        let custom = CustomActivity(title: "Up to date", symbol: "checkmark.circle.fill", tint: "green")
-        let activity = IslandActivity(id: "update", kind: .custom, content: .custom(custom), priority: 85)
-        ActivityCenter.shared.showAlert(activity, duration: 2)
+        let custom = CustomActivity(title: "Up to date", subtitle: "Notch Island \(Self.currentVersion)",
+                                     symbol: "checkmark.circle.fill", tint: "green")
+        let activity = IslandActivity(id: "update", kind: .custom, content: .custom(custom),
+                                       priority: 85, presentation: .expanded)
+        ActivityCenter.shared.showAlert(activity, duration: 3)
+    }
+
+    /// Said only when a person asked. "Up to date" used to cover this too — a Mac with no
+    /// network was told it had the newest version, which is the one thing a check like this
+    /// must never get wrong.
+    private func showUnreachableAlert(_ reason: String) {
+        let custom = CustomActivity(title: "Couldn't check for updates", subtitle: reason,
+                                     symbol: "exclamationmark.triangle.fill", tint: "orange",
+                                     url: Self.releasesPageURL)
+        let activity = IslandActivity(id: "update", kind: .custom, content: .custom(custom),
+                                       priority: 85, presentation: .expanded,
+                                       openAction: .url(Self.releasesPageURL))
+        ActivityCenter.shared.showAlert(activity, duration: 5)
     }
 
     // MARK: - Parsing & version comparison (pure, unit-tested)
+
+    /// What one finished request amounts to. Decided in one place, so a check can never
+    /// answer a question it did not get an answer to.
+    enum Outcome: Equatable {
+        /// Superseded or switched off mid-flight: no answer, and none was expected.
+        case cancelled
+        /// GitHub could not be asked, or said something that is not a release. The first
+        /// string is for the person, the second for the log.
+        case unreachable(reason: String, detail: String)
+        /// GitHub answered, and nothing is published yet.
+        case noReleases
+        case latest(Release)
+    }
+
+    /// Pure: reads one finished request without touching the network, the defaults or the UI.
+    static func outcome(data: Data?, status: Int, error: Error?) -> Outcome {
+        if let error {
+            if (error as? URLError)?.code == .cancelled { return .cancelled }
+            return .unreachable(reason: "GitHub could not be reached",
+                                detail: error.localizedDescription)
+        }
+        // A repository with no published release answers 404, and a build that nothing has
+        // been released after cannot be behind one.
+        if status == 404 { return .noReleases }
+        guard (200..<300).contains(status) else {
+            return .unreachable(reason: "GitHub answered \(status)", detail: "HTTP \(status)")
+        }
+        guard let data, let release = parse(data) else {
+            return .unreachable(reason: "GitHub's answer could not be read",
+                                detail: "unreadable release payload")
+        }
+        return .latest(release)
+    }
 
     /// What we need from a GitHub "latest release" response.
     struct Release: Equatable {
