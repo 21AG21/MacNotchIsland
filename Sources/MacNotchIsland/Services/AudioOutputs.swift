@@ -165,7 +165,8 @@ final class AudioOutputs: ObservableObject {
     }
 
     /// Called by everything in the island that sets the level itself — the rail's slider and
-    /// mute button, and the media keys once the island is the one answering them.
+    /// mute button, a scroll on the island, and the media keys once the island is the one
+    /// answering them.
     static func markLocalWrite() { lastLocalWrite = LocalWrite.now() }
 
     /// Nothing in the app can set this stamp to an arbitrary moment without writing to real

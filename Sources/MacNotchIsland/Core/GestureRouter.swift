@@ -274,6 +274,10 @@ final class GestureRouter {
     private func applyVolume(delta: Double) -> Bool {
         guard delta != 0, let current = audio.currentVolume() else { return false }
         let target = Float(min(1, max(0, Double(current) + delta)))
+        // The island's own write, like the rail's slider and the media keys — so the CoreAudio
+        // listener does not put a second display up for a change this one is about to announce
+        // itself. See `LocalWrite`.
+        AudioOutputs.markLocalWrite()
         let applied = target == current ? true : audio.setVolume(target)
         // Scrolling up unmutes, the way the volume keys do.
         var muted = audio.isMuted() ?? false

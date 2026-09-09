@@ -89,7 +89,10 @@ struct ActivitiesPane: View {
                     .disabled(!prefs.hudReplacementEnabled)
                     .help("There is no way to change the brightness from the island itself, so this "
                           + "has nothing to show unless the island is answering the keys.")
-                if prefs.hudReplacementEnabled && !hud.isActive {
+                // With both displays off there is no key left to take, so the island is not
+                // asking for Accessibility and must not offer to send anyone looking for it.
+                if prefs.hudReplacementEnabled, prefs.volumeHUDEnabled || prefs.brightnessHUDEnabled,
+                   !hud.isActive {
                     Button("Open Accessibility Settings…") {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                             NSWorkspace.shared.open(url)
