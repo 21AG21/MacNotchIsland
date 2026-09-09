@@ -64,7 +64,7 @@ make dmg        # builds a drag-to-Applications disk image
 ```
 
 The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the
-demo menu, and Quit. Turn on "Launch at login" in Settings once you're happy with it.
+demo menu, and Quit — or right-click the island itself for the short version of the same menu. Turn on "Launch at login" in Settings once you're happy with it.
 Press ⌃⌥Space anywhere to summon the island; with it open, the arrows, the digits and Space
 drive it without a modifier.
 

@@ -126,7 +126,9 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     private func refreshDynamicItems() {
         let center = ActivityCenter.shared
         let until = Preferences.shared.pausedUntil
-        let paused = until > 0 && Date().timeIntervalSince1970 < until
+        // One definition, shared with the island's own right-click menu, so the two can never
+        // disagree about whether to offer "Hide" or "Show".
+        let paused = IslandMenu.isPaused(until: until)
         if paused {
             header.title = "Hidden until " + timeFormatter.string(from: Date(timeIntervalSince1970: until))
             visibility.title = "Show Island"

@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Right-click the island for its menu.** The island is the app's face and answered nothing
+  but a left click. It now offers what is worth having where the pointer already is: Keep
+  Awake, Clear Shelf when there is one, hiding the island for an hour (or showing it again),
+  Settings and Quit. The panel was already being held open for a menu that had never been
+  written; this is that menu. A shelf tile's own menu still wins over it.
 - **Drag a clipboard entry straight into a document.** Clicking one puts it back on the
   pasteboard; dragging one takes it where you are pointing — the text, the link, the file
   itself or the picture. Only rows with something behind them get the gesture, so a drag never

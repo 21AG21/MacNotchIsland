@@ -49,6 +49,11 @@ struct IslandBodyView: View {
         .offset(y: layout.topInset)
         .onHover { hovering in center.setHovering(hovering, panel: panelID) }
         .onTapGesture { center.tap(panel: panelID) }
+        // The island is the app's face, so it answers a right-click the way its menu bar item
+        // does. `NotchHostingView.rightMouseDown` has been holding the panel open for a menu
+        // that was never there; this is the menu. A shelf tile's own menu wins over it, the
+        // way an inner context menu always does.
+        .contextMenu { IslandMenu() }
         .islandDrop(isTargeted: $dropTargeted) { providers in
             guard prefs.shelfEnabled else { return false }
             return ShelfStore.shared.acceptDrop(providers)
