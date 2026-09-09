@@ -12,6 +12,8 @@ final class NotesStore: ObservableObject {
     }
 
     private var persistWork: DispatchWorkItem?
+    /// True from the moment the text changes until exactly that text has been written.
+    private var unsaved = false
     private static let fileName = "notes.txt"
 
     private init() {
@@ -20,6 +22,18 @@ final class NotesStore: ObservableObject {
 
     func clear() { text = "" }
 
+    /// Writes anything still waiting, now, on the calling thread. The debounce below is eight
+    /// tenths of a second and a quit from the menu bar is faster than that, so without this
+    /// the last sentence somebody typed is the one they lose. A scratchpad nobody has touched
+    /// writes nothing, so no file appears for a feature that was never used.
+    func flush() {
+        guard unsaved else { return }
+        persistWork?.cancel()
+        persistWork = nil
+        unsaved = false
+        persist(text)
+    }
+
     func copyAll() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -27,16 +41,29 @@ final class NotesStore: ObservableObject {
     }
 
     private func schedulePersist() {
+        unsaved = true
         persistWork?.cancel()
         let snapshot = text
-        let work = DispatchWorkItem {
-            do {
-                try IslandFiles.write(Data(snapshot.utf8), to: Self.fileName)
-            } catch {
-                IslandLog.store.error("notes save failed: \(String(describing: error), privacy: .public)")
-            }
+        let work = DispatchWorkItem { [weak self] in
+            self?.persist(snapshot)
+            DispatchQueue.main.async { [weak self] in self?.markSaved(snapshot) }
         }
         persistWork = work
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    /// Only what was actually written counts as written: a keystroke that landed while the
+    /// write was in flight leaves the flag up, so the next write — or the flush on the way
+    /// out — still has something to do.
+    private func markSaved(_ snapshot: String) {
+        if snapshot == text { unsaved = false }
+    }
+
+    private func persist(_ snapshot: String) {
+        do {
+            try IslandFiles.write(Data(snapshot.utf8), to: Self.fileName)
+        } catch {
+            IslandLog.store.error("notes save failed: \(String(describing: error), privacy: .public)")
+        }
     }
 }

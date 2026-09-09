@@ -32,6 +32,11 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **The scratchpad and the clipboard history are written before the app goes away.** Both are
+  saved eight tenths of a second after they change, and a quit from the menu bar is quicker
+  than that — so the last sentence somebody typed, and the last thing they copied, were the
+  two things they could lose. Nothing waits for a debounce on the way out now: quitting, a
+  `kill`, a log out, a restart and going to sleep all write first.
 - **Three alerts that had nothing to say now say it.** A custom activity draws an ellipsis in
   the pill when it carries no trailing value, and three of the app's own alerts were relying
   on a title the pill has no room for. Running a Shortcut showed a green tick beside an

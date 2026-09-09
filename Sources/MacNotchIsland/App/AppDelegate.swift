@@ -33,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let workspace = NSWorkspace.shared.notificationCenter
         workspace.addObserver(self, selector: #selector(spaceChanged),
                               name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        // Sleep is not a quit, so nothing else writes here — but a Mac that never comes back
+        // from it should still have the last sentence somebody typed.
+        workspace.addObserver(self, selector: #selector(saveEverything),
+                              name: NSWorkspace.willSleepNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(saveEverything),
+                              name: NSWorkspace.willPowerOffNotification, object: nil)
 
         let prefs = Preferences.shared
         Publishers.Merge3(
@@ -56,8 +62,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// no such record, which is how the next run knows it vanished.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         RunRecord.end(Self.quitRequester())
+        Self.saveEverythingNow()
         return .terminateNow
     }
+
+    /// The scratchpad and the clipboard history are both written a moment after they change,
+    /// and quitting is quicker than that moment. Nothing waits for a debounce on the way out.
+    /// Called for a menu-bar quit, a SIGTERM, and a log out or restart.
+    private static func saveEverythingNow() {
+        NotesStore.shared.flush()
+        ClipboardStore.shared.flush()
+    }
+
+    @objc private func saveEverything() { Self.saveEverythingNow() }
 
     /// `kill` (and the `pkill` in the install steps) sends SIGTERM, which would otherwise end
     /// the process without a word. It is turned into an ordinary quit, so it is recorded like one.

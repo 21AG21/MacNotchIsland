@@ -420,6 +420,16 @@ final class ClipboardStore: ObservableObject {
         return decoded.filter { $0.kind != .image }
     }
 
+    /// Writes the history now rather than eight tenths of a second from now. Quitting is
+    /// faster than the debounce, and the last thing somebody copied is exactly the thing they
+    /// are about to want. Nothing is written for a history that has never been touched.
+    func flush() {
+        guard persistWork != nil else { return }
+        persistWork?.cancel()
+        persistWork = nil
+        Self.persist(items.filter { $0.kind != .image })
+    }
+
     private func schedulePersist() {
         persistWork?.cancel()
         let snapshot = items.filter { $0.kind != .image }
