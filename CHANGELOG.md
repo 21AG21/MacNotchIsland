@@ -6,6 +6,10 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Drag a clipboard entry straight into a document.** Clicking one puts it back on the
+  pasteboard; dragging one takes it where you are pointing — the text, the link, the file
+  itself or the picture. Only rows with something behind them get the gesture, so a drag never
+  starts and then carries nothing.
 - **Hold Option while scrolling on the island for the brightness.** A scroll has always been
   the volume; with Option held it is the display instead — the rail's two sliders, without
   opening the panel. It reads the display once when the gesture starts and carries it from

@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Combine
 import ImageIO
+import UniformTypeIdentifiers
 
 /// One entry in the clipboard history.
 ///
@@ -34,6 +35,42 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
     var imageData: Data? = nil
 
     private enum CodingKeys: String, CodingKey { case id, kind, text, date, pinned }
+
+    /// Whether this entry is something a drag could carry. Cheap enough to ask on every pass
+    /// of a fifty-row list: nothing here touches the disk.
+    var canDrag: Bool {
+        switch kind {
+        case .text, .url: return !text.isEmpty
+        case .file: return !fileURLs.isEmpty
+        case .image: return imageData != nil
+        }
+    }
+
+    /// The entry as a drag can carry it into another app — the text, the link, the file
+    /// itself, or the picture. Dragging one out is the other half of clicking one, which puts
+    /// it back on the pasteboard.
+    func dragProvider() -> NSItemProvider? {
+        switch kind {
+        case .text:
+            return NSItemProvider(object: text as NSString)
+        case .url:
+            // A link that will not parse is still text somebody copied.
+            guard let url = URL(string: text) else { return NSItemProvider(object: text as NSString) }
+            return NSItemProvider(object: url as NSURL)
+        case .file:
+            guard let url = fileURLs.first else { return nil }
+            return NSItemProvider(contentsOf: url)
+        case .image:
+            guard let data = imageData else { return nil }
+            let provider = NSItemProvider()
+            provider.suggestedName = "Image.png"
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                completion(data, nil)
+                return nil
+            }
+            return provider
+        }
+    }
 
     /// File URLs for a `.file` item (empty for every other kind).
     var fileURLs: [URL] {

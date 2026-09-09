@@ -219,4 +219,34 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertNotNil(ClipboardStore.item(from: ClipboardSnapshot(types: ["public.utf8-plain-text"], text: "ordinary")))
     }
 
+
+    // MARK: - Dragging an entry out
+
+    func testEveryKindOfEntryKnowsWhetherItCanBeDragged() {
+        XCTAssertTrue(ClipboardItem(kind: .text, text: "hello").canDrag)
+        XCTAssertFalse(ClipboardItem(kind: .text, text: "").canDrag)
+        XCTAssertTrue(ClipboardItem(kind: .url, text: "https://example.com").canDrag)
+        XCTAssertFalse(ClipboardItem(kind: .file, text: "").canDrag)
+        XCTAssertTrue(ClipboardItem(kind: .file, text: "/tmp/a.txt").canDrag)
+        XCTAssertFalse(ClipboardItem(kind: .image, text: "Image").canDrag, "no bytes, nothing to carry")
+        var picture = ClipboardItem(kind: .image, text: "Image")
+        picture.imageData = Data([0x89, 0x50, 0x4E, 0x47])
+        XCTAssertTrue(picture.canDrag)
+    }
+
+    func testTextAndLinksBothHaveSomethingToCarry() {
+        XCTAssertNotNil(ClipboardItem(kind: .text, text: "hello").dragProvider())
+        XCTAssertNotNil(ClipboardItem(kind: .url, text: "https://example.com").dragProvider())
+        // A link that will not parse is still text somebody copied.
+        XCTAssertNotNil(ClipboardItem(kind: .url, text: "not a url at all").dragProvider())
+    }
+
+    func testAPictureCarriesItsBytes() {
+        var picture = ClipboardItem(kind: .image, text: "Image")
+        picture.imageData = Data([0x89, 0x50, 0x4E, 0x47])
+        let provider = picture.dragProvider()
+        XCTAssertNotNil(provider)
+        XCTAssertEqual(provider?.suggestedName, "Image.png")
+        XCTAssertNil(ClipboardItem(kind: .image, text: "Image").dragProvider())
+    }
 }

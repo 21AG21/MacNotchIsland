@@ -31,7 +31,7 @@ and the same content layout as iOS.
 | — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume, and hold Option while scrolling for brightness. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
 | — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a slot of the switcher, Space plays and pauses, ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes or the clipboard search is showing. |
 | — | A shelf that takes anything: files, a picture, a link or selected text dragged onto the notch. Drag the whole selection back out in one go, Quick Look any of it, AirDrop or share it. |
-| — | Clipboard history that pastes: pick an item and it goes straight into whatever you were typing. |
+| — | Clipboard history that pastes: pick an item and it goes straight into whatever you were typing — or drag one out of the panel and into a document, a message or a folder. |
 | — | Keep Awake from the control rail or the menu bar: the Mac and its display stay on until you switch it off again. |
 | — | Hide the island for an hour from the menu bar, or automatically while a full-screen app is in front. A daily check against GitHub releases tells you when a new version is out. |
 | — | Downloads: Safari, Chrome and Firefox downloads in ~/Downloads become Live Activities with progress, then a "Download complete" alert. Caps Lock pill. |

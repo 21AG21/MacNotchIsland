@@ -124,6 +124,7 @@ private struct ClipboardRowView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { copyBack() }
+        .modifier(DragOut(item: item))
         .animation(IslandMotion.hover, value: isHovered)
     }
 
@@ -198,6 +199,24 @@ private struct ClipboardRowView: View {
 }
 
 /// Small hairline-free glyph button used only inside a clipboard row.
+/// A row you can drag straight into a document, a message or a folder — the other half of
+/// clicking one, which puts it back on the pasteboard. Only rows with something behind them
+/// get the gesture, so a drag never starts and then carries nothing.
+private struct DragOut: ViewModifier {
+    let item: ClipboardItem
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if item.canDrag {
+            content
+                .onDrag { item.dragProvider() ?? NSItemProvider() }
+                .help("Click to copy it again, or drag it straight into a document.")
+        } else {
+            content
+        }
+    }
+}
+
 private struct ClipboardRowButton: View {
     let symbol: String
     var action: () -> Void
