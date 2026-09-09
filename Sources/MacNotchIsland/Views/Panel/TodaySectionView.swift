@@ -17,6 +17,10 @@ struct TodaySectionView: View {
     /// The countdown's column. Without it "in 1 hr" on a row with no Join button landed 44 pt
     /// right of "in 7 min" on the row above.
     private static let countdown: CGFloat = 62
+    /// The Join button's column, held open on every row as soon as one row has a link — a
+    /// column of countdowns that steps 74 pt sideways at the one row you can join is worse
+    /// than a little air on the rows you cannot. Nobody joinable, nobody reserves it.
+    private static let action: CGFloat = 66
     private static var listHeight: CGFloat { SectionMetrics.bodyHeight }
 
     var body: some View {
@@ -124,6 +128,14 @@ struct TodaySectionView: View {
 
     // MARK: - Rows
 
+    /// Whether anything on screen can be joined, and so whether the trailing column exists.
+    private var showsJoinColumn: Bool {
+        rows.contains { row in
+            if case .event(let event) = row { return event.joinURL != nil }
+            return false
+        }
+    }
+
     private func eventRow(_ event: AgendaStore.Event) -> some View {
         let tint = Color.named(event.tint)
         return HStack(spacing: 10) {
@@ -149,10 +161,17 @@ struct TodaySectionView: View {
                     .lineLimit(1)
                     .frame(minWidth: Self.countdown, alignment: .trailing)
             }
-            if let url = event.joinURL {
-                PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
-                    NSWorkspace.shared.open(url)
+            if showsJoinColumn {
+                Group {
+                    if let url = event.joinURL {
+                        PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } else {
+                        Color.clear.frame(height: 1).accessibilityHidden(true)
+                    }
                 }
+                .frame(width: Self.action, alignment: .trailing)
             }
         }
         .frame(height: Self.eventRow)
@@ -183,6 +202,9 @@ struct TodaySectionView: View {
                     .foregroundStyle(due == "Overdue" ? Color.named("red") : .white.opacity(0.45))
                     .lineLimit(1)
                     .frame(minWidth: Self.countdown, alignment: .trailing)
+            }
+            if showsJoinColumn {
+                Color.clear.frame(width: Self.action, height: 1).accessibilityHidden(true)
             }
         }
         .frame(height: Self.reminderRow)
