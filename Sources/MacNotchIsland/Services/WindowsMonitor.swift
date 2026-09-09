@@ -330,6 +330,21 @@ final class WindowsMonitor: ObservableObject {
         return true
     }
 
+    /// Puts a window in the Dock. The one thing the zones could not do: every other button on
+    /// a tile moves a window somewhere on this screen, and sometimes where you want it is off
+    /// the screen entirely.
+    @discardableResult
+    func minimise(_ window: IslandWindow) -> Bool {
+        guard let element = Self.axWindow(for: window) else {
+            if !AXIsProcessTrusted() { requestMove() }
+            refresh()
+            return false
+        }
+        let status = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        refresh()
+        return status == .success
+    }
+
     /// Closes a window, as its own close button would.
     @discardableResult
     func close(_ window: IslandWindow) -> Bool {

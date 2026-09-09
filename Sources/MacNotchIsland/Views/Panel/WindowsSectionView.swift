@@ -127,6 +127,24 @@ struct WindowsSectionView: View {
 
     /// The zones, over the picture, while the pointer is on the tile — and the one other thing
     /// you do to a window from a distance: close it.
+    /// One of a tile's corner buttons: smaller than a zone, and out of the way of them.
+    private func cornerButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.16))
+                Image(systemName: symbol)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(width: 18, height: 18)
+            .contentShape(Circle())
+        }
+        .buttonStyle(IslandButtonStyle())
+        .padding(5)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
     private func zones(_ window: IslandWindow) -> some View {
         ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.55))
@@ -148,20 +166,12 @@ struct WindowsSectionView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Button(action: { _ = monitor.close(window) }) {
-                ZStack {
-                    Circle().fill(Color.white.opacity(0.16))
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(width: 18, height: 18)
-                .contentShape(Circle())
-            }
-            .buttonStyle(IslandButtonStyle())
-            .padding(5)
-            .help("Close \(window.label)")
-            .accessibilityLabel("Close \(window.label)")
+            // The tile's own two traffic lights, in the corners the real ones live in: put it
+            // away on the left, close it on the right. The row of zones in the middle moves a
+            // window around this screen; these two take it off the screen.
+            cornerButton(symbol: "minus", label: "Minimise \(window.label)") { monitor.minimise(window) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            cornerButton(symbol: "xmark", label: "Close \(window.label)") { monitor.close(window) }
         }
         .transition(.opacity)
     }

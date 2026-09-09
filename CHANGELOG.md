@@ -6,6 +6,10 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Minimise a window from its tile.** Every zone on a window tile moved it somewhere on this
+  screen; sometimes where you want it is off the screen. A tile now has both of the corner
+  buttons a real window has, in the corners the real ones are in: put it away on the left,
+  close it on the right.
 - **Right-click the island for its menu.** The island is the app's face and answered nothing
   but a left click. It now offers what is worth having where the pointer already is: Keep
   Awake, Clear Shelf when there is one, hiding the island for an hour (or showing it again),
