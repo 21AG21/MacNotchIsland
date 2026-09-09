@@ -16,6 +16,16 @@ extension LevelHUD {
         hud.deviceSymbol = output.symbol
         return hud
     }
+
+    /// The answer for an output the Mac cannot set the level of: it says so, and says which
+    /// output, which is more than the key press would otherwise have produced.
+    static func unavailableVolume(output: AudioOutputs.Device?) -> LevelHUD {
+        var hud = LevelHUD(kind: .volume, level: 0)
+        hud.isUnavailable = true
+        hud.device = output?.shortName
+        hud.deviceSymbol = output?.symbol
+        return hud
+    }
 }
 
 /// The sound output as the Now Playing card needs it: which device is playing, which others
@@ -199,6 +209,16 @@ final class AudioOutputs: ObservableObject {
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
               id != 0 else { return nil }
         return Device(id: id, name: name(of: id), transport: transport(of: id))
+    }
+
+    /// Whether the Mac can set this device's level at all. HDMI and some AirPlay targets
+    /// simply carry the sound at whatever the thing at the other end is set to, and asking
+    /// for the level returns nothing — which is a different thing from a read that failed.
+    static func hasVolumeControl(_ device: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+                                                 mScope: kAudioDevicePropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        return AudioObjectHasProperty(device, &address)
     }
 
     private static func name(of device: AudioDeviceID) -> String {

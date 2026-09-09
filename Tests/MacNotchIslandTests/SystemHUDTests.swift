@@ -44,6 +44,16 @@ final class SystemHUDTests: XCTestCase {
         XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [], setting: nil))
     }
 
+    /// A key that cannot do anything says so, rather than being swallowed into silence.
+    func testAnOutputWithNoLevelOfItsOwnStillGetsAnAnswer() {
+        let display = AudioOutputs.Device(id: 3, name: "Studio Display",
+                                          transport: kAudioDeviceTransportTypeDisplayPort)
+        let hud = LevelHUD.unavailableVolume(output: display)
+        XCTAssertTrue(hud.isUnavailable)
+        XCTAssertEqual(hud.device, "Studio Display", "and says which output it is talking about")
+        XCTAssertFalse(hud.isMuted, "not being settable is not the same as being off")
+    }
+
     func testTheIslandStartsOutLeavingTheSystemBezelAlone() {
         XCTAssertFalse(SystemHUDReplacement.shared.isActive,
                        "nothing has installed an event tap in a test run, so the island must not "

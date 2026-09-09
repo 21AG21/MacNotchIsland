@@ -29,7 +29,7 @@ struct HUDExpandedView: View {
                     }
                 }
                 .accessibilityHidden(true)
-                Text(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%")
+                Text(Self.readout(state))
                     .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
                     .contentTransition(.numericText())
@@ -46,9 +46,16 @@ struct HUDExpandedView: View {
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
     }
 
+    /// The number, or what stands in for it when there is no number to give.
+    private static func readout(_ state: LevelHUD) -> String {
+        if state.isUnavailable { return "\u{2014}" }
+        return state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%"
+    }
+
     /// "62 percent, AirPods Pro" — the output is worth saying out loud too.
     private static func spoken(_ state: LevelHUD) -> String {
-        var parts = [state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent"]
+        var parts = [state.isUnavailable ? "Not set here"
+                     : (state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent")]
         if let device = state.device { parts.append(device) }
         return parts.joined(separator: ", ")
     }

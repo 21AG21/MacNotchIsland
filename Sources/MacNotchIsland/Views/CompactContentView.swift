@@ -285,6 +285,7 @@ enum IslandAccessibility {
             return f.isOn ? "\(f.name) Focus on" : "\(f.name) Focus off"
 
         case .hud(let h):
+            if h.isUnavailable { return "Volume is not set here" + (h.device.map { ", \($0)" } ?? "") }
             if h.kind == .volume && h.isMuted { return "Volume muted" }
             let where_ = h.device.map { ", \($0)" } ?? ""
             return "\(h.title), \(percent(h.level)) percent\(where_)"
@@ -347,7 +348,7 @@ extension LevelHUD {
         case .brightness:
             return level < 0.05 ? "sun.min" : (level < 0.5 ? "sun.min.fill" : "sun.max.fill")
         case .volume:
-            if isMuted || level <= 0.001 { return "speaker.slash.fill" }
+            if isUnavailable || isMuted || level <= 0.001 { return "speaker.slash.fill" }
             // Where the sound is going, when that is somewhere worth saying. The bar beside
             // it already carries the level, so the glyph is free to carry the better fact,
             // and it costs no width at all — which is why the system's bezel cannot do it.

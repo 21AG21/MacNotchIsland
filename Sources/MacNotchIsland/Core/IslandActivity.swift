@@ -163,6 +163,10 @@ struct LevelHUD: Equatable {
     var device: String? = nil
     /// The glyph for that device: the AirPods, the headphones, the display it is going out to.
     var deviceSymbol: String? = nil
+    /// The output has no volume of its own to set — HDMI and some AirPlay targets carry the
+    /// sound at whatever level the thing at the other end is at. Swallowing the key and
+    /// showing nothing would leave the press looking broken.
+    var isUnavailable: Bool = false
 }
 
 struct SilentState: Equatable {

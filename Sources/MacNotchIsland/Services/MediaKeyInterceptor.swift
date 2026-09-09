@@ -334,7 +334,25 @@ final class MediaKeyInterceptor {
     }
 
     private func adjustVolume(delta: Int, step: Float, isRepeat: Bool, flags: CGEventFlags) {
-        guard let current = AudioMonitor.readOutputVolume() ?? lastVolume else { return }
+        // Some outputs — HDMI, a few AirPlay targets — carry the sound at whatever level the
+        // thing at the other end is set to. The key has already been swallowed by the time we
+        // get here, so saying so is the only alternative to the press doing nothing at all.
+        // The last level read from some *other* device is not an answer either, so it is not
+        // used as one.
+        guard let current = AudioMonitor.readOutputVolume() else {
+            lastVolume = nil
+            // Only call it unavailable when the device really has no control of its own; a
+            // read that merely failed is not a read that could never succeed, and should not
+            // be reported as one.
+            guard !isRepeat, Preferences.shared.volumeHUDEnabled,
+                  let output = AudioOutputs.currentOutput(),
+                  !AudioOutputs.hasVolumeControl(output.id) else { return }
+            ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud,
+                                                           content: .hud(.unavailableVolume(output: output)),
+                                                           priority: 85),
+                                            duration: 1.5, haptic: false)
+            return
+        }
         var muted = AudioMonitor.readOutputMute() ?? lastMuted ?? false
         let target = Self.stepped(from: current, delta: delta, step: step)
         // Holding a key against 0 or 1 should not keep re-announcing the same value.

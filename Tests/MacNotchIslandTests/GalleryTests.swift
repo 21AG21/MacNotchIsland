@@ -292,6 +292,13 @@ final class GalleryTests: XCTestCase {
             Scene(name: "alert-volume-airpods") { c in
                 c.showAlert(hud(.volume, 0.35, device: "AirPods Pro", symbol: "airpodspro"), duration: 60)
             },
+            // And when the thing it is going to sets its own level.
+            Scene(name: "alert-volume-unavailable") { c in
+                var state = LevelHUD.unavailableVolume(output: nil)
+                state.device = "Studio Display"
+                state.deviceSymbol = "display"
+                c.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(state), priority: 85), duration: 60)
+            },
             Scene(name: "alert-silent") { c in
                 c.showAlert(IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: true)), priority: 85), duration: 60)
             },
