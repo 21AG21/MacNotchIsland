@@ -50,9 +50,11 @@ the unreleased section is what the next tag will ship.
 - A paused track, or a Mac on battery with animation stopped, showed four bars of one height:
   four dots, not a waveform. The bars now hold the shape of a wave when nothing is driving
   them.
-- The compact island reserved the width of the camera housing between its two slots on every
-  screen. On a display with no notch there is no housing, so the floating pill was a long
-  black bar with a mark at either end.
+- Three places kept the shape of a camera housing on screens that have none. The compact
+  island reserved its width between the two slots, so the floating pill was a long black bar
+  with a mark at either end; a card reserved its height above the content, so the card had a
+  hole in the top of it; and the switcher band split itself down the middle around it, so
+  with nothing live every glyph sat right of centre.
 - The support report collects everything the app logged. Half of it went through `NSLog`,
   which stamps no subsystem, and the report asked the unified log for the app's subsystem —
   so the failures it was collected to explain were the ones missing from it.
