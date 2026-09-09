@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Combine
+import CoreAudio
 import CoreGraphics
 
 /// Opt-in replacement of the system volume / brightness bezel.
