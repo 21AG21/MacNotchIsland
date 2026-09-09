@@ -345,7 +345,9 @@ struct ShelfItemView: View {
         }
         Button(copyTitle) { shelf.copyToPasteboard(targets()) }
         Divider()
-        Button("Remove") { shelf.remove(targets()) }
+        // Named for what it does, beside the one that does the other thing: a bare "Remove"
+        // next to "Move to Trash" reads as a choice between two kinds of deleting.
+        Button("Remove from Shelf") { shelf.remove(targets()) }
         Button("Move to Trash") { shelf.moveToTrash(targets()) }
     }
 

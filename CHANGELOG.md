@@ -35,6 +35,10 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **A file the Trash would not take says so.** "Move to Trash" removed the tile and left the
+  file where it was when macOS refused — locked, on a read-only volume — with only a line in
+  the log. The menu item is also "Remove from Shelf" now, so it is not a bare "Remove" next
+  to "Move to Trash", which read as a choice between two kinds of deleting.
 - **The card for a timer that rang names the timer.** It said "Timer done" and dropped the
   name you gave it — and several timers can run at once, so which one rang is the only thing
   the card had to say. VoiceOver had been saying "Pasta timer done" all along; the card now

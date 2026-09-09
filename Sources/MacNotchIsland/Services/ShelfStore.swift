@@ -246,7 +246,7 @@ final class ShelfStore: ObservableObject {
             // AirDrop wants Wi-Fi and Bluetooth switched on, and both of those switches are
             // on the rail this button sits on. Returning in silence made the button look
             // broken instead of pointing at the two things standing in its way.
-            Self.announceAirDropUnavailable()
+            announceAirDropUnavailable()
             return
         }
         // The AirDrop window takes the pointer off the island; keep the panel up and make
@@ -256,8 +256,21 @@ final class ShelfStore: ObservableObject {
         service.perform(withItems: objects)
     }
 
+    /// Files macOS would not put in the Trash.
+    private func announceTrashRefused(_ count: Int) {
+        guard publishesActivity else { return }
+        let custom = CustomActivity(title: "Not moved to the Trash",
+                                     subtitle: count == 1 ? "macOS would not move that file."
+                                                          : "macOS would not move \(count) of them.",
+                                     symbol: "trash.slash", tint: "orange")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "shelf-trash-refused", kind: .custom,
+                                                       content: .custom(custom), priority: 85,
+                                                       presentation: .expanded), duration: 4)
+    }
+
     /// AirDrop asked for on a Mac that cannot do it at this moment.
-    private static func announceAirDropUnavailable() {
+    private func announceAirDropUnavailable() {
+        guard publishesActivity else { return }
         let custom = CustomActivity(title: "AirDrop is not available",
                                      subtitle: "It needs Wi-Fi and Bluetooth switched on.",
                                      symbol: "dot.radiowaves.right", tint: "orange")
@@ -395,12 +408,20 @@ final class ShelfStore: ObservableObject {
         guard !theirs.isEmpty else { return }
         // Trashing can block on iCloud or network volumes; never do it on the main thread.
         DispatchQueue.global(qos: .userInitiated).async {
+            var refused = 0
             for url in theirs {
                 do {
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                 } catch {
+                    refused += 1
                     IslandLog.store.error("could not trash \(url.path, privacy: .private): \(error.localizedDescription, privacy: .public)")
                 }
+            }
+            // The tile has already gone from the shelf, so a file macOS refused to move —
+            // locked, on a read-only volume, already elsewhere — would otherwise look
+            // trashed and not be.
+            if refused > 0 {
+                DispatchQueue.main.async { [weak self] in self?.announceTrashRefused(refused) }
             }
         }
     }
@@ -466,14 +487,15 @@ final class ShelfStore: ObservableObject {
             // drop, the island lit up for it, and nothing arrived — so it says so, rather than
             // letting the highlight simply go out and leave somebody wondering where the file
             // went.
-            if files.isEmpty { Self.announceNothingTaken() } else { self?.add(files) }
+            if files.isEmpty { self?.announceNothingTaken() } else { self?.add(files) }
             ActivityCenter.shared.setDragTargeted(false)
         }
         return true
     }
 
     /// A drop the shelf accepted and could make nothing of.
-    private static func announceNothingTaken() {
+    private func announceNothingTaken() {
+        guard publishesActivity else { return }
         // As the card, not the pill: somebody is looking straight at the island, having just
         // let go over it, and the sentence is the whole point of the alert.
         let custom = CustomActivity(title: "Nothing to keep",
