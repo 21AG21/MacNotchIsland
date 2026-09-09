@@ -33,14 +33,31 @@ struct VisualizerBars: View {
     }
 
     private func height(index: Int, time t: Double) -> CGFloat {
-        guard isPlaying else { return minHeight }
-        // Playing but the policy has paused continuous animation (asleep, Low Power, or on
-        // battery per the user's setting): freeze at a gentle mid-height instead of the tiny
-        // "not playing" bars, so the pill still reads as "something is playing".
-        guard !energy.animationsPaused else { return (minHeight + maxHeight) / 2 }
-        let fraction = tap.isRunning ? reactiveFraction(index: index, time: t)
-                                     : syntheticFraction(index: index, time: t)
-        return minHeight + (maxHeight - minHeight) * CGFloat(max(0, min(1, fraction)))
+        // Still, but still a waveform. Both of the states where nothing is driving the bars
+        // used to give every one of them the same height, and four marks of one height are
+        // not bars at all — they are dots, which is what a paused track and a Mac on battery
+        // were both showing in the pill.
+        guard isPlaying else { return bar(Self.resting(index) * Self.quietScale) }
+        // Playing, but the policy has stopped continuous animation (asleep, Low Power, or on
+        // battery by the user's setting): the wave holds its shape at full size, so the pill
+        // still reads as "something is playing" without moving.
+        guard !energy.animationsPaused else { return bar(Self.resting(index)) }
+        return bar(tap.isRunning ? reactiveFraction(index: index, time: t)
+                                 : syntheticFraction(index: index, time: t))
+    }
+
+    /// The shape the bars hold when nothing is driving them. Uneven on purpose: a wave at
+    /// rest is still a wave.
+    private static func resting(_ index: Int) -> Double {
+        let pattern = [0.34, 0.78, 0.52, 0.92]
+        return pattern[abs(index) % pattern.count]
+    }
+
+    /// How far that shape is flattened when the music is not playing at all.
+    private static let quietScale = 0.45
+
+    private func bar(_ fraction: Double) -> CGFloat {
+        minHeight + (maxHeight - minHeight) * CGFloat(max(0, min(1, fraction)))
     }
 
     /// 0…1 driven by the measured system level. The middle bars are weighted slightly

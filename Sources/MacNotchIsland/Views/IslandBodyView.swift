@@ -31,6 +31,16 @@ struct IslandBodyView: View {
 
             NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom)
                 .fill(Color.black)
+            // A hairline of the faintest light along the outline.
+            //
+            // Against a pale menu bar the island's black is its own edge and this is not
+            // visible at all. Against a dark wallpaper, where macOS draws the menu bar nearly
+            // black, it is the only thing that says where the island ends — without it the
+            // shape dissolves into the bar and what is in it reads as two marks floating in a
+            // void rather than as one object.
+            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                .accessibilityHidden(true)
 
             content
                 .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)

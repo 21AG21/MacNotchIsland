@@ -18,6 +18,12 @@ final class GalleryTests: XCTestCase {
     private struct Scene {
         var name: String
         var floating = false
+        /// Rendered over a dark wallpaper, where macOS draws the menu bar almost black.
+        ///
+        /// Every other scene sits on a pale bar, which is where the island's own black is its
+        /// own edge — and is why nobody noticed that on a dark one the shape dissolves into
+        /// the bar entirely and what is in it reads as marks floating in a void.
+        var dark = false
         var setup: (ActivityCenter) -> Void
     }
 
@@ -62,7 +68,7 @@ final class GalleryTests: XCTestCase {
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
             let geometry = scene.floating ? Self.plain : Self.notch
-            try write(render(geometry: geometry), name: scene.name, dir: dir)
+            try write(render(geometry: geometry, dark: scene.dark), name: scene.name, dir: dir)
             rendered.append(scene.name)
         }
         center.resetForTesting()
@@ -73,11 +79,11 @@ final class GalleryTests: XCTestCase {
 
     // MARK: - Rendering
 
-    private func render(geometry: NotchGeometry) -> CGImage? {
+    private func render(geometry: NotchGeometry, dark: Bool = false) -> CGImage? {
         let layout = IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: "main"), geometry: geometry,
                                        center: .shared, clearance: .unlimited)
         let height = max(96, layout.bodyHeight + layout.topInset + 48)
-        let content = GalleryBackdrop(geometry: geometry) {
+        let content = GalleryBackdrop(geometry: geometry, dark: dark) {
             IslandRootView(geometry: geometry, panelID: "main")
                 .environmentObject(ActivityCenter.shared)
                 .environmentObject(Preferences.shared)
@@ -130,8 +136,10 @@ final class GalleryTests: XCTestCase {
 
     private static let track = NowPlayingService.fakeTrack()
 
-    private static func nowPlaying() -> IslandActivity {
-        var a = IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(track), priority: 50)
+    private static func nowPlaying(playing: Bool = true) -> IslandActivity {
+        var info = track
+        info.isPlaying = playing
+        var a = IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(info), priority: 50)
         a.openAction = .app(bundleID: "com.apple.Music")
         return a
     }
@@ -279,6 +287,12 @@ final class GalleryTests: XCTestCase {
             Scene(name: "floating-idle", floating: true) { _ in },
 
             Scene(name: "compact-nowplaying") { c in c.upsert(nowPlaying()) },
+            Scene(name: "compact-nowplaying-paused") { c in c.upsert(nowPlaying(playing: false)) },
+            // The same states over a dark wallpaper, where the island has no contrast of its
+            // own to fall back on.
+            Scene(name: "dark-notch-idle", dark: true) { _ in },
+            Scene(name: "dark-compact-nowplaying", dark: true) { c in c.upsert(nowPlaying()) },
+            Scene(name: "dark-panel-music", dark: true, setup: panel("music") { c in c.upsert(nowPlaying()) }),
             Scene(name: "compact-timer") { c in c.upsert(timer()) },
             Scene(name: "compact-timer-bubble-nowplaying") { c in c.upsert(nowPlaying()); c.upsert(timer()) },
             Scene(name: "compact-stopwatch") { c in c.upsert(stopwatch()) },
@@ -383,16 +397,17 @@ final class GalleryTests: XCTestCase {
 /// and a plain desktop below it, so the island is judged against what it actually sits on.
 private struct GalleryBackdrop<Island: View>: View {
     let geometry: NotchGeometry
+    var dark = false
     @ViewBuilder let island: () -> Island
 
     private var menuBarHeight: CGFloat { geometry.hasPhysicalNotch ? geometry.notchHeight : 24 }
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color(red: 0.19, green: 0.36, blue: 0.62)
+            dark ? Color(white: 0.08) : Color(red: 0.19, green: 0.36, blue: 0.62)
             VStack(spacing: 0) {
                 ZStack(alignment: .top) {
-                    Color(white: 0.94)
+                    Color(white: dark ? 0.07 : 0.94)
                     HStack(spacing: 18) {
                         Image(systemName: "apple.logo")
                         Text("Finder").bold()
@@ -403,7 +418,7 @@ private struct GalleryBackdrop<Island: View>: View {
                         Text("Tue 8 Sep  4:32 PM")
                     }
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(white: 0.12))
+                    .foregroundStyle(Color(white: dark ? 0.88 : 0.12))
                     .padding(.horizontal, 16)
                     .frame(height: menuBarHeight)
                     if geometry.hasPhysicalNotch {
@@ -417,6 +432,6 @@ private struct GalleryBackdrop<Island: View>: View {
             }
             island()
         }
-        .environment(\.colorScheme, .light)
+        .environment(\.colorScheme, dark ? .dark : .light)
     }
 }
