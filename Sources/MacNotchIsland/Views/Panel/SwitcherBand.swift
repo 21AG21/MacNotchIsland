@@ -135,13 +135,33 @@ struct SwitcherBand: View {
     /// The name of whatever the pointer is on, so a row of small round glyphs says something
     /// about itself.
     private func hoverName(_ name: String) -> some View {
-        Text(name)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.55))
-            .lineLimit(1)
-            .transition(.opacity)
-            .id(name)
-            .accessibilityHidden(true)
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(1)
+            // The key that goes straight here, where somebody is already looking to find out
+            // how to get here. Only while the digits are actually the island's, and only for
+            // the nine slots a digit can reach.
+            if let digit = hoveredDigit {
+                Text(digit)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.white.opacity(0.12)))
+            }
+        }
+        .transition(.opacity)
+        .id(name)
+        .accessibilityHidden(true)
+    }
+
+    /// The digit that jumps to the slot the pointer is on, when there is one.
+    private var hoveredDigit: String? {
+        guard center.panelKeysActive, let hovered,
+              let index = center.ring.firstIndex(of: hovered), index < 9 else { return nil }
+        return String(index + 1)
     }
 
     /// The name of the slot the pointer is on. Only while the pointer is on one, and never

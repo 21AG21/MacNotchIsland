@@ -619,6 +619,14 @@ final class ActivityCenter: ObservableObject {
     /// and when a preference changes.
     func refreshPanelKeys() { keyboardControlChanged() }
 
+    /// Whether the digits and the arrows are the island's at this moment. The switcher shows
+    /// a slot's number beside its name while they are, which is where somebody is looking
+    /// when they want to know how to get to it.
+    var panelKeysActive: Bool {
+        Self.ownsPanelKeys(open: openView != nil, typing: wantsKeyboard,
+                           enabled: Preferences.shared.panelKeysEnabled)
+    }
+
     private func keyboardControlChanged() {
         HotKeyService.shared.setPanelKeysArmed(
             Self.ownsPanelKeys(open: openView != nil, typing: wantsKeyboard,
