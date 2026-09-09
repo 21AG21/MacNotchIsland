@@ -8,7 +8,8 @@
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
 #   notchctl shelf add <path>                   notchctl shelf clear
-#   notchctl home [music|today|shelf|clipboard|actions|notes|stats] | collapse | settings
+#   notchctl home [music|today|shelf|clipboard|actions|notes|stats] | collapse
+#   notchctl settings [general|island|activities|home|media|shortcuts|privacy|about]
 set -euo pipefail
 
 urlencode() {
@@ -76,8 +77,10 @@ case "$cmd" in
     esac ;;
   home)
     if [ -n "${1:-}" ]; then open_url "home/$1"; else open_url "home"; fi ;;
-  collapse|settings)
+  collapse)
     open_url "$cmd" ;;
+  settings)
+    if [ -n "${1:-}" ]; then open_url "settings/$1"; else open_url "settings"; fi ;;
   *)
     sed -n '2,12p' "$0"; exit 2 ;;
 esac

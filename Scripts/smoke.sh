@@ -12,6 +12,7 @@ mkdir -p "$OUT"
 
 swiftc -O -o "$OUT/click" Scripts/click.swift || exit 1
 swiftc -O -o "$OUT/topgap" Scripts/topgap.swift || exit 1
+swiftc -O -o "$OUT/notify" Scripts/notify.swift || exit 1
 defaults write "$ID" hasSeenWelcome -bool true
 defaults write "$ID" hapticsEnabled -bool false
 defaults write "$ID" updateChecksEnabled -bool false
@@ -106,10 +107,50 @@ run_case() {  # name, click y, extra env
   done
 }
 
+# The Settings window is the app's other face and nothing has ever looked at it: the gallery
+# renders SwiftUI into an image and this is a real NavigationSplitView in a real window, which
+# only a real screen can show. So the smoke opens a couple of its panes and photographs them.
+# Cropped around the middle of the screen, where a new window lands, and scaled down: the job
+# log is read back through an API that truncates it, and the island's own gallery is in there
+# too.
+run_settings() {
+  echo "=== case settings"
+  # The one thing that would ruin the picture: EventKit's permission sheet opens in the middle
+  # of the screen, which is exactly where a new window lands. Nothing here needs the calendar.
+  defaults write "$ID" calendarEnabled -bool false
+  "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/settings-app.log" 2>&1 &
+  local pid=$!
+  sleep 6
+  for pane in general island about; do
+    "$OUT/notify" "notchisland://settings/$pane"
+    sleep 2
+    screencapture -x "$OUT/settings-$pane.png"
+    local w h; w=$(sips -g pixelWidth "$OUT/settings-$pane.png" | awk '/pixelWidth/ {print $2}')
+    h=$(sips -g pixelHeight "$OUT/settings-$pane.png" | awk '/pixelHeight/ {print $2}')
+    local cw=1200 ch=820
+    [ "$cw" -gt "$w" ] && cw=$w
+    [ "$ch" -gt "$h" ] && ch=$h
+    sips -c "$ch" "$cw" "$OUT/settings-$pane.png" --out "$OUT/settings-$pane-crop.png" >/dev/null 2>&1
+    sips -Z 900 "$OUT/settings-$pane-crop.png" >/dev/null 2>&1
+    sips -s format jpeg -s formatOptions 50 "$OUT/settings-$pane-crop.png" --out "$OUT/settings-$pane.jpg" >/dev/null 2>&1
+    echo "--- strip settings-$pane (base64 jpeg)"
+    base64 -i "$OUT/settings-$pane.jpg" | fold -w 400
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "alive settings: yes" >> "$SUMMARY"
+  else
+    echo "alive settings: NO" >> "$SUMMARY"; DIED=1
+  fi
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  defaults delete "$ID" calendarEnabled 2>/dev/null
+  sleep 1
+}
+
 run_case floating 21
 run_case notch 16 "NOTCH_SIMULATE=1"
 # The path users take most: a track is playing, the compact island shows it, a click opens
 # the Now Playing card. Simulated notch and a made-up track, so the runner needs no player.
 run_case nowplaying 16 "NOTCH_SIMULATE=1 NOTCH_FAKE_TRACK=1"
+run_settings
 echo "--- done"
 if [ "$DIED" -ne 0 ]; then echo "SMOKE FAILED: see the failures above"; exit 1; fi

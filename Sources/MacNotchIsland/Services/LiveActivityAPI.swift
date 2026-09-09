@@ -10,7 +10,7 @@ import AppKit
 ///   notchisland://timer/pomodoro?work=25&rest=5&cycles=4&long=15
 ///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
-///   notchisland://home
+///   notchisland://home                            notchisland://settings/island
 final class LiveActivityAPI {
     static let shared = LiveActivityAPI()
     static let notificationName = Notification.Name("com.macnotchisland.api")
@@ -120,7 +120,12 @@ final class LiveActivityAPI {
             }
         case ("collapse", _):
             center.collapse()
-        case ("settings", _):
+        case ("settings", let pane):
+            // notchisland://settings, notchisland://settings/island, notchisland://settings?pane=about
+            let wanted = (q["pane"] ?? pane).lowercased()
+            if let section = SettingsSection(rawValue: wanted) {
+                UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
+            }
             NSApp.activate(ignoringOtherApps: true)
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         default:
