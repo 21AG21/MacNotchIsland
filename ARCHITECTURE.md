@@ -86,8 +86,8 @@ System Events) and `BrightnessControl`. Each one costs nothing while the panel i
 `Views/IslandBodyView.swift` picks the idle, compact, card, panel or shelf body, draws the
 shape and applies the shared transition. Compact leading / trailing content lives in
 `CompactContentView`. The panel is under `Views/Panel/`: `PanelView` stacks the
-`SwitcherBand` (activities left of the cutout, sections right of it, a close button when
-pinned), one section (`MusicSectionView`, `TodaySectionView`, the rest in `Sections.swift`)
+`SwitcherBand` (a close button at the leading edge, the activities after it, the sections
+right of the cutout), one section (`MusicSectionView`, `TodaySectionView`, the rest in `Sections.swift`)
 or one activity's card content, and the `ControlRail`; `AlertBanner` draws a transient alert
 over an open panel. Every panel view shares one content identity (`IslandPresentation.contentID`),
 so stepping between sections moves the section and leaves the band and the rail mounted.
