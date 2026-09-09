@@ -26,9 +26,11 @@ struct ShelfAnchorView: NSViewRepresentable {
 /// Horizontal strip of shelf items with thumbnails. Click to select (⌘ toggles, ⇧ extends),
 /// right-click for the actions, drag items out to any app.
 struct ShelfStripView: View {
-    /// What the strip asks for in the narrow Home column; in a section it takes the whole
-    /// body, so the drop zone is the whole of what the pointer sees as the shelf.
-    static let stripHeight: CGFloat = 96
+    /// The least the strip will take: a tile and the air around it. In a section it takes the
+    /// whole body instead, so the drop zone is the whole of what the pointer sees as the shelf.
+    static var stripHeight: CGFloat { ShelfItemView.height + tilePadding * 2 }
+    /// Air above and below the tiles: what the selection ring needs, and no more.
+    static let tilePadding: CGFloat = 3
 
     var isDropTarget: Bool
     /// The full-width shelf panel. Home passes the default and gets the narrow column.
@@ -155,9 +157,8 @@ struct ShelfStripView: View {
                 }
             }
             // No inset of its own: the first tile lines up with the section's header and with
-            // every other section's content. Three points of air above and below is what the
-            // selection ring needs, and no more.
-            .padding(.vertical, 3)
+            // every other section's content.
+            .padding(.vertical, Self.tilePadding)
             // A dropped file pops into place and the rest shuffle over; a removed one shrinks away.
             .animation(IslandMotion.content, value: shelf.items)
         }
@@ -211,8 +212,12 @@ struct ShelfItemView: View {
     /// The width of a tile: the thumbnail with room beside it for a name worth reading. The
     /// picture hangs from the column's leading edge, not its middle, so the first tile starts
     /// exactly where the header above it and the rail below it start.
-    static let column: CGFloat = 78
-    static let thumbnailSize: CGFloat = 56
+    ///
+    /// 72 pt of picture is what fills the section's body, and a shelf is for seeing what you
+    /// parked: at 56 the tiles used three quarters of the room and left a band of black under
+    /// them, and a screenshot was too small to tell from the next screenshot.
+    static let column: CGFloat = 92
+    static let thumbnailSize: CGFloat = 72
     /// The same gap the window tiles put between a picture and its name.
     static let labelGap: CGFloat = 4
     static let labelHeight: CGFloat = 18

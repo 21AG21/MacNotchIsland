@@ -122,7 +122,10 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertGreaterThan(WindowsSectionView.stripHeight, SectionMetrics.bodyHeight - 8,
                              "a strip well short of the body leaves a band of black under it")
 
-        XCTAssertLessThanOrEqual(ShelfItemView.height, SectionMetrics.bodyHeight)
+        XCTAssertLessThanOrEqual(ShelfStripView.stripHeight, SectionMetrics.bodyHeight,
+                                 "the shelf's tiles and the air around them must fit the body")
+        XCTAssertGreaterThan(ShelfStripView.stripHeight, SectionMetrics.bodyHeight - 16,
+                             "a shelf well short of the body wastes the room a preview wants")
 
         // Header, the buttons, the hairline and the presets, with room left for the gap
         // above and below the rule.
