@@ -17,6 +17,7 @@ struct IslandMenu: View {
     @ObservedObject private var keepAwake = KeepAwake.shared
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var volumes = VolumeMonitor.shared
 
     var body: some View {
         if let activity, Self.hasCommands(activity.content) {
@@ -27,6 +28,10 @@ struct IslandMenu: View {
         if !shelf.items.isEmpty {
             Button("Clear Shelf") { ShelfStore.shared.clear() }
         }
+        // Getting a drive out safely, at any moment rather than only while its card happens
+        // to be up. One disk is a command; several are a list, because a submenu holding one
+        // thing is a click somebody had to make for nothing.
+        ejectable
         Divider()
         // The same pair of states the menu bar shows, said the same way.
         if Self.isPaused(until: prefs.pausedUntil) {
@@ -88,6 +93,23 @@ struct IslandMenu: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// Eject, for whatever is attached. Nothing at all when nothing is.
+    @ViewBuilder
+    private var ejectable: some View {
+        let disks = volumes.volumes.filter(\.isEjectable)
+        if disks.count == 1, let disk = disks.first {
+            Button("Eject \(disk.name)") { VolumeMonitor.shared.eject(disk) }
+        } else if disks.count > 1 {
+            Menu("Eject") {
+                ForEach(disks, id: \.path) { disk in
+                    Button(disk.name) { VolumeMonitor.shared.eject(disk) }
+                }
+                Divider()
+                Button("Eject All") { disks.forEach { VolumeMonitor.shared.eject($0) } }
+            }
         }
     }
 

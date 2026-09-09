@@ -6,6 +6,14 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **A QR code in a screenshot is a link you can press.** The same look that reads the words in
+  a capture now finds a code in it, and the card offers to open where it goes — with the host
+  written on the line under the title, because a button that opens a stranger's link without
+  saying where it goes is a button nobody should press. Only `http` and `https`: a `tel:`, a
+  `mailto:` or a configuration profile is not something to hand a click to.
+- **Eject a disk from the island's menu.** Right-clicking the island offers Eject for whatever
+  is attached — the disk by name where there is one, a list where there are several, with Eject
+  All at the foot of it — so getting a drive out safely no longer depends on its card being up.
 - **Pick out several windows and lay them out together.** Command-click window tiles the way
   you would rows in Finder — each one gets a tick and an accent border — and the header offers
   to tile them: two side by side, three across, four in quarters, and beyond that a grid as

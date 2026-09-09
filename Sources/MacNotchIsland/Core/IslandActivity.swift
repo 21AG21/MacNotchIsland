@@ -228,6 +228,8 @@ struct CaptureState: Equatable {
     /// The text Vision found in it, once it has looked. Nil while it is still looking, and
     /// empty where there was nothing to find.
     var text: String? = nil
+    /// Where a QR code in the picture points, when there is one and it points at the web.
+    var link: URL? = nil
 
     var url: URL { URL(fileURLWithPath: path) }
     var name: String { (path as NSString).lastPathComponent }

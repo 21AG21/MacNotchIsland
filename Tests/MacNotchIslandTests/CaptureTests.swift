@@ -4,8 +4,10 @@ import XCTest
 /// The capture card: what it says, and how the words it finds are put together.
 final class CaptureTests: XCTestCase {
     private func capture(_ path: String = "/Users/you/Desktop/Screenshot 2026-09-09 at 21.14.02.png",
-                         recording: Bool = false, onShelf: Bool = true, text: String? = nil) -> CaptureState {
-        CaptureState(path: path, isRecording: recording, thumbnail: nil, onShelf: onShelf, text: text)
+                         recording: Bool = false, onShelf: Bool = true, text: String? = nil,
+                         link: URL? = nil) -> CaptureState {
+        CaptureState(path: path, isRecording: recording, thumbnail: nil, onShelf: onShelf,
+                     text: text, link: link)
     }
 
     func testACaptureIsNamedByItsFileAndItsKind() {
@@ -35,12 +37,42 @@ final class CaptureTests: XCTestCase {
         XCTAssertTrue(capture(text: "sudo launchctl list").hasText)
     }
 
+    func testAReadingWithNothingInItIsTheSameAsNotHavingLooked() {
+        XCTAssertEqual(CaptureText.Reading(), CaptureText.Reading(text: "", link: nil))
+    }
+
     func testTheWordsArePutBackTogetherTheWayAPersonWouldPasteThem() {
         // In reading order, one line each, with the empty ones dropped.
         XCTAssertEqual(CaptureText.joined(["  Notch Island  ", "", "   ", "Version 1.0"]),
                        "Notch Island\nVersion 1.0")
         XCTAssertEqual(CaptureText.joined([]), "")
         XCTAssertEqual(CaptureText.joined(["  "]), "")
+    }
+
+    // MARK: - The QR code in the picture
+
+    func testAWebAddressInAQRCodeIsOffered() {
+        XCTAssertEqual(CaptureText.link(in: ["https://notch-island.app/help"])?.absoluteString,
+                       "https://notch-island.app/help")
+        XCTAssertEqual(CaptureText.link(in: ["  http://example.com  "])?.host(), "example.com")
+    }
+
+    func testOnlyTheWebIsOffered() {
+        // A code in a screenshot is a stranger's, and the one thing the island will offer to
+        // do with it is the one thing a browser would do anyway.
+        XCTAssertNil(CaptureText.link(in: ["tel:+445550100"]))
+        XCTAssertNil(CaptureText.link(in: ["mailto:someone@example.com"]))
+        XCTAssertNil(CaptureText.link(in: ["notchisland://settings/about"]))
+        XCTAssertNil(CaptureText.link(in: ["file:///etc/passwd"]))
+        XCTAssertNil(CaptureText.link(in: ["WIFI:S:Cafe;T:WPA;P:hunter2;;"]))
+        XCTAssertNil(CaptureText.link(in: ["just some words"]), "a code carrying text is not a link")
+        XCTAssertNil(CaptureText.link(in: ["https://"]), "nor is a scheme with nowhere to go")
+        XCTAssertNil(CaptureText.link(in: []))
+    }
+
+    func testTheFirstUsableCodeWins() {
+        let found = CaptureText.link(in: ["tel:+445550100", "https://notch-island.app", "https://second.example"])
+        XCTAssertEqual(found?.host(), "notch-island.app")
     }
 
     func testACaptureIsNeverHeldBackByAFocus() {
