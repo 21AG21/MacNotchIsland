@@ -119,7 +119,7 @@ struct WelcomeView: View {
                 choice("doc.on.clipboard", "Clipboard", "Recent copies, pinned ones first.", $prefs.clipboardEnabled)
                 choice("note.text", "Notes", "A scratchpad that keeps whatever you type.", $prefs.notesEnabled)
                 choice("gauge.with.dots.needle.bottom.50percent", "Stats", "Processor, memory, network and battery health.", $prefs.statsEnabled)
-                choice("speaker.wave.2", "Replace the volume and brightness bezel", "The island becomes the only heads-up display. Asks for Accessibility access.", $prefs.hudReplacementEnabled)
+                choice("speaker.wave.2", "Volume and brightness", "The island answers the media keys instead of the system bezel, and says which headphones the sound is going to. Asks for Accessibility access; left off, macOS keeps its own.", $prefs.hudReplacementEnabled)
             }
             .frame(maxWidth: 420, alignment: .leading)
             .padding(.top, 28)

@@ -1,8 +1,29 @@
+import AppKit
 import SwiftUI
 
 /// "Activities": every live thing the island is allowed to show.
 struct ActivitiesPane: View {
     @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var hud = SystemHUDReplacement.shared
+
+    /// Why the island is or is not answering the volume and brightness keys.
+    ///
+    /// It only ever shows one of these at a time, because two heads-up displays for one
+    /// keypress is the thing this setting exists to prevent: unless the island has actually
+    /// taken the keys over, macOS is drawing its own bezel and the island stays quiet.
+    private var hudFooter: String {
+        guard prefs.hudReplacementEnabled else {
+            return "macOS draws its own bezel for these, so the island leaves them alone rather than "
+                 + "putting a second one beside it. Turn this on and the island answers the media keys "
+                 + "itself — and the volume display names the headphones or speaker the sound is going to."
+        }
+        guard hud.isActive else {
+            return "Waiting for Accessibility access. Until it is granted the media keys still reach macOS, "
+                 + "so the island stays quiet rather than showing a bezel next to the system's."
+        }
+        return "Hold Shift and Option for quarter steps. The keyboard backlight keys are left to macOS, "
+             + "which has no public API for them."
+    }
 
     /// The choices offered for how long a paused track stays in the island, in minutes.
     private static let keepPausedOptions: [Double] = [0, 1, 5, 10, 15, 30]
@@ -44,8 +65,6 @@ struct ActivitiesPane: View {
                 Toggle("Battery and charging", isOn: $prefs.batteryEnabled)
                 Toggle("Bluetooth devices", isOn: $prefs.bluetoothEnabled)
                     .help("AirPods and other Bluetooth devices, with their battery level, as they connect.")
-                Toggle("Volume and silent mode", isOn: $prefs.volumeHUDEnabled)
-                Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
                 Toggle("Low Power Mode", isOn: $prefs.lowPowerEnabled)
                 Toggle("Caps Lock", isOn: $prefs.capsLockEnabled)
                     .help("A brief pill when Caps Lock turns on or off.")
@@ -56,10 +75,23 @@ struct ActivitiesPane: View {
             }
 
             Section {
-                Toggle("Replace the system volume and brightness bezel", isOn: $prefs.hudReplacementEnabled)
-                    .help("The island becomes the only heads-up display for volume, mute and brightness.")
+                Toggle("Show volume and brightness in the island", isOn: $prefs.hudReplacementEnabled)
+                    .help("The island takes the media keys over and becomes the only heads-up display for volume, mute and brightness.")
+                Toggle("Volume and silent mode", isOn: $prefs.volumeHUDEnabled)
+                    .disabled(!prefs.hudReplacementEnabled)
+                Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
+                    .disabled(!prefs.hudReplacementEnabled)
+                if prefs.hudReplacementEnabled && !hud.isActive {
+                    Button("Open Accessibility Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+            } header: {
+                Text("Volume and brightness")
             } footer: {
-                Text("macOS asks for Accessibility access the first time. Hold Shift and Option for quarter steps; the keyboard backlight keys are left to macOS.")
+                Text(hudFooter)
             }
 
             Section {

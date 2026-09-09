@@ -154,6 +154,15 @@ struct LevelHUD: Equatable {
     var kind: Kind
     var level: Double
     var isMuted: Bool = false
+    /// Where the sound is going, when it is not the Mac's own speakers.
+    ///
+    /// The system's bezel never says, and it is the one thing worth knowing when the volume
+    /// keys seem to be doing nothing — because the sound is in a pair of headphones on the
+    /// desk. Nil for brightness, and nil for the built-in speakers, where naming the obvious
+    /// would only be clutter.
+    var device: String? = nil
+    /// The glyph for that device: the AirPods, the headphones, the display it is going out to.
+    var deviceSymbol: String? = nil
 }
 
 struct SilentState: Equatable {

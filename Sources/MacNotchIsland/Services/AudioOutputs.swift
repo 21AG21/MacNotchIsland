@@ -3,6 +3,21 @@ import Combine
 import CoreAudio
 import Foundation
 
+extension LevelHUD {
+    /// A volume HUD that also says which output it is for.
+    ///
+    /// Named only when it is not the Mac's own speakers: pointing at the built-in speakers
+    /// every time you touch the volume is clutter, and pointing at the AirPods is the whole
+    /// point — it is the answer to "why is nothing getting louder".
+    static func volume(level: Double, isMuted: Bool, output: AudioOutputs.Device?) -> LevelHUD {
+        var hud = LevelHUD(kind: .volume, level: level, isMuted: isMuted)
+        guard let output, output.transport != kAudioDeviceTransportTypeBuiltIn else { return hud }
+        hud.device = output.shortName
+        hud.deviceSymbol = output.symbol
+        return hud
+    }
+}
+
 /// The sound output as the Now Playing card needs it: which device is playing, which others
 /// could, and the system volume, all live. CoreAudio listeners run only while a view shows
 /// them; picking a device or moving the slider writes straight back to CoreAudio, the same
@@ -170,6 +185,20 @@ final class AudioOutputs: ObservableObject {
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr else { return 0 }
         return Int(size) / MemoryLayout<AudioStreamID>.size
+    }
+
+    /// The output the Mac is playing through right now, read straight from CoreAudio.
+    ///
+    /// The published `current` only exists while a view is watching, and the volume HUD fires
+    /// whether or not one is; this asks the two questions it needs and nothing else.
+    static func currentOutput() -> Device? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
+              id != 0 else { return nil }
+        return Device(id: id, name: name(of: id), transport: transport(of: id))
     }
 
     private static func name(of device: AudioDeviceID) -> String {

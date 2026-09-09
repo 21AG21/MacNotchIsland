@@ -71,16 +71,20 @@ final class AudioMonitor {
     // MARK: Events
 
     private func volumeChanged() {
-        guard Preferences.shared.volumeHUDEnabled, let v = readVolume() else { return }
+        // Only once the island has actually taken the media keys over. Otherwise macOS is
+        // already drawing its bezel for this, and a second one beside it is pure noise.
+        guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive,
+              !ActivityCenter.shared.controlDragging, let v = readVolume() else { return }
         let muted = readMute() ?? false
         guard abs(v - lastVolume) > 0.001 else { return }
         lastVolume = v
-        let hud = LevelHUD(kind: .volume, level: Double(v), isMuted: muted)
+        let hud = LevelHUD.volume(level: Double(v), isMuted: muted, output: AudioOutputs.currentOutput())
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)
     }
 
     private func muteChanged() {
-        guard Preferences.shared.volumeHUDEnabled, let muted = readMute() else { return }
+        guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive,
+              let muted = readMute() else { return }
         guard muted != lastMute else { return }
         lastMute = muted
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: muted)), priority: 85)

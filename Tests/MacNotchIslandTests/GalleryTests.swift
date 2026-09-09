@@ -196,8 +196,10 @@ final class GalleryTests: XCTestCase {
                        content: .focus(FocusState(name: "Do Not Disturb", symbol: "moon.fill", isOn: true, tint: "indigo")), priority: 85)
     }
 
-    private static func hud(_ kind: LevelHUD.Kind, _ level: Double) -> IslandActivity {
-        IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: kind, level: level)), priority: 85)
+    private static func hud(_ kind: LevelHUD.Kind, _ level: Double, device: String? = nil, symbol: String? = nil) -> IslandActivity {
+        IslandActivity(id: "hud", kind: .hud,
+                       content: .hud(LevelHUD(kind: kind, level: level, device: device, deviceSymbol: symbol)),
+                       priority: 85)
     }
 
     private static func shelf(count: Int) -> IslandActivity {
@@ -286,6 +288,10 @@ final class GalleryTests: XCTestCase {
             Scene(name: "alert-focus") { c in c.showAlert(focus(), duration: 60) },
             Scene(name: "alert-volume") { c in c.showAlert(hud(.volume, 0.6), duration: 60) },
             Scene(name: "alert-brightness") { c in c.showAlert(hud(.brightness, 0.4), duration: 60) },
+            // The volume display when the sound is somewhere worth naming.
+            Scene(name: "alert-volume-airpods") { c in
+                c.showAlert(hud(.volume, 0.35, device: "AirPods Pro", symbol: "airpodspro"), duration: 60)
+            },
             Scene(name: "alert-silent") { c in
                 c.showAlert(IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: true)), priority: 85), duration: 60)
             },
@@ -338,7 +344,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-banner-volume") { c in
                 c.upsert(nowPlaying())
                 c.open(.home(tab: "music"))
-                c.showAlert(hud(.volume, 0.6), duration: 60)
+                c.showAlert(hud(.volume, 0.6, device: "AirPods Pro", symbol: "airpodspro"), duration: 60)
             },
             Scene(name: "panel-banner-airpods") { c in
                 c.upsert(nowPlaying())

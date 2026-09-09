@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 import CoreGraphics
 
 /// Opt-in replacement of the system volume / brightness bezel.
@@ -13,6 +14,27 @@ import CoreGraphics
 /// The tap needs Accessibility trust. Without it `CGEvent.tapCreate` returns nil, so we
 /// prompt once and then poll until the user grants it, at which point the tap is installed.
 /// Everything here fails soft: if anything goes wrong the system bezel simply stays.
+/// Whether the island is really standing in for the system's volume and brightness bezel.
+///
+/// True only while the event tap is installed and carrying the media keys. It matters because
+/// the island must not draw a bezel of its own beside one macOS is already drawing: two
+/// heads-up displays for one keypress is worse than either alone, and it is the first thing
+/// anyone notices. While this is false the island says nothing about volume or brightness and
+/// leaves the job to the system.
+final class SystemHUDReplacement: ObservableObject {
+    static let shared = SystemHUDReplacement()
+
+    /// The tap is up, so every media key reaches the island and none reaches OSDUIHelper.
+    @Published private(set) var isActive = false
+
+    private init() {}
+
+    func set(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+    }
+}
+
 final class MediaKeyInterceptor {
     /// Key codes from IOKit's `ev_keymap.h` (`NX_KEYTYPE_*`), redeclared so we do not
     /// depend on a private header being visible to Swift.
@@ -80,6 +102,7 @@ final class MediaKeyInterceptor {
     func stop() {
         guard running else { return }
         running = false
+        SystemHUDReplacement.shared.set(false)
         trustTimer?.invalidate()
         trustTimer = nil
         lastVolume = nil
@@ -159,6 +182,7 @@ final class MediaKeyInterceptor {
         tapPort = port
         lock.unlock()
         CGEvent.tapEnable(tap: port, enable: true)
+        SystemHUDReplacement.shared.set(true)
 
         // The tap runs on its own thread: a synchronous tap on a busy main thread would
         // delay every key press system-wide and get itself disabled for timing out.
@@ -305,7 +329,7 @@ final class MediaKeyInterceptor {
     /// duplicate simply replaces itself.
     private func postVolumeHUD(level: Float, muted: Bool) {
         guard Preferences.shared.volumeHUDEnabled else { return }
-        let hud = LevelHUD(kind: .volume, level: Double(level), isMuted: muted)
+        let hud = LevelHUD.volume(level: Double(level), isMuted: muted, output: AudioOutputs.currentOutput())
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85),
                                         duration: 1.5, haptic: false)
     }

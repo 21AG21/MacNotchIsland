@@ -115,7 +115,11 @@ final class BrightnessMonitor {
     }
 
     private func post(_ value: Float) {
-        guard Preferences.shared.brightnessHUDEnabled else { return }
+        // As with volume: silent unless the island is the one answering the keys.
+        // And not while the rail's own slider is under the finger: a banner covering the
+        // control you are holding is the same duplicated feedback in miniature.
+        guard Preferences.shared.brightnessHUDEnabled, SystemHUDReplacement.shared.isActive,
+              !ActivityCenter.shared.controlDragging else { return }
         let hud = LevelHUD(kind: .brightness, level: Double(value))
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)
     }

@@ -18,12 +18,22 @@ struct HUDExpandedView: View {
                 }
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
-                LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
-                    .frame(height: 4)
-                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
+                        .frame(height: 4)
+                    if let device = state.device {
+                        Text(device)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityHidden(true)
                 Text(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%")
                     .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.digits, value: state.level)
                     .lineLimit(1)
                     .frame(width: 62, alignment: .trailing)
             }
@@ -31,8 +41,15 @@ struct HUDExpandedView: View {
             .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")
-            .accessibilityValue(state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent")
+            .accessibilityValue(Self.spoken(state))
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
+    }
+
+    /// "62 percent, AirPods Pro" — the output is worth saying out loud too.
+    private static func spoken(_ state: LevelHUD) -> String {
+        var parts = [state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded())) percent"]
+        if let device = state.device { parts.append(device) }
+        return parts.joined(separator: ", ")
     }
 }
