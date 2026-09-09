@@ -221,9 +221,10 @@ struct StatsView: View {
     // MARK: - Furniture
 
     /// One column of the row: the name at the top, the number under it, and whatever draws
-    /// the shape of that number - a trace, a bar, a line of detail - sitting on the section's
-    /// floor. Pinning the footer down is what makes five columns of unequal content read as
-    /// one row, and fills the section rather than leaving 50 pt of black beneath it.
+    /// the shape of that number — a trace, a bar, a line of detail — in a slot of one size
+    /// pinned to the section's floor and filled from the top. Pinning the slot is what makes
+    /// five columns of unequal content read as one row rather than as five that each end
+    /// wherever their own content happens to.
     private func cell<Value: View, Footer: View>(label: String,
                                                  @ViewBuilder value: () -> Value,
                                                  @ViewBuilder footer: () -> Footer) -> some View {
