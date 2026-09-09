@@ -249,7 +249,14 @@ final class HotKeyService: ObservableObject {
         case .panelRight: _ = center.step(forward: true, wrap: false)
         case .volumeUp: GestureRouter.shared.nudgeVolume(up: true)
         case .volumeDown: GestureRouter.shared.nudgeVolume(up: false)
-        case .playPause: NowPlayingService.shared.togglePlayPause()
+        case .playPause:
+            // On the shelf, Space is Quick Look — where every Mac has taught people to expect
+            // it. Anywhere else it plays and pauses.
+            if center.isShowingShelf, !ShelfStore.shared.items.isEmpty {
+                ShelfQuickLook.shared.show(ShelfStore.shared.urls)
+            } else {
+                NowPlayingService.shared.togglePlayPause()
+            }
         // The digits, which are the only slots left.
         default:
             if let index = slot.switcherIndex { center.selectSlot(index) }

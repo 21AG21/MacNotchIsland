@@ -47,7 +47,8 @@ the unreleased section is what the next tag will ship.
   the keyboard's version of a scroll on the island. The island never takes focus to do it: the
   keys are claimed from the system only while the panel is open, and handed straight back. It
   claims nothing at all while Notes or the clipboard search is showing, where every key is
-  yours to type, and there is a switch for it in Settings under Island. Escape now closes the
+  yours to type, and there is a switch for it in Settings under Island. On the shelf, Space is
+  Quick Look — where every Mac has taught people to expect it — rather than play and pause. Escape now closes the
   panel whether or not the summon shortcut is switched on.
 - `notchctl stopwatch [lap|stop|reset]`, `notchctl timer pomodoro` and `notchctl home
   windows` — all three have been in the URL scheme since the features themselves were, and

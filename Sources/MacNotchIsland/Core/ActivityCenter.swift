@@ -599,6 +599,13 @@ final class ActivityCenter: ObservableObject {
         return true
     }
 
+    /// Whether the panel is open on the Shelf section at this moment. Space means Quick Look
+    /// there, the way it does in Finder, rather than play and pause.
+    var isShowingShelf: Bool {
+        guard case .home(let tab)? = currentView else { return false }
+        return HomeSection(rawValue: tab) == .shelf
+    }
+
     /// Whether the island owns the bare arrow keys, the digits and Space at this moment.
     ///
     /// Only while the panel is pinned open: a peek follows the pointer and takes nothing from

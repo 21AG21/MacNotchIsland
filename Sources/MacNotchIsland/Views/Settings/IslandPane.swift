@@ -36,12 +36,13 @@ struct IslandPane: View {
                     LabeledContent("Step between views", value: "← and →")
                     LabeledContent("Go straight to a view", value: "1 to 9")
                     LabeledContent("Play or pause", value: "Space")
+                    LabeledContent("Quick Look the shelf", value: "Space")
                     LabeledContent("Volume", value: "↑ and ↓")
                 }
             } header: {
                 Text("While the panel is open")
             } footer: {
-                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes or the clipboard search is showing, where every key is yours to type. The digits count the switcher's slots from the left.")
+                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes or the clipboard search is showing, where every key is yours to type. The digits count the switcher's slots from the left, and Space is Quick Look while the shelf is the section on screen.")
             }
 
             Section {

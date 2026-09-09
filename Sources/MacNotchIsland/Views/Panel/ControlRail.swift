@@ -33,7 +33,7 @@ struct ControlRail: View {
             // Beside the volume, not among the toggles: where the sound is going belongs with
             // how loud it is. Only when there is a choice to make — one output is not a
             // picker, it is a label nobody asked for.
-            if outputs.devices.count > 1 { outputPicker }
+            if outputs.devices.count > 1 || RenderMode.isGallery { outputPicker }
             if hasBrightness { brightnessControl }
             Spacer(minLength: 8)
             if toggles.hasWiFi {

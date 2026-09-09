@@ -40,6 +40,15 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: true, typing: false, enabled: false))
     }
 
+    func testSpaceIsQuickLookOnlyWhileTheShelfIsTheSectionOnScreen() {
+        center.open(.home(tab: HomeSection.shelf.rawValue))
+        XCTAssertTrue(center.isShowingShelf)
+        center.open(.home(tab: HomeSection.music.rawValue))
+        XCTAssertFalse(center.isShowingShelf)
+        center.collapse(reason: "test")
+        XCTAssertFalse(center.isShowingShelf, "nothing is open, so nothing is the shelf")
+    }
+
     func testADigitGoesStraightToThatSlotOfTheSwitcher() {
         center.showHome()
         let ring = center.ring
