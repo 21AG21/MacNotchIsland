@@ -24,6 +24,41 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.presentation, .idle)
     }
 
+    // MARK: - The keys the panel answers
+
+    func testThePanelOwnsItsKeysOnlyWhileItIsPinnedOpen() {
+        // A peek follows the pointer and takes nothing from the keyboard.
+        XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: false, typing: false, enabled: true))
+        XCTAssertTrue(ActivityCenter.ownsPanelKeys(open: true, typing: false, enabled: true))
+    }
+
+    func testNothingTheIslandClaimsSitsBetweenSomebodyAndTheirText() {
+        XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: true, typing: true, enabled: true))
+    }
+
+    func testTheKeysCanBeSwitchedOff() {
+        XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: true, typing: false, enabled: false))
+    }
+
+    func testADigitGoesStraightToThatSlotOfTheSwitcher() {
+        center.showHome()
+        let ring = center.ring
+        XCTAssertGreaterThan(ring.count, 2, "the ring needs a few slots for this to mean anything")
+        XCTAssertTrue(center.selectSlot(2))
+        XCTAssertEqual(center.currentView, ring[2])
+        XCTAssertTrue(center.selectSlot(0))
+        XCTAssertEqual(center.currentView, ring[0])
+    }
+
+    func testADigitPastTheEndOfTheSwitcherDoesNothing() {
+        center.showHome()
+        let ring = center.ring
+        let before = center.currentView
+        XCTAssertFalse(center.selectSlot(ring.count), "there is no slot there to land on")
+        XCTAssertFalse(center.selectSlot(-1))
+        XCTAssertEqual(center.currentView, before)
+    }
+
     func testLiveActivityShowsCompact() {
         center.upsert(custom("a"))
         guard case .compact(let a, let bubble) = center.presentation else { return XCTFail("expected compact") }

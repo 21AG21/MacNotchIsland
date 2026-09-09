@@ -55,6 +55,9 @@ final class Preferences: ObservableObject {
     @Published var sneakPeekEnabled: Bool { didSet { d.set(sneakPeekEnabled, forKey: "sneakPeekEnabled") } }
     @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
     @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
+    /// Whether the panel answers the bare arrow keys, the digits, and Space while it is
+    /// pinned open. Never while a section that is typed into is showing.
+    @Published var panelKeysEnabled: Bool { didSet { d.set(panelKeysEnabled, forKey: "panelKeysEnabled") } }
     /// Only widen the compact island into menu bar space that is actually free.
     @Published var keepClearOfMenuBar: Bool { didSet { d.set(keepClearOfMenuBar, forKey: "keepClearOfMenuBar") } }
     @Published var weatherEnabled: Bool { didSet { d.set(weatherEnabled, forKey: "weatherEnabled") } }
@@ -137,6 +140,7 @@ final class Preferences: ObservableObject {
         sneakPeekEnabled = bool("sneakPeekEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)
         gesturesEnabled = bool("gesturesEnabled", true)
+        panelKeysEnabled = bool("panelKeysEnabled", true)
         keepClearOfMenuBar = bool("keepClearOfMenuBar", true)
         weatherEnabled = bool("weatherEnabled", false)
         hideInFullscreen = bool("hideInFullscreen", false)

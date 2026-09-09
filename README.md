@@ -29,6 +29,7 @@ and the same content layout as iOS.
 | — | One panel for everything. A switcher beside the notch holds the live activities on the left and the sections on the right: Now Playing, Today (events, reminders, weather), Windows, the shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history with pins and search, actions that run your Shortcuts, a notes scratchpad, and system stats. Under every section a control rail: volume, light/dark, Keep Awake and Settings always; brightness, Wi-Fi and Bluetooth where the Mac has them; the camera mirror and AirDrop for the shelf when there is something to point them at. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
 | — | Windows: every open window as a live tile. Click one to bring it forward; the zones on it send it to a half of the screen, fill the screen, centre it or close it. Pictures need Screen Recording, moving needs Accessibility; without them the windows are still listed by app. |
 | — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
+| — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a slot of the switcher, Space plays and pauses, ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes or the clipboard search is showing. |
 | — | A shelf that takes anything: files, a picture, a link or selected text dragged onto the notch. Drag the whole selection back out in one go, Quick Look any of it, AirDrop or share it. |
 | — | Clipboard history that pastes: pick an item and it goes straight into whatever you were typing. |
 | — | Keep Awake from the control rail or the menu bar: the Mac and its display stay on until you switch it off again. |
@@ -64,7 +65,8 @@ make dmg        # builds a drag-to-Applications disk image
 
 The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the
 demo menu, and Quit. Turn on "Launch at login" in Settings once you're happy with it.
-Press ⌃⌥Space anywhere to summon the island.
+Press ⌃⌥Space anywhere to summon the island; with it open, the arrows, the digits and Space
+drive it without a modifier.
 
 `Scripts/make-dmg.sh` builds a drag-to-Applications disk image; pushing a `v*` tag runs the
 Release workflow, which attaches the DMG and a zip to a GitHub Release.

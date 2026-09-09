@@ -21,11 +21,34 @@ final class HotKeyService: ObservableObject {
     static let defaultKeyCode = kVK_Space
     static let defaultModifiers = controlKey | optionKey
 
-    private enum Slot: UInt32 { case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6 }
+    private enum Slot: UInt32 {
+        case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6
+        /// Claimed only while the panel is pinned open on a section nobody types into.
+        case panelLeft = 7, panelRight = 8, volumeUp = 9, volumeDown = 10, playPause = 11
+        case slot1 = 21, slot2 = 22, slot3 = 23, slot4 = 24, slot5 = 25
+        case slot6 = 26, slot7 = 27, slot8 = 28, slot9 = 29
+
+        /// The switcher slot a digit key stands for, counting from zero.
+        var switcherIndex: Int? {
+            guard (21...29).contains(rawValue) else { return nil }
+            return Int(rawValue) - 21
+        }
+    }
+
+    /// Every slot the panel claims while it is open, so they are released together.
+    private static let panelSlots: [Slot] =
+        [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause]
+        + (0..<9).compactMap { Slot(rawValue: UInt32(21 + $0)) }
+
+    /// The ANSI digits 1 to 9, in that order. Their virtual key codes are not consecutive,
+    /// which is why they are written out rather than counted.
+    private static let digitKeyCodes = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
+                                        kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
 
     private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
     private var escapeArmed = false
+    private var panelKeysArmed = false
     private var cancellables = Set<AnyCancellable>()
     private static let signature: OSType = 0x4E4F5443 // "NOTC"
 
@@ -71,7 +94,10 @@ final class HotKeyService: ObservableObject {
     private func observePreferences() {
         guard cancellables.isEmpty else { return }
         let prefs = Preferences.shared
-        Publishers.CombineLatest(prefs.$hotkeyKeyCode, prefs.$hotkeyModifiers)
+        // The switch as well as the combination: with the panel's own keys on, this service
+        // keeps running after the shortcut is switched off, so something has to take the
+        // shortcut back.
+        Publishers.CombineLatest3(prefs.$hotkeyKeyCode, prefs.$hotkeyModifiers, prefs.$hotkeyEnabled)
             .dropFirst()
             .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.register() }
@@ -89,19 +115,27 @@ final class HotKeyService: ObservableObject {
     private func register() {
         guard handlerRef != nil else { return }
         unregister()
-        let modifiers = Self.currentModifiers
-        registrationFailed = !register(.toggle, keyCode: Self.currentKeyCode, modifiers: modifiers)
-        // Tab with the same modifiers cycles views; adding Shift reverses. When the main combo
-        // already holds Shift the two coincide, and only the forward step registers.
-        register(.next, keyCode: kVK_Tab, modifiers: modifiers)
-        if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
+        if Preferences.shared.hotkeyEnabled {
+            let modifiers = Self.currentModifiers
+            registrationFailed = !register(.toggle, keyCode: Self.currentKeyCode, modifiers: modifiers)
+            // Tab with the same modifiers cycles views; adding Shift reverses. When the main
+            // combo already holds Shift the two coincide, and only the forward step registers.
+            register(.next, keyCode: kVK_Tab, modifiers: modifiers)
+            if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
+        } else {
+            // Nothing was asked of the system, so nothing was refused.
+            registrationFailed = false
+        }
         if escapeArmed { registerWhileOpen() }
+        if panelKeysArmed { registerPanelKeys() }
     }
 
     /// Escape, and the main combo's modifiers with the arrow keys, are claimed only while the
     /// island has something open: the arrows step between sections the way a swipe does.
     private func registerWhileOpen() {
+        // Escape belongs to whatever is open, not to the shortcut that may have opened it.
         register(.escape, keyCode: kVK_Escape, modifiers: 0)
+        guard Preferences.shared.hotkeyEnabled else { return }
         let modifiers = Self.currentModifiers
         // Both are registered whatever the other does; `&&` would skip the second.
         let left = register(.left, keyCode: kVK_LeftArrow, modifiers: modifiers)
@@ -116,6 +150,27 @@ final class HotKeyService: ObservableObject {
         unregister(.escape)
         unregister(.left)
         unregister(.right)
+    }
+
+    /// The keys the panel answers on its own, with nothing held down: the arrows step between
+    /// views the way a sideways swipe does, the digits go straight to a slot of the switcher,
+    /// Space plays and pauses, and the vertical arrows move the volume — the keyboard's
+    /// version of a scroll. Claimed only while the panel is pinned open, and dropped the
+    /// instant it lands on a section that is typed into.
+    private func registerPanelKeys() {
+        register(.panelLeft, keyCode: kVK_LeftArrow, modifiers: 0)
+        register(.panelRight, keyCode: kVK_RightArrow, modifiers: 0)
+        register(.volumeUp, keyCode: kVK_UpArrow, modifiers: 0)
+        register(.volumeDown, keyCode: kVK_DownArrow, modifiers: 0)
+        register(.playPause, keyCode: kVK_Space, modifiers: 0)
+        for (index, code) in Self.digitKeyCodes.enumerated() {
+            guard let slot = Slot(rawValue: UInt32(21 + index)) else { continue }
+            register(slot, keyCode: code, modifiers: 0)
+        }
+    }
+
+    private func unregisterPanelKeys() {
+        for slot in Self.panelSlots { unregister(slot) }
     }
 
     @discardableResult
@@ -144,6 +199,15 @@ final class HotKeyService: ObservableObject {
         escapeArmed = armed
         guard handlerRef != nil else { return }
         if armed { registerWhileOpen() } else { unregisterWhileOpen() }
+    }
+
+    /// Armed while the panel is pinned open on a section nobody types into. See
+    /// `ActivityCenter.ownsPanelKeys`, which decides it.
+    func setPanelKeysArmed(_ armed: Bool) {
+        guard armed != panelKeysArmed else { return }
+        panelKeysArmed = armed
+        guard handlerRef != nil else { return }
+        if armed { registerPanelKeys() } else { unregisterPanelKeys() }
     }
 
     static var currentKeyCode: Int {
@@ -181,6 +245,14 @@ final class HotKeyService: ObservableObject {
             // click may pass for a key press.
             guard sinceInteraction > 0.3 else { return }
             center.collapse(reason: "escape")
+        case .panelLeft: _ = center.step(forward: false, wrap: false)
+        case .panelRight: _ = center.step(forward: true, wrap: false)
+        case .volumeUp: GestureRouter.shared.nudgeVolume(up: true)
+        case .volumeDown: GestureRouter.shared.nudgeVolume(up: false)
+        case .playPause: NowPlayingService.shared.togglePlayPause()
+        // The digits, which are the only slots left.
+        default:
+            if let index = slot.switcherIndex { center.selectSlot(index) }
         }
     }
 

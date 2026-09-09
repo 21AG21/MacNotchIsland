@@ -77,7 +77,12 @@ final class ServiceHub {
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
         p.downloadsEnabled ? downloads.start() : downloads.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
-        p.hotkeyEnabled ? hotkey.start() : hotkey.stop()
+        // Either feature needs the Carbon handler installed: the summon combination, and the
+        // keys the panel answers on its own while it is open.
+        (p.hotkeyEnabled || p.panelKeysEnabled) ? hotkey.start() : hotkey.stop()
+        // Which of those keys are claimed depends on the switch and on the section the panel
+        // is on, so it is re-read whenever a preference changes.
+        ActivityCenter.shared.refreshPanelKeys()
         p.keepClearOfMenuBar ? menuBar.start() : menuBar.stop()
         // The shelf is loaded lazily; touching it here puts files kept from last time back
         // on the island at launch, and drops the activity when the shelf is switched off.

@@ -27,6 +27,23 @@ struct IslandPane: View {
                 Text("The shortcut opens the panel on what is playing, or on Now Playing when nothing is; press it again to close. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
             }
 
+            // The keys that need nothing held down. Listed only while they are on, for the
+            // same reason the shortcuts above are.
+            Section {
+                Toggle("The panel answers the keyboard", isOn: $prefs.panelKeysEnabled)
+                    .help("While the panel is pinned open, these keys are the island's. They go back to the app in front the moment it closes.")
+                if prefs.panelKeysEnabled {
+                    LabeledContent("Step between views", value: "← and →")
+                    LabeledContent("Go straight to a view", value: "1 to 9")
+                    LabeledContent("Play or pause", value: "Space")
+                    LabeledContent("Volume", value: "↑ and ↓")
+                }
+            } header: {
+                Text("While the panel is open")
+            } footer: {
+                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes or the clipboard search is showing, where every key is yours to type. The digits count the switcher's slots from the left.")
+            }
+
             Section {
                 Toggle("Open when the pointer rests on the island", isOn: $prefs.hoverToExpand)
                     .help("The panel opens under the pointer, on what is playing or running, and closes when it leaves. A click keeps it open.")

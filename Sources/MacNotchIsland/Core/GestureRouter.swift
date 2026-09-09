@@ -270,6 +270,15 @@ final class GestureRouter {
         }
     }
 
+    /// One key press of volume, through the same path a scroll takes — the same write, the
+    /// same unmute on the way up, the same display. macOS moves the volume in sixteenths for
+    /// the volume keys, and so does this.
+    static let keyStep: Double = 1.0 / 16.0
+
+    func nudgeVolume(up: Bool) {
+        applyVolume(delta: up ? Self.keyStep : -Self.keyStep)
+    }
+
     @discardableResult
     private func applyVolume(delta: Double) -> Bool {
         guard delta != 0, let current = audio.currentVolume() else { return false }

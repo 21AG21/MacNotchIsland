@@ -31,6 +31,9 @@ final class ActivityCenter: ObservableObject {
         didSet {
             if openView != oldValue {
                 IslandLog.island.notice("open view: \(String(describing: self.openView), privacy: .public)")
+                // Every change, not only opening and closing: the keys the panel answers
+                // depend on which section it is on.
+                keyboardControlChanged()
             }
             if (openView == nil) != (oldValue == nil) { openStateChanged() }
         }
@@ -581,6 +584,40 @@ final class ActivityCenter: ObservableObject {
         }
     }
 
+    /// Straight to one slot of the switcher, the way the digit keys do it. A digit past the
+    /// end of the ring — a 7 where there are five slots — does nothing, rather than landing
+    /// somewhere arbitrary. Returns false when there was no such slot.
+    @discardableResult
+    func selectSlot(_ index: Int) -> Bool {
+        let ring = self.ring
+        guard ring.indices.contains(index) else { return false }
+        let target = ring[index]
+        guard target != currentView else { return true }
+        // The disc travels the way you are going, the same as a step or a swipe.
+        let here = currentView.flatMap { ring.firstIndex(of: $0) } ?? 0
+        select(target, direction: index > here ? 1 : -1)
+        return true
+    }
+
+    /// Whether the island owns the bare arrow keys, the digits and Space at this moment.
+    ///
+    /// Only while the panel is pinned open: a peek follows the pointer and takes nothing from
+    /// the keyboard. And never while a section that is typed into is showing — nothing the
+    /// island claims may sit between somebody and their own text.
+    static func ownsPanelKeys(open: Bool, typing: Bool, enabled: Bool) -> Bool {
+        enabled && open && !typing
+    }
+
+    /// Re-reads whether the panel's own keys should be claimed. Called when the panel moves
+    /// and when a preference changes.
+    func refreshPanelKeys() { keyboardControlChanged() }
+
+    private func keyboardControlChanged() {
+        HotKeyService.shared.setPanelKeysArmed(
+            Self.ownsPanelKeys(open: openView != nil, typing: wantsKeyboard,
+                               enabled: Preferences.shared.panelKeysEnabled))
+    }
+
     /// One step along the ring. Without `wrap` the ends are ends (a swipe is spatial); with it
     /// the ring is a cycle (Tab). Returns false when there was nowhere to go.
     @discardableResult
@@ -740,6 +777,7 @@ final class ActivityCenter: ObservableObject {
     /// disarms both the moment it closes, so neither costs anything at rest.
     private func openStateChanged() {
         lastInteraction = Date()
+        keyboardControlChanged()
         if openView != nil {
             HotKeyService.shared.setEscapeArmed(true)
             guard outsideClickMonitor == nil else { return }
