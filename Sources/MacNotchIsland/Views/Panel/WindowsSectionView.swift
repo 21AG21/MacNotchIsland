@@ -37,31 +37,35 @@ struct WindowsSectionView: View {
                     PillButton(title: "Show pictures", tint: .white.opacity(0.85)) { monitor.requestCapture() }
                 } else if !monitor.canMove {
                     PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
-                } else if !selected.isEmpty {
-                    // Two or more is a layout; one is a selection on its way to being one, and
-                    // saying so is how somebody learns the Command-click did something.
-                    if selected.count > 1 {
-                        PillButton(title: "Tile \(selected.count)", symbol: "rectangle.split.2x1",
-                                   prominent: true) {
-                            monitor.tile(selected)
-                            selection.removeAll()
-                        }
-                    } else {
-                        Text("1 picked")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.4))
-                    }
-                    PillButton(title: "Clear", tint: .white.opacity(0.85)) { selection.removeAll() }
                 } else if !allWindows.isEmpty || center.findQuery != nil {
                     // Return brings the first match forward: type "mai", press Return, and
-                    // Mail is in front — a window switcher that needs no window switcher.
+                    // Mail is in front — a window switcher that needs no window switcher. The
+                    // field stays whatever else is on this line: a find that is under way
+                    // holds the keyboard, and a field that is holding the keyboard has to be
+                    // somewhere you can see it.
                     FindField(matches: windows.count) {
                         guard let first = windows.first else { return }
                         monitor.focus(first)
                     }
-                    // The field counts the matches itself while it is up, so the tally that
-                    // lives here the rest of the time steps aside rather than saying it twice.
-                    if center.findQuery == nil {
+                    if !selected.isEmpty {
+                        // Two or more is a layout; one is a selection on its way to being one,
+                        // and saying so is how somebody learns the Command-click did anything.
+                        if selected.count > 1 {
+                            PillButton(title: "Tile \(selected.count)", symbol: "rectangle.split.2x1",
+                                       prominent: true) {
+                                monitor.tile(selected)
+                                selection.removeAll()
+                            }
+                        } else {
+                            Text("1 picked")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        PillButton(title: "Clear", tint: .white.opacity(0.85)) { selection.removeAll() }
+                    } else if center.findQuery == nil {
+                        // The field counts the matches itself while it is up, so the tally
+                        // that lives here the rest of the time steps aside rather than saying
+                        // the same thing twice on one line.
                         Text(allWindows.count == 1 ? "1 open" : "\(allWindows.count) open")
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundStyle(.white.opacity(0.4))

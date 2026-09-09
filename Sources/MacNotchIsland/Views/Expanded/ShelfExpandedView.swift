@@ -77,7 +77,8 @@ struct ShelfStripView: View {
     }
 
     private var headerTitle: String {
-        if !selection.isEmpty { return "\(selection.count) selected" }
+        let picked = orderedSelection.count
+        if picked > 0 { return "\(picked) selected" }
         // Only where the well cannot say it itself. An empty shelf puts "Drop to add" in the
         // middle of the lit well, under a tray the size of a thumbnail and right where the
         // file is going; the header saying the same thing on the line above is one sentence
@@ -105,15 +106,15 @@ struct ShelfStripView: View {
                 }
             }
             if !shelf.items.isEmpty {
-                if !selection.isEmpty {
+                if picked {
                     PillButton(title: "Open") { shelf.open(orderedSelection) }
                 }
                 PillButton(title: "AirDrop", symbol: "dot.radiowaves.right") {
-                    shelf.airDrop(orderedSelection.isEmpty ? shelf.urls : orderedSelection)
+                    shelf.airDrop(picked ? orderedSelection : shown.map(\.url))
                 }
                 // With a selection the destructive pill takes only that: emptying the whole
                 // shelf when the user has picked out two files is not what they asked for.
-                if selection.isEmpty {
+                if !picked {
                     PillButton(title: "Clear", tint: .white.opacity(0.85)) { shelf.clear() }
                 } else {
                     PillButton(title: "Remove", tint: .white.opacity(0.85)) {
@@ -199,9 +200,16 @@ struct ShelfStripView: View {
 
     // MARK: - Selection
 
-    /// Selected URLs in shelf order.
+    /// Whether anything on screen is picked out. Every pill in the header works on
+    /// `orderedSelection`, which is what is selected *and* shown, so a narrowed strip and the
+    /// pills above it always agree about what they are about to do.
+    private var picked: Bool { !orderedSelection.isEmpty }
+
+    /// Selected URLs in shelf order — and only the ones on screen. A find narrows the strip,
+    /// and a pill that says "Remove" while three of the four it would remove are not being
+    /// shown is a pill that does more than it says.
     private var orderedSelection: [URL] {
-        shelf.items.map(\.url).filter { selection.contains($0) }
+        shown.map(\.url).filter { selection.contains($0) }
     }
 
     /// Right-click acts on the whole selection when the clicked item is part of it.
@@ -216,10 +224,12 @@ struct ShelfStripView: View {
             selectionAnchor = url
         } else if flags.contains(.shift),
                   let anchor = selectionAnchor,
-                  let start = shelf.items.firstIndex(where: { $0.url == anchor }),
-                  let end = shelf.items.firstIndex(where: { $0.url == url }) {
+                  let start = shown.firstIndex(where: { $0.url == anchor }),
+                  let end = shown.firstIndex(where: { $0.url == url }) {
+            // Over what is on screen, not over the whole shelf: a range drawn across a
+            // narrowed strip must not sweep up the rows the find took out of it.
             let range = start <= end ? start...end : end...start
-            for index in range { selection.insert(shelf.items[index].url) }
+            for index in range { selection.insert(shown[index].url) }
         } else if selection == [url] {
             selection.removeAll()
             selectionAnchor = nil
