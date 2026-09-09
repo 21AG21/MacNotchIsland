@@ -161,8 +161,10 @@ struct WelcomeView: View {
                 }
                 .frame(maxWidth: 420, alignment: .leading)
                 .padding(.vertical, 2)
-                // A lane of its own for the scroller, so it never sits on the switches.
-                .padding(.trailing, 10)
+                // A lane of its own for the scroller, so it never sits on the switches — and
+                // the same lane on the other side, so the list stays centred in the window
+                // whether or not there is anything to scroll.
+                .padding(.horizontal, 10)
             }
             .scrollBounceBehavior(.basedOnSize)
             .padding(.top, 18)
