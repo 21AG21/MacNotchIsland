@@ -32,6 +32,30 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **One display for one key press.** With the system bezel replaced, a key the Mac cannot
+  answer — an HDMI output with no level of its own, a Mac driving only external displays —
+  now goes back to macOS, which still has a bezel for it, rather than being swallowed into
+  silence. Whichever hand answers it, the level is set and something is said: a key that
+  cannot be answered at all reports that it cannot, and names the output. Switching a display
+  off in Activities hands that key back too, so macOS's own bezel returns instead of nothing
+  at all.
+- The volume display names where the sound is going — the one thing the system's bezel never
+  says, and the answer to "why is nothing getting louder" when the AirPods are on the desk.
+  It also keeps the click macOS plays, under the Sound setting and with the same Shift
+  gesture, and honours the quarter-notch Shift-Option step.
+- The island's edge on a dark desktop. macOS draws the menu bar nearly black there, and the
+  island dissolved into it: what was in it read as marks floating in a void. It now carries a
+  hairline of light along the three edges it really has — never across the top, which is the
+  screen's own edge — and none at all at rest, where the island *is* the notch.
+- A paused track, or a Mac on battery with animation stopped, showed four bars of one height:
+  four dots, not a waveform. The bars now hold the shape of a wave when nothing is driving
+  them.
+- The compact island reserved the width of the camera housing between its two slots on every
+  screen. On a display with no notch there is no housing, so the floating pill was a long
+  black bar with a mark at either end.
+- The support report collects everything the app logged. Half of it went through `NSLog`,
+  which stamps no subsystem, and the report asked the unified log for the app's subsystem —
+  so the failures it was collected to explain were the ones missing from it.
 - The shelf forgets a file that was deleted or moved, but keeps one whose whole folder has
   gone: an unplugged disk no longer empties the shelf.
 - With items selected, the shelf's last pill removes those instead of clearing everything.

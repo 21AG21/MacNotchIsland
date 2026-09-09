@@ -19,7 +19,7 @@ and the same content layout as iOS.
 | Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. Low Power Mode on/off too. |
 | AirPods / Bluetooth connect with battery | IOBluetooth connection events: a brief pill with the level as a device connects, the card with left, right and case one click away, read from the IORegistry. |
 | Focus on / off with the Focus symbol | Watches macOS's Focus assertion database. |
-| Silent / ring switch, volume | Mute shows the bell; volume and brightness changes show a level bar. Optionally the island *replaces* the system bezel entirely (event tap, needs Accessibility). Scroll on the island to change volume. |
+| Silent / ring switch, volume | Turn on "Replace the system volume and brightness bezel" (event tap, needs Accessibility) and the volume, mute and brightness keys are answered in the island instead — a level bar that also names where the sound is going, which the system's bezel never does. There is only ever one display: a key the island cannot answer, or whose display you have switched off, goes straight back to macOS and its own bezel. Scroll on the island to change volume. |
 | Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
 | Face ID unlock animation | "Unlocked" when the Mac unlocks. |
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |

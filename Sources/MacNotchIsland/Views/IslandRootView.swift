@@ -18,24 +18,24 @@ struct IslandRootView: View {
         ZStack(alignment: .top) {
             Color.clear
             if !center.isSuppressed {
-            HStack(alignment: .top, spacing: layout.bubbleGap) {
-                IslandBodyView(geometry: geometry, presentation: presentation, layout: layout, panelID: panelID)
-                // The bubble pops with its own, bouncier spring. The animation is scoped to
-                // this group alone: on the row it would also govern the outline whenever a
-                // second activity appears or leaves in the same update.
-                Group {
-                    if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
-                        BubbleView(activity: bubble, diameter: layout.bubbleDiameter)
-                            .offset(y: layout.topInset)
-                            .transition(IslandMotion.pop(scale: 0.2))
+                HStack(alignment: .top, spacing: layout.bubbleGap) {
+                    IslandBodyView(geometry: geometry, presentation: presentation, layout: layout, panelID: panelID)
+                    // The bubble pops with its own, bouncier spring. The animation is scoped to
+                    // this group alone: on the row it would also govern the outline whenever a
+                    // second activity appears or leaves in the same update.
+                    Group {
+                        if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
+                            BubbleView(activity: bubble, diameter: layout.bubbleDiameter)
+                                .offset(y: layout.topInset)
+                                .transition(IslandMotion.pop(scale: 0.2))
+                        }
                     }
+                    .animation(IslandMotion.bubble, value: layout.hasBubble)
                 }
-                .animation(IslandMotion.bubble, value: layout.hasBubble)
-            }
-            // Keep the notch gap on the notch: undo the bubble's share of the row's width, and
-            // shift the body by the difference between its two slots (see `bodyShift`).
-            .offset(x: layout.bodyShift + (layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0))
-            .transition(.opacity)
+                // Keep the notch gap on the notch: undo the bubble's share of the row's width,
+                // and shift the body by the difference between its two slots (see `bodyShift`).
+                .offset(x: layout.bodyShift + (layout.hasBubble ? (layout.bubbleGap + layout.bubbleDiameter) / 2 : 0))
+                .transition(.opacity)
             }
         }
         .animation(IslandMotion.fade, value: center.isSuppressed)
