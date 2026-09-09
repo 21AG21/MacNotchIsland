@@ -63,6 +63,15 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertEqual(label(.hud(LevelHUD(kind: .volume, level: 0.4))), "Volume, 40 percent")
         XCTAssertEqual(label(.hud(LevelHUD(kind: .volume, level: 0.4, isMuted: true))), "Volume muted")
         XCTAssertEqual(label(.hud(LevelHUD(kind: .brightness, level: 0.655))), "Brightness, 66 percent")
+        // A key the island took and could do nothing with says so, for the kind of key it was.
+        var noVolume = LevelHUD(kind: .volume, level: 0)
+        noVolume.isUnavailable = true
+        noVolume.device = "LG UltraFine"
+        XCTAssertEqual(label(.hud(noVolume)), "Volume is not set here, LG UltraFine")
+        var noBrightness = LevelHUD(kind: .brightness, level: 0)
+        noBrightness.isUnavailable = true
+        XCTAssertEqual(label(.hud(noBrightness)), "Brightness is not set here",
+                       "a display that will not be set is not a display turned down")
         XCTAssertEqual(label(.focus(FocusState(name: "Work", symbol: "moon.fill", isOn: true, tint: "indigo"))),
                        "Work Focus on")
         XCTAssertEqual(label(.silent(SilentState(isSilent: true))), "Silent mode on")
