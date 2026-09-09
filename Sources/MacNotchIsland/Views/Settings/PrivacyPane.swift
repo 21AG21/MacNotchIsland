@@ -3,6 +3,7 @@ import CoreGraphics
 import CoreLocation
 import EventKit
 import SwiftUI
+import UserNotifications
 
 /// "Privacy": what Notch Island is allowed to see, why it asks, and a way
 /// straight to the matching pane in System Settings. Also the live health of each data
@@ -14,6 +15,9 @@ struct PrivacyPane: View {
     /// built. Touching this is what asks for the body again, so a permission granted in System
     /// Settings while this window is open turns from "Not granted" to "Granted" on its own.
     @State private var tick = 0
+    /// Read asynchronously, unlike every other status on this pane, so it is held rather than
+    /// asked for while the body is being built.
+    @State private var notificationStatus = "Not asked yet"
     /// Held, not built inside `onReceive`: a publisher made there is a new publisher on every
     /// pass of the body, and this body runs on every beat of it.
     private let ticker = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
@@ -67,6 +71,12 @@ struct PrivacyPane: View {
                     pane: .reminders
                 )
                 permission(
+                    "Notifications",
+                    detail: "A banner when a timer goes off while the island is hidden or an app is full screen.",
+                    status: notificationStatus,
+                    pane: .notifications
+                )
+                permission(
                     "Automation",
                     detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet.",
                     status: "Asked when needed",
@@ -106,7 +116,11 @@ struct PrivacyPane: View {
             }
         }
         .formStyle(.grouped)
-        .onReceive(ticker) { _ in tick += 1 }
+        .onAppear(perform: refreshNotifications)
+        .onReceive(ticker) { _ in
+            tick += 1
+            refreshNotifications()
+        }
     }
 
     // MARK: Rows
@@ -142,6 +156,23 @@ struct PrivacyPane: View {
     }
 
     // MARK: Status
+
+    /// Only a real .app bundle may ask the notification centre anything; unbundled it traps.
+    private func refreshNotifications() {
+        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let text: String
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: text = "Granted"
+            case .denied: text = "Denied"
+            case .notDetermined: text = "Not asked yet"
+            @unknown default: text = "Unknown"
+            }
+            DispatchQueue.main.async {
+                if self.notificationStatus != text { self.notificationStatus = text }
+            }
+        }
+    }
 
     private static func captureStatus(for type: AVMediaType) -> String {
         switch AVCaptureDevice.authorizationStatus(for: type) {

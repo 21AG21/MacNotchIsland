@@ -54,9 +54,10 @@ the unreleased section is what the next tag will ship.
   from a switch that does not work. Today's header now offers "Allow Location", the same way
   the Windows section offers the permissions it needs. The temperature and the conditions are
   also separated by the same middle dot the rest of the app uses, rather than two spaces.
-- **Privacy lists Reminders, which the app asks for and the list left out.** Today reads two
-  things from EventKit and macOS grants them separately; the screen whose whole purpose is to
-  say what Notch Island may see named only one of them. The prompts macOS shows also referred
+- **Privacy lists Reminders and Notifications, which the app asks for and the list left out.**
+  Today reads two things from EventKit and macOS grants them separately, and a timer that goes
+  off while the island is hidden asks to post a banner; the screen whose whole purpose is to
+  say what Notch Island asks of this Mac named none of those. The prompts macOS shows also referred
   to a "Weather tab" and a "Mirror tab", neither of which the app has ever had — they are the
   weather line in Today and the mirror in the control rail.
 - **Clearing the scratchpad can be taken back.** "Clear" emptied a note somebody may have

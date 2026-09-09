@@ -99,9 +99,16 @@ enum SystemSettingsPane: String {
     case reminders = "Privacy_Reminders"
     case automation = "Privacy_Automation"
     case screenRecording = "Privacy_ScreenCapture"
+    /// Notifications is not under Privacy & Security; it is a pane of its own.
+    case notifications = "Notifications"
 
     var url: URL? {
-        URL(string: "x-apple.systempreferences:com.apple.preference.security?" + rawValue)
+        switch self {
+        case .notifications:
+            return URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        default:
+            return URL(string: "x-apple.systempreferences:com.apple.preference.security?" + rawValue)
+        }
     }
 
     /// Opens the pane in System Settings. macOS opens the Privacy & Security root if it no
