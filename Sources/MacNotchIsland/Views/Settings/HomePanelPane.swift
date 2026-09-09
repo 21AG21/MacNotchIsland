@@ -56,7 +56,10 @@ struct HomePanelPane: View {
             } header: {
                 Text("Shelf")
             } footer: {
-                Text("Select several items to drag or AirDrop them together. Clearing removes them from the shelf only, never from disk.")
+                // Not "never from disk", which was not true: a picture, link or note the
+                // island wrote for the shelf has nowhere else to live, and goes to the Trash
+                // when it leaves. A promise on this screen has to hold for every case of it.
+                Text("Select several items to drag or AirDrop them together. Clearing never touches a file you dragged in from Finder. A picture, link or note the island wrote itself goes to the Trash, where you can get it back.")
             }
             .disabled(!prefs.shelfEnabled)
 
