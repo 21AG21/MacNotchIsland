@@ -101,6 +101,10 @@ extension EnvironmentValues {
 struct PillButton: View {
     let title: String
     var symbol: String? = nil
+    /// Where the glyph goes. A glyph that says what the button *does* leads; one that says
+    /// where it takes you — the arrow on "Activity Monitor" — follows the words, the way it
+    /// does everywhere else on the Mac.
+    var symbolTrailing: Bool = false
     var tint: Color = .white
     var prominent: Bool = false
     var action: () -> Void
@@ -125,8 +129,13 @@ struct PillButton: View {
         let m = metrics
         return Button(action: action) {
             HStack(spacing: m.gap) {
-                if let symbol { Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold)) }
+                if let symbol, !symbolTrailing {
+                    Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold))
+                }
                 Text(title).font(.system(size: m.text, weight: .semibold))
+                if let symbol, symbolTrailing {
+                    Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold))
+                }
             }
             .foregroundStyle(prominent ? Self.ink(on: tint) : tint)
             .padding(.horizontal, m.h)

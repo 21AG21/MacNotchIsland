@@ -199,7 +199,8 @@ struct StatsSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Stats") {
-                PillButton(title: "Activity Monitor", symbol: "arrow.up.forward", tint: .white.opacity(0.85)) {
+                PillButton(title: "Activity Monitor", symbol: "arrow.up.forward", symbolTrailing: true,
+                           tint: .white.opacity(0.85)) {
                     let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
                     NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
                 }

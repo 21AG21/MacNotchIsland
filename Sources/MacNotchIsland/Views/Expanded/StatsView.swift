@@ -252,16 +252,17 @@ struct StatsView: View {
 
     /// The hairline between two columns, the same distance from each. It used to sit 16 pt
     /// from the column on its left and 14 from the one on its right.
+    /// The space between two columns. There used to be a hairline standing in the middle of
+    /// it: five figures ruled off from one another is how a dashboard widget is drawn, not how
+    /// the Mac draws anything — Activity Monitor, the battery menu and Control Centre all
+    /// separate a row of readings with air and nothing else.
     private var divider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.08))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .padding(.horizontal, Self.gutter)
+        Color.clear
+            .frame(width: Self.gutter * 2)
             .accessibilityHidden(true)
     }
 
-    /// Half the space between two columns: the hairline stands in the middle of it.
+    /// Half the space between two columns.
     static let gutter: CGFloat = 14
 
     private static func percentText(_ value: Double) -> String {
