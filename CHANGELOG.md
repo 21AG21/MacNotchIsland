@@ -6,6 +6,10 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Send a window to the next display.** Every zone on a tile rearranged a window on the
+  screen it was already on. Where there is more than one display, a tile now offers the move
+  the zones could not make, and the window keeps the share of the screen it had — a half stays
+  a half, a small window stays small, and nothing arrives hanging off an edge.
 - **Another minute.** The thing everybody asks a smart speaker for, and the one thing a
   running countdown could not be told: a `+` on the timer's card, "Add a Minute" in the
   island's menu, and `notchctl timer add`. The total moves out with the end, so the ring keeps

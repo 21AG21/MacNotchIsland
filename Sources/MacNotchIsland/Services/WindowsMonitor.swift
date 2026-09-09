@@ -330,6 +330,27 @@ final class WindowsMonitor: ObservableObject {
         return true
     }
 
+    /// Sends a window to the next display, keeping the share of the screen it had. The one
+    /// move the zones could not make: they all rearrange a window on the display it is
+    /// already on.
+    @discardableResult
+    func sendToNextDisplay(_ window: IslandWindow) -> Bool {
+        let screens = Self.displays()
+        guard screens.count > 1, let here = Self.displayIndex(of: window.frame, in: screens) else { return false }
+        guard let element = Self.axWindow(for: window) else {
+            if !AXIsProcessTrusted() { requestMove() }
+            refresh()
+            return false
+        }
+        let next = screens[(here + 1) % screens.count]
+        Self.setFrame(element, to: Self.mapped(window.frame, from: screens[here].visible, to: next.visible))
+        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        NSRunningApplication(processIdentifier: window.pid)?.activate()
+        refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
+        return true
+    }
+
     /// Puts a window in the Dock. The one thing the zones could not do: every other button on
     /// a tile moves a window somewhere on this screen, and sometimes where you want it is off
     /// the screen entirely.
@@ -426,22 +447,49 @@ final class WindowsMonitor: ObservableObject {
     /// The usable part of the screen a window is on (menu bar and Dock excluded), in the
     /// window server's top-left coordinates.
     static func visibleFrame(containing frame: CGRect) -> CGRect {
+        let screens = displays()
+        guard let index = Self.displayIndex(of: frame, in: screens) else { return frame }
+        return screens[index].visible
+    }
+
+    /// Every display, in the order macOS lists them, with both rectangles flipped into the
+    /// window server's top-left coordinates — the ones the window list reports and `setFrame`
+    /// writes. One function, because getting the flip wrong moves a window to the wrong place
+    /// on the right display and is very hard to see in a diff.
+    static func displays() -> [(full: CGRect, visible: CGRect)] {
         let screens = NSScreen.screens
         let primaryHeight = screens.first?.frame.height ?? 0
-        let flipped = screens.map { screen -> (CGRect, CGRect) in
-            let full = CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
-                              width: screen.frame.width, height: screen.frame.height)
-            let visible = CGRect(x: screen.visibleFrame.minX, y: primaryHeight - screen.visibleFrame.maxY,
-                                 width: screen.visibleFrame.width, height: screen.visibleFrame.height)
-            return (full, visible)
+        return screens.map { screen in
+            (full: CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
+                          width: screen.frame.width, height: screen.frame.height),
+             visible: CGRect(x: screen.visibleFrame.minX, y: primaryHeight - screen.visibleFrame.maxY,
+                             width: screen.visibleFrame.width, height: screen.visibleFrame.height))
         }
+    }
+
+    /// Which display a window is on: the one its centre is in, or failing that the one it
+    /// overlaps most. A window dragged half off the edge still belongs somewhere.
+    static func displayIndex(of frame: CGRect, in screens: [(full: CGRect, visible: CGRect)]) -> Int? {
+        guard !screens.isEmpty else { return nil }
         let centre = CGPoint(x: frame.midX, y: frame.midY)
-        if let hit = flipped.first(where: { $0.0.contains(centre) }) { return hit.1 }
-        // A window mostly off screen: the display it overlaps most, else the main one.
-        let best = flipped.max { a, b in
-            a.0.intersection(frame).area < b.0.intersection(frame).area
+        if let index = screens.firstIndex(where: { $0.full.contains(centre) }) { return index }
+        return screens.indices.max {
+            screens[$0].full.intersection(frame).area < screens[$1].full.intersection(frame).area
         }
-        return best?.1 ?? flipped.first?.1 ?? frame
+    }
+
+    /// Where a window lands on another display: the same fractions of the usable area it
+    /// filled on the one it came from, so a half stays a half, a small window stays small,
+    /// and nothing arrives hanging off an edge.
+    static func mapped(_ frame: CGRect, from: CGRect, to: CGRect) -> CGRect {
+        guard from.width > 0, from.height > 0, to.width > 0, to.height > 0 else { return to }
+        let width = min(1, frame.width / from.width) * to.width
+        let height = min(1, frame.height / from.height) * to.height
+        let x = to.minX + (frame.minX - from.minX) / from.width * to.width
+        let y = to.minY + (frame.minY - from.minY) / from.height * to.height
+        return CGRect(x: min(max(x, to.minX), to.maxX - width).rounded(),
+                      y: min(max(y, to.minY), to.maxY - height).rounded(),
+                      width: width.rounded(), height: height.rounded())
     }
 }
 

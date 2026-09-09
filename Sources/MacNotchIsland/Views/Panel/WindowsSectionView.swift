@@ -127,6 +127,24 @@ struct WindowsSectionView: View {
 
     /// The zones, over the picture, while the pointer is on the tile — and the one other thing
     /// you do to a window from a distance: close it.
+    /// One button of the row that lays a window out: same disc, same size, whatever it does.
+    private func zoneButton(symbol: String, label: String, help: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.16))
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(width: 26, height: 26)
+            .contentShape(Circle())
+        }
+        .buttonStyle(IslandButtonStyle())
+        .help(help)
+        .accessibilityLabel(label)
+    }
+
     /// One of a tile's corner buttons: smaller than a zone, and out of the way of them.
     private func cornerButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -150,19 +168,14 @@ struct WindowsSectionView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.55))
             HStack(spacing: 6) {
                 ForEach(SnapZone.allCases) { zone in
-                    Button(action: { _ = monitor.snap(window, to: zone) }) {
-                        ZStack {
-                            Circle().fill(Color.white.opacity(0.16))
-                            Image(systemName: zone.symbol)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                        }
-                        .frame(width: 26, height: 26)
-                        .contentShape(Circle())
-                    }
-                    .buttonStyle(IslandButtonStyle())
-                    .help(zone.title)
-                    .accessibilityLabel("\(zone.title), \(window.label)")
+                    zoneButton(symbol: zone.symbol, label: "\(zone.title), \(window.label)",
+                               help: zone.title) { monitor.snap(window, to: zone) }
+                }
+                // Only where there is another display to send it to. Every other button here
+                // rearranges a window on the screen it is already on.
+                if NSScreen.screens.count > 1 {
+                    zoneButton(symbol: "display.2", label: "Next display, \(window.label)",
+                               help: "Next display") { monitor.sendToNextDisplay(window) }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

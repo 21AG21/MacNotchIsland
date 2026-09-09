@@ -178,6 +178,56 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertGreaterThan(RailMetrics.button, RailMetrics.glyph, "a disc is a bigger target than a bare glyph")
     }
 
+    // MARK: - Sending a window to another display
+
+    private func display(_ rect: CGRect, inset: CGFloat = 0) -> (full: CGRect, visible: CGRect) {
+        (full: rect, visible: rect.insetBy(dx: 0, dy: inset))
+    }
+
+    func testTheDisplayAWindowIsOnIsTheOneItsCentreIsIn() {
+        let screens = [display(CGRect(x: 0, y: 0, width: 1000, height: 800)),
+                       display(CGRect(x: 1000, y: 0, width: 1600, height: 900))]
+        XCTAssertEqual(WindowsMonitor.displayIndex(of: CGRect(x: 100, y: 100, width: 200, height: 200), in: screens), 0)
+        XCTAssertEqual(WindowsMonitor.displayIndex(of: CGRect(x: 1200, y: 100, width: 200, height: 200), in: screens), 1)
+    }
+
+    func testAWindowHalfOffTheEdgeStillBelongsSomewhere() {
+        let screens = [display(CGRect(x: 0, y: 0, width: 1000, height: 800)),
+                       display(CGRect(x: 1000, y: 0, width: 1600, height: 900))]
+        // Centre out past the right-hand edge of everything: it overlaps the second most.
+        let stray = CGRect(x: 2400, y: 100, width: 400, height: 200)
+        XCTAssertEqual(WindowsMonitor.displayIndex(of: stray, in: screens), 1)
+        XCTAssertNil(WindowsMonitor.displayIndex(of: stray, in: []))
+    }
+
+    func testAWindowKeepsTheShareOfTheScreenItHadWhenItMoves() {
+        let from = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let to = CGRect(x: 1000, y: 0, width: 2000, height: 1600)
+        // A left half stays a left half.
+        let half = WindowsMonitor.mapped(CGRect(x: 0, y: 0, width: 500, height: 800), from: from, to: to)
+        XCTAssertEqual(half, CGRect(x: 1000, y: 0, width: 1000, height: 1600))
+        // And a small window in the middle stays small and in the middle.
+        let small = WindowsMonitor.mapped(CGRect(x: 250, y: 200, width: 500, height: 400), from: from, to: to)
+        XCTAssertEqual(small, CGRect(x: 1500, y: 400, width: 1000, height: 800))
+    }
+
+    func testAWindowNeverArrivesHangingOffTheEdge() {
+        let from = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let to = CGRect(x: 0, y: 0, width: 600, height: 400)
+        // Bigger than the display it is going to, and starting past its far corner.
+        let moved = WindowsMonitor.mapped(CGRect(x: 900, y: 700, width: 900, height: 700), from: from, to: to)
+        XCTAssertGreaterThanOrEqual(moved.minX, to.minX)
+        XCTAssertGreaterThanOrEqual(moved.minY, to.minY)
+        XCTAssertLessThanOrEqual(moved.maxX, to.maxX)
+        XCTAssertLessThanOrEqual(moved.maxY, to.maxY)
+    }
+
+    func testADisplayWithNoAreaIsNotDividedBy() {
+        let empty = CGRect.zero
+        let to = CGRect(x: 0, y: 0, width: 600, height: 400)
+        XCTAssertEqual(WindowsMonitor.mapped(CGRect(x: 0, y: 0, width: 10, height: 10), from: empty, to: to), to)
+    }
+
     // MARK: - Favourite apps
 
     func testADeletedAppLeavesTheFavouritesButAnUnpluggedOneStays() throws {
