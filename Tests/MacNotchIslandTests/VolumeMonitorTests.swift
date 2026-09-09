@@ -47,10 +47,13 @@ final class VolumeMonitorTests: XCTestCase {
         XCTAssertEqual(drive(.ejected).tint, "green")
         XCTAssertEqual(drive(.surprise).subtitle, "Unplugged before it was ejected")
         XCTAssertEqual(drive(.busy).subtitle, "Something is still using it")
-        // The trailing half of the pill has room for a word, not a sentence.
+        // The trailing half of the pill has room for a word or two, not a sentence.
         for event in [DriveState.Event.connected, .ejected, .surprise, .busy] {
-            XCTAssertLessThanOrEqual(drive(event).trailingText.count, 9, "\(event)")
+            XCTAssertLessThanOrEqual(drive(event).trailingText.count, 12, "\(event)")
         }
+        // And it says what the figure is, since a size on its own could as easily be the
+        // size of the disk as the room left on it.
+        XCTAssertTrue(drive().trailingText.hasSuffix(" free"), drive().trailingText)
     }
 
     // MARK: - How it behaves as an activity

@@ -13,9 +13,14 @@ struct HomePanelPane: View {
     /// The choices offered for shelf expiry, in hours.
     private static let expiryOptions: [Double] = [0, 1, 6, 24, 72, 168]
 
-    /// A row of the arrangement list, and so the height of the list itself: eight of them,
-    /// with no scroller of its own inside a form that already scrolls.
+    /// A row of the arrangement list, the air above and below it, and the room every section
+    /// needs together. The list keeps its own scroller as a safety net: better a list that
+    /// scrolls by a couple of points than one whose last row cannot be reached.
     private static let rowHeight: CGFloat = 26
+    private static let rowPadding: CGFloat = 4
+    private static var listHeight: CGFloat {
+        (rowHeight + rowPadding * 2) * CGFloat(HomeSection.allCases.count) + 4
+    }
 
     /// One section: its glyph, its name, and its switch. Now Playing cannot be switched off,
     /// so it says so in the place the switch would be rather than showing a dead one.
@@ -75,12 +80,17 @@ struct HomePanelPane: View {
                 List {
                     ForEach(HomeSection.ordered(prefs), id: \.self) { section in
                         sectionRow(section)
+                            // The insets are stated rather than left to the list, so the room
+                            // eight rows need is arithmetic rather than a guess — a guess left
+                            // the last two off the bottom, where nothing could reach them.
+                            .listRowInsets(EdgeInsets(top: Self.rowPadding, leading: 10,
+                                                      bottom: Self.rowPadding, trailing: 10))
                     }
                     .onMove(perform: move)
                 }
                 .listStyle(.plain)
-                .frame(height: Self.rowHeight * CGFloat(HomeSection.allCases.count))
-                .scrollDisabled(true)
+                .alternatingRowBackgrounds(.disabled)
+                .frame(height: Self.listHeight)
                 Toggle("Weather in Today", isOn: $prefs.weatherEnabled)
                     .help("The conditions outside, in the Today header. Asks for your location when first opened. Data from Open-Meteo.")
                     .disabled(!prefs.calendarEnabled)

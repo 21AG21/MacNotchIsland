@@ -343,7 +343,8 @@ struct DriveState: Equatable {
     /// The word the pill shows on its trailing edge: short enough for the menu bar.
     var trailingText: String {
         switch event {
-        case .connected: return total > 0 ? Self.formatter.string(fromByteCount: free) : "Ready"
+        // "238 GB" on its own could be the size of the disk as easily as the room left on it.
+        case .connected: return total > 0 ? "\(Self.formatter.string(fromByteCount: free)) free" : "Ready"
         case .ejected: return "Ejected"
         case .surprise: return "Careful"
         case .busy: return "In use"
@@ -387,7 +388,7 @@ enum ActivityContent: Equatable {
         case .unlock: return (34, 72)
         case .calendar: return (34, 64)
         case .download(let d): return (34, d.progress != nil ? 40 : 70)
-        case .drive(let d): return (34, d.event == .connected && d.total > 0 ? 72 : 64)
+        case .drive(let d): return (34, d.event == .connected && d.total > 0 ? 96 : 64)
         // "On the shelf" is what the trailing half says, and it needs the room for it.
         case .capture: return (34, 88)
         case .custom(let c):
