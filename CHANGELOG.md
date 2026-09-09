@@ -45,6 +45,11 @@ the unreleased section is what the next tag will ship.
   check. Each is listed now with what it sends, who it asks, and whether it is switched on at
   this moment. A blanket promise is the worst thing to be wrong about on the screen people
   come to in order to check.
+- **The welcome tour's Done button fits in its window.** The second page — seven things to
+  switch on, with a line of explanation each — was taller than the fixed height it was drawn
+  in, and the root view clipped: "Done" and "Open at login" were both under the bottom edge of
+  the first window a new Mac shows. The choices scroll now if they have to, and the button
+  below them stays where it is.
 - Weather in Britain reads in Celsius. `Locale.MeasurementSystem` has three cases and only
   one of them is `.metric`; the United Kingdom is its own, and takes its temperature in
   Celsius and its speed in miles per hour. One flag answered both questions, so every reader

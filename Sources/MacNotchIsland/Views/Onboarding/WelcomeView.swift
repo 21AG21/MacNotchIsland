@@ -116,19 +116,26 @@ struct WelcomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 14) {
-                choice("calendar", "Today", "Your next events and reminders. Asks for calendar access.", $prefs.calendarEnabled)
-                choice("macwindow.on.rectangle", "Windows", "Every open window as a tile: click to switch, or snap it to half the screen. Asks for Screen Recording and Accessibility.", $prefs.windowsEnabled)
-                choice("tray.full", "Shelf", "Files you drop on the island; downloads and screenshots land there too.", $prefs.shelfEnabled)
-                choice("doc.on.clipboard", "Clipboard", "Recent copies, pinned ones first.", $prefs.clipboardEnabled)
-                choice("note.text", "Notes", "A scratchpad that keeps whatever you type.", $prefs.notesEnabled)
-                choice("gauge.with.dots.needle.bottom.50percent", "Stats", "Processor, memory, network and battery health.", $prefs.statsEnabled)
-                choice("speaker.wave.2", "Volume and brightness", "The island answers the media keys instead of the system bezel, and says which headphones the sound is going to. Asks for Accessibility access; left off, macOS keeps its own.", $prefs.hudReplacementEnabled)
+            // Scrolls if it has to. Seven choices with a line or two of explanation each is
+            // more than a fixed height can promise — at larger text sizes, or if an eighth is
+            // ever added — and the button that dismisses this window is not allowed to be the
+            // thing that falls off the bottom of it. Which is what it was doing: "Done" and
+            // "Open at login" were both under the edge, on the first window a new Mac shows.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    choice("calendar", "Today", "Your next events and reminders. Needs calendar access.", $prefs.calendarEnabled)
+                    choice("macwindow.on.rectangle", "Windows", "Every open window as a tile: click one to switch, or snap it to half the screen.", $prefs.windowsEnabled)
+                    choice("tray.full", "Shelf", "Files you drop on the island; downloads and screenshots land there too.", $prefs.shelfEnabled)
+                    choice("doc.on.clipboard", "Clipboard", "Recent copies, pinned ones first.", $prefs.clipboardEnabled)
+                    choice("note.text", "Notes", "A scratchpad that keeps whatever you type.", $prefs.notesEnabled)
+                    choice("gauge.with.dots.needle.bottom.50percent", "Stats", "Processor, memory, network and battery health.", $prefs.statsEnabled)
+                    choice("speaker.wave.2", "Volume and brightness", "The island answers the media keys instead of the system bezel. Left off, macOS keeps its own.", $prefs.hudReplacementEnabled)
+                }
+                .frame(maxWidth: 420, alignment: .leading)
+                .padding(.vertical, 2)
             }
-            .frame(maxWidth: 420, alignment: .leading)
-            .padding(.top, 28)
-
-            Spacer(minLength: 20)
+            .scrollBounceBehavior(.basedOnSize)
+            .padding(.top, 24)
 
             VStack(spacing: 12) {
                 Button(action: dismiss) {
@@ -145,6 +152,7 @@ struct WelcomeView: View {
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
             }
+            .padding(.top, 20)
         }
     }
 
