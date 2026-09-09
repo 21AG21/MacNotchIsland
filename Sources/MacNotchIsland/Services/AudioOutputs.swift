@@ -122,8 +122,14 @@ final class AudioOutputs: ObservableObject {
             remove(&deviceRegistrations)
             boundDevice = defaultID
             if defaultID != 0 {
-                deviceRegistrations.append(listen(defaultID, selector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-                                                  scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.reloadLevel() })
+                // Wherever this device keeps its level — see `AudioMonitor.volumeElements(on:)`.
+                // Watching only the synthesised main one left the rail's slider frozen on a
+                // device that has none, while the media keys moved it.
+                for element in AudioMonitor.volumeElements(on: defaultID) {
+                    deviceRegistrations.append(listen(defaultID, address: AudioMonitor.volumeAddress(element: element)) {
+                        [weak self] in self?.reloadLevel()
+                    })
+                }
                 deviceRegistrations.append(listen(defaultID, selector: kAudioDevicePropertyMute,
                                                   scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.reloadLevel() })
             }
@@ -158,14 +164,18 @@ final class AudioOutputs: ObservableObject {
         LocalWrite.isRecent(lastLocalWrite, now: now)
     }
 
-    /// Nothing in the app can set this stamp without writing to real hardware, so a test that
-    /// wants to know whether this reads *its own* slider — rather than the brightness one —
-    /// has no other way in.
+    /// Called by everything in the island that sets the level itself — the rail's slider and
+    /// mute button, and the media keys once the island is the one answering them.
+    static func markLocalWrite() { lastLocalWrite = LocalWrite.now() }
+
+    /// Nothing in the app can set this stamp to an arbitrary moment without writing to real
+    /// hardware, so a test that wants to know whether this reads *its own* slider — rather
+    /// than the brightness one — has no other way in.
     static func markLocalWriteForTesting(_ stamp: TimeInterval) { lastLocalWrite = stamp }
 
     func setVolume(_ level: Float) {
         let clamped = max(0, min(1, level))
-        Self.lastLocalWrite = LocalWrite.now()
+        Self.markLocalWrite()
         if AudioMonitor.writeOutputVolume(clamped) {
             volume = clamped
             if clamped > 0, isMuted, AudioMonitor.writeOutputMute(false) { isMuted = false }
@@ -173,7 +183,7 @@ final class AudioOutputs: ObservableObject {
     }
 
     func setMuted(_ muted: Bool) {
-        Self.lastLocalWrite = LocalWrite.now()
+        Self.markLocalWrite()
         if AudioMonitor.writeOutputMute(muted) { isMuted = muted }
     }
 
@@ -181,7 +191,14 @@ final class AudioOutputs: ObservableObject {
 
     private func listen(_ object: AudioObjectID, selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope,
                         handler: @escaping () -> Void) -> Registration {
-        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+        listen(object, address: AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
+                                                           mElement: kAudioObjectPropertyElementMain),
+               handler: handler)
+    }
+
+    private func listen(_ object: AudioObjectID, address: AudioObjectPropertyAddress,
+                        handler: @escaping () -> Void) -> Registration {
+        var address = address
         let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
         _ = AudioObjectAddPropertyListenerBlock(object, &address, queue, block)
         return Registration(object: object, address: address, block: block)

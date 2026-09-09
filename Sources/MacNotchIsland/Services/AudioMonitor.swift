@@ -53,16 +53,13 @@ final class AudioMonitor {
         guard outputDevice != 0 else { return }
         lastVolume = readVolume() ?? -1
         lastMute = readMute()
-        // Every element a level can live on, not just the synthesised main one: an aggregate
-        // or USB device that keeps its level on a channel would otherwise never report a
+        // Wherever this device's level actually is, not just the synthesised main one: an
+        // aggregate or USB device that keeps it on a channel would otherwise never report a
         // change, while the media-key path showed one — two behaviours for one device.
-        for element in Self.volumeElements {
-            let selector: AudioObjectPropertySelector = element == kAudioObjectPropertyElementMain
-                ? kAudioHardwareServiceDeviceProperty_VirtualMainVolume
-                : kAudioDevicePropertyVolumeScalar
-            outputRegistrations.append(listen(outputDevice, selector: selector,
-                                              scope: kAudioDevicePropertyScopeOutput,
-                                              element: element) { [weak self] in self?.volumeChanged() })
+        for element in Self.volumeElements(on: outputDevice) {
+            outputRegistrations.append(listen(outputDevice, address: Self.volumeAddress(element: element)) {
+                [weak self] in self?.volumeChanged()
+            })
         }
         outputRegistrations.append(listen(outputDevice, selector: kAudioDevicePropertyMute,
                                           scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.muteChanged() })
@@ -118,9 +115,15 @@ final class AudioMonitor {
     // MARK: CoreAudio helpers
 
     private func listen(_ object: AudioObjectID, selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope,
-                        element: AudioObjectPropertyElement = kAudioObjectPropertyElementMain,
                         handler: @escaping () -> Void) -> Registration {
-        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
+        listen(object, address: AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
+                                                           mElement: kAudioObjectPropertyElementMain),
+               handler: handler)
+    }
+
+    private func listen(_ object: AudioObjectID, address: AudioObjectPropertyAddress,
+                        handler: @escaping () -> Void) -> Registration {
+        var address = address
         let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
         _ = AudioObjectAddPropertyListenerBlock(object, &address, queue, block)
         return Registration(object: object, address: address, block: block)
@@ -212,6 +215,10 @@ final class AudioMonitor {
 
     static func readOutputVolume() -> Float32? { readOutputVolume(device: defaultOutputDevice()) }
 
+    /// Marks a write as the island's own, so the listener does not announce a change the
+    /// island has already answered for itself. See `LocalWrite`.
+    static func markLocalWrite() { AudioOutputs.markLocalWrite() }
+
     static func readOutputVolume(device: AudioDeviceID) -> Float32? {
         guard device != 0 else { return nil }
         for element in volumeElements {
@@ -245,6 +252,21 @@ final class AudioMonitor {
     /// Asking for the virtual one on a channel always answers no, because the HAL only
     /// synthesises it on the main element — which is why this belongs here, beside the
     /// address it shares, rather than anywhere that has to guess at it.
+    /// Where this device's level actually lives.
+    ///
+    /// The synthesised main volume if it has one — that is the whole device in a single
+    /// property — and only otherwise the channels it keeps it on instead. A stereo device has
+    /// all three, and watching all three would report one notch of the volume key three times.
+    static func volumeElements(on device: AudioDeviceID) -> [AudioObjectPropertyElement] {
+        guard device != 0 else { return [] }
+        var main = volumeAddress(element: kAudioObjectPropertyElementMain)
+        if AudioObjectHasProperty(device, &main) { return [kAudioObjectPropertyElementMain] }
+        return volumeChannelElements.filter { element in
+            var address = volumeAddress(element: element)
+            return AudioObjectHasProperty(device, &address)
+        }
+    }
+
     static func outputHasVolumeControl() -> Bool { outputHasVolumeControl(device: defaultOutputDevice()) }
 
     static func outputHasVolumeControl(device: AudioDeviceID) -> Bool {
@@ -300,7 +322,7 @@ final class AudioMonitor {
         return status == noErr
     }
 
-    private static func volumeAddress(element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
+    static func volumeAddress(element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
         let selector: AudioObjectPropertySelector = element == kAudioObjectPropertyElementMain
             ? kAudioHardwareServiceDeviceProperty_VirtualMainVolume
             : kAudioDevicePropertyVolumeScalar

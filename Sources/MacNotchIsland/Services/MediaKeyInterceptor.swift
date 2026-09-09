@@ -62,21 +62,18 @@ final class SystemHUDReplacement: ObservableObject {
         lock.unlock()
     }
 
-    func capabilitiesSnapshot() -> Capabilities {
-        lock.lock()
-        defer { lock.unlock() }
-        return capabilities
-    }
-
     /// Whether a change of this kind is the island's to announce. Main thread.
     var answersVolume: Bool { isActive && can(\.volume) }
     var answersMute: Bool { isActive && can(\.mute) }
     var answersBrightness: Bool { isActive && can(\.brightness) }
 
     func set(_ active: Bool) {
+        // Cleared every time, not only when this is a change: the poll asks about
+        // capabilities whether or not a tap is up, so they can be true while it is down, and
+        // a `set(false)` that returned early would leave them that way.
+        if !active { setCapabilities(Capabilities()) }
         guard isActive != active else { return }
         isActive = active
-        if !active { setCapabilities(Capabilities()) }
     }
 }
 
@@ -236,6 +233,7 @@ final class MediaKeyInterceptor {
     func stop() {
         guard running else { return }
         running = false
+        installGeneration &+= 1
         SystemHUDReplacement.shared.set(false)
         trustTimer?.invalidate()
         trustTimer = nil
@@ -298,6 +296,7 @@ final class MediaKeyInterceptor {
 
     /// Access was taken away: let the tap go and stop claiming the keys.
     private func dropTap() {
+        installGeneration &+= 1
         SystemHUDReplacement.shared.set(false)
         lock.lock()
         let port = tapPort
@@ -342,6 +341,10 @@ final class MediaKeyInterceptor {
             NSLog("Notch Island: could not create the media-key event tap (attempt \(tapFailures) of \(Self.maxTapAttempts)); the system HUD stays in charge.")
             return
         }
+        // A tap is created enabled. Nothing may reach it until the island knows which keys it
+        // can answer — and until a run loop is reading the port, an enabled tap is one the
+        // system disables for timing out, holding up every media key on the Mac while it does.
+        CGEvent.tapEnable(tap: port, enable: false)
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else {
             // Counted like any other failure: the watch timer will come back every few
             // seconds for as long as the feature is on, and something that cannot be built
@@ -358,27 +361,25 @@ final class MediaKeyInterceptor {
         lock.lock()
         tapPort = port
         lock.unlock()
-        // Not enabled yet. The tap carries keys the instant it is, and until the first answer
-        // has landed the island does not know which of them it can do anything with — nor is
-        // there a run loop reading the port, and a tap nobody reads is one the system turns
-        // off for timing out. Both wait on the answer. Asking for it on the main thread
-        // instead would have been a dozen blocking round trips to coreaudiod at exactly the
-        // moment a device is arriving, which is when they are slowest.
+        installGeneration &+= 1
+        let generation = installGeneration
+
+        // The tap runs on its own thread: a synchronous tap on a busy main thread would delay
+        // every key press system-wide and get itself disabled for timing out. Started now,
+        // with the port and source it was made for, so the run loop is already reading.
+        let thread = Thread { [weak self] in
+            self?.runTapLoop(source: source)
+        }
+        thread.name = "com.notchisland.mediakeys"
+        thread.qualityOfService = .userInteractive
+        tapThread = thread
+        thread.start()
+
+        // Switched on only once the island knows which keys it can answer, and only if this
+        // is still the tap that exists — a probe started for a tap that has since been torn
+        // down and rebuilt would otherwise enable the dead one and leave the live one unread.
         refreshCapabilities { [weak self] in
-            guard let self, self.running else { return }
-            self.lock.lock()
-            let stillOurs = self.tapPort != nil
-            self.lock.unlock()
-            guard stillOurs, self.tapThread == nil else { return }
-            // The tap runs on its own thread: a synchronous tap on a busy main thread would
-            // delay every key press system-wide and get itself disabled for timing out.
-            let thread = Thread { [weak self] in
-                self?.runTapLoop(source: source)
-            }
-            thread.name = "com.notchisland.mediakeys"
-            thread.qualityOfService = .userInteractive
-            self.tapThread = thread
-            thread.start()
+            guard let self, self.running, self.installGeneration == generation else { return }
             CGEvent.tapEnable(tap: port, enable: true)
             SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
         }
@@ -471,33 +472,35 @@ final class MediaKeyInterceptor {
     /// which is the moment this most wants asking. `waiting` is for the one call that cannot
     /// be late: the tap begins carrying keys the instant its thread is up, and until the first
     /// answer lands the flags are only optimistic guesses.
+    /// Asks the hardware what it can do and writes the whole answer at once.
+    ///
+    /// Every value is probed every time. Caching them against the device they were read from
+    /// saved a dozen round trips every five seconds, off the main thread, and cost two
+    /// separate latches: an answer of "no" kept for a device that had merely not finished
+    /// arriving, and a cache that outlived the capabilities being cleared when the tap went
+    /// down — so the same output came back permanently unanswerable. A whole answer, written
+    /// once, cannot be half-stale.
     private func refreshCapabilities(then finished: (() -> Void)? = nil) {
         Self.capabilityQueue.async { [weak self] in
             guard let self else { return }
-            // The display question is one cheap call, so it is always asked. The audio ones
-            // are a dozen round trips to coreaudiod, and the answers only change when the
-            // default output does — so they are asked when it has.
-            let brightnessOK = self.brightness.currentBrightness() != nil
             let device = AudioMonitor.defaultOutputDevice()
-            var current = SystemHUDReplacement.shared.capabilitiesSnapshot()
-            current.brightness = brightnessOK
-            if device != self.probedDevice {
-                self.probedDevice = device
-                // Settable, not readable: a level that can be read and not written is a key
-                // swallowed into a bar that never moves, and the message written for that
-                // case is guarded on this same answer.
-                current.volume = AudioMonitor.outputHasVolumeControl(device: device)
-                current.mute = AudioMonitor.outputHasMuteControl(device: device)
-            }
-            SystemHUDReplacement.shared.setCapabilities(current)
+            // Settable, not readable: a level that can be read and not written is a key
+            // swallowed into a bar that never moves, and the message written for that case is
+            // guarded on this same answer.
+            let answer = SystemHUDReplacement.Capabilities(
+                volume: AudioMonitor.outputHasVolumeControl(device: device),
+                mute: AudioMonitor.outputHasMuteControl(device: device),
+                brightness: self.brightness.currentBrightness() != nil)
+            SystemHUDReplacement.shared.setCapabilities(answer)
             if let finished { DispatchQueue.main.async(execute: finished) }
         }
     }
 
     private static let capabilityQueue = DispatchQueue(label: "com.notchisland.mediakeys.capabilities",
                                                        qos: .utility)
-    /// The output the audio half of the answer was asked about. Only on `capabilityQueue`.
-    private var probedDevice: AudioDeviceID?
+    /// Bumped by every install and every teardown, so a probe's completion can tell whether
+    /// the tap it was started for is still the tap that exists.
+    private var installGeneration = 0
 
     // MARK: - Decoding
 
@@ -569,7 +572,10 @@ final class MediaKeyInterceptor {
             // Only call it unavailable when the device really has no control of its own; a
             // read that merely failed is not a read that could never succeed, and should not
             // be reported as one.
-            guard !isRepeat else { return }
+            // Only when the device really has none. A read that merely failed is not a read
+            // that could never succeed, and telling someone their AirPods have no volume
+            // because coreaudiod was mid-enumeration is worse than saying nothing.
+            guard !isRepeat, !AudioMonitor.outputHasVolumeControl(device: device) else { return }
             postUnavailable()
             return
         }
@@ -580,6 +586,7 @@ final class MediaKeyInterceptor {
             lastVolume = target
             return
         }
+        AudioOutputs.markLocalWrite()
         let applied = AudioMonitor.writeOutputVolume(target, device: device)
         if applied { lastVolume = target }
         // Turning the volume up unmutes, the way the system keys do.
@@ -603,6 +610,7 @@ final class MediaKeyInterceptor {
             return postUnavailable()
         }
         let next = !muted
+        AudioOutputs.markLocalWrite()
         guard AudioMonitor.writeOutputMute(next, device: device) else { return postUnavailable() }
         lastMuted = next
         guard Preferences.shared.volumeHUDEnabled else { return }
