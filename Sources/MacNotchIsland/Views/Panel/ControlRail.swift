@@ -28,8 +28,12 @@ struct ControlRail: View {
         let showsAirDrop = prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf
         // Budget at 672 pt with everything showing: two sliders (178 and 140), up to seven
         // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
-        return HStack(spacing: 12) {
+        return HStack(spacing: RailMetrics.gap) {
             volume
+            // Beside the volume, not among the toggles: where the sound is going belongs with
+            // how loud it is. Only when there is a choice to make — one output is not a
+            // picker, it is a label nobody asked for.
+            if outputs.devices.count > 1 { outputPicker }
             if hasBrightness { brightnessControl }
             Spacer(minLength: 8)
             if toggles.hasWiFi {
@@ -71,7 +75,8 @@ struct ControlRail: View {
         // brightness slider with a display that has one, AirDrop with something on the shelf.
         // Whatever changes, the buttons beside it slide over rather than jumping.
         .animation(IslandMotion.content,
-                   value: [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled, showsAirDrop])
+                   value: [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled,
+                           showsAirDrop, outputs.devices.count > 1])
         .onAppear {
             outputs.viewerAppeared()
             brightness.viewerAppeared()
@@ -86,13 +91,10 @@ struct ControlRail: View {
 
     // MARK: - Sliders
 
-    /// The rail's first glyph is the panel's leftmost mark. Centring it in a 24 pt box set it
-    /// 6 pt inside the column that the hairline above it, every section title and the switcher
-    /// all stand on; it hangs from the leading edge instead, and keeps its full hit area.
-    private static let leadingGlyph: CGFloat = 22
+    private static let leadingGlyph: CGFloat = RailMetrics.glyph
 
     private var volume: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RailMetrics.groupGap) {
             Button(action: { outputs.setMuted(!outputs.isMuted) }) {
                 Image(systemName: outputs.isMuted || (outputs.volume ?? 0) <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.system(size: 12, weight: .semibold))
@@ -110,7 +112,7 @@ struct ControlRail: View {
                          // does in Control Centre; the slider would otherwise write a level
                          // nobody can hear.
                          onBegin: { if outputs.isMuted { outputs.setMuted(false) } })
-                .frame(width: 150)
+                .frame(width: RailMetrics.volumeSlider)
                 .opacity(outputs.volume == nil ? 0.3 : 1)
                 .disabled(outputs.volume == nil)
                 .accessibilityLabel("Volume")
@@ -118,15 +120,48 @@ struct ControlRail: View {
         }
     }
 
+    /// Where the sound goes. It used to live in the Now Playing header, which meant it was
+    /// there only while something was playing and only on that one section — and switching to
+    /// headphones is not a thing you only want to do mid-track. The rail is under every
+    /// section, so it is here, once.
+    private var outputPicker: some View {
+        Menu {
+            ForEach(outputs.devices) { device in
+                Button(action: { outputs.select(device) }) {
+                    if device == outputs.current {
+                        Label(device.shortName, systemImage: "checkmark")
+                    } else {
+                        Text(device.shortName)
+                    }
+                }
+            }
+        } label: {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.10))
+                Image(systemName: outputs.current?.symbol ?? "airplayaudio")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .frame(width: RailMetrics.button, height: RailMetrics.button)
+            .contentShape(Circle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(outputs.current.map { "Sound is going to \($0.name)" } ?? "Choose the output")
+        .accessibilityLabel("Output: \(outputs.current?.name ?? "unknown")")
+    }
+
     private var brightnessControl: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RailMetrics.groupGap) {
             Image(systemName: brightness.level < 0.5 ? "sun.min.fill" : "sun.max.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
                 .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
                 .accessibilityHidden(true)
             IslandSlider(value: brightness.level, onChange: { brightness.set($0) })
-                .frame(width: 112)
+                .frame(width: RailMetrics.brightnessSlider)
                 .accessibilityLabel("Brightness")
                 .accessibilityValue("\(Int((brightness.level * 100).rounded())) percent")
         }
@@ -151,12 +186,43 @@ struct ControlRail: View {
                 glyph()
                     .foregroundStyle(active ? Color.black : Color.white.opacity(0.85))
             }
-            .frame(width: 30, height: 30)
+            .frame(width: RailMetrics.button, height: RailMetrics.button)
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+/// Every measure the rail is built from, in one place, because they add up to something that
+/// has to fit: the panel's content width. `RailMetricsTests` adds them up.
+enum RailMetrics {
+    /// The rail's first glyph is the panel's leftmost mark. Centring it in a 24 pt box set it
+    /// 6 pt inside the column that the hairline above it, every section title and the switcher
+    /// all stand on; it hangs from the leading edge instead, and keeps its full hit area.
+    static let glyph: CGFloat = 22
+    static let volumeSlider: CGFloat = 120
+    static let brightnessSlider: CGFloat = 104
+    /// Between a glyph and the slider it belongs to.
+    static let groupGap: CGFloat = 6
+    /// Between one control and the next.
+    static let gap: CGFloat = 12
+    static let button: CGFloat = 30
+    /// Wi-Fi, Bluetooth, light/dark, Keep Awake, the mirror, AirDrop, Settings.
+    static let maxButtons = 7
+    /// The least the spacer in the middle may be.
+    static let minSpacer: CGFloat = 8
+
+    /// Every control the rail can show, at once: both sliders, the output picker, and all
+    /// seven buttons. A Mac with a brightness slider, Wi-Fi, Bluetooth, a second output and
+    /// something on the shelf shows exactly this.
+    static var widest: CGFloat {
+        let volume = glyph + groupGap + volumeSlider
+        let brightness = glyph + groupGap + brightnessSlider
+        let buttons = CGFloat(maxButtons + 1) * button          // the seven, and the output
+        let children = 2 + 1 + (maxButtons + 1)                 // sliders, spacer, buttons
+        return volume + brightness + minSpacer + buttons + CGFloat(children - 1) * gap
     }
 }
 

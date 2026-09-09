@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Where the sound is going moved to the control rail.** The output picker was in the Now
+  Playing header, which meant it existed only while something was playing and only on that one
+  section — and switching to headphones is not something you only want to do mid-track. It is
+  on the rail now, under every section, and it appears as soon as there is more than one place
+  the sound could go. One control, not two.
 - **The panel answers the keyboard.** While it is pinned open — and with nothing held down —
   ← and → step between views the way a sideways swipe does, 1 to 9 go straight to a slot of
   the switcher, Space plays and pauses what is playing, and ↑ and ↓ move the volume, which is

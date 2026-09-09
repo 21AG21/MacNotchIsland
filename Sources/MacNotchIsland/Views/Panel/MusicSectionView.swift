@@ -54,13 +54,13 @@ struct MusicSectionView: View {
                                 font: .system(size: 13, weight: .regular), color: .white.opacity(0.55))
                 }
                 .padding(.top, 9)
-                HStack(spacing: 12) {
-                    VisualizerBars(isPlaying: info.isPlaying, color: accent.opacity(0.9),
-                                   barCount: 4, barWidth: 3, maxHeight: 18, minHeight: 4)
-                        .islandMatched(IslandMatchedID.nowPlayingVisualizer)
-                    outputMenu
-                }
-                .padding(.top, 16)
+                // The output picker used to stand here. It is on the control rail now, where
+                // it is under every section and there whether or not anything is playing —
+                // and where it is not a second copy of a control this row already had.
+                VisualizerBars(isPlaying: info.isPlaying, color: accent.opacity(0.9),
+                               barCount: 4, barWidth: 3, maxHeight: 18, minHeight: 4)
+                    .islandMatched(IslandMatchedID.nowPlayingVisualizer)
+                    .padding(.top, 16)
             }
             .frame(height: 60)
 
@@ -140,39 +140,6 @@ struct MusicSectionView: View {
     private var lyricLine: String? {
         guard prefs.lyricsEnabled, let line = lyrics.currentLine?.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { return nil }
         return line
-    }
-
-    /// Where the sound goes: the current output's glyph, and every output that could take it.
-    private var outputMenu: some View {
-        Menu {
-            ForEach(outputs.devices) { device in
-                Button(action: { outputs.select(device) }) {
-                    if device == outputs.current {
-                        Label(device.shortName, systemImage: "checkmark")
-                    } else {
-                        Text(device.shortName)
-                    }
-                }
-            }
-            if outputs.devices.isEmpty {
-                Text("No outputs")
-            }
-        } label: {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.12))
-                Image(systemName: outputs.current?.symbol ?? "airplayaudio")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.75))
-            }
-            .frame(width: 28, height: 28)
-            .contentShape(Circle())
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(outputs.current.map { "Playing on \($0.name)" } ?? "Output")
-        .accessibilityLabel("Output: \(outputs.current?.name ?? "unknown")")
     }
 
     /// The app that last played, else Music.

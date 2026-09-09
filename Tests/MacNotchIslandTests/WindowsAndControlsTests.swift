@@ -161,6 +161,23 @@ final class WindowsAndControlsTests: XCTestCase {
                              "the strip stops \(IslandLayout.panelContentWidth - used) pt short of the right edge")
     }
 
+    func testEveryControlTheRailCanShowFitsTheRailAtOnce() {
+        // A Mac with a brightness slider, Wi-Fi, Bluetooth, a second output and something on
+        // the shelf shows all of it. The rail has no room to overflow into: it is one row of
+        // the panel's own column.
+        XCTAssertLessThanOrEqual(RailMetrics.widest, IslandLayout.panelContentWidth,
+                                 "the rail overflows by \(RailMetrics.widest - IslandLayout.panelContentWidth) pt")
+        // And not so far short that the row looks lost in the middle of the panel.
+        XCTAssertGreaterThan(RailMetrics.widest, IslandLayout.panelContentWidth - 80)
+    }
+
+    func testTheRailsGlyphHangsFromTheSameColumnAsEverythingAboveIt() {
+        // 22 pt, hanging from the leading edge rather than centred in a wider box: the first
+        // glyph of the rail is the panel's leftmost mark.
+        XCTAssertEqual(RailMetrics.glyph, 22)
+        XCTAssertGreaterThan(RailMetrics.button, RailMetrics.glyph, "a disc is a bigger target than a bare glyph")
+    }
+
     // MARK: - Favourite apps
 
     func testADeletedAppLeavesTheFavouritesButAnUnpluggedOneStays() throws {
