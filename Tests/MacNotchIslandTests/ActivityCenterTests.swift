@@ -207,6 +207,13 @@ final class ActivityCenterTests: XCTestCase {
         center.setDragTargeted(true)
         XCTAssertEqual(center.presentation, .shelf)
         center.setDragTargeted(false)
+        // The well does not go the instant the drag appears to leave: every drop target inside
+        // the island takes the drag off the island's own for as long as the pointer is over
+        // it, so leaving is given a moment to be a drag that has moved onto a tile.
+        XCTAssertEqual(center.presentation, .shelf, "still the well, for a moment")
+        let done = expectation(description: "the drag has really gone")
+        DispatchQueue.main.asyncAfter(deadline: .now() + ActivityCenter.dragExitGrace + 0.3) { done.fulfill() }
+        wait(for: [done], timeout: 3)
         guard case .compact = center.presentation else { return XCTFail("expected compact after drag ends") }
     }
 
