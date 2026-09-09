@@ -50,8 +50,8 @@ struct TimerExpandedView: View {
                     .accessibilityLabel(spokenLabel(at: context.date))
                 }
                 Spacer(minLength: 0)
-                // Two circles of the same weight, told apart by colour rather than by shape:
-                // the timer's own orange for what it does next, white for cancelling it.
+                // Circles of the same weight, told apart by colour rather than by shape: the
+                // timer's own orange for what it does next, white for the rest.
                 HStack(spacing: 10) {
                     if state.isFinished {
                         CircleActionButton(symbol: "arrow.counterclockwise", tint: .orange, label: "Repeat") { IslandTimer.shared.repeatLast() }
@@ -59,6 +59,11 @@ struct TimerExpandedView: View {
                         CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .orange,
                                            label: state.isPaused ? "Resume" : "Pause") {
                             state.isPaused ? IslandTimer.shared.resume() : IslandTimer.shared.pause()
+                        }
+                        // The thing everybody asks a smart speaker for, and the one thing a
+                        // countdown could not be told. Nothing to add to once it has rung.
+                        CircleActionButton(symbol: "plus", tint: .white, label: "Add a minute") {
+                            IslandTimer.shared.add(seconds: IslandTimer.addStep)
                         }
                     }
                     CircleActionButton(symbol: "xmark", tint: .white, label: "Cancel") { IslandTimer.shared.cancel() }

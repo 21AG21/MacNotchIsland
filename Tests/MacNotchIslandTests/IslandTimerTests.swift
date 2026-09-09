@@ -174,6 +174,43 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertEqual(timer.state?.total, 120)
     }
 
+    // MARK: - Another minute
+
+    func testAnotherMinuteMovesTheEndAndTheTotalTogether() {
+        timer.start(seconds: 300, label: "Pasta")
+        let before = timer.state
+        timer.add(seconds: 60)
+        let after = timer.state
+        XCTAssertEqual(after?.total ?? 0, (before?.total ?? 0) + 60, accuracy: 0.01)
+        XCTAssertEqual(after?.endDate.timeIntervalSince1970 ?? 0,
+                       (before?.endDate.timeIntervalSince1970 ?? 0) + 60, accuracy: 0.01,
+                       "the ring still means how much of this timer is left")
+    }
+
+    func testAnotherMinuteOnAPausedTimerWaitsForIt() {
+        timer.start(seconds: 300, label: "Pasta")
+        timer.pause()
+        let before = timer.state?.pausedRemaining ?? 0
+        timer.add(seconds: 60)
+        XCTAssertEqual(timer.state?.pausedRemaining ?? 0, before + 60, accuracy: 0.01)
+        XCTAssertTrue(timer.state?.isPaused ?? false, "adding time does not start it running")
+    }
+
+    func testATimerThatHasRungIsNotExtended() {
+        timer.start(seconds: 300, label: "Pasta")
+        guard let id = timer.timers.first?.id else { return XCTFail("no timer") }
+        timer.finishForTesting(id: id)
+        let before = timer.state?.total ?? 0
+        timer.add(seconds: 60)
+        XCTAssertEqual(timer.state?.total ?? 0, before, "there is nothing left to add to")
+    }
+
+    func testNothingIsAddedWithNoTimerRunning() {
+        timer.cancelAll()
+        timer.add(seconds: 60)
+        XCTAssertNil(timer.state)
+    }
+
     // MARK: - What the card says over the countdown
 
     private func state(_ label: String, finished: Bool = false, paused: Bool = false) -> TimerState {

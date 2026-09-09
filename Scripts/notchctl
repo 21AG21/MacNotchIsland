@@ -7,6 +7,7 @@
 #   notchctl end <id>
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
+#   notchctl timer add [minutes]                (another minute for the running timer)
 #   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
@@ -73,6 +74,7 @@ case "$cmd" in
   timer)
     case "${1:-}" in
       cancel|stop|pause|resume) open_url "timer/$1" ;;
+      add) shift; add minutes "${1:-1}"; open_url "timer/add" ;;
       pomodoro) shift; parse_flags "$@"; open_url "timer/pomodoro" ;;
       *) add minutes "${1:?minutes required}"; shift; parse_flags "$@"; open_url "timer" ;;
     esac ;;

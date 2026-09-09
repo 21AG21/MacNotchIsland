@@ -64,6 +64,7 @@ struct IslandMenu: View {
                     state.isPaused ? IslandTimer.shared.resume(id: activity.id)
                                    : IslandTimer.shared.pause(id: activity.id)
                 }
+                Button("Add a Minute") { IslandTimer.shared.add(seconds: IslandTimer.addStep, id: activity.id) }
             }
             Button("Cancel Timer") { IslandTimer.shared.cancel(id: activity.id) }
         case .stopwatch(let state):

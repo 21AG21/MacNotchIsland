@@ -170,6 +170,11 @@ final class IslandTimer: ObservableObject {
         cancel(id: id)
     }
 
+    func add(seconds: TimeInterval) {
+        guard let id = primary?.id else { return }
+        add(seconds: seconds, id: id)
+    }
+
     // MARK: - Per-timer controls
 
     func pause(id: String) {
@@ -197,6 +202,31 @@ final class IslandTimer: ObservableObject {
         syncTicker()
     }
 
+    /// Another minute, the way you ask a smart speaker for one. A running timer's end moves
+    /// out; a paused one has more waiting for it when it resumes. The total moves with it, so
+    /// the ring keeps meaning "how much of this timer is left" rather than jumping backwards.
+    ///
+    /// A timer that has already rung is not extended: there is nothing left to add to, and
+    /// the card offers Repeat for that instead.
+    func add(seconds: TimeInterval, id: String) {
+        guard seconds > 0, let i = index(of: id) else { return }
+        var s = timers[i].state
+        guard !s.isFinished else { return }
+        s.total += seconds
+        if let paused = s.pausedRemaining {
+            s.pausedRemaining = paused + seconds
+        } else {
+            s.endDate = s.endDate.addingTimeInterval(seconds)
+        }
+        timers[i].state = s
+        reprioritize()
+        publishAll()
+        syncTicker()
+    }
+
+    /// What one press of "another minute" adds.
+    static let addStep: TimeInterval = 60
+
     func cancel(id: String) {
         // Cancelling the Pomodoro's timer ends the whole run, not just this phase.
         if id == pomodoroTimerID { stopPomodoro() }
@@ -209,6 +239,13 @@ final class IslandTimer: ObservableObject {
         for t in timers { ActivityCenter.shared.end(id: t.id) }
         timers.removeAll()
         syncTicker()
+    }
+
+    /// Marks a timer as rung without waiting out its countdown. Used by the test suite.
+    func finishForTesting(id: String) {
+        guard let i = index(of: id) else { return }
+        timers[i].state.isFinished = true
+        publishAll()
     }
 
     private func remove(id: String) {

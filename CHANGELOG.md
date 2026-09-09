@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Another minute.** The thing everybody asks a smart speaker for, and the one thing a
+  running countdown could not be told: a `+` on the timer's card, "Add a Minute" in the
+  island's menu, and `notchctl timer add`. The total moves out with the end, so the ring keeps
+  meaning how much of *this* timer is left rather than jumping backwards. A timer that has
+  already rung is not extended — there is nothing left to add to, and Repeat is there instead.
 - **Minimise a window from its tile.** Every zone on a window tile moved it somewhere on this
   screen; sometimes where you want it is off the screen. A tile now has both of the corner
   buttons a real window has, in the corners the real ones are in: put it away on the left,
