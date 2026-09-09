@@ -7,12 +7,13 @@ enum HomeSection: String, CaseIterable {
     /// way Control Centre is arranged, and the way somebody who has never opened this app
     /// finds out that any of the rest of it exists.
     case home
-    case music, today, windows, shelf, clipboard, actions, notes, stats
+    case music, today, windows, shelf, controls, clipboard, actions, notes, stats
 
     var title: String {
         switch self {
         case .home: return "Home"
         case .music: return "Now Playing"
+        case .controls: return "Controls"
         case .today: return "Today"
         case .windows: return "Windows"
         case .shelf: return "Shelf"
@@ -27,6 +28,7 @@ enum HomeSection: String, CaseIterable {
         switch self {
         case .home: return "square.grid.2x2"
         case .music: return "music.note"
+        case .controls: return "switch.2"
         case .today: return "calendar"
         case .windows: return "macwindow.on.rectangle"
         case .shelf: return "tray.full"
@@ -45,6 +47,7 @@ enum HomeSection: String, CaseIterable {
         // the island is for.
         case .home: return true
         case .music: return true
+        case .controls: return prefs.controlsEnabled
         case .today: return prefs.calendarEnabled
         case .windows: return prefs.windowsEnabled
         case .shelf: return prefs.shelfEnabled
@@ -59,6 +62,7 @@ enum HomeSection: String, CaseIterable {
     func setEnabled(_ enabled: Bool, in prefs: Preferences) {
         switch self {
         case .home, .music: break
+        case .controls: prefs.controlsEnabled = enabled
         case .today: prefs.calendarEnabled = enabled
         case .windows: prefs.windowsEnabled = enabled
         case .shelf: prefs.shelfEnabled = enabled

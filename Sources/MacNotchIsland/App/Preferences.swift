@@ -36,6 +36,7 @@ final class Preferences: ObservableObject {
     @Published var downloadsEnabled: Bool { didSet { d.set(downloadsEnabled, forKey: "downloadsEnabled") } }
     @Published var drivesEnabled: Bool { didSet { d.set(drivesEnabled, forKey: "drivesEnabled") } }
     @Published var screenshotsEnabled: Bool { didSet { d.set(screenshotsEnabled, forKey: "screenshotsEnabled") } }
+    @Published var controlsEnabled: Bool { didSet { d.set(controlsEnabled, forKey: "controlsEnabled") } }
     @Published var addDownloadsToShelf: Bool { didSet { d.set(addDownloadsToShelf, forKey: "addDownloadsToShelf") } }
     @Published var screenshotsToShelfEnabled: Bool { didSet { d.set(screenshotsToShelfEnabled, forKey: "screenshotsToShelfEnabled") } }
     @Published var lowPowerEnabled: Bool { didSet { d.set(lowPowerEnabled, forKey: "lowPowerEnabled") } }
@@ -127,6 +128,7 @@ final class Preferences: ObservableObject {
         downloadsEnabled = bool("downloadsEnabled", true)
         drivesEnabled = bool("drivesEnabled", true)
         screenshotsEnabled = bool("screenshotsEnabled", true)
+        controlsEnabled = bool("controlsEnabled", true)
         addDownloadsToShelf = bool("addDownloadsToShelf", true)
         screenshotsToShelfEnabled = bool("screenshotsToShelfEnabled", true)
         lowPowerEnabled = bool("lowPowerEnabled", true)

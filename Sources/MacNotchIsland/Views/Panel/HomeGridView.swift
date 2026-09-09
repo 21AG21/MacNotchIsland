@@ -153,6 +153,7 @@ struct HomeGridView: View {
         switch section {
         case .home, .music: return ""
         case .today: return agendaGlimpse
+        case .controls: return "Wi-Fi and Bluetooth"
         case .windows: return "Every open window"
         case .shelf: return shelf.items.isEmpty ? "Drop files here" : count(shelf.items.count, "item")
         case .clipboard: return clipboard.items.isEmpty ? "Nothing copied yet" : count(clipboard.items.count, "item")

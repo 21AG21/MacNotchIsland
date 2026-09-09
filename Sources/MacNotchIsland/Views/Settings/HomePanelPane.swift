@@ -61,6 +61,7 @@ struct HomePanelPane: View {
         switch section {
         case .home: return "Every section as a tile, with a glimpse of what is in it."
         case .music: return "What is playing, wherever it is playing."
+        case .controls: return "The networks in range and the devices you are paired with, each with its own switch."
         case .today: return "Your next events and reminders. Asks for calendar and reminders access when first opened."
         case .windows: return "Every open window as a live tile: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows."
         case .shelf: return "Drag files onto the island to keep them within reach."

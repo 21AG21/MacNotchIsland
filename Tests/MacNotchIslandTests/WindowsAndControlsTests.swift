@@ -390,4 +390,46 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertEqual(WindowsMonitor.tileFrames(count: 1, in: tileScreen), [tileScreen])
         XCTAssertTrue(WindowsMonitor.tileFrames(count: 0, in: tileScreen).isEmpty)
     }
+
+    // MARK: - The networks in range
+
+    private func network(_ ssid: String, _ rssi: Int, current: Bool = false,
+                         known: Bool = false, secure: Bool = true) -> WiFiScanner.Network {
+        WiFiScanner.Network(ssid: ssid, strength: rssi, isSecure: secure, isCurrent: current, isKnown: known)
+    }
+
+    func testTheNetworkYouAreOnComesFirstAndTheRestByStrength() {
+        let list = WiFiScanner.ordered([
+            network("Café", -70),
+            network("Home", -45),
+            network("Phone", -55, current: true),
+        ])
+        XCTAssertEqual(list.map(\.ssid), ["Phone", "Home", "Café"])
+    }
+
+    func testTwoNetworksOfTheSameStrengthAreOrderedByName() {
+        let list = WiFiScanner.ordered([network("Zebra", -60), network("Apple", -60)])
+        XCTAssertEqual(list.map(\.ssid), ["Apple", "Zebra"])
+    }
+
+    func testTheBarsFollowTheStrength() {
+        XCTAssertEqual(WiFiScanner.bars(forRSSI: -30), 4, "next to the router")
+        XCTAssertEqual(WiFiScanner.bars(forRSSI: -50), 4)
+        XCTAssertEqual(WiFiScanner.bars(forRSSI: -60), 3)
+        XCTAssertEqual(WiFiScanner.bars(forRSSI: -70), 2)
+        XCTAssertEqual(WiFiScanner.bars(forRSSI: -95), 1, "the edge of nothing is still one bar")
+        // Whatever the radio reports, it lands on one of the four.
+        for rssi in stride(from: -100, through: 0, by: 5) {
+            XCTAssertTrue((1...4).contains(WiFiScanner.bars(forRSSI: rssi)), "\(rssi)")
+        }
+    }
+
+    func testControlsIsASectionWithASwitchOfItsOwn() {
+        let prefs = Preferences.shared
+        defer { prefs.controlsEnabled = true }
+        XCTAssertTrue(HomeSection.controls.isEnabled(prefs))
+        HomeSection.controls.setEnabled(false, in: prefs)
+        XCTAssertFalse(HomeSection.controls.isEnabled(prefs))
+        XCTAssertFalse(HomeSection.available(prefs).contains(.controls))
+    }
 }

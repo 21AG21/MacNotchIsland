@@ -459,6 +459,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-music-empty", setup: panel("music")),
             Scene(name: "panel-today", setup: panel("today") { _ in today() }),
             Scene(name: "panel-today-empty", setup: panel("today")),
+            Scene(name: "panel-controls", setup: panel("controls")),
             Scene(name: "panel-windows", setup: panel("windows")),
             // Type-to-find, narrowing a list of four to the one window that answers.
             Scene(name: "panel-windows-find") { c in

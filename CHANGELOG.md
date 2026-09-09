@@ -6,6 +6,15 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Controls: the two lists Control Centre has and a row of toggles cannot.** A new section
+  holding the networks in range and the devices this Mac is paired with, each under its own
+  switch. Click a network you have joined before and it joins again; click one you have not and
+  it opens the pane of System Settings that can ask for a password, because a panel that closes
+  when the pointer leaves has no honest way to. Click a device and it connects or disconnects.
+  The list is read from the system's own last scan rather than sweeping the band every time
+  somebody opens a panel, with a fresh sweep when the section appears and every twelve seconds
+  it stays there — and only while somebody is looking at it. The rail below keeps the one-click
+  toggles it always had; what it could never carry, in thirty-point discs, is a list.
 - **Put your headphones back on from the island.** A Bluetooth device's card carries Connect or
   Disconnect now, and the island's menu lists everything this Mac is paired with — connected
   ones first, with a tick — so reconnecting a pair of AirPods is one click instead of a trip to
