@@ -32,6 +32,18 @@ struct MarqueeText: View {
             }
             .frame(width: geo.size.width, alignment: .leading)
             .clipped()
+            // A title that is moving dissolves at the edges rather than being cut off at
+            // them: a hard edge makes the letters look like they are hitting a wall, and
+            // every marquee Apple ships — Now Playing, the Music app's ticker — fades. Only
+            // while it is scrolling: a title that fits is not going anywhere and should not
+            // have its first and last letters dimmed for nothing.
+            .mask(alignment: .leading) {
+                if scrolling {
+                    Self.edgeFade(across: geo.size.width)
+                } else {
+                    Rectangle()
+                }
+            }
         }
         .frame(height: lineHeight)
         .background(
@@ -41,6 +53,21 @@ struct MarqueeText: View {
                 }
             )
         )
+    }
+
+    /// How much of each end the fade covers.
+    private static let fadeWidth: CGFloat = 12
+
+    /// Opaque through the middle, clear at both ends, in whatever proportion `fadeWidth` is
+    /// of the room there is — clamped so a very narrow slot fades rather than disappears.
+    private static func edgeFade(across width: CGFloat) -> some View {
+        let inset = min(0.35, fadeWidth / max(width, 1))
+        return LinearGradient(stops: [
+            .init(color: .black.opacity(0), location: 0),
+            .init(color: .black, location: inset),
+            .init(color: .black, location: 1 - inset),
+            .init(color: .black.opacity(0), location: 1),
+        ], startPoint: .leading, endPoint: .trailing)
     }
 
     private var label: some View {

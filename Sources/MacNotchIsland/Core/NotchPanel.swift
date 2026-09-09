@@ -15,11 +15,12 @@ final class NotchPanel: NSPanel {
     /// anything next to the notch.
     static let restSlack: CGFloat = 4
     /// Extra room on the sides and below while a spring is in flight, since springs overshoot.
-    /// The open spring (damping 0.72) overshoots by about 4 % of the step, so the slack scales
-    /// with the step and this is only the floor.
+    /// `IslandMotion.open` carries a bounce of 0.28, which puts the shape about 4 % past its
+    /// step at the peak, so the slack scales with the step and this is only the floor.
     static let motionSlack: CGFloat = 14
     static let overshootFraction: CGFloat = 0.06
-    /// Longer than the slowest island spring, so the frame only shrinks once the shape is at rest.
+    /// Longer than the slowest island spring, so the frame only shrinks once the shape is at
+    /// rest — the open spring's 0.44 s plus room for it to ring out.
     static let settleDelay: TimeInterval = 0.65
 
     let geometry: NotchGeometry
