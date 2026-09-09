@@ -8,6 +8,7 @@ import SwiftUI
 /// straight to the matching pane in System Settings. Also the live health of each data
 /// source, so a silently failing feature is never a mystery.
 struct PrivacyPane: View {
+    @ObservedObject private var prefs = Preferences.shared
     @State private var locationManager = CLLocationManager()
     /// Nothing on this pane is published: every status is read from the system as the body is
     /// built. Touching this is what asks for the body again, so a permission granted in System
@@ -65,7 +66,26 @@ struct PrivacyPane: View {
             } header: {
                 Text("Permissions")
             } footer: {
-                Text("Every permission is optional, and asked for only when the feature that needs it is turned on. Nothing Notch Island reads ever leaves your Mac.")
+                Text("Every permission is optional, and asked for only when the feature that needs it is turned on.")
+            }
+
+            // Named, one by one. This used to say "nothing Notch Island reads ever leaves your
+            // Mac", which was not true of the four features that ask somebody else a question —
+            // and a blanket promise is the worst possible thing to be wrong about on the screen
+            // where somebody comes to check.
+            Section {
+                outbound("Weather", detail: "Where you are, rounded to about a hundred metres — never an address.",
+                         host: "open-meteo.com", on: prefs.weatherEnabled)
+                outbound("Lyrics", detail: "The title and artist of what is playing.",
+                         host: "lrclib.net", on: prefs.lyricsEnabled)
+                outbound("Missing album art", detail: "The title, artist and album of what is playing, when the player hands over no cover. A cover Spotify names is fetched from the address Spotify gave.",
+                         host: "itunes.apple.com", on: prefs.artworkLookupEnabled)
+                outbound("Update check", detail: "Nothing about you or this Mac. It asks what the newest release is.",
+                         host: "api.github.com", on: prefs.updateChecksEnabled)
+            } header: {
+                Text("What leaves this Mac")
+            } footer: {
+                Text("Nothing else does, and each of these stops the moment its switch goes off. There is no account, no analytics, and nothing is ever sent about what you copy, type, open or look at.")
             }
 
             Section {
@@ -93,6 +113,19 @@ struct PrivacyPane: View {
                     .help("Open the \(title) pane in System Settings.")
                     .accessibilityLabel(Text("Open \(title) in System Settings"))
             }
+        } label: {
+            Text(title)
+            Text(detail)
+        }
+    }
+
+    /// One thing the app asks somebody else: what is sent, who is asked, and whether it is
+    /// switched on at this moment.
+    private func outbound(_ title: String, detail: String, host: String, on: Bool) -> some View {
+        LabeledContent {
+            Text(on ? host : "Off")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         } label: {
             Text(title)
             Text(detail)
