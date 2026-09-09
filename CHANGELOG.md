@@ -6,6 +6,9 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- `notchctl stopwatch [lap|stop|reset]`, `notchctl timer pomodoro` and `notchctl home
+  windows` — all three have been in the URL scheme since the features themselves were, and
+  the command-line helper had never wrapped them.
 - **Windows.** A section that shows every open window as a live tile: click one to bring it
   forward, or use the zones that appear on it to send it to a half of the screen, fill the
   screen, centre it, or close it. The pictures come from ScreenCaptureKit and the moving from
@@ -31,6 +34,17 @@ the unreleased section is what the next tag will ship.
   washes into the black behind Now Playing, the way the phone does it. Switchable off in
   Activities, and nothing but the title, artist and album is ever sent.
 
+### Fixed
+- **A quick action with nothing to run it says so, and the same name is never listed twice.**
+  Running a shortcut when `/usr/bin/shortcuts` is missing returned without a word — a button
+  in the panel that did nothing at all — and the Actions pane blamed the empty list on there
+  being no shortcuts rather than on nothing being able to list them. And because a shortcut's
+  name is its identity everywhere, two of them with the same name were two rows nothing could
+  tell apart.
+- **The disk image says what to do about the first launch.** Every build is signed ad-hoc
+  rather than notarized, so macOS refuses to open it the first time, and since macOS 15
+  right-click and Open no longer gets past that. The note is in the disk image now, where
+  somebody who has just double-clicked the app is actually looking.
 - **Weather that has been refused your location says so.** Turning "Weather in Today" on and
   then refusing the location prompt left the line simply absent, which is indistinguishable
   from a switch that does not work. Today's header now offers "Allow Location", the same way
