@@ -40,7 +40,7 @@ struct PrivacyPane: View {
                 )
                 permission(
                     "Location",
-                    detail: "Used by the Weather tab for your approximate location.",
+                    detail: "Used by the weather line in Today for your approximate location.",
                     status: locationStatus,
                     pane: .location
                 )

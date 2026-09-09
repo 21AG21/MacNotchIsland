@@ -45,8 +45,6 @@ final class ActivityCenter: ObservableObject {
     /// close. Read by the views to pick a push or a cross-fade; not published, since it is
     /// always set right before the change that is.
     private(set) var navigationDirection = 0
-
-    func setNavigationDirection(_ direction: Int) { navigationDirection = direction }
     @Published private(set) var forcedExpandedID: String? = nil
     @Published private(set) var pinnedID: String? = nil
     @Published var micInUse = false
@@ -282,13 +280,6 @@ final class ActivityCenter: ObservableObject {
             // The island is about to widen into the menu bar; measure it as it is right now.
             MenuBarClearance.shared.refresh()
         }
-    }
-
-    func update(id: String, _ mutate: (inout IslandActivity) -> Void) {
-        guard let i = activities.firstIndex(where: { $0.id == id }) else { return }
-        var a = activities[i]
-        mutate(&a)
-        activities[i] = a
     }
 
     func end(id: String) {

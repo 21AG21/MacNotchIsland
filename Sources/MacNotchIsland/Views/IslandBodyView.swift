@@ -108,7 +108,7 @@ struct IslandBodyView: View {
             case .idle:
                 IdleContentView(layout: layout)
             case .compact(let activity, _):
-                CompactContentView(activity: activity, layout: layout, geometry: geometry)
+                CompactContentView(activity: activity, layout: layout)
             case .card(let activity):
                 ExpandedContentView(activity: activity, layout: layout, geometry: geometry)
             case .panel(let view):

@@ -192,7 +192,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     // MARK: - CoreLocation
 
     /// The manager is created lazily (and on the main thread, so its delegate callbacks
-    /// land there) — an app whose owner never opens the Weather tab never touches
+    /// land there) — an app whose owner never opens Today, or who has the weather line
+    /// switched off there, never touches
     /// CoreLocation at all, and so never sees a permission prompt.
     private func ensureManager() {
         guard manager == nil else { return }

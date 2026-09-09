@@ -65,6 +65,13 @@ struct IslandLayout: Equatable {
     /// How far below the top of the screen the body hangs. Zero against a physical notch, where
     /// the island *is* the notch.
     var topInset: CGFloat = 0
+    /// The gap the compact content leaves between its two slots.
+    ///
+    /// The cutout, on a screen that has one — the iPhone's leading and trailing regions exist
+    /// because the sensor housing is between them. On a screen with none it is a breath of
+    /// space and nothing more: reserving the same width for a camera housing that is not there
+    /// made a floating pill nearly three hundred points of black with a mark at either end.
+    var middleWidth: CGFloat = 0
 
     // MARK: - The scale
 
@@ -105,6 +112,8 @@ struct IslandLayout: Equatable {
     /// The resting pill on a notchless screen: a handle, not a slab.
     static let floatingIdleWidth: CGFloat = 72
     static let floatingIdleHeight: CGFloat = 22
+    /// What stands in for the cutout there: enough that the two slots read as two, no more.
+    static let floatingMiddle: CGFloat = 28
 
     /// Full width of the shape: the body plus the outward top corners, which only exist when the
     /// island is fused to a physical notch.
@@ -184,11 +193,12 @@ struct IslandLayout: Equatable {
             let hasBubble = bubble != nil
                 && (room.trailing.map { $0 - MenuBarClearance.margin >= trailing + bubbleRoom } ?? true)
             let bottom = h / 2
-            return IslandLayout(bodyWidth: notchW + leading + trailing, bodyHeight: h,
+            let middle = floating ? floatingMiddle : notchW
+            return IslandLayout(bodyWidth: middle + leading + trailing, bodyHeight: h,
                                 topRadius: floating ? bottom : compactTopRadius, bottomRadius: bottom,
                                 leadingWidth: leading, trailingWidth: trailing, privacyWidth: privacy,
                                 bubbleDiameter: h, bubbleGap: 8, hasBubble: hasBubble, isExpanded: false,
-                                floating: floating, topInset: inset)
+                                floating: floating, topInset: inset, middleWidth: middle)
 
         case .card(let a):
             return IslandLayout(bodyWidth: cardWidth, bodyHeight: h + a.content.cardHeight,

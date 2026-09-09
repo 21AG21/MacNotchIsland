@@ -184,8 +184,6 @@ final class HotKeyService: ObservableObject {
         }
     }
 
-    static func toggleIsland() { ActivityCenter.shared.toggle() }
-
     // MARK: - Display
 
     /// "⌃⌥Space", "⇧⌘K", "F5" — modifiers in Apple's canonical order, then the key name.

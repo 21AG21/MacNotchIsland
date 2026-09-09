@@ -46,15 +46,25 @@ enum Diagnostics {
     }
 
     /// The app's own unified-log entries. `log show` can take a few seconds; call off the main thread.
+    ///
+    /// Asked for by process as well as by subsystem. `Logger` stamps the subsystem on every
+    /// line; `NSLog` stamps none, so a report asking only for the subsystem left out most of
+    /// what the app had said — including every failure that would explain the problem it was
+    /// being collected for.
     static func recentLog(minutes: Int) -> String {
-        show(minutes: minutes, predicate: "subsystem == \"\(IslandLog.subsystem)\"", info: true)
+        show(minutes: minutes,
+             predicate: "subsystem == \"\(IslandLog.subsystem)\" OR process == \"\(processName)\"",
+             info: true)
     }
+
+    /// This process as `log show` names it.
+    private static let processName = ProcessInfo.processInfo.processName
 
     /// What the system logged about the app ending: errors and faults from inside the process
     /// (an uncaught exception, an assertion, a Swift runtime failure), the crash reporter's
     /// note about it, privacy denials, and the process manager's record of the exit.
     static func troubleLog(minutes: Int) -> String {
-        let name = "MacNotchIsland"
+        let name = processName
         let predicate = "(process == \"\(name)\" AND (messageType == error OR messageType == fault))"
             + " OR (process == \"ReportCrash\" AND eventMessage CONTAINS \"\(name)\")"
             + " OR (process == \"tccd\" AND eventMessage CONTAINS[c] \"macnotchisland\")"

@@ -5,7 +5,6 @@ import SwiftUI
 struct CompactContentView: View {
     let activity: IslandActivity
     let layout: IslandLayout
-    let geometry: NotchGeometry
     @EnvironmentObject private var center: ActivityCenter
 
     /// The live activity a key-press HUD is drawn over, whose glyph keeps the leading slot.
@@ -15,7 +14,7 @@ struct CompactContentView: View {
         HStack(spacing: 0) {
             CompactLeadingView(activity: under ?? activity, height: layout.bodyHeight)
                 .frame(width: layout.leadingWidth, height: layout.bodyHeight)
-            Color.clear.frame(width: geometry.notchWidth, height: layout.bodyHeight)
+            Color.clear.frame(width: layout.middleWidth, height: layout.bodyHeight)
             HStack(spacing: 0) {
                 CompactTrailingView(activity: activity, height: layout.bodyHeight,
                                     minimal: layout.trailingWidth - layout.privacyWidth < activity.content.compactWidths.trailing)

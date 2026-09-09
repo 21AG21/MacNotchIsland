@@ -9,8 +9,6 @@ struct NotchGeometry: Equatable {
     /// The menu bar's height on this screen; a floating island hangs below it.
     var menuBarHeight: CGFloat = 24
 
-    var notchSize: CGSize { CGSize(width: notchWidth, height: notchHeight) }
-
     /// Detect the notch on a screen. Uses the safe-area inset for the height and the
     /// auxiliary menu-bar areas for the width, which is exact on every notched MacBook
     /// (including the 15-inch MacBook Air). Screens without a notch get a simulated one.

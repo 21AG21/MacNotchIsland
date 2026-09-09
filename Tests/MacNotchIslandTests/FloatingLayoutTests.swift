@@ -70,7 +70,12 @@ final class FloatingLayoutTests: XCTestCase {
         let layout = IslandLayout.make(presentation: .compact(a, bubble: nil), geometry: external)
         let widths = ActivityContent.custom(CustomActivity(title: "A")).compactWidths
         XCTAssertTrue(layout.floating)
-        XCTAssertEqual(layout.bodyWidth, external.notchWidth + widths.leading + widths.trailing)
+        // The gap between the two slots stands in for a cutout that is not there, so it is a
+        // breath of space rather than the 190 pt a camera housing would have taken.
+        XCTAssertEqual(layout.middleWidth, IslandLayout.floatingMiddle)
+        XCTAssertEqual(layout.bodyWidth, IslandLayout.floatingMiddle + widths.leading + widths.trailing)
+        XCTAssertLessThan(layout.bodyWidth, external.notchWidth,
+                          "a pill with a mark at each end and nothing between them is a black bar")
         XCTAssertEqual(layout.frameWidth, layout.bodyWidth, "no ear padding to push it off centre")
         XCTAssertEqual(layout.leadingWidth, widths.leading)
         XCTAssertEqual(layout.trailingWidth, widths.trailing)
@@ -116,6 +121,8 @@ final class FloatingLayoutTests: XCTestCase {
         let compact = IslandLayout.make(presentation: .compact(a, bubble: nil), geometry: notched)
         XCTAssertEqual(compact.topRadius, 8)
         XCTAssertEqual(compact.frameWidth, compact.bodyWidth + 16)
+        XCTAssertEqual(compact.middleWidth, notched.notchWidth,
+                       "against a real cutout the gap is the cutout, to the point")
         let expanded = IslandLayout.make(presentation: .card(a), geometry: notched)
         XCTAssertEqual(expanded.topRadius, IslandLayout.expandedTopRadius)
         XCTAssertEqual(expanded.bottomRadius, IslandLayout.expandedBottomRadius)
