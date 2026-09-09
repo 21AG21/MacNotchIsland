@@ -17,7 +17,8 @@ enum KeyLayout {
     static func character(for keyCode: Int) -> String? {
         guard let data = layoutData() else { return nil }
         var deadKeyState: UInt32 = 0
-        var length: UniCharCount = 0
+        // Swift imports `UniCharCount` as a plain Int; naming the C typedef does not compile.
+        var length = 0
         var characters = [UniChar](repeating: 0, count: 8)
         let status = data.withUnsafeBytes { raw -> OSStatus in
             guard let base = raw.baseAddress else { return OSStatus(paramErr) }
@@ -25,10 +26,10 @@ enum KeyLayout {
                                   UInt16(keyCode), UInt16(kUCKeyActionDown), 0,
                                   UInt32(LMGetKbdType()),
                                   OptionBits(1 << kUCKeyTranslateNoDeadKeysBit),
-                                  &deadKeyState, UniCharCount(characters.count), &length, &characters)
+                                  &deadKeyState, characters.count, &length, &characters)
         }
         guard status == noErr, length > 0 else { return nil }
-        return String(utf16CodeUnits: characters, count: Int(length))
+        return String(utf16CodeUnits: characters, count: length)
     }
 
     /// The `uchr` table of the keyboard layout in force, falling back to the ASCII-capable one
