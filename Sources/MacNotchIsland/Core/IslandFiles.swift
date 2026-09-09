@@ -16,10 +16,19 @@ enum IslandFiles {
     static let ownerOnlyFile: NSNumber = 0o600
     static let ownerOnlyFolder: NSNumber = 0o700
 
-    static let folder: URL? = {
+    /// Somewhere else to put all of this, for the gallery.
+    ///
+    /// Rendering the gallery borrows the notes and the clipboard history to draw them, and
+    /// those are stores that write themselves down. On CI that costs nothing; on the Mac of
+    /// anybody who runs it to look at a change, it wrote over what they had actually jotted
+    /// down. Nothing in the app ever sets this.
+    static var overrideFolder: URL?
+
+    static var folder: URL? {
+        if let overrideFolder { return overrideFolder }
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         return base.appendingPathComponent("MacNotchIsland", isDirectory: true)
-    }()
+    }
 
     /// The folder, made if it is not there and shut to everyone else either way — a folder
     /// left behind by an older build kept whatever it was given.

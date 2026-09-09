@@ -4,11 +4,19 @@ import XCTest
 /// The shelf's rules: expiry, de-duplication, the item cap and the persistence migration.
 /// Every store here gets its own UserDefaults suite and its own temp directory, so nothing
 /// touches the real preferences or the user's shelf.
+///
+/// With one deliberate exception. The writers that turn a dropped picture, link or piece of
+/// text into a file are static and put it where the app really puts it, which is the whole
+/// point of testing them — so `drop` remembers each one and `tearDown` takes it away again.
+/// Before that they piled up in the app's own folder on every developer's Mac, under a
+/// comment saying they did not.
 final class ShelfStoreTests: XCTestCase {
     private var suiteName = ""
     private var defaults = UserDefaults.standard
     private var dir = URL(fileURLWithPath: NSTemporaryDirectory())
     private let key = "shelfItems"
+    /// Real files, in the app's real folder, to be removed when the test is done with them.
+    private var written: [URL] = []
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -21,7 +29,16 @@ final class ShelfStoreTests: XCTestCase {
     override func tearDownWithError() throws {
         defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: dir)
+        for url in written { try? FileManager.default.removeItem(at: url) }
+        written.removeAll()
         try super.tearDownWithError()
+    }
+
+    /// A file one of the drop writers really wrote, taken away again at the end of the test.
+    private func drop(_ url: URL?) throws -> URL {
+        let url = try XCTUnwrap(url)
+        written.append(url)
+        return url
     }
 
     // MARK: - Helpers
@@ -52,7 +69,7 @@ final class ShelfStoreTests: XCTestCase {
     // MARK: - Anything can be dropped
 
     func testDroppedTextBecomesAFileNamedAfterItsFirstLine() throws {
-        let url = try XCTUnwrap(ShelfStore.write(text: "Shopping list\nmilk\nbread"))
+        let url = try drop(ShelfStore.write(text: "Shopping list\nmilk\nbread"))
         defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(url.pathExtension, "txt")
         XCTAssertEqual(url.deletingPathExtension().lastPathComponent, "Shopping list")
@@ -61,14 +78,14 @@ final class ShelfStoreTests: XCTestCase {
     }
 
     func testDroppedTextThatIsAllWhitespaceIsStillWrittenUnderATimeStamp() throws {
-        let url = try XCTUnwrap(ShelfStore.write(text: "\n   \n"))
+        let url = try drop(ShelfStore.write(text: "\n   \n"))
         defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertTrue(url.lastPathComponent.hasPrefix("Text "), url.lastPathComponent)
     }
 
     func testDroppedLinkBecomesAWeblocFinderCanOpen() throws {
         let link = try XCTUnwrap(URL(string: "https://example.com/a/page"))
-        let url = try XCTUnwrap(ShelfStore.write(link: link))
+        let url = try drop(ShelfStore.write(link: link))
         defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(url.pathExtension, "webloc")
         XCTAssertEqual(url.deletingPathExtension().lastPathComponent, "example.com")
@@ -77,8 +94,8 @@ final class ShelfStoreTests: XCTestCase {
     }
 
     func testTwoDropsOfTheSameNameBecomeTwoFiles() throws {
-        let first = try XCTUnwrap(ShelfStore.write(text: "Note\none"))
-        let second = try XCTUnwrap(ShelfStore.write(text: "Note\ntwo"))
+        let first = try drop(ShelfStore.write(text: "Note\none"))
+        let second = try drop(ShelfStore.write(text: "Note\ntwo"))
         defer {
             try? FileManager.default.removeItem(at: first)
             try? FileManager.default.removeItem(at: second)
@@ -104,7 +121,7 @@ final class ShelfStoreTests: XCTestCase {
 
     func testCopyingALinkCarriesItsAddressRatherThanItsPlist() throws {
         let link = try XCTUnwrap(URL(string: "https://example.com/page"))
-        let url = try XCTUnwrap(ShelfStore.write(link: link))
+        let url = try drop(ShelfStore.write(link: link))
         defer { try? FileManager.default.removeItem(at: url) }
         let extras = try XCTUnwrap(ShelfStore.pasteboardExtras(for: url))
         XCTAssertEqual(extras.first.map { String(data: $0.1, encoding: .utf8) }, "https://example.com/page")

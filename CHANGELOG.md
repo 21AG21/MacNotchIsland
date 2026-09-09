@@ -45,6 +45,13 @@ the unreleased section is what the next tag will ship.
   check. Each is listed now with what it sends, who it asks, and whether it is switched on at
   this moment. A blanket promise is the worst thing to be wrong about on the screen people
   come to in order to check.
+- Running the test suite no longer leaves anything behind on the machine that ran it. The
+  writers that turn a dropped picture, link or piece of text into a file are static and put it
+  where the app really puts it — which is the point of testing them — and every run added
+  another handful to the app's own folder, under a comment saying it touched nothing. And
+  rendering the gallery, which borrows the notes and the clipboard history to draw them, wrote
+  over both: somebody looking at a change on their own Mac found their scratchpad replaced by
+  the sample text.
 - **The welcome tour's Done button fits in its window.** The second page — seven things to
   switch on, with a line of explanation each — was taller than the fixed height it was drawn
   in, and the root view clipped: "Done" and "Open at login" were both under the bottom edge of

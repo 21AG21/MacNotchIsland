@@ -32,6 +32,12 @@ final class GalleryTests: XCTestCase {
             throw XCTSkip("GALLERY_DIR is not set")
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // Drawing these scenes fills in the notes and the clipboard history, and both of those
+        // write themselves to the app's own folder. Somebody rendering the gallery to look at
+        // a change on their own Mac should not find their scratchpad replaced by "Call the
+        // landlord about the heating."
+        IslandFiles.overrideFolder = URL(fileURLWithPath: dir).appendingPathComponent("support", isDirectory: true)
+        defer { IslandFiles.overrideFolder = nil }
         // Other tests leave preferences behind in the same defaults domain; every tab and
         // feature the gallery shows is switched on explicitly.
         let prefs = Preferences.shared
