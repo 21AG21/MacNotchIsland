@@ -239,14 +239,31 @@ final class ShelfStore: ObservableObject {
     }
 
     func airDrop(_ urls: [URL]) {
-        guard !urls.isEmpty, let service = NSSharingService(named: .sendViaAirDrop) else { return }
+        guard !urls.isEmpty else { return }
         let objects: [Any] = urls
-        guard service.canPerform(withItems: objects) else { return }
+        guard let service = NSSharingService(named: .sendViaAirDrop),
+              service.canPerform(withItems: objects) else {
+            // AirDrop wants Wi-Fi and Bluetooth switched on, and both of those switches are
+            // on the rail this button sits on. Returning in silence made the button look
+            // broken instead of pointing at the two things standing in its way.
+            Self.announceAirDropUnavailable()
+            return
+        }
         // The AirDrop window takes the pointer off the island; keep the panel up and make
         // sure the picker gets focus even though this is a background app.
         ActivityCenter.shared.holdOpen(for: 30)
         NSApp.activate(ignoringOtherApps: true)
         service.perform(withItems: objects)
+    }
+
+    /// AirDrop asked for on a Mac that cannot do it at this moment.
+    private static func announceAirDropUnavailable() {
+        let custom = CustomActivity(title: "AirDrop is not available",
+                                     subtitle: "It needs Wi-Fi and Bluetooth switched on.",
+                                     symbol: "dot.radiowaves.right", tint: "orange")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "shelf-airdrop", kind: .custom,
+                                                       content: .custom(custom), priority: 85,
+                                                       presentation: .expanded), duration: 3)
     }
 
     /// Share sheet anchored to an AppKit view. With no view (or no window) we fall back to

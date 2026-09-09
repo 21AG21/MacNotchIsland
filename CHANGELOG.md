@@ -39,6 +39,9 @@ the unreleased section is what the next tag will ship.
   called `shortcuts`, and the URL scheme only answered to that — but somebody writing a URL
   is reading the sidebar, where it says Actions. Every pane now answers to the name on the
   screen as well as the one in the code.
+- **AirDrop that cannot run says why.** The AirDrop button on the rail returned in silence
+  when macOS said it could not send — which is what it says with Wi-Fi or Bluetooth off. Both
+  of those switches are on the same rail, and it now points at them.
 - **A quick action with nothing to run it says so, and the same name is never listed twice.**
   Running a shortcut when `/usr/bin/shortcuts` is missing returned without a word — a button
   in the panel that did nothing at all — and the Actions pane blamed the empty list on there
