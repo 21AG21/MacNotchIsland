@@ -260,7 +260,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         locationRequestInFlight = false
         guard isRunning else { return }
-        NSLog("Notch Island: location request failed (\(error.localizedDescription)).")
+        IslandLog.network.error("location request failed: \(error.localizedDescription, privacy: .public)")
         if let coordinate = lastCoordinate {
             // A fix from earlier in the session beats no weather at all.
             fetchWeather(for: coordinate)
@@ -347,7 +347,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard error == nil, (200..<300).contains(status), let data, var fresh = Self.parse(data) else {
             let reason = error?.localizedDescription ?? "HTTP \(status)"
-            NSLog("Notch Island: weather fetch failed (\(reason)).")
+            IslandLog.network.error("weather fetch failed: \(reason, privacy: .public)")
             // A stale reading still beats an error message, so only give up when the panel
             // has nothing at all to show.
             if snapshot == nil { state = .failed }

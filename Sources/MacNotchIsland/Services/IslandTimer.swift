@@ -381,7 +381,9 @@ final class IslandTimer: ObservableObject {
             let request = UNNotificationRequest(identifier: "notchisland.timer.\(id).\(Date().timeIntervalSince1970)",
                                                 content: content, trigger: nil)
             UNUserNotificationCenter.current().add(request) { error in
-                if let error { NSLog("Notch Island: timer notification failed: \(error.localizedDescription)") }
+                if let error {
+                    IslandLog.island.error("timer notification failed: \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
         if askedForNotifications {
@@ -390,7 +392,9 @@ final class IslandTimer: ObservableObject {
         }
         askedForNotifications = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error { NSLog("Notch Island: notification authorization failed: \(error.localizedDescription)") }
+            if let error {
+                IslandLog.island.error("notification authorisation failed: \(error.localizedDescription, privacy: .public)")
+            }
             guard granted else { return }
             DispatchQueue.main.async(execute: deliver)
         }

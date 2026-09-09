@@ -160,7 +160,9 @@ final class AppleScriptBackend {
         if let error {
             // -1743 = user declined Automation permission; -600 = app not running. Both are silent.
             let code = (error[NSAppleScript.errorNumber] as? Int) ?? 0
-            if code != -1743 && code != -600 { NSLog("AppleScript error: \(error)") }
+            if code != -1743 && code != -600 {
+                IslandLog.media.error("AppleScript error: \(String(describing: error), privacy: .public)")
+            }
             return nil
         }
         return descriptor.stringValue

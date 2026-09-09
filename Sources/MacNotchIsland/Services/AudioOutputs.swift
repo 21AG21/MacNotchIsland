@@ -152,7 +152,7 @@ final class AudioOutputs: ObservableObject {
         var id = device.id
         let status = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
                                                 UInt32(MemoryLayout<AudioDeviceID>.size), &id)
-        if status != noErr { IslandLog.island.error("could not select output \(device.name, privacy: .public): \(status, privacy: .public)") }
+        if status != noErr { IslandLog.audio.error("could not select output \(device.name, privacy: .public): \(status, privacy: .public)") }
         reloadDevices()
     }
 

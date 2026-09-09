@@ -82,7 +82,7 @@ final class Preferences: ObservableObject {
                 if launchAtLogin { try SMAppService.mainApp.register() }
                 else { try SMAppService.mainApp.unregister() }
             } catch {
-                NSLog("Launch at login change failed: \(error)")
+                IslandLog.island.error("launch at login change failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

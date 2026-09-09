@@ -259,7 +259,7 @@ final class AudioLevelTap: ObservableObject {
     private func failed(_ message: String) -> Bool {
         if !loggedFailure {
             loggedFailure = true
-            NSLog("Notch Island: \(message)")
+            IslandLog.audio.error("\(message, privacy: .public)")
         }
         destroyHandles()
         return false

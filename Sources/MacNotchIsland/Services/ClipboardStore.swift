@@ -435,7 +435,7 @@ final class ClipboardStore: ObservableObject {
             let data = try JSONEncoder().encode(items)
             try data.write(to: storeURL, options: .atomic)
         } catch {
-            NSLog("Clipboard history save failed: \(error)")
+            IslandLog.store.error("clipboard history save failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

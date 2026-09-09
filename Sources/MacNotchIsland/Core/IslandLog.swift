@@ -5,9 +5,30 @@ import os
 ///
 ///     log stream --predicate 'subsystem == "com.macnotchisland.app"' --level info
 ///
-/// `island` records what opens and closes and why; `panel` records windows, Spaces and displays.
+/// One category per part of the app that can fail on its own, so a report can be read back
+/// by the thing that went wrong:
+///
+///     log show --last 10m --predicate 'category == "keys"'
+///
+/// Everything here goes through `Logger` and nothing through `NSLog`, which stamps no
+/// subsystem at all — a line with no subsystem cannot be asked for by one, and half of what
+/// the app had to say was invisible to its own support report.
 enum IslandLog {
     static let subsystem = Bundle.main.bundleIdentifier ?? "com.macnotchisland.app"
+    /// What opens and closes, and why.
     static let island = Logger(subsystem: subsystem, category: "island")
+    /// Windows, Spaces and displays.
     static let panel = Logger(subsystem: subsystem, category: "panel")
+    /// The now-playing backends: MediaRemote, the adapter helper, AppleScript.
+    static let media = Logger(subsystem: subsystem, category: "media")
+    /// The keyboard: the media-key event tap and the global hot keys.
+    static let keys = Logger(subsystem: subsystem, category: "keys")
+    /// CoreAudio: the output device, its level, the level tap.
+    static let audio = Logger(subsystem: subsystem, category: "audio")
+    /// DisplayServices and the brightness it will or will not set.
+    static let display = Logger(subsystem: subsystem, category: "display")
+    /// What the shelf and the clipboard keep on disk.
+    static let store = Logger(subsystem: subsystem, category: "store")
+    /// Weather and the update check — anything that leaves the Mac.
+    static let network = Logger(subsystem: subsystem, category: "network")
 }

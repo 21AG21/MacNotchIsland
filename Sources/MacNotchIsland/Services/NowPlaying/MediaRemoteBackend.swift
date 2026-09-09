@@ -42,7 +42,7 @@ final class MediaRemoteBackend {
     func start() {
         guard handle == nil else { return }
         guard let h = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW) else {
-            NSLog("MediaRemote unavailable")
+            IslandLog.media.error("MediaRemote is unavailable")
             return
         }
         handle = h

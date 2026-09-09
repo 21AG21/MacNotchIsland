@@ -15,7 +15,7 @@ final class BrightnessMonitor {
 
     private static func loadSymbols() -> (get: GetBrightnessFn?, set: SetBrightnessFn?) {
         guard let handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY) else {
-            NSLog("Notch Island: DisplayServices is unavailable; the brightness HUD is disabled.")
+            IslandLog.display.error("DisplayServices is unavailable; the brightness display is off")
             return (nil, nil)
         }
         var get: GetBrightnessFn?
@@ -27,7 +27,7 @@ final class BrightnessMonitor {
             set = unsafeBitCast(sym, to: SetBrightnessFn.self)
         }
         if get == nil || set == nil {
-            NSLog("Notch Island: DisplayServices brightness symbols are missing (get: \(get != nil), set: \(set != nil)).")
+            IslandLog.display.error("DisplayServices brightness symbols are missing; get \(get != nil, privacy: .public), set \(set != nil, privacy: .public)")
         }
         return (get, set)
     }
@@ -75,7 +75,7 @@ final class BrightnessMonitor {
         let clamped = max(0, min(1, value))
         let status = fn(builtInDisplay, clamped)
         if status != 0 {
-            NSLog("Notch Island: could not set brightness (status \(status)).")
+            IslandLog.display.error("could not set brightness (status \(status, privacy: .public))")
             return false
         }
         return true

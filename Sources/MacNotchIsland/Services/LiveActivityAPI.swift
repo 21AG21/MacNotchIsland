@@ -124,7 +124,7 @@ final class LiveActivityAPI {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         default:
-            NSLog("Unknown notchisland URL: \(url)")
+            IslandLog.island.error("unknown notchisland URL: \(url.absoluteString, privacy: .private)")
         }
     }
 }

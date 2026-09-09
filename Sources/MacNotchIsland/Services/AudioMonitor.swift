@@ -246,7 +246,7 @@ final class AudioMonitor {
         for channel in volumeChannelElements {
             if setScalarVolume(value, device: device, element: channel) { ok = true }
         }
-        if !ok { NSLog("Notch Island: could not set the output volume on device \(device).") }
+        if !ok { IslandLog.audio.error("could not set the volume on output \(device, privacy: .public)") }
         return ok
     }
 
@@ -309,7 +309,9 @@ final class AudioMonitor {
         guard isSettable(device: device, address: &address) else { return false }
         var value: UInt32 = muted ? 1 : 0
         let status = AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
-        if status != noErr { NSLog("Notch Island: could not set mute on device \(device) (status \(status)).") }
+        if status != noErr {
+            IslandLog.audio.error("could not set mute on output \(device, privacy: .public) (status \(status, privacy: .public))")
+        }
         return status == noErr
     }
 

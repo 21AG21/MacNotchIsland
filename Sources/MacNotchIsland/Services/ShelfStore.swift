@@ -382,7 +382,7 @@ final class ShelfStore: ObservableObject {
                 do {
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                 } catch {
-                    NSLog("Shelf: could not trash \(url.path): \(error.localizedDescription)")
+                    IslandLog.store.error("could not trash \(url.path, privacy: .private): \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -519,7 +519,7 @@ final class ShelfStore: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         } catch {
-            NSLog("Shelf: could not make the drop folder: \(error.localizedDescription)")
+            IslandLog.store.error("could not make the drop folder: \(error.localizedDescription, privacy: .public)")
             return nil
         }
         let safe = name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -549,7 +549,7 @@ final class ShelfStore: ObservableObject {
             try png.write(to: url)
             return url
         } catch {
-            NSLog("Shelf: could not write the dropped image: \(error.localizedDescription)")
+            IslandLog.store.error("could not write the dropped image: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -563,7 +563,7 @@ final class ShelfStore: ObservableObject {
             try text.write(to: url, atomically: true, encoding: .utf8)
             return url
         } catch {
-            NSLog("Shelf: could not write the dropped text: \(error.localizedDescription)")
+            IslandLog.store.error("could not write the dropped text: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -579,7 +579,7 @@ final class ShelfStore: ObservableObject {
             try plist.write(to: destination)
             return destination
         } catch {
-            NSLog("Shelf: could not write the dropped link: \(error.localizedDescription)")
+            IslandLog.store.error("could not write the dropped link: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

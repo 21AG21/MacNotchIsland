@@ -373,7 +373,7 @@ final class MediaKeyInterceptor {
                                            userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
             tapFailures += 1
             SystemHUDReplacement.shared.set(false)
-            NSLog("Notch Island: could not create the media-key event tap (attempt \(tapFailures) of \(Self.maxTapAttempts)); the system HUD stays in charge.")
+            IslandLog.keys.error("could not create the event tap; attempt \(self.tapFailures, privacy: .public) of \(Self.maxTapAttempts, privacy: .public)")
             return
         }
         // A tap is created enabled. Nothing may reach it until the island knows which keys it
@@ -386,8 +386,7 @@ final class MediaKeyInterceptor {
             // must not be asked for and logged forever.
             tapFailures += 1
             SystemHUDReplacement.shared.set(false)
-            NSLog("Notch Island: could not create a run loop source for the media-key event tap "
-                  + "(attempt \(tapFailures) of \(Self.maxTapAttempts)).")
+            IslandLog.keys.error("no run loop source for the event tap; attempt \(self.tapFailures, privacy: .public) of \(Self.maxTapAttempts, privacy: .public)")
             CFMachPortInvalidate(port)
             return
         }
@@ -466,7 +465,7 @@ final class MediaKeyInterceptor {
             guard let self, self.running else { return }
             self.verifyTap()
         }
-        NSLog("Notch Island: the media-key event tap was disabled by the system; re-enabled: \(live).")
+        IslandLog.keys.error("the event tap was disabled by the system; re-enabled: \(live, privacy: .public)")
     }
 
     /// Called on the tap thread. Returns true when the event should be swallowed.

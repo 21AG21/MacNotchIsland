@@ -92,7 +92,7 @@ final class AdapterBackend {
         do {
             try p.run()
         } catch {
-            NSLog("MediaRemoteAdapter failed to launch: \(error)")
+            IslandLog.media.error("the adapter helper would not launch: \(String(describing: error), privacy: .public)")
             return
         }
         process = p
@@ -109,7 +109,7 @@ final class AdapterBackend {
         if wasHealthy { onUpdate?(nil) }
         restartAttempts += 1
         guard restartAttempts <= 5, let dylib = Self.dylibURL else {
-            NSLog("MediaRemoteAdapter gave up after \(restartAttempts - 1) restarts")
+            IslandLog.media.error("the adapter helper gave up after \(self.restartAttempts - 1, privacy: .public) restarts")
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(restartAttempts) * 2) { [weak self] in

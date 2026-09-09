@@ -83,7 +83,8 @@ final class UpdateChecker: ObservableObject {
         UserDefaults.standard.set(Date(), forKey: Self.lastCheckKey)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard error == nil, (200..<300).contains(status), let data, let release = Self.parse(data) else {
-            NSLog("Notch Island: update check failed\(error.map { " (\($0.localizedDescription))" } ?? "").")
+            let why = error?.localizedDescription ?? "HTTP \(status)"
+            IslandLog.network.error("update check failed: \(why, privacy: .public)")
             if forced { showUpToDateAlert() }
             return
         }
