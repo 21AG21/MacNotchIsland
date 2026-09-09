@@ -109,8 +109,8 @@ struct WindowsSectionView: View {
         } else {
             IslandScrollStrip {
                 HStack(spacing: Self.tileGap) {
-                    ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
-                        tile(window, isFound: center.findTarget(of: windows.count) == index)
+                    ForEach(windows) { window in
+                        tile(window, isFound: found == window.id)
                     }
                 }
                 .padding(.bottom, Self.stripBottom)
@@ -133,6 +133,12 @@ struct WindowsSectionView: View {
     static let labelGap: CGFloat = 4
     static let stripBottom: CGFloat = 2
     static var stripHeight: CGFloat { tileHeight + labelGap + labelHeight + stripBottom }
+
+    /// The tile the find's mark is on, which Return would bring forward.
+    private var found: CGWindowID? {
+        guard let index = center.findTarget(of: windows.count) else { return nil }
+        return windows[index].id
+    }
 
     /// The picked-out windows, in the order the strip shows them — which is the order they are
     /// laid out in, so the row on screen matches the row in the panel.

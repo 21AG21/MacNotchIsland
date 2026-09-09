@@ -181,12 +181,11 @@ struct ShelfStripView: View {
     private var items: some View {
         IslandScrollStrip(axis: .horizontal) {
             HStack(spacing: 12) {
-                ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
+                ForEach(shown) { item in
                     ShelfItemView(item: item,
                                   // The tile the arrows are on wears the same ring a picked
                                   // one does: it is what Return is about to open.
-                                  isSelected: selection.contains(item.url)
-                                      || center.findTarget(of: shown.count) == index,
+                                  isSelected: selection.contains(item.url) || found == item.url,
                                   anchor: shareAnchor,
                                   targets: { targets(for: item.url) },
                                   onSelect: { click(item.url) })
@@ -202,6 +201,12 @@ struct ShelfStripView: View {
     }
 
     // MARK: - Selection
+
+    /// The tile the find's mark is on, which Return would open.
+    private var found: URL? {
+        guard let index = center.findTarget(of: shown.count) else { return nil }
+        return shown[index].url
+    }
 
     /// Whether anything on screen is picked out. Every pill in the header works on
     /// `orderedSelection`, which is what is selected *and* shown, so a narrowed strip and the
