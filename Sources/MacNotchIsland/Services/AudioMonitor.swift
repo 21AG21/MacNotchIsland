@@ -78,9 +78,10 @@ final class AudioMonitor {
         let moved = abs(v - lastVolume) > 0.001
         lastVolume = v
         guard moved else { return }
-        // Only once the island has actually taken the media keys over. Otherwise macOS is
-        // already drawing its bezel for this, and a second one beside it is pure noise.
-        guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive,
+        // Only once the island has taken the media keys over *and* can answer this one. A
+        // key it hands back is answered by the system's bezel, and a display beside that is
+        // the two-for-one-press this whole arrangement exists to stop.
+        guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.answersVolume,
               !AudioOutputs.wroteRecently() else { return }
         let muted = readMute() ?? false
         let hud = LevelHUD.volume(level: Double(v), isMuted: muted, output: AudioOutputs.currentOutput())
@@ -91,7 +92,7 @@ final class AudioMonitor {
         guard let muted = readMute() else { return }
         let moved = muted != lastMute
         lastMute = muted
-        guard moved, Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive else { return }
+        guard moved, Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.answersMute else { return }
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: muted)), priority: 85)
         ActivityCenter.shared.showAlert(activity, duration: 2, haptic: false)
     }
@@ -218,7 +219,7 @@ final class AudioMonitor {
     static func writeOutputVolume(_ level: Float32, device: AudioDeviceID) -> Bool {
         guard device != 0 else { return false }
         let value = max(0, min(1, level))
-        if setScalarVolume(value, device: device, element: kAudioObjectPropertyElementMain) { return true }
+        if setScalarVolume(value, device: device, element: volumeElements[0]) { return true }
         var ok = false
         for channel in volumeElements.dropFirst() {
             if setScalarVolume(value, device: device, element: channel) { ok = true }
@@ -240,9 +241,23 @@ final class AudioMonitor {
         guard device != 0 else { return false }
         for element in volumeElements {
             var address = volumeAddress(element: element)
-            if AudioObjectHasProperty(device, &address) { return true }
+            // Settable, not merely present. A level that can be read and not written is a key
+            // that would be swallowed into a bar that never moves — and the message written
+            // for exactly that case is guarded on this answer, so it would never be reached.
+            if isSettable(device: device, address: &address) { return true }
         }
         return false
+    }
+
+    /// Whether this output has a mute the Mac can set. Its own question: a USB DAC can have a
+    /// level and no mute at all, and answering for it out of the volume's answer swallows the
+    /// mute key into silence.
+    static func outputHasMuteControl(device: AudioDeviceID) -> Bool {
+        guard device != 0 else { return false }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                                 mScope: kAudioDevicePropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        return isSettable(device: device, address: &address)
     }
 
     static func readOutputMute() -> Bool? { readOutputMute(device: defaultOutputDevice()) }

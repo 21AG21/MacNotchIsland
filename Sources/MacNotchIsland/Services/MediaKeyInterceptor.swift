@@ -28,11 +28,30 @@ final class SystemHUDReplacement: ObservableObject {
     /// The tap is up, so every media key reaches the island and none reaches OSDUIHelper.
     @Published private(set) var isActive = false
 
+    /// What this Mac can actually be asked for. A key the island cannot answer is handed back
+    /// to macOS, which then draws its own bezel for it — so a display the island put up for
+    /// that change would be the second one, which is the whole thing this is here to stop.
+    /// Not published: nothing on screen depends on them, only what is allowed to appear.
+    private(set) var canVolume = false
+    private(set) var canMute = false
+    private(set) var canBrightness = false
+
+    /// Whether a change of this kind is the island's to announce.
+    var answersVolume: Bool { isActive && canVolume }
+    var answersMute: Bool { isActive && canMute }
+    var answersBrightness: Bool { isActive && canBrightness }
+
     private init() {}
 
     func set(_ active: Bool) {
         guard isActive != active else { return }
         isActive = active
+    }
+
+    func setCapabilities(volume: Bool, mute: Bool, brightness: Bool) {
+        canVolume = volume
+        canMute = mute
+        canBrightness = brightness
     }
 }
 
@@ -63,15 +82,14 @@ final class VolumeFeedbackSound {
     private lazy var voices: [NSSound] = {
         // The first path that both exists and opens — a file that is there but that NSSound
         // will not decode should fall through to the next candidate, not end the search.
-        var best: [NSSound] = []
         for path in Self.candidates where FileManager.default.fileExists(atPath: path) {
-            let loaded = (0..<Self.voiceCount).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
-            if loaded.count == Self.voiceCount { return loaded }
-            // One voice is the buzz again, so a partial load is only a last resort: keep
-            // looking through the remaining candidates first.
-            if loaded.count > best.count { best = loaded }
+            // One that opens means they all will — same file, same initialiser, and
+            // `byReference` does not even read the samples yet. A file that is there and will
+            // not open falls through to the next candidate.
+            guard NSSound(contentsOfFile: path, byReference: true) != nil else { continue }
+            return (0..<Self.voiceCount).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
         }
-        return best
+        return []
     }()
     private var nextVoice = 0
     /// Enough that a click is never cut off by the next one at a key's repeat rate.
@@ -166,6 +184,7 @@ final class MediaKeyInterceptor {
     /// cannot answer are left for macOS rather than swallowed into silence, which is what
     /// made them dead keys.
     private var canSetVolume = true
+    private var canSetMute = true
     private var canSetBrightness = true
 
     // MARK: - Lifecycle
@@ -304,6 +323,7 @@ final class MediaKeyInterceptor {
             // seconds for as long as the feature is on, and something that cannot be built
             // must not be asked for and logged forever.
             tapFailures += 1
+            SystemHUDReplacement.shared.set(false)
             NSLog("Notch Island: could not create a run loop source for the media-key event tap "
                   + "(attempt \(tapFailures) of \(Self.maxTapAttempts)).")
             CFMachPortInvalidate(port)
@@ -316,7 +336,7 @@ final class MediaKeyInterceptor {
         lock.unlock()
         CGEvent.tapEnable(tap: port, enable: true)
         SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
-        refreshCapabilities()
+        refreshCapabilities(waiting: true)
 
         // The tap runs on its own thread: a synchronous tap on a busy main thread would
         // delay every key press system-wide and get itself disabled for timing out.
@@ -399,29 +419,40 @@ final class MediaKeyInterceptor {
         defer { lock.unlock() }
         switch keyCode {
         case MediaKey.brightnessUp, MediaKey.brightnessDown: return canSetBrightness
+        case MediaKey.mute: return canSetMute
         default: return canSetVolume
         }
     }
 
-    /// Asks the hardware what it can do. Cheap, and only ever from the main thread: when the
-    /// tap goes up, and after each key, so plugging a display in or picking a new output
-    /// corrects the answer by the next press.
-    private func refreshCapabilities() {
-        // Off the main thread: these are blocking round trips to the display server and to
-        // coreaudiod, and coreaudiod is at its busiest exactly when a device is arriving —
-        // which is the moment this most wants to be asked. The flags are already behind the
-        // lock the tap thread reads them through, so there is nothing else to arrange.
-        Self.capabilityQueue.async { [weak self] in
+    /// Asks the hardware what it can do, off the main thread and answering nothing: the flags
+    /// land behind the lock the tap thread reads them through.
+    ///
+    /// Off the main thread because these are blocking round trips to the display server and
+    /// to coreaudiod, and coreaudiod is at its busiest exactly when a device is arriving —
+    /// which is the moment this most wants asking. `waiting` is for the one call that cannot
+    /// be late: the tap begins carrying keys the instant its thread is up, and until the first
+    /// answer lands the flags are only optimistic guesses.
+    private func refreshCapabilities(waiting: Bool = false) {
+        let work = { [weak self] in
             guard let self else { return }
             let brightnessOK = self.brightness.currentBrightness() != nil
             let device = AudioMonitor.defaultOutputDevice()
             let volumeOK = AudioMonitor.readOutputVolume(device: device) != nil
                 || AudioMonitor.outputHasVolumeControl(device: device)
+            let muteOK = AudioMonitor.outputHasMuteControl(device: device)
             self.lock.lock()
             self.canSetBrightness = brightnessOK
             self.canSetVolume = volumeOK
+            self.canSetMute = muteOK
             self.lock.unlock()
+            // What the island is allowed to announce follows what it can answer: a key handed
+            // back to macOS is answered by macOS's bezel, and a display beside that is two.
+            DispatchQueue.main.async {
+                SystemHUDReplacement.shared.setCapabilities(volume: volumeOK, mute: muteOK,
+                                                            brightness: brightnessOK)
+            }
         }
+        waiting ? Self.capabilityQueue.sync(execute: work) : Self.capabilityQueue.async(execute: work)
     }
 
     private static let capabilityQueue = DispatchQueue(label: "com.notchisland.mediakeys.capabilities",

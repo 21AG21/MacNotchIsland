@@ -58,36 +58,37 @@ final class SystemHUDTests: XCTestCase {
     /// over it — but only for a change the island itself just made, and only for as long as
     /// the hand is plausibly still on it.
     func testTheIslandKnowsWhenItWasTheOneThatSetTheLevel() {
-        let now = Date()
-        XCTAssertTrue(LocalWrite.isRecent(now.addingTimeInterval(-0.1), now: now),
+        let now: TimeInterval = 1000
+        XCTAssertTrue(LocalWrite.isRecent(now - 0.1, now: now),
                       "a write a tenth of a second ago is a slider under the finger")
-        XCTAssertFalse(LocalWrite.isRecent(now.addingTimeInterval(-5), now: now),
+        XCTAssertFalse(LocalWrite.isRecent(now - 5, now: now),
                        "one from five seconds ago is not")
-        XCTAssertFalse(LocalWrite.isRecent(.distantPast, now: now),
+        XCTAssertFalse(LocalWrite.isRecent(LocalWrite.never, now: now),
                        "and never having written is not either")
-        XCTAssertFalse(LocalWrite.isRecent(now.addingTimeInterval(60), now: now),
-                       "nor is one from the future, which is what a clock stepping backwards "
-                       + "leaves behind — unbounded, it would swallow every display until the "
-                       + "clock caught up")
     }
 
     /// Two sliders, two stamps. Wiring one of these to the other's would suppress the wrong
     /// display, and would do it silently.
     func testEachDisplayAsksAboutItsOwnSlider() {
-        let now = Date()
+        let now: TimeInterval = 1000
+        // Restored to what was found rather than to "never": these are process-wide and
+        // shared with the live singletons, and a test that tidies up to the wrong value makes
+        // the next one order-dependent.
+        let savedAudio = AudioOutputs.lastLocalWrite
+        let savedBrightness = BrightnessControl.lastLocalWrite
         defer {
-            AudioOutputs.markLocalWriteForTesting(.distantPast)
-            BrightnessControl.markLocalWriteForTesting(.distantPast)
+            AudioOutputs.markLocalWriteForTesting(savedAudio)
+            BrightnessControl.markLocalWriteForTesting(savedBrightness)
         }
 
-        AudioOutputs.markLocalWriteForTesting(now.addingTimeInterval(-0.1))
-        BrightnessControl.markLocalWriteForTesting(.distantPast)
+        AudioOutputs.markLocalWriteForTesting(now - 0.1)
+        BrightnessControl.markLocalWriteForTesting(LocalWrite.never)
         XCTAssertTrue(AudioOutputs.wroteRecently(now: now))
         XCTAssertFalse(BrightnessControl.wroteRecently(now: now),
                        "the volume slider having just moved says nothing about the brightness one")
 
-        AudioOutputs.markLocalWriteForTesting(.distantPast)
-        BrightnessControl.markLocalWriteForTesting(now.addingTimeInterval(-0.1))
+        AudioOutputs.markLocalWriteForTesting(LocalWrite.never)
+        BrightnessControl.markLocalWriteForTesting(now - 0.1)
         XCTAssertFalse(AudioOutputs.wroteRecently(now: now))
         XCTAssertTrue(BrightnessControl.wroteRecently(now: now))
     }

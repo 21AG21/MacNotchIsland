@@ -83,6 +83,8 @@ struct ActivitiesPane: View {
                 // the island puts up, which works either way, and a display with no way to
                 // turn it off is worse than one setting that does two things.
                 Toggle("Volume and silent mode", isOn: $prefs.volumeHUDEnabled)
+                    .help("With the switch above on, this is every volume and mute change. With "
+                          + "it off, it is only the one a scroll on the island makes itself.")
                 Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
                     .disabled(!prefs.hudReplacementEnabled)
                     .help("There is no way to change the brightness from the island itself, so this "

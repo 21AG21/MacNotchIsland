@@ -29,25 +29,22 @@ struct MarqueeText: View {
                     if scrolling { label }
                 }
                 .offset(x: -CGFloat(offset))
-                .frame(width: geo.size.width, alignment: .leading)
-                .clipped()
-                // A title that is moving dissolves at the edges rather than being cut off at
-                // them: a hard edge makes the letters look like they are hitting a wall, and
-                // every marquee Apple ships — Now Playing, the Music app's ticker — fades.
-                //
-                // Only the edge that has something behind it, though. A title that fits is
-                // not going anywhere, and one that has not started moving yet — every cycle
-                // waits over a second before it does — still begins at its first letter,
-                // which should not be dimmed for nothing.
-                .mask(alignment: .leading) {
-                    // On at both ends for as long as the title is a scrolling one, and off
-                    // entirely when it is not. Tying the leading fade to how far the text has
-                    // travelled only moved the pop: the cycle ends with the second copy
-                    // exactly where the first began, so at the wrap the first letters snapped
-                    // from faded to solid in one frame. A fade that never changes costs the
-                    // first letter a little contrast during the pause and is worth it.
-                    Self.edgeFade(across: geo.size.width, faded: scrolling)
-                }
+            }
+            .frame(width: geo.size.width, alignment: .leading)
+            .clipped()
+            // A title that is moving dissolves at the edges rather than being cut off at
+            // them: a hard edge makes the letters look like they are hitting a wall, and
+            // every marquee Apple ships — Now Playing, the Music app's ticker — fades.
+            //
+            // On at both ends for as long as the title is a scrolling one, and off entirely
+            // when it is not. Tying the leading fade to how far the text had travelled only
+            // moved the pop: the cycle ends with the second copy exactly where the first
+            // began, so at the wrap the first letters snapped from faded to solid in one
+            // frame. A fade that never changes costs the first letter a little contrast
+            // during the pause and is worth it — and, not varying with the phase, it belongs
+            // out here where it is built once rather than on every frame of the scroll.
+            .mask(alignment: .leading) {
+                Self.edgeFade(across: geo.size.width, faded: scrolling)
             }
         }
         .frame(height: lineHeight)
@@ -63,10 +60,6 @@ struct MarqueeText: View {
     /// How much of each end the fade covers.
     private static let fadeWidth: CGFloat = 12
 
-    /// Opaque through the middle and clear at whichever ends are asked for, in whatever
-    /// proportion `fadeWidth` is of the room there is — clamped, so a slot as narrow as the
-    /// pill's sneak peek keeps most of itself readable rather than becoming mostly gradient.
-    /// With neither end asked for, every stop is opaque and this is a plain rectangle.
     /// Opaque through the middle and clear at both ends, in whatever proportion `fadeWidth`
     /// is of the room there is — clamped, so a slot as narrow as the pill's sneak peek keeps
     /// most of itself readable rather than becoming mostly gradient. Not faded at all, every

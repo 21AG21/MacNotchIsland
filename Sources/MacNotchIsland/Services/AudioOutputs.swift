@@ -151,21 +151,21 @@ final class AudioOutputs: ObservableObject {
     }
 
     /// When the island last set the level itself, from its own slider. See `LocalWrite`.
-    private(set) static var lastLocalWrite = Date.distantPast
+    private(set) static var lastLocalWrite = LocalWrite.never
 
     /// Whether the island wrote the level itself a moment ago.
-    static func wroteRecently(now: Date = Date()) -> Bool {
+    static func wroteRecently(now: TimeInterval = LocalWrite.now()) -> Bool {
         LocalWrite.isRecent(lastLocalWrite, now: now)
     }
 
     /// Nothing in the app can set this stamp without writing to real hardware, so a test that
     /// wants to know whether this reads *its own* slider — rather than the brightness one —
     /// has no other way in.
-    static func markLocalWriteForTesting(_ date: Date) { lastLocalWrite = date }
+    static func markLocalWriteForTesting(_ stamp: TimeInterval) { lastLocalWrite = stamp }
 
     func setVolume(_ level: Float) {
         let clamped = max(0, min(1, level))
-        Self.lastLocalWrite = Date()
+        Self.lastLocalWrite = LocalWrite.now()
         if AudioMonitor.writeOutputVolume(clamped) {
             volume = clamped
             if clamped > 0, isMuted, AudioMonitor.writeOutputMute(false) { isMuted = false }
@@ -173,7 +173,7 @@ final class AudioOutputs: ObservableObject {
     }
 
     func setMuted(_ muted: Bool) {
-        Self.lastLocalWrite = Date()
+        Self.lastLocalWrite = LocalWrite.now()
         if AudioMonitor.writeOutputMute(muted) { isMuted = muted }
     }
 

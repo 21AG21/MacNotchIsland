@@ -174,18 +174,18 @@ final class BrightnessControl: ObservableObject {
     private static func read() -> Double? { BrightnessMonitor().currentBrightness().map { Double($0) } }
 
     /// When the rail's own slider last wrote the brightness. See `LocalWrite`.
-    private(set) static var lastLocalWrite = Date.distantPast
+    private(set) static var lastLocalWrite = LocalWrite.never
 
-    static func wroteRecently(now: Date = Date()) -> Bool {
+    static func wroteRecently(now: TimeInterval = LocalWrite.now()) -> Bool {
         LocalWrite.isRecent(lastLocalWrite, now: now)
     }
 
     /// See `AudioOutputs.markLocalWriteForTesting`.
-    static func markLocalWriteForTesting(_ date: Date) { lastLocalWrite = date }
+    static func markLocalWriteForTesting(_ stamp: TimeInterval) { lastLocalWrite = stamp }
 
     func set(_ value: Double) {
         let clamped = min(1, max(0, value))
-        Self.lastLocalWrite = Date()
+        Self.lastLocalWrite = LocalWrite.now()
         pending = (clamped, Date().addingTimeInterval(Self.writeSettle))
         if level != clamped { level = clamped }
         _ = monitor.setBrightness(Float(clamped))
