@@ -56,7 +56,9 @@ struct AlertBanner: View {
         case .bluetooth(let d): return d.isConnected ? "\(d.name) connected" : "\(d.name) disconnected"
         case .focus(let f): return f.isOn ? "\(f.name) on" : "\(f.name) off"
         case .download(let d): return d.isComplete ? "\(d.name) downloaded" : "Downloading \(d.name)"
-        case .drive(let d): return "\(d.name) — \(d.subtitle)"
+        // The trailing slot already carries the free space, so a connected disk says the one
+        // thing that slot cannot: that it has arrived.
+        case .drive(let d): return d.event == .connected ? "\(d.name) connected" : "\(d.name) — \(d.subtitle)"
         case .capture(let c): return c.title
         case .calendar(let c): return c.title
         case .custom(let c): return c.title

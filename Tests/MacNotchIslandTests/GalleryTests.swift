@@ -194,7 +194,9 @@ final class GalleryTests: XCTestCase {
         let name = recording ? "Screen Recording 2026-09-09 at 21.14.02.mov"
                              : "Screenshot 2026-09-09 at 21.14.02.png"
         let state = CaptureState(path: "/Users/you/Desktop/" + name, isRecording: recording,
-                                 thumbnail: nil, onShelf: true, text: recording ? nil : "Notch Island",
+                                 thumbnail: nil, onShelf: true,
+                                 pixels: recording ? nil : CGSize(width: 3024, height: 1964),
+                                 text: recording ? nil : "Notch Island",
                                  link: recording ? nil : URL(string: "https://notch-island.app"))
         return IslandActivity(id: "capture", kind: .capture, content: .capture(state),
                               priority: 85, presentation: .expanded,

@@ -154,7 +154,7 @@ private struct QuickActionButton: View {
         .onHover { hovering = $0 }
         .animation(IslandMotion.hover, value: hovering)
         .animation(IslandMotion.hover, value: dropping)
-        .onDrop(of: [UTType.fileURL], isTargeted: $dropping) { providers in
+        .islandDrop(of: [UTType.fileURL], isTargeted: $dropping) { providers in
             DroppedFiles.paths(from: providers) { paths in
                 guard !paths.isEmpty else { return }
                 runner.run(name, inputPaths: paths)

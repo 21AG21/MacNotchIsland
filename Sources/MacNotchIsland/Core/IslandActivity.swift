@@ -225,6 +225,8 @@ struct CaptureState: Equatable {
     var thumbnail: NSImage? = nil
     /// Whether it was put on the shelf, which is a switch and so not always true.
     var onShelf = false
+    /// How big the picture is, in pixels, where that could be read.
+    var pixels: CGSize? = nil
     /// The text Vision found in it, once it has looked. Nil while it is still looking, and
     /// empty where there was nothing to find.
     var text: String? = nil
@@ -235,6 +237,19 @@ struct CaptureState: Equatable {
     var name: String { (path as NSString).lastPathComponent }
     var title: String { isRecording ? "Screen recording" : "Screenshot" }
     var symbol: String { isRecording ? "record.circle" : "camera.viewfinder" }
+
+    /// The line under the title: how big the picture is and where it went. Never the file
+    /// name, which for a capture begins with the word already written above it and ends in a
+    /// timestamp — "Screenshot" over "Screenshot 2026-09-09 at…" said one thing twice and
+    /// nothing else. A recording has no size to give, so it says only where it went.
+    var subtitle: String {
+        var parts: [String] = []
+        if let pixels, pixels.width > 0, pixels.height > 0 {
+            parts.append("\(Int(pixels.width)) × \(Int(pixels.height))")
+        }
+        if onShelf { parts.append("On the shelf") }
+        return parts.isEmpty ? name : parts.joined(separator: " · ")
+    }
 
     /// The word the pill shows on its trailing edge: where the capture went, when it went
     /// somewhere, and otherwise what it is.

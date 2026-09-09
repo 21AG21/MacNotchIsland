@@ -188,7 +188,7 @@ struct WindowsSectionView: View {
             }
             // "Open this in that": the same thing as dropping a file on the app's Dock icon,
             // in front of the window you want it in.
-            .onDrop(of: [UTType.fileURL], isTargeted: Binding(
+            .islandDrop(of: [UTType.fileURL], isTargeted: Binding(
                 get: { dropTarget == window.id },
                 set: { inside in dropTarget = inside ? window.id : (dropTarget == window.id ? nil : dropTarget) }
             )) { providers in

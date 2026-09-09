@@ -136,10 +136,12 @@ final class ScreenshotMonitor {
         let isRecording = url.pathExtension.lowercased() == "mov"
         // The picture itself, not a camera glyph: it is the one thing that says which capture
         // this is, and it is what you pick up to drag somewhere.
+        let picture = isRecording ? (nil, nil) : Self.picture(of: url)
         let state = CaptureState(path: url.path,
                                  isRecording: isRecording,
-                                 thumbnail: isRecording ? nil : Self.thumbnail(of: url),
-                                 onShelf: onShelf)
+                                 thumbnail: picture.thumbnail,
+                                 onShelf: onShelf,
+                                 pixels: picture.pixels)
         var alert = IslandActivity(id: "screenshot-" + name, kind: .capture, content: .capture(state),
                                    priority: 85, presentation: .expanded)
         alert.openAction = .url(url)
@@ -148,16 +150,25 @@ final class ScreenshotMonitor {
         ActivityCenter.shared.showAlert(alert, duration: Self.alertDuration, haptic: !onShelf)
     }
 
-    /// A small copy of the capture for the card and the pill. Read through ImageIO rather than
-    /// `NSImage`, so a 6K grab never becomes a 6K bitmap in memory to be shown at 44 points.
-    static func thumbnail(of url: URL) -> NSImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+    /// A small copy of the capture for the card and the pill, and how big the real thing is.
+    ///
+    /// Read through ImageIO rather than `NSImage`, so a 6K grab never becomes a 6K bitmap in
+    /// memory to be shown at 44 points — and both answers come off one source, since opening
+    /// the file is the expensive half.
+    static func picture(of url: URL) -> (thumbnail: NSImage?, pixels: CGSize?) {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return (nil, nil) }
+        var pixels: CGSize?
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0 {
+            pixels = CGSize(width: width, height: height)
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
-              ] as CFDictionary) else { return nil }
-        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+              ] as CFDictionary) else { return (nil, pixels) }
+        return (NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)), pixels)
     }
 
     private func remember(_ path: String) {

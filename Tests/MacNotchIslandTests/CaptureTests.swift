@@ -5,9 +5,9 @@ import XCTest
 final class CaptureTests: XCTestCase {
     private func capture(_ path: String = "/Users/you/Desktop/Screenshot 2026-09-09 at 21.14.02.png",
                          recording: Bool = false, onShelf: Bool = true, text: String? = nil,
-                         link: URL? = nil) -> CaptureState {
+                         link: URL? = nil, pixels: CGSize? = nil) -> CaptureState {
         CaptureState(path: path, isRecording: recording, thumbnail: nil, onShelf: onShelf,
-                     text: text, link: link)
+                     pixels: pixels, text: text, link: link)
     }
 
     func testACaptureIsNamedByItsFileAndItsKind() {
@@ -20,6 +20,16 @@ final class CaptureTests: XCTestCase {
         let movie = capture("/Users/you/Desktop/Screen Recording.mov", recording: true)
         XCTAssertEqual(movie.title, "Screen recording")
         XCTAssertEqual(movie.symbol, "record.circle")
+    }
+
+    func testTheCardSaysHowBigThePictureIsAndWhereItWentRatherThanItsName() {
+        // "Screenshot" over "Screenshot 2026-09-09 at…" said one thing twice and nothing else.
+        let shot = capture(pixels: CGSize(width: 3024, height: 1964))
+        XCTAssertEqual(shot.subtitle, "3024 × 1964 · On the shelf")
+        XCTAssertEqual(capture(onShelf: false, pixels: CGSize(width: 800, height: 600)).subtitle, "800 × 600")
+        XCTAssertEqual(capture(onShelf: true).subtitle, "On the shelf", "a recording has no size to give")
+        // Nothing known at all still has to say something, and the file name is what is left.
+        XCTAssertEqual(capture(onShelf: false).subtitle, capture().name)
     }
 
     func testThePillSaysWhereItWentOnlyWhenItWentThere() {

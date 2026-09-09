@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// How the island is being drawn. The gallery (a review tool, see `GalleryTests`) renders the
 /// views offscreen with `ImageRenderer`, which cannot draw AppKit-backed pieces: a drop target
@@ -16,6 +17,21 @@ extension View {
             self
         } else {
             onDrop(of: ShelfStore.acceptedTypes, isTargeted: isTargeted, perform: perform)
+        }
+    }
+}
+
+extension View {
+    /// `onDrop` for a chosen set of types, except in the gallery. Every drop target is backed
+    /// by AppKit, and `ImageRenderer` draws one as a yellow block with a red line through it —
+    /// which is what the window tiles had become in every picture the gallery took of them.
+    @ViewBuilder
+    func islandDrop(of types: [UTType], isTargeted: Binding<Bool>,
+                    perform: @escaping ([NSItemProvider]) -> Bool) -> some View {
+        if RenderMode.isGallery {
+            self
+        } else {
+            onDrop(of: types, isTargeted: isTargeted, perform: perform)
         }
     }
 }

@@ -44,7 +44,7 @@ struct CaptureExpandedView: View {
                     // Where the QR code goes, when there is one: a button that opens a
                     // stranger's link without saying where it goes is a button nobody should
                     // press, so the host takes the line the file name was on.
-                    Text(copied ?? linkLine ?? state.name)
+                    Text(copied ?? linkLine ?? state.subtitle)
                         .font(.system(size: 12.5))
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
@@ -55,7 +55,7 @@ struct CaptureExpandedView: View {
             }
             .islandContentColumn()
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(state.title), \(state.name)")
+            .accessibilityLabel("\(state.title), \(linkLine ?? state.subtitle)")
         }
         .padding(.bottom, insidePanel ? 0 : 16)
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
