@@ -99,7 +99,11 @@ final class GalleryTests: XCTestCase {
         if let png = rep.representation(using: .png, properties: [:]) {
             try png.write(to: folder.appendingPathComponent(name + ".png"))
         }
-        if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) {
+        // The JPEG is the review copy, and it is read back out of the CI job log, which the
+        // API truncates at a couple of megabytes: at 0.6 the last third of the gallery — every
+        // scene alphabetically before "floating-" — fell off the front and could not be looked
+        // at. The PNG beside it keeps the archival quality for anyone who wants it.
+        if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.4]) {
             try jpeg.write(to: folder.appendingPathComponent(name + ".jpg"))
         }
     }
