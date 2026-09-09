@@ -68,7 +68,8 @@ final class GalleryTests: XCTestCase {
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
             let geometry = scene.floating ? Self.plain : Self.notch
-            try write(render(geometry: geometry, dark: scene.dark), name: scene.name, dir: dir)
+            let shot = render(geometry: geometry, dark: scene.dark)
+            try write(shot, name: scene.name, dir: dir)
             rendered.append(scene.name)
         }
         center.resetForTesting()
@@ -79,7 +80,18 @@ final class GalleryTests: XCTestCase {
 
     // MARK: - Rendering
 
-    private func render(geometry: NotchGeometry, dark: Bool = false) -> CGImage? {
+    /// Two copies of one scene: the archival Retina one, and the smaller one the review
+    /// actually reads.
+    ///
+    /// The review copy is read back out of the CI job log, which the API truncates at a couple
+    /// of megabytes — from the *front*, so the scenes early in the alphabet are the ones that
+    /// vanish. Every card and every alert had fallen off it. Rendered at `reviewScale` rather
+    /// than compressed harder, because the thing most in need of looking at is a hairline of
+    /// ten-percent white along the island's edge, and a JPEG squeezed until the whole gallery
+    /// fits is a JPEG that has thrown that away.
+    private static let reviewScale: CGFloat = 1.4
+
+    private func render(geometry: NotchGeometry, dark: Bool = false) -> (full: CGImage?, review: CGImage?) {
         let layout = IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: "main"), geometry: geometry,
                                        center: .shared, clearance: .unlimited)
         let height = max(96, layout.bodyHeight + layout.topInset + 48)
@@ -90,26 +102,24 @@ final class GalleryTests: XCTestCase {
                 .environment(\.colorScheme, .dark)
         }
         .frame(width: 880, height: height)
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 2
-        return renderer.cgImage
+        let retina = ImageRenderer(content: content)
+        retina.scale = 2
+        let review = ImageRenderer(content: content)
+        review.scale = Self.reviewScale
+        return (retina.cgImage, review.cgImage)
     }
 
-    private func write(_ image: CGImage?, name: String, dir: String) throws {
-        guard let image else {
+    private func write(_ shot: (full: CGImage?, review: CGImage?), name: String, dir: String) throws {
+        guard let image = shot.full else {
             XCTFail("nothing rendered for \(name)")
             return
         }
-        let rep = NSBitmapImageRep(cgImage: image)
         let folder = URL(fileURLWithPath: dir)
-        if let png = rep.representation(using: .png, properties: [:]) {
+        if let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
             try png.write(to: folder.appendingPathComponent(name + ".png"))
         }
-        // The JPEG is the review copy, and it is read back out of the CI job log, which the
-        // API truncates at a couple of megabytes: at 0.6 the last third of the gallery — every
-        // scene alphabetically before "floating-" — fell off the front and could not be looked
-        // at. The PNG beside it keeps the archival quality for anyone who wants it.
-        if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.4]) {
+        let reviewRep = NSBitmapImageRep(cgImage: shot.review ?? image)
+        if let jpeg = reviewRep.representation(using: .jpeg, properties: [.compressionFactor: 0.5]) {
             try jpeg.write(to: folder.appendingPathComponent(name + ".jpg"))
         }
     }

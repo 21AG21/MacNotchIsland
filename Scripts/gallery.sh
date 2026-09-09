@@ -12,6 +12,8 @@ echo "--- gallery: $count images"
 for f in "$OUT"/*.jpg; do
   name=$(basename "$f" .jpg)
   echo "--- gallery $name (base64 jpeg, $(stat -f %z "$f") bytes)"
-  base64 -i "$f" | fold -w 400
+  # Long lines: the job log stamps every one of them with a timestamp, and at 400 characters
+  # that stamp was seven percent of everything the gallery printed.
+  base64 -i "$f" | fold -w 1200
 done
 echo "--- gallery done"
