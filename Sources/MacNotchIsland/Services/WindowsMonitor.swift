@@ -230,12 +230,14 @@ final class WindowsMonitor: ObservableObject {
         capturing = true
         Task { [weak self] in
             let shots = await Self.shots(of: ids)
+            // Resolved out here, into a constant. Unwrapping inside `MainActor.run` reads a
+            // captured *variable* across an actor hop, which Swift 6 refuses outright.
+            guard let monitor = self else { return }
             await MainActor.run {
-                guard let self else { return }
-                self.capturing = false
+                monitor.capturing = false
                 guard !shots.isEmpty else { return }
-                for (id, image) in shots { self.thumbnails[id] = image }
-                self.windows = self.windows.map { window in
+                for (id, image) in shots { monitor.thumbnails[id] = image }
+                monitor.windows = monitor.windows.map { window in
                     guard let image = shots[window.id] else { return window }
                     var copy = window
                     copy.thumbnail = image

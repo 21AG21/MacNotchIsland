@@ -99,8 +99,10 @@ final class UpdateChecker: ObservableObject {
     }
 
     private func handle(data: Data?, response: URLResponse?, error: Error?, forced: Bool) {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        switch Self.outcome(data: data, status: status, error: error) {
+        // Named for what it is: `status` is this object's own published one, and a local of
+        // the same name quietly shadowed it.
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        switch Self.outcome(data: data, status: httpStatus, error: error) {
         case .cancelled:
             // A newer check took over, or the feature was switched off mid-flight. Nothing was
             // learned, so nothing is recorded and nothing is said — and the row goes back to
@@ -110,7 +112,7 @@ final class UpdateChecker: ObservableObject {
 
         case .unreachable(let reason, let detail):
             IslandLog.network.error("update check failed: \(detail, privacy: .public)")
-            status = .unreachable(reason)
+            self.status = .unreachable(reason)
             // Deliberately not stamped: the day between checks is a day between *answers*. A
             // Mac that was asleep in a hotel lift must not go quiet until tomorrow because of
             // it, so the hourly timer simply tries again.
@@ -120,7 +122,7 @@ final class UpdateChecker: ObservableObject {
             // GitHub answered, and there is nothing published to be behind.
             stampCheck()
             updateAvailable = false
-            status = .upToDate
+            self.status = .upToDate
             if forced { showUpToDateAlert() }
 
         case .latest(let release):
@@ -129,7 +131,7 @@ final class UpdateChecker: ObservableObject {
             latestVersion = release.version
             let newer = Self.isNewer(release.version, than: current)
             updateAvailable = newer
-            status = newer ? .available(release.version) : .upToDate
+            self.status = newer ? .available(release.version) : .upToDate
             guard newer else {
                 if forced { showUpToDateAlert() }
                 return
