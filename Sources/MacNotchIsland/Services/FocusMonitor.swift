@@ -8,6 +8,10 @@ final class FocusMonitor {
     private var lastMode: String?
     private var started = false
 
+    /// Whether a Focus is on right now, as the island last saw it. Read by the alert queue,
+    /// which holds back what can wait while one is on.
+    private(set) static var isOn = false
+
     private var dbDirectory: URL { Self.dbDirectory }
 
     static var dbDirectory: URL {
@@ -23,7 +27,11 @@ final class FocusMonitor {
     func start() {
         guard !started else { return }
         started = true
-        lastMode = currentMode()?.identifier
+        let mode = currentMode()
+        lastMode = mode?.identifier
+        // Read once at the start as well as on every change: a Mac that was already in a
+        // Focus when the island launched is still in one.
+        Self.isOn = mode != nil
         fd = open(dbDirectory.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: .main)
@@ -43,6 +51,9 @@ final class FocusMonitor {
         started = false
         source?.cancel()
         source = nil
+        // Nothing is watching any more, so nothing may be held back on the strength of what
+        // this last saw.
+        Self.isOn = false
     }
 
     private struct Mode {
@@ -67,6 +78,7 @@ final class FocusMonitor {
     }
 
     private func show(_ state: FocusState) {
+        Self.isOn = state.isOn
         let activity = IslandActivity(id: "focus", kind: .focus, content: .focus(state), priority: 85)
         ActivityCenter.shared.showAlert(activity)
     }

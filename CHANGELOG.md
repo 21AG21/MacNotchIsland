@@ -6,6 +6,12 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **A Focus quietens the island.** While one is on, the alerts that arrive on their own are
+  held back: a finished download, a device connecting, an event coming up, an alert a script
+  pushed, the charger going in. Everything you did yourself still shows — a key, a click, a
+  screenshot, a shortcut you ran — and so do a call and a battery that is nearly flat, because
+  a Focus is a request not to be disturbed rather than a request to be allowed to run out.
+  Switchable off in Activities.
 - **Send a window to the next display.** Every zone on a tile rearranged a window on the
   screen it was already on. Where there is more than one display, a tile now offers the move
   the zones could not make, and the window keeps the share of the screen it had — a half stays

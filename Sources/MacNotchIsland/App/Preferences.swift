@@ -27,6 +27,8 @@ final class Preferences: ObservableObject {
     @Published var privacyIndicatorsEnabled: Bool { didSet { d.set(privacyIndicatorsEnabled, forKey: "privacyIndicatorsEnabled") } }
     @Published var callDetectionEnabled: Bool { didSet { d.set(callDetectionEnabled, forKey: "callDetectionEnabled") } }
     @Published var focusEnabled: Bool { didSet { d.set(focusEnabled, forKey: "focusEnabled") } }
+    /// Hold back the alerts that can wait while a Focus is on.
+    @Published var quietDuringFocus: Bool { didSet { d.set(quietDuringFocus, forKey: "quietDuringFocus") } }
     @Published var calendarEnabled: Bool { didSet { d.set(calendarEnabled, forKey: "calendarEnabled") } }
     @Published var unlockEnabled: Bool { didSet { d.set(unlockEnabled, forKey: "unlockEnabled") } }
     @Published var shelfEnabled: Bool { didSet { d.set(shelfEnabled, forKey: "shelfEnabled") } }
@@ -113,6 +115,7 @@ final class Preferences: ObservableObject {
         privacyIndicatorsEnabled = bool("privacyIndicatorsEnabled", true)
         callDetectionEnabled = bool("callDetectionEnabled", true)
         focusEnabled = bool("focusEnabled", true)
+        quietDuringFocus = bool("quietDuringFocus", true)
         calendarEnabled = bool("calendarEnabled", true)
         unlockEnabled = bool("unlockEnabled", true)
         shelfEnabled = bool("shelfEnabled", true)

@@ -360,7 +360,34 @@ final class ActivityCenter: ObservableObject {
         }
     }
 
+    /// Whether a Focus holds this alert back.
+    ///
+    /// Only the ones that arrive on their own: something finished downloading, a device
+    /// connected, an event is coming up, a script pushed one through the URL scheme, the
+    /// charger went in. Anything the person just did — a key, a click, a screenshot, a
+    /// shortcut they ran — is not an interruption and is never held, whatever else is on.
+    /// A battery that is nearly flat is not held either: a Focus is a request not to be
+    /// disturbed, not a request to be allowed to run out.
+    static func focusHolds(_ activity: IslandActivity) -> Bool {
+        switch activity.content {
+        case .download, .bluetooth, .calendar: return true
+        case .battery(let b): return !(b.event == .low || b.event == .critical)
+        case .custom: return activity.id.hasPrefix("api-")
+        default: return false
+        }
+    }
+
+    /// Whether the island is quietening itself at this moment.
+    private var focusIsQuiet: Bool {
+        let p = Preferences.shared
+        return p.quietDuringFocus && p.focusEnabled && FocusMonitor.isOn
+    }
+
     func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
+        if focusIsQuiet, Self.focusHolds(activity) {
+            IslandLog.island.notice("focus holds \(activity.id, privacy: .public)")
+            return
+        }
         let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
         if outranked {
             // Behind the more important alert: a volume tick must not hide a low-battery warning.

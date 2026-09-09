@@ -116,13 +116,16 @@ struct ActivitiesPane: View {
 
             Section {
                 Toggle("Focus", isOn: $prefs.focusEnabled)
+                Toggle("Quieten alerts during a Focus", isOn: $prefs.quietDuringFocus)
+                    .disabled(!prefs.focusEnabled)
+                    .help("While a Focus is on, the island holds back the alerts that arrive on their own.")
                     .help("Show the current Focus, including Do Not Disturb.")
                 Toggle("Upcoming calendar events", isOn: $prefs.calendarEnabled)
                     .help("Your next event shortly before it starts, and the Today section of the panel.")
             } header: {
                 Text("Focus and calendar")
             } footer: {
-                Text("Calendar events ask for calendar access the first time they are turned on. The same switch shows the Today section in the panel.")
+                Text("Calendar events ask for calendar access the first time they are turned on. The same switch shows the Today section in the panel. While a Focus is on, the island holds back what arrives on its own — a finished download, a device connecting, an event coming up, an alert a script pushed — and shows everything you did yourself, along with a nearly flat battery and a call.")
             }
 
             Section {

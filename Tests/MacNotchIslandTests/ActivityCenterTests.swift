@@ -24,6 +24,35 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.presentation, .idle)
     }
 
+    // MARK: - What a Focus holds back
+
+    private func holds(_ content: ActivityContent, id: String = "x") -> Bool {
+        ActivityCenter.focusHolds(IslandActivity(id: id, kind: .custom, content: content, priority: 70))
+    }
+
+    func testAFocusHoldsWhatArrivesOnItsOwn() {
+        XCTAssertTrue(holds(.download(DownloadState(name: "f.zip", bytes: 10, total: 20, app: "Safari"))))
+        XCTAssertTrue(holds(.bluetooth(BluetoothState(name: "AirPods", address: "a", symbol: "airpods"))))
+        XCTAssertTrue(holds(.calendar(CalendarState(title: "Standup", start: Date(), end: Date(),
+                                                     location: nil, joinURL: nil, tint: "blue"))))
+        XCTAssertTrue(ActivityCenter.focusHolds(custom("api-build")), "a script's alert can wait")
+    }
+
+    func testAFocusNeverHoldsWhatYouJustDid() {
+        XCTAssertFalse(holds(.hud(LevelHUD(kind: .volume, level: 0.4))))
+        XCTAssertFalse(holds(.silent(SilentState(isSilent: true))))
+        XCTAssertFalse(holds(.unlock))
+        XCTAssertFalse(ActivityCenter.focusHolds(custom("screenshot-shot.png")), "you pressed the keys for it")
+        XCTAssertFalse(ActivityCenter.focusHolds(custom("shelf-copied")))
+    }
+
+    func testAFocusIsNotARequestToBeAllowedToRunOut() {
+        let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .low)
+        XCTAssertFalse(holds(.battery(low)))
+        let plugged = BatteryState(percent: 80, isCharging: true, isPluggedIn: true, event: .pluggedIn)
+        XCTAssertTrue(holds(.battery(plugged)), "the charger going in can wait")
+    }
+
     // MARK: - The keys the panel answers
 
     func testThePanelOwnsItsKeysOnlyWhileItIsPinnedOpen() {
