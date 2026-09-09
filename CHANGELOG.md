@@ -31,6 +31,11 @@ the unreleased section is what the next tag will ship.
   washes into the black behind Now Playing, the way the phone does it. Switchable off in
   Activities, and nothing but the title, artist and album is ever sent.
 
+- **Privacy lists Reminders, which the app asks for and the list left out.** Today reads two
+  things from EventKit and macOS grants them separately; the screen whose whole purpose is to
+  say what Notch Island may see named only one of them. The prompts macOS shows also referred
+  to a "Weather tab" and a "Mirror tab", neither of which the app has ever had — they are the
+  weather line in Today and the mirror in the control rail.
 - **Clearing the scratchpad can be taken back.** "Clear" emptied a note somebody may have
   been keeping for weeks, with no confirmation and no way back — and the panel closes the
   moment you look away, so there was nowhere to put a warning either. For twelve seconds

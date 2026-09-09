@@ -96,6 +96,7 @@ enum SystemSettingsPane: String {
     case microphone = "Privacy_Microphone"
     case location = "Privacy_LocationServices"
     case calendars = "Privacy_Calendars"
+    case reminders = "Privacy_Reminders"
     case automation = "Privacy_Automation"
     case screenRecording = "Privacy_ScreenCapture"
 

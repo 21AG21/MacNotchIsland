@@ -35,7 +35,7 @@ struct PrivacyPane: View {
                 )
                 permission(
                     "Camera",
-                    detail: "Used by the Mirror tab. The camera indicator itself never captures video.",
+                    detail: "Used by the mirror in the control rail. The camera indicator itself never captures video.",
                     status: Self.captureStatus(for: .video),
                     pane: .camera
                 )
@@ -56,6 +56,15 @@ struct PrivacyPane: View {
                     detail: "Used to show your next event shortly before it starts.",
                     status: Self.calendarStatus,
                     pane: .calendars
+                )
+                // Asked for alongside the calendar, and granted separately: this screen lists
+                // what the app may see, and one of the two things Today reads was missing
+                // from it.
+                permission(
+                    "Reminders",
+                    detail: "Used to show what is still due today, under your events.",
+                    status: Self.remindersStatus,
+                    pane: .reminders
                 )
                 permission(
                     "Automation",
@@ -145,7 +154,16 @@ struct PrivacyPane: View {
     }
 
     private static var calendarStatus: String {
-        switch EKEventStore.authorizationStatus(for: .event) {
+        status(EKEventStore.authorizationStatus(for: .event))
+    }
+
+    /// Reminders is a permission of its own, granted or refused separately from the calendar.
+    private static var remindersStatus: String {
+        status(EKEventStore.authorizationStatus(for: .reminder))
+    }
+
+    private static func status(_ value: EKAuthorizationStatus) -> String {
+        switch value {
         case .fullAccess, .authorized: return "Granted"
         case .denied, .restricted: return "Denied"
         case .writeOnly: return "Write only"
