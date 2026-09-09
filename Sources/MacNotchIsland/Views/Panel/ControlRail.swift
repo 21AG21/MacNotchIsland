@@ -125,35 +125,35 @@ struct ControlRail: View {
     /// headphones is not a thing you only want to do mid-track. The rail is under every
     /// section, so it is here, once.
     private var outputPicker: some View {
-        Menu {
-            ForEach(outputs.devices) { device in
-                Button(action: { outputs.select(device) }) {
-                    if device == outputs.current {
-                        Label(device.shortName, systemImage: "checkmark")
-                    } else {
-                        Text(device.shortName)
+        Group {
+            if RenderMode.isGallery {
+                // A menu is AppKit's, and `ImageRenderer` draws one as a yellow block with a
+                // red line through it. The gallery gets the disc without the menu behind it,
+                // which is the whole of what anybody sees at rest.
+                outputGlyph
+            } else {
+                Menu {
+                    ForEach(outputs.devices) { device in
+                        Button(action: { outputs.select(device) }) {
+                            if device == outputs.current {
+                                Label(device.shortName, systemImage: "checkmark")
+                            } else {
+                                Text(device.shortName)
+                            }
+                        }
                     }
+                } label: {
+                    outputGlyph
                 }
+                // Borderless, with no indicator: `.button` draws AppKit's own bezel, which put
+                // a rounded rectangle in a row of discs and was the one control on the rail
+                // that did not look like it belonged to the island.
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .fixedSize()
             }
-        } label: {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.10))
-                Image(systemName: outputs.current?.symbol ?? "airplayaudio")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-            .frame(width: RailMetrics.button, height: RailMetrics.button)
-            .contentShape(Circle())
         }
-        // Borderless, with no indicator: `.button` draws AppKit's own bezel, which put a
-        // rounded rectangle in a row of discs and was the one control on the rail that did
-        // not look like it belonged to the island.
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .fixedSize()
-        .menuIndicator(.hidden)
-        .fixedSize()
         .help(outputs.current.map { "Sound is going to \($0.name)" } ?? "Choose the output")
         .accessibilityLabel("Output: \(outputs.current?.name ?? "unknown")")
     }
@@ -170,6 +170,19 @@ struct ControlRail: View {
                 .accessibilityLabel("Brightness")
                 .accessibilityValue("\(Int((brightness.level * 100).rounded())) percent")
         }
+    }
+
+    /// The disc the picker wears: the current output's symbol, the same size as every other
+    /// button on the rail.
+    private var outputGlyph: some View {
+        ZStack {
+            Circle().fill(Color.white.opacity(0.10))
+            Image(systemName: outputs.current?.symbol ?? "airplayaudio")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+        }
+        .frame(width: RailMetrics.button, height: RailMetrics.button)
+        .contentShape(Circle())
     }
 
     // MARK: - Buttons

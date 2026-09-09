@@ -133,7 +133,13 @@ final class NotchPanel: NSPanel {
                                           NSWorkspace.didLaunchApplicationNotification,
                                           NSWorkspace.didUnhideApplicationNotification] {
             let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.scheduleAssertOnTop()
+                guard let self else { return }
+                // Straight away as well as after the debounce. A Space that slides sideways can
+                // carry the island a few points with it, and waiting an eighth of a second to
+                // put it back is long enough to watch it happen: the island is meant to be part
+                // of the machine, and part of the machine does not slide.
+                self.assertOnTop()
+                self.scheduleAssertOnTop()
             }
             orderObservers.append((workspace, token))
         }
@@ -155,9 +161,32 @@ final class NotchPanel: NSPanel {
     static let orderAssertDelay: TimeInterval = 0.12
 
     private func assertOnTop() {
-        guard isVisible, !isKeyWindow else { return }
+        guard isVisible else { return }
         if level != Self.islandLevel { level = Self.islandLevel }
+        // Raising a window puts it back in the order; it does not put it back in its place.
+        // A Space transition, a display waking, or a full-screen app arriving can all leave
+        // the frame a little off the notch, and nothing else was ever going to correct it.
+        placeIfDrifted()
+        guard !isKeyWindow else { return }
         orderFrontRegardless()
+    }
+
+    /// How far the window may be from where it belongs before it is put back. Half a point,
+    /// so a rounding difference is left alone and a slide is not.
+    static let driftTolerance: CGFloat = 0.5
+
+    private func placeIfDrifted() {
+        // Never while the island is mid-morph: opening the panel deliberately grows the window
+        // past its resting size and shrinks it again when the animation has finished, and this
+        // would snap it back into the middle of that.
+        guard settleWork == nil, !refitScheduled else { return }
+        let target = restFrame()
+        // Only where it *is*, not how big it is: the size belongs to whatever the island is
+        // showing, and correcting that here would be a second opinion about it.
+        guard abs(frame.minX - target.minX) > Self.driftTolerance
+                || abs(frame.maxY - target.maxY) > Self.driftTolerance else { return }
+        IslandLog.panel.notice("panel \(self.panelID, privacy: .public) drifted off the notch; putting it back")
+        place(target)
     }
 
     /// The island takes key-window status only while something is being typed into — the Notes
