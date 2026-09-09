@@ -6,6 +6,13 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Compress, on the shelf.** The one thing everybody does to a pile of files before sending
+  them, and the reason half of those piles go to the Desktop first. Right-click a selection and
+  the archive lands beside the files it was made from and on the shelf, ready to AirDrop —
+  named after the file when there is one and after their folder when there are several, the way
+  Finder names its own, and never over the top of the last one. Made with `ditto`, which is
+  what Finder's own Compress uses, so resource forks and extended attributes survive. An
+  archive somebody asked for is theirs: clearing the shelf lets go of it and never deletes it.
 - **The rest of the day, along the floor of Today.** Six hours across the width of the section
   — the hour, what it is doing and how warm it will be — under the events and reminders. The
   space under three appointments was the emptiest part of the panel, and what happens next

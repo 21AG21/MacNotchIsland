@@ -382,6 +382,7 @@ struct ShelfItemView: View {
         Button("Quick Look") { ShelfQuickLook.shared.show(targets()) }
         Button("Reveal in Finder") { shelf.revealInFinder(targets()) }
         Divider()
+        Button("Compress") { shelf.compress(targets()) }
         Button("AirDrop") { shelf.airDrop(targets()) }
         Button("Share…") {
             let view = anchor.view

@@ -233,6 +233,84 @@ final class ShelfStore: ObservableObject {
         for url in urls { _ = NSWorkspace.shared.open(url) }
     }
 
+    /// Zips what is picked out and puts the archive on the shelf beside it.
+    ///
+    /// The one thing everybody does to a pile of files before sending them, and the reason
+    /// half of those piles go to the Desktop first. Named after the file when there is one and
+    /// after the folder they are in when there are several, the way Finder names its own.
+    /// `ditto` rather than `zip`: it is what Finder's Compress uses, so resource forks and
+    /// the extended attributes survive.
+    func compress(_ urls: [URL]) {
+        let files = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !files.isEmpty else { return }
+        let destination = Self.archiveURL(for: files)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        process.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent"]
+            + files.map(\.path) + [destination.path]
+        process.terminationHandler = { [weak self] task in
+            DispatchQueue.main.async {
+                guard task.terminationStatus == 0,
+                      FileManager.default.fileExists(atPath: destination.path) else {
+                    IslandLog.island.error("compress failed with \(task.terminationStatus, privacy: .public)")
+                    self?.announceCompressRefused()
+                    return
+                }
+                // Onto the shelf, but not as one of the island's own: an archive somebody
+                // asked for, sitting beside the files it was made from, is theirs. Clearing
+                // the shelf lets go of it and never deletes it.
+                self?.add([destination])
+            }
+        }
+        do {
+            try process.run()
+        } catch {
+            IslandLog.island.error("could not compress: \(error.localizedDescription, privacy: .public)")
+            announceCompressRefused()
+        }
+    }
+
+    /// Where the archive goes: beside the files when they share a folder that can be written
+    /// to, and in the island's own folder when they do not.
+    static func archiveURL(for files: [URL], fileManager: FileManager = .default) -> URL {
+        let folder = files.count == 1 ? files[0].deletingLastPathComponent() : commonFolder(of: files)
+        let base = files.count == 1
+            ? files[0].deletingPathExtension().lastPathComponent
+            : (folder?.lastPathComponent.isEmpty == false ? folder!.lastPathComponent : "Archive")
+        let directory = folder.flatMap { fileManager.isWritableFile(atPath: $0.path) ? $0 : nil }
+            ?? fileManager.temporaryDirectory
+        return unusedURL(directory.appendingPathComponent(base + ".zip"), fileManager: fileManager)
+    }
+
+    /// The folder every one of them is in, when there is one.
+    static func commonFolder(of files: [URL]) -> URL? {
+        let folders = Set(files.map { $0.deletingLastPathComponent().standardizedFileURL.path })
+        guard folders.count == 1, let only = folders.first else { return nil }
+        return URL(fileURLWithPath: only, isDirectory: true)
+    }
+
+    /// The same name with a number after it, when the first one is taken. Bounded, so a folder
+    /// full of them cannot spin.
+    static func unusedURL(_ url: URL, fileManager: FileManager = .default, limit: Int = 50) -> URL {
+        guard fileManager.fileExists(atPath: url.path) else { return url }
+        let folder = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        for n in 2...limit {
+            let candidate = folder.appendingPathComponent("\(base) \(n).\(ext)")
+            if !fileManager.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return folder.appendingPathComponent("\(base) \(UUID().uuidString.prefix(6)).\(ext)")
+    }
+
+    private func announceCompressRefused() {
+        let custom = CustomActivity(title: "Could not compress", symbol: "exclamationmark.triangle.fill",
+                                    tint: "orange", trailingText: "Failed")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "shelf-compress", kind: .custom,
+                                                       content: .custom(custom), priority: 80),
+                                        duration: 3)
+    }
+
     func revealInFinder(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(urls)

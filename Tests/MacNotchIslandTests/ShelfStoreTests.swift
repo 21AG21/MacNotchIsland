@@ -338,4 +338,59 @@ final class ShelfStoreTests: XCTestCase {
         store.add([try makeFile("quiet.txt")])
         XCTAssertNil(center.activity(id: ShelfStore.activityID))
     }
+
+    // MARK: - Compressing
+
+    private func tempFolder() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("island-zip-" + UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func testOneFileIsNamedAfterItself() {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Report.pdf")
+        let url = ShelfStore.archiveURL(for: [file])
+        XCTAssertEqual(url.lastPathComponent, "Report.zip")
+        XCTAssertEqual(url.deletingLastPathComponent().standardizedFileURL, folder.standardizedFileURL,
+                       "beside the file it was made from, the way Finder does it")
+    }
+
+    func testSeveralFilesAreNamedAfterTheFolderTheyShare() {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = ["a.txt", "b.txt"].map { folder.appendingPathComponent($0) }
+        XCTAssertEqual(ShelfStore.archiveURL(for: files).lastPathComponent,
+                       folder.lastPathComponent + ".zip")
+    }
+
+    func testFilesFromDifferentFoldersHaveNoFolderInCommon() {
+        let a = tempFolder(), b = tempFolder()
+        defer { try? FileManager.default.removeItem(at: a); try? FileManager.default.removeItem(at: b) }
+        XCTAssertNil(ShelfStore.commonFolder(of: [a.appendingPathComponent("x"), b.appendingPathComponent("y")]))
+        XCTAssertEqual(ShelfStore.archiveURL(for: [a.appendingPathComponent("x"), b.appendingPathComponent("y")])
+                        .lastPathComponent, "Archive.zip")
+    }
+
+    func testAnArchiveNeverOverwritesTheLastOne() {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = folder.appendingPathComponent("Report.zip")
+        FileManager.default.createFile(atPath: first.path, contents: Data())
+        let next = ShelfStore.unusedURL(first)
+        XCTAssertEqual(next.lastPathComponent, "Report 2.zip")
+        FileManager.default.createFile(atPath: next.path, contents: Data())
+        XCTAssertEqual(ShelfStore.unusedURL(first).lastPathComponent, "Report 3.zip")
+    }
+
+    func testAnArchiveBesideSomebodyElsesFilesIsTheirsToKeep() {
+        // Written where the files are, which is not the island's own folder — so clearing the
+        // shelf lets go of it and never deletes it.
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = ShelfStore.archiveURL(for: [folder.appendingPathComponent("Report.pdf")])
+        XCTAssertFalse(ShelfStore.isOwned(url))
+    }
 }
