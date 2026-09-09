@@ -66,6 +66,10 @@ struct ClipboardSectionView: View {
 struct ActionsSectionView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
     @ObservedObject private var timers = IslandTimer.shared
+    /// Watched, not merely read: the pill's title is "Stopwatch" or "Stop" depending on it,
+    /// and the row was only ever redrawn because something else in the panel happened to
+    /// change at the same moment.
+    @ObservedObject private var stopwatch = IslandStopwatch.shared
 
     /// Two rows and the rule between them, measured so they fill the section exactly: the
     /// header and its gap, 64 pt of buttons, the hairline with the same air above and below
@@ -118,8 +122,8 @@ struct ActionsSectionView: View {
                 PillButton(title: "Cancel", tint: .white.opacity(0.7)) { IslandTimer.shared.cancel() }
             }
             Spacer(minLength: 0)
-            PillButton(title: IslandStopwatch.shared.state == nil ? "Stopwatch" : "Stop", symbol: "stopwatch.fill") {
-                if IslandStopwatch.shared.state == nil { IslandStopwatch.shared.start() } else { IslandStopwatch.shared.reset() }
+            PillButton(title: stopwatch.state == nil ? "Stopwatch" : "Stop", symbol: "stopwatch.fill") {
+                if stopwatch.state == nil { stopwatch.start() } else { stopwatch.reset() }
             }
         }
     }
