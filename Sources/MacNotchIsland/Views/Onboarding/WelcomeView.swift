@@ -107,7 +107,9 @@ struct WelcomeView: View {
     /// They live here rather than inline so a test can hold them to their one line. The
     /// fuller explanation of each is in Settings, which is where there is room for it.
     enum ChoiceLine {
-        static let today = "Your day's events and reminders."
+        // The one that asks macOS for something the moment the tour is finished, so the tour
+        // is where it says so.
+        static let today = "Your events and reminders. Asks for access."
         static let windows = "Every open window as a tile you can snap."
         static let shelf = "Files you drop on the island wait here."
         static let clipboard = "Recent copies, pinned ones first."

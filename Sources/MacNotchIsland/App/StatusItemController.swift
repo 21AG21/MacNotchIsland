@@ -97,7 +97,9 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
             ("Silent Mode", #selector(demoSilent)),
             ("Volume", #selector(demoVolume)),
             ("Unlocked", #selector(demoUnlock)),
-            ("Incoming Call", #selector(demoCall)),
+            // Not "Incoming": the island never sees a call arrive — it notices one that is
+            // already running, from the microphone, and the card says so too.
+            ("Call in Progress", #selector(demoCall)),
             ("Delivery Live Activity", #selector(demoDelivery)),
         ]
         for (title, sel) in demos { demoMenu.addItem(action(title, sel)) }

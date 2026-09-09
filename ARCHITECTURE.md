@@ -27,10 +27,6 @@ Services/*  ──►  ActivityCenter  ──►  IslandLayout  ──►  Islan
   view, shelf. `ring` is the one ordered list of activity cards and available sections that
   the switcher, Tab, the swipes and the URL scheme all step through; `Core/HomeSection.swift`
   is the list of sections and which of them the user has switched on.
-- **`Core/NotchPanel.swift`** — the transparent, non-activating panel over the notch. Its
-  frame follows the island's footprint (`refit`): it grows the instant something opens, with
-  room for the spring to overshoot, and shrinks back after the closing animation, so at rest
-  there is no invisible canvas over the menu bar or the windows beside the notch.
 - **`Services/MenuBarClearance.swift`** — how much of the menu bar is free either side of the
   notch: status items from the window list, the frontmost app's menu titles through
   Accessibility when granted. `IslandLayout` only widens the compact island into free room,
@@ -45,9 +41,12 @@ Services/*  ──►  ActivityCenter  ──►  IslandLayout  ──►  Islan
   between capsule and rounded-rect mid-animation.
 - **`Core/IslandMotion.swift`** — the spring curves. One root `.animation` drives every
   morph; content swaps use `.blurReplace` and matched geometry through `IslandNamespace`.
-- **`Core/NotchPanel.swift` / `NotchHostingView.swift`** — a non-activating `NSPanel`
-  above the menu bar and full-screen apps on every Space. The hosting view answers
-  `hitTest` from the layout's hit rectangle so everything outside the island is
+- **`Core/NotchPanel.swift` / `NotchHostingView.swift`** — a transparent, non-activating
+  `NSPanel` above the menu bar and full-screen apps on every Space. Its frame follows the
+  island's footprint (`refit`): it grows the instant something opens, with room for the
+  spring to overshoot, and shrinks back after the closing animation, so at rest there is no
+  invisible canvas over the menu bar or the windows beside the notch. The hosting view
+  answers `hitTest` from the layout's hit rectangle so everything outside the island is
   click-through, accepts first mouse, routes scroll and swipe to `GestureRouter`, and
   turns a right-click into "hold open".
 - **`Core/EnergyPolicy.swift`** — observes sleep, Low Power Mode and battery power and
@@ -80,6 +79,15 @@ their viewers: `WindowsMonitor` (the window list, its ScreenCaptureKit thumbnail
 Accessibility calls that raise, snap and close a window), `SystemToggles` (Wi-Fi through
 CoreWLAN, Bluetooth through IOBluetooth's undeclared power switch, appearance through
 System Events) and `BrightnessControl`. Each one costs nothing while the panel is closed.
+
+Everything the app keeps between launches goes through `Core/IslandFiles.swift`: one folder
+in Application Support, made and kept readable by its owner alone — 0700 on the folder, 0600
+on every file, set after the atomic write rather than before it, since an atomic write puts a
+new file in place of the old one. What is in there is as personal as anything on the Mac (the
+clipboard history, the scratchpad, a lyrics cache), and on a shared Mac the umask would
+otherwise have handed it to every other account. The two stores that debounce their writes,
+`NotesStore` and `ClipboardStore`, are flushed by `AppDelegate` on quit, log out and sleep:
+the debounce is most of a second and quitting is quicker than that.
 
 ## Views
 
