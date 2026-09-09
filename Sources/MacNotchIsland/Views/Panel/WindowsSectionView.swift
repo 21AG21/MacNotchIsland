@@ -11,6 +11,8 @@ struct WindowsSectionView: View {
     @State private var hovered: CGWindowID?
     /// The tile a file is being held over, if any.
     @State private var dropTarget: CGWindowID?
+    /// Windows picked out with a Command-click, to be laid out together.
+    @State private var selection: Set<CGWindowID> = []
 
     /// Every window there is, before the find narrows it.
     private var allWindows: [IslandWindow] {
@@ -35,6 +37,21 @@ struct WindowsSectionView: View {
                     PillButton(title: "Show pictures", tint: .white.opacity(0.85)) { monitor.requestCapture() }
                 } else if !monitor.canMove {
                     PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
+                } else if !selected.isEmpty {
+                    // Two or more is a layout; one is a selection on its way to being one, and
+                    // saying so is how somebody learns the Command-click did something.
+                    if selected.count > 1 {
+                        PillButton(title: "Tile \(selected.count)", symbol: "rectangle.split.2x1",
+                                   prominent: true) {
+                            monitor.tile(selected)
+                            selection.removeAll()
+                        }
+                    } else {
+                        Text("1 picked")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    PillButton(title: "Clear", tint: .white.opacity(0.85)) { selection.removeAll() }
                 } else if !allWindows.isEmpty || center.findQuery != nil {
                     // Return brings the first match forward: type "mai", press Return, and
                     // Mail is in front — a window switcher that needs no window switcher.
@@ -55,7 +72,16 @@ struct WindowsSectionView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { monitor.viewerAppeared() }
-        .onDisappear { monitor.viewerDisappeared() }
+        .onDisappear {
+            monitor.viewerDisappeared()
+            selection.removeAll()
+        }
+        // A window that closed, or an app that quit, must not stay picked out: the pill would
+        // then offer to lay out something that is not there.
+        .onChange(of: monitor.windows) { _, current in
+            let live = Set(current.map(\.id))
+            selection = selection.intersection(live)
+        }
     }
 
     @ViewBuilder
@@ -100,9 +126,27 @@ struct WindowsSectionView: View {
     static let stripBottom: CGFloat = 2
     static var stripHeight: CGFloat { tileHeight + labelGap + labelHeight + stripBottom }
 
+    /// The picked-out windows, in the order the strip shows them — which is the order they are
+    /// laid out in, so the row on screen matches the row in the panel.
+    private var selected: [IslandWindow] {
+        allWindows.filter { selection.contains($0.id) }
+    }
+
+    /// A plain click brings a window forward; Command-click picks it out instead, the way it
+    /// does on the shelf and in every list on the Mac.
+    private func click(_ window: IslandWindow) {
+        guard NSEvent.modifierFlags.contains(.command) else {
+            selection.removeAll()
+            monitor.focus(window)
+            return
+        }
+        if selection.contains(window.id) { selection.remove(window.id) } else { selection.insert(window.id) }
+    }
+
     private func tile(_ window: IslandWindow) -> some View {
         let showsZones = hovered == window.id
         let dropping = dropTarget == window.id
+        let picked = selection.contains(window.id)
         return VStack(alignment: .leading, spacing: Self.labelGap) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -123,13 +167,14 @@ struct WindowsSectionView: View {
                         .foregroundStyle(.white.opacity(0.4))
                 }
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(dropping ? Color.accentColor : Color.white.opacity(showsZones ? 0.35 : 0.12),
-                                  lineWidth: dropping ? 2 : 1)
+                    .strokeBorder(dropping || picked ? Color.accentColor : Color.white.opacity(showsZones ? 0.35 : 0.12),
+                                  lineWidth: dropping || picked ? 2 : 1)
+                if picked { pickedBadge }
                 if showsZones { zones(window) }
             }
             .frame(width: Self.tileWidth, height: Self.tileHeight)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .onTapGesture { monitor.focus(window) }
+            .onTapGesture { click(window) }
             .onHover { inside in
                 hovered = inside ? window.id : (hovered == window.id ? nil : hovered)
             }
@@ -159,10 +204,26 @@ struct WindowsSectionView: View {
             .frame(width: Self.tileWidth, height: Self.labelHeight, alignment: .leading)
         }
         .animation(IslandMotion.hover, value: showsZones)
+        .animation(IslandMotion.hover, value: picked)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(window.appName), \(window.label)")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { monitor.focus(window) }
+        .accessibilityAction(named: picked ? "Leave it out" : "Pick it out to tile") {
+            if picked { selection.remove(window.id) } else { selection.insert(window.id) }
+        }
+    }
+
+    /// The tick on a picked tile, in the corner the zones do not use.
+    private var pickedBadge: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 13, weight: .semibold))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(Color.white, Color.accentColor)
+            .padding(5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .transition(.opacity)
+            .accessibilityHidden(true)
     }
 
     /// The zones, over the picture, while the pointer is on the tile — and the one other thing

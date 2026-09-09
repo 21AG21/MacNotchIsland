@@ -6,6 +6,13 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Pick out several windows and lay them out together.** Command-click window tiles the way
+  you would rows in Finder — each one gets a tick and an accent border — and the header offers
+  to tile them: two side by side, three across, four in quarters, and beyond that a grid as
+  square as it will go, with a short last row sharing the width rather than leaving a hole.
+  They all go on the screen the first of them is on, minimised ones come back to do it, and any
+  window Accessibility cannot reach is skipped rather than abandoning the rest. A plain click
+  still just brings a window forward, and clears the selection; a window that closes leaves it.
 - **Put the sections in your own order.** The panel's sections have always come in the order
   they were written in. Home Panel lists them now, the way Control Center is arranged: drag a
   row and the section moves everywhere at once — the switcher, a sideways swipe, Tab, and the

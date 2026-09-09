@@ -342,4 +342,52 @@ final class WindowsAndControlsTests: XCTestCase {
         let used = count * ActionTile.diameter + (count - 1) * ActionTile.gap
         XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth)
     }
+
+    // MARK: - Laying several windows out at once
+
+    private var tileScreen: CGRect { CGRect(x: 0, y: 25, width: 1440, height: 875) }
+
+    func testTwoWindowsShareTheScreenDownTheMiddle() {
+        let frames = WindowsMonitor.tileFrames(count: 2, in: tileScreen)
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertEqual(frames[0], CGRect(x: 0, y: 25, width: 720, height: 875))
+        XCTAssertEqual(frames[1], CGRect(x: 720, y: 25, width: 720, height: 875))
+    }
+
+    func testThreeWindowsGoAcrossRatherThanTwoAndOne() {
+        // A grid would make one of them twice the size of the others; three columns is the
+        // layout people mean on a laptop's width.
+        let frames = WindowsMonitor.tileFrames(count: 3, in: tileScreen)
+        XCTAssertEqual(frames.count, 3)
+        XCTAssertEqual(Set(frames.map(\.height)), [875], "one row")
+        XCTAssertEqual(frames.map(\.minX), [0, 480, 960])
+    }
+
+    func testFourWindowsGoInQuarters() {
+        let frames = WindowsMonitor.tileFrames(count: 4, in: tileScreen)
+        XCTAssertEqual(frames.count, 4)
+        XCTAssertEqual(Set(frames.map(\.width)), [720], "two columns")
+        XCTAssertEqual(Set(frames.map(\.minY)).count, 2, "two rows")
+    }
+
+    func testEveryLayoutFillsTheScreenExactlyAndNothingOverlaps() {
+        for count in 1...9 {
+            let frames = WindowsMonitor.tileFrames(count: count, in: tileScreen)
+            XCTAssertEqual(frames.count, count)
+            let area = frames.reduce(0.0) { $0 + $1.width * $1.height }
+            XCTAssertEqual(area, tileScreen.width * tileScreen.height, accuracy: 1,
+                           "\(count) windows should cover the screen and no more")
+            for (i, a) in frames.enumerated() {
+                XCTAssertTrue(tileScreen.contains(a), "\(count): \(a) hangs off the screen")
+                for b in frames[(i + 1)...] {
+                    XCTAssertTrue(a.intersection(b).isEmpty, "\(count): \(a) overlaps \(b)")
+                }
+            }
+        }
+    }
+
+    func testOneWindowIsNotALayout() {
+        XCTAssertEqual(WindowsMonitor.tileFrames(count: 1, in: tileScreen), [tileScreen])
+        XCTAssertTrue(WindowsMonitor.tileFrames(count: 0, in: tileScreen).isEmpty)
+    }
 }

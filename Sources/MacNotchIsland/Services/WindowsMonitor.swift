@@ -306,6 +306,69 @@ final class WindowsMonitor: ObservableObject {
         NSRunningApplication(processIdentifier: window.pid)?.activate()
     }
 
+    /// Lays several windows out side by side on one screen, the way macOS's own tiling does
+    /// but for the windows *you* picked rather than the two that happen to be in front.
+    ///
+    /// They all go on the screen the first of them is on: tiling is a thing you do to one
+    /// screen. Windows the Accessibility permission cannot reach are skipped rather than
+    /// abandoning the ones it can.
+    @discardableResult
+    func tile(_ windows: [IslandWindow]) -> Bool {
+        guard windows.count > 1 else { return false }
+        guard AXIsProcessTrusted() else {
+            requestMove()
+            return false
+        }
+        let visible = Self.visibleFrame(containing: windows[0].frame)
+        let frames = Self.tileFrames(count: windows.count, in: visible)
+        var moved = false
+        for (window, target) in zip(windows, frames) {
+            guard let element = Self.axWindow(for: window) else { continue }
+            AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            Self.setFrame(element, to: target)
+            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+            moved = true
+        }
+        // The list is now wrong by every window that moved. Ask again straight away and once
+        // more a beat later, by which time the window server has the new frames.
+        refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
+        return moved
+    }
+
+    /// Where each of `count` windows goes on one screen: two side by side, three across a wide
+    /// screen, four in quarters, and beyond that a grid as square as it can be, with a short
+    /// last row sharing the width between the windows that are in it rather than leaving a
+    /// hole. Edges are rounded from the screen rather than each rectangle being rounded on its
+    /// own, so neighbours meet exactly and the row adds up to the screen.
+    ///
+    /// Pure, so the arithmetic can be tested without a window to move.
+    static func tileFrames(count: Int, in visible: CGRect) -> [CGRect] {
+        guard count > 0 else { return [] }
+        guard count > 1 else { return [visible] }
+        // Three across, not two-and-one: on a laptop's width three columns is the layout
+        // people mean, and a grid would leave one of them twice the size of the others.
+        let columns = count == 3 ? 3 : Int(Double(count).squareRoot().rounded(.up))
+        let rows = Int((Double(count) / Double(columns)).rounded(.up))
+        var frames: [CGRect] = []
+        for row in 0..<rows {
+            let inRow = min(columns, count - row * columns)
+            guard inRow > 0 else { break }
+            let top = edge(visible.minY, visible.height, row, rows)
+            let bottom = edge(visible.minY, visible.height, row + 1, rows)
+            for column in 0..<inRow {
+                let left = edge(visible.minX, visible.width, column, inRow)
+                let right = edge(visible.minX, visible.width, column + 1, inRow)
+                frames.append(CGRect(x: left, y: top, width: right - left, height: bottom - top))
+            }
+        }
+        return frames
+    }
+
+    private static func edge(_ origin: CGFloat, _ length: CGFloat, _ index: Int, _ of: Int) -> CGFloat {
+        (origin + length * CGFloat(index) / CGFloat(of)).rounded()
+    }
+
     /// Puts a window in a zone of the screen it is on, and brings it forward so the result is
     /// visible. Does nothing without the Accessibility permission.
     @discardableResult
