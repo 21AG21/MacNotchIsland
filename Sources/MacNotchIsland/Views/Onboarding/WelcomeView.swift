@@ -5,6 +5,10 @@ import SwiftUI
 /// app icon, "Welcome to …", a short column of symbol + title + description rows,
 /// and one prominent Continue button. Flat ground, system type, no boxes.
 struct WelcomeView: View {
+    /// The tour's one size, and the size its window is built at — see `SettingsView.windowSize`
+    /// for why the window is told rather than left to ask.
+    static let windowSize = CGSize(width: 500, height: 600)
+
     @EnvironmentObject private var prefs: Preferences
     var dismiss: () -> Void
     @State private var page = 0
@@ -29,7 +33,7 @@ struct WelcomeView: View {
         .padding(.horizontal, 40)
         .padding(.top, 28)
         .padding(.bottom, 28)
-        .frame(width: 500, height: 600)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
         .background(Color(nsColor: .windowBackgroundColor))
         .clipped()
     }
@@ -214,6 +218,11 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         w.title = "Welcome to Notch Island"
         w.isReleasedWhenClosed = false
         w.delegate = self
+        // Sized before it is placed: the hosting controller has not laid this out yet, so a
+        // window centred first is a window of the wrong size centred, and the right size then
+        // grows out of the corner the wrong one was pinned by — off the edge of a small
+        // screen. It is the first thing a new Mac shows of this app.
+        w.setContentSize(WelcomeView.windowSize)
         w.center()
         window = w
         w.makeKeyAndOrderFront(nil)
