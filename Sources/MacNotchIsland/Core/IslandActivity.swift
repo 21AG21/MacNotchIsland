@@ -174,6 +174,13 @@ struct LevelHUD: Equatable {
         if state.isUnavailable { return "\u{2014}" }
         return state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%"
     }
+
+    /// What to do about a level this Mac does not set. One definition, for the same reason:
+    /// the pill answers the key press, and it used to answer it with the dash alone — which
+    /// says "no number", not "not from here", and leaves the press looking broken after all.
+    static func unavailableHint(_ state: LevelHUD) -> String {
+        state.kind == .volume ? "Set on the device" : "Set on the display"
+    }
 }
 
 struct SilentState: Equatable {
@@ -228,7 +235,9 @@ enum ActivityContent: Equatable {
         case .battery: return (40, 56)
         case .bluetooth(let s): return (34, s.summaryPercent == nil ? 88 : 52)
         case .focus: return (34, 40)
-        case .hud: return (34, 72)
+        // The one state that answers in words needs the room for them; squeezed into a busy
+        // menu bar it falls back to the dash, which is what `compactMinimalWidths` allows for.
+        case .hud(let h): return (34, h.isUnavailable ? 124 : 72)
         case .silent: return (34, 56)
         case .unlock: return (34, 72)
         case .calendar: return (34, 64)

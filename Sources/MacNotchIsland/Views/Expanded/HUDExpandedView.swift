@@ -25,8 +25,11 @@ struct HUDExpandedView: View {
                         LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
                             .frame(height: 4)
                     }
-                    if let device = state.device {
-                        Text(device)
+                    // The device, or — where there is no device to name, as on a display that
+                    // will not be set — what to do about it. Something, either way: the row
+                    // was otherwise a glyph, a gap and a dash.
+                    if let line = state.device ?? (state.isUnavailable ? LevelHUD.unavailableHint(state) : nil) {
+                        Text(line)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                             .lineLimit(1)

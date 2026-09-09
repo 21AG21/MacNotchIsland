@@ -206,9 +206,11 @@ struct CompactTrailingView: View {
                 // cannot express gets said in words rather than shown as an empty bar that
                 // reads as silence.
                 if h.isUnavailable {
-                    Text(LevelHUD.readout(h))
-                        .font(numeralFont)
+                    Text(minimal ? LevelHUD.readout(h) : LevelHUD.unavailableHint(h))
+                        .font(minimal ? numeralFont : wordFont)
                         .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 } else {
                     LevelBar(level: h.isMuted ? 0 : h.level, tint: .white)
                         .frame(width: minimal ? 28 : 52, height: 4)

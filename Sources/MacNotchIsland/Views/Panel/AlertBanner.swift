@@ -23,7 +23,7 @@ struct AlertBanner: View {
                     // there reads as a Mac turned all the way down, which is the opposite.
                     if hud.isUnavailable {
                         // The output is named in the title; this says what to do about it.
-                        Text(hud.kind == .volume ? "Set on the device" : "Set on the display")
+                        Text(LevelHUD.unavailableHint(hud))
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                             .lineLimit(1)

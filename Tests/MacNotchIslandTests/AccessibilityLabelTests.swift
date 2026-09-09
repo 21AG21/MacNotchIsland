@@ -72,6 +72,15 @@ final class AccessibilityLabelTests: XCTestCase {
         noBrightness.isUnavailable = true
         XCTAssertEqual(label(.hud(noBrightness)), "Brightness is not set here",
                        "a display that will not be set is not a display turned down")
+        // The pill says it too, not only VoiceOver: the dash on its own means "no number",
+        // where this means "not from here", and the slot is wide enough for the words.
+        XCTAssertEqual(LevelHUD.readout(noVolume), "\u{2014}")
+        XCTAssertEqual(LevelHUD.unavailableHint(noVolume), "Set on the device")
+        XCTAssertEqual(LevelHUD.unavailableHint(noBrightness), "Set on the display")
+        XCTAssertGreaterThan(ActivityContent.hud(noVolume).compactWidths.trailing,
+                             ActivityContent.hud(LevelHUD(kind: .volume, level: 0.4)).compactWidths.trailing,
+                             "the words need more room than the bar they stand in for")
+
         XCTAssertEqual(label(.focus(FocusState(name: "Work", symbol: "moon.fill", isOn: true, tint: "indigo"))),
                        "Work Focus on")
         XCTAssertEqual(label(.silent(SilentState(isSilent: true))), "Silent mode on")

@@ -31,7 +31,12 @@ the unreleased section is what the next tag will ship.
   washes into the black behind Now Playing, the way the phone does it. Switchable off in
   Activities, and nothing but the title, artist and album is ever sent.
 
-### Fixed
+- **A volume key that cannot be answered now says why.** Some outputs — HDMI, a few AirPlay
+  targets — carry the sound at whatever level the thing at the other end is set to, and the
+  pill answered that key press with an em dash. A dash means "no number", not "not from here",
+  so the press still looked broken. It says "Set on the device", or "Set on the display" for
+  brightness — the same words the banner uses, from one definition — and falls back to the
+  dash only when the menu bar leaves no room for words.
 - **Settings rows that named their own section, and a section that named the wrong thing.**
   General's "Appearance" held "Show on all displays" and "Hide in full-screen apps": one says
   where the island is drawn, the other says when it is not drawn at all, and neither is an

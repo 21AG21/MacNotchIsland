@@ -149,8 +149,8 @@ final class IslandLayoutTests: XCTestCase {
     }
 
     func testCompactKeepsTheNotchGapOnTheNotch() {
-        // The volume HUD has the widest trailing slot; without the shift its bar would sit
-        // well inside the cutout.
+        // The volume HUD's trailing slot is far wider than its glyph; without the shift its
+        // bar would sit well inside the cutout.
         let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
         let layout = IslandLayout.make(presentation: .compact(hud, bubble: nil), geometry: geometry, clearance: .unlimited)
         let widths = hud.content.compactWidths
