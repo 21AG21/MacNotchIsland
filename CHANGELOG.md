@@ -32,6 +32,25 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **The island casts a shadow.** Nothing in the app did, so a black panel over a wallpaper was
+  not a surface in front of the screen, it was a hole cut out of it — the one thing every
+  floating surface in macOS has and this had none of. It is sized to what casts it, so the
+  compact pill lies close to the menu bar and the panel stands off the desktop; a notched
+  island at rest still has none, since there it *is* the notch and a shadow would print a halo
+  around a camera housing that has never cast one.
+- The hairline along the island's edges is now a line you can see. At a tenth of white it
+  measured 34 against a menu bar of 20 — present in the code and absent on a dark desktop,
+  which is the one place it exists for. The floating pill and the bubble, whose top edge is
+  their own, are lit brighter along it and settle down their sides.
+- The shelf's drop zone is tinted and solid, the way the system marks a destination that will
+  take what you are holding, instead of the grey dashed rectangle that marks one nowhere in
+  macOS.
+- Names sit under the middle of the thing they name, on the shelf's tiles and in the Actions
+  row. Hung from the same leading edge as a picture wider or narrower than they are, they
+  landed off it by a different few points for every name.
+- The button that closes the panel moved to the leading edge of the band, where every window
+  on the Mac keeps it. At the far end it left the whole left of the band empty whenever
+  nothing was live, with every glyph in the panel crowded into the right third.
 - **One display for one key press.** With the system bezel replaced, a key the Mac cannot
   answer — an HDMI output with no level of its own, a Mac driving only external displays —
   now goes back to macOS, which still has a bezel for it, rather than being swallowed into

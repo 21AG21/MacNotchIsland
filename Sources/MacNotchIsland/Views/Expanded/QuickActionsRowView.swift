@@ -42,7 +42,9 @@ struct QuickActionsRowView: View {
                 .accessibilityElement(children: .contain)
             } else {
                 let favourites = apps.apps
-                HStack(alignment: .top, spacing: 6) {
+                // Wide enough that two names at full width still cannot touch: each name is
+                // centred on its own disc and overhangs it either side, see `AppButton`.
+                HStack(alignment: .top, spacing: ActionTile.gap) {
                     ForEach(favourites, id: \.path) { app in
                         AppButton(path: app.path, name: app.name)
                     }
@@ -57,20 +59,34 @@ struct QuickActionsRowView: View {
     }
 }
 
-/// One favourite app: its own icon, its name, and a click that opens it. The disc hangs from
-/// the leading edge of its name's column, so the first button in the row starts on the panel's
-/// content column rather than 13 pt inside it.
+/// The measurements every tile in the Actions row shares.
+///
+/// A name is wider than the disc it belongs to, and only one of the two can be the tile. Make
+/// it the name and the first disc sits 13 pt inside the panel's content column, out of line
+/// with the section title above it and the rail below. Make it the name *and* hang both from
+/// the leading edge — which is what this row used to do — and no name is under the middle of
+/// the thing it names: a short one hugs the left of its box and sits left of its disc, a long
+/// one fills the box and sits right of it, so the row wanders as the names change.
+///
+/// So the tile is the disc, it hangs from the column like everything else in the panel, and
+/// the name is centred on it and allowed to overhang. It is what the Home screen does with an
+/// app's name, and the row's spacing is set so two names at full width still cannot meet.
+enum ActionTile {
+    static let diameter: CGFloat = 40
+    static let label: CGFloat = 66
+    static let gap: CGFloat = 30
+}
+
+/// One favourite app: its own icon, its name, and a click that opens it.
 private struct AppButton: View {
     let path: String
     let name: String
     @ObservedObject private var apps = FavoriteApps.shared
     @State private var hovering = false
 
-    private static let diameter: CGFloat = 40
-
     var body: some View {
         Button(action: { apps.launch(path) }) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(spacing: 5) {
                 ZStack {
                     Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
                     if let icon = apps.icon(for: path) {
@@ -84,12 +100,15 @@ private struct AppButton: View {
                             .foregroundStyle(.white)
                     }
                 }
-                .frame(width: Self.diameter, height: Self.diameter)
+                .frame(width: ActionTile.diameter, height: ActionTile.diameter)
                 Text(name)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .frame(width: 66, alignment: .leading)
+                    // Its own box, centred; then only the disc's width claimed of the row, so
+                    // what it overhangs is space and not the next tile.
+                    .frame(width: ActionTile.label)
+                    .frame(width: ActionTile.diameter)
             }
         }
         .buttonStyle(IslandButtonStyle())
@@ -106,23 +125,24 @@ private struct QuickActionButton: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
     @State private var hovering = false
 
-    private static let diameter: CGFloat = 40
-
     var body: some View {
         Button(action: { runner.run(name) }) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(spacing: 5) {
                 ZStack {
                     Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
                     Image(systemName: runner.symbol(for: name))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                 }
-                .frame(width: Self.diameter, height: Self.diameter)
+                .frame(width: ActionTile.diameter, height: ActionTile.diameter)
                 Text(name)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .frame(width: 66, alignment: .leading)
+                    // Its own box, centred; then only the disc's width claimed of the row, so
+                    // what it overhangs is space and not the next tile.
+                    .frame(width: ActionTile.label)
+                    .frame(width: ActionTile.diameter)
             }
         }
         .buttonStyle(IslandButtonStyle())

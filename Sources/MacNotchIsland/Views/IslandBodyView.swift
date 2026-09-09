@@ -31,6 +31,7 @@ struct IslandBodyView: View {
 
             NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom)
                 .fill(Color.black)
+                .islandShadow(shadowStrength, height: layout.bodyHeight)
             rim
 
             content
@@ -61,11 +62,27 @@ struct IslandBodyView: View {
         center.pressedPanel == panelID && !layout.isExpanded
     }
 
+    /// How much of a shadow the island casts. A floating pill is an object on every screen and
+    /// always has one. A fused island only becomes an object when it has something to say: at
+    /// rest it *is* the notch, and a shadow there would print a soft halo on the menu bar all
+    /// round a camera housing that has never cast one.
+    ///
+    /// Both this and the rim's opacity are left to whatever animation is running when they
+    /// change, which is the one `IslandRootView` puts on the layout — the same spring the
+    /// shape is morphing under, so the edge and the shadow arrive with it. Scoping a fade of
+    /// their own here would have caught the shape too: `.animation(_:value:)` governs every
+    /// animatable change in its subtree for that transaction, and the radii change in exactly
+    /// the same one, so the island's whole morph would have crossed on a linear fade instead
+    /// of the open spring.
+    private var shadowStrength: Double {
+        layout.floating || !isResting ? 1 : 0
+    }
+
     /// `IslandRim`, cut to the shape the island is wearing.
     ///
     /// The fused island has three edges, not four: `openTop` leaves the screen's own out, and
     /// the fade takes care of the ears that run along it. A floating pill has four real edges
-    /// and gets the whole closed loop at full strength.
+    /// and gets the whole closed loop, lit from the top one down.
     ///
     /// At rest on a notched screen it has none at all. An island showing nothing *is* the
     /// notch — the same width, the same height, and the black in it is the bezel's — so an
@@ -74,24 +91,26 @@ struct IslandBodyView: View {
     /// and an object gets an edge.
     @ViewBuilder
     private var rim: some View {
-        let outline = NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius,
-                                 floating: layout.floating, isPill: layout.isPillBottom,
-                                 openTop: !layout.floating)
-            .stroke(IslandRim.color, lineWidth: IslandRim.width)
-            .accessibilityHidden(true)
+        let shape = NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius,
+                               floating: layout.floating, isPill: layout.isPillBottom,
+                               openTop: !layout.floating)
         if layout.floating {
-            outline
+            shape
+                .stroke(IslandRim.lit, lineWidth: IslandRim.width)
+                .accessibilityHidden(true)
         } else {
-            outline
+            shape
+                .stroke(IslandRim.color, lineWidth: IslandRim.width)
+                .accessibilityHidden(true)
                 .mask {
                     LinearGradient(colors: [.clear, .black], startPoint: .top,
                                    endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, layout.bodyHeight)))
                 }
                 // Faded rather than taken away: the island is already growing out of the
                 // notch when this changes, and an edge that snaps into existence on frame one
-                // of that is the one part of the move that did not move.
+                // of that is the one part of the move that did not move. On the shape's own
+                // curve, not a fade of its own — see `shadowStrength`.
                 .opacity(isResting ? 0 : 1)
-                .animation(IslandMotion.fade, value: isResting)
         }
     }
 

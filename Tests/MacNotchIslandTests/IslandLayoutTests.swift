@@ -141,4 +141,42 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertEqual(layout.trailingWidth, layout.privacyWidth + 8, "22 pt of dots plus 4 pt of padding")
         ActivityCenter.shared.micInUse = false
     }
+
+    // MARK: - Room for the shadow
+
+    /// The window is drawn to the island's own footprint plus a margin. The shadow falls
+    /// outside the shape, so the margin has to hold it: a blur that runs into the window's
+    /// edge is cut off square there, which is a hard grey line where the softest part of the
+    /// shadow should be.
+    func testTheWindowKeepsRoomForTheShadowItCasts() {
+        XCTAssertGreaterThan(NotchPanel.restSlack, IslandShadow.reach,
+                             "the shadow must have somewhere to fall inside the window")
+        XCTAssertEqual(IslandShadow.reach, IslandShadow.ambientRadius + IslandShadow.ambientOffset)
+        // The window is sized for the largest shadow, so every smaller one fits inside it too.
+        for height: CGFloat in [22, 33.5, 60, 120, 250] {
+            let ambient = IslandShadow.ambient(height: height)
+            XCTAssertLessThanOrEqual(ambient.radius + ambient.offset, IslandShadow.reach)
+        }
+    }
+
+    /// A shadow grows with what casts it: the compact pill is a couple of centimetres of black
+    /// lying on the menu bar and a window's shadow around it would be most of what you saw.
+    func testTheShadowGrowsWithTheSurface() {
+        let pill = IslandShadow.ambient(height: 33.5)
+        let panel = IslandShadow.ambient(height: IslandLayout.panelContentHeight)
+        XCTAssertLessThan(pill.radius, panel.radius)
+        XCTAssertLessThan(pill.offset, panel.offset)
+        XCTAssertLessThan(pill.opacity, panel.opacity)
+        XCTAssertEqual(panel.radius, IslandShadow.ambientRadius, accuracy: 0.001, "a panel casts the full one")
+        XCTAssertEqual(IslandShadow.ambient(height: 0).radius, IslandShadow.smallestRadius, accuracy: 0.001)
+    }
+
+    /// Growing the margin must not grow what takes the clicks: everything outside the island's
+    /// own footprint falls through to the menu bar and the windows under it.
+    func testTheMarginIsNotPartOfWhatTheIslandCatches() {
+        let layout = IslandLayout.make(presentation: .idle, geometry: geometry, clearance: .unlimited)
+        XCTAssertEqual(layout.hitLeading, layout.frameWidth / 2 - layout.bodyShift + 4)
+        XCTAssertLessThan(layout.hitLeading, layout.frameWidth / 2 + NotchPanel.restSlack)
+        XCTAssertEqual(layout.hitHeight, layout.bodyHeight + layout.topInset + 6)
+    }
 }

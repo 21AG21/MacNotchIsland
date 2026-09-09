@@ -9,11 +9,14 @@ struct BubbleView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Color.black)
-            // The bubble hangs clear of the notch with nothing behind it, so it is an object
-            // on every screen and wears the whole rim — see `IslandRim`.
             Circle()
-                .strokeBorder(IslandRim.color, lineWidth: IslandRim.width)
+                .fill(Color.black)
+                .islandShadow(1, height: diameter)
+            // The bubble hangs clear of the notch with nothing behind it, so it is an object
+            // on every screen: it wears the whole rim, lit from its top edge down, and it
+            // casts — see `IslandRim` and `IslandShadow`.
+            Circle()
+                .strokeBorder(IslandRim.lit, lineWidth: IslandRim.width)
                 .accessibilityHidden(true)
             glyph
         }

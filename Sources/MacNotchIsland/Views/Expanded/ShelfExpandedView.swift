@@ -69,7 +69,7 @@ struct ShelfStripView: View {
     private var headerTitle: String {
         if !selection.isEmpty { return "\(selection.count) selected" }
         // Only where the well cannot say it itself. An empty shelf puts "Drop to add" in the
-        // middle of the dashed zone, under a tray the size of a thumbnail and right where the
+        // middle of the lit well, under a tray the size of a thumbnail and right where the
         // file is going; the header saying the same thing on the line above is one sentence
         // twice. With tiles in the well there is no room for it there, so it comes up here.
         if isDropTarget, !shelf.items.isEmpty { return "Drop to keep here" }
@@ -113,11 +113,15 @@ struct ShelfStripView: View {
         ZStack {
             // The drop zone is drawn only while something is being dragged; at rest the tiles
             // sit on the panel like everything else.
+            //
+            // Tinted and solid, the way the system marks a destination that will take what you
+            // are holding — a Finder window's edge, a Mail compose sheet, a Stage Manager
+            // tile. A grey dashed rectangle marks one nowhere in macOS; it is the drawing
+            // convention of a web page, and it was the least Apple-made thing in the app.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(isDropTarget ? 0.06 : 0))
+                .fill(Color.accentColor.opacity(isDropTarget ? 0.18 : 0))
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                .foregroundStyle(.white.opacity(isDropTarget ? 0.5 : 0))
+                .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.9 : 0), lineWidth: 2)
             if shelf.items.isEmpty {
                 emptyState
             } else {
@@ -213,14 +217,18 @@ struct ShelfItemView: View {
 
     private var url: URL { item.url }
 
-    /// The width of a tile: the thumbnail with room beside it for a name worth reading. The
-    /// picture hangs from the column's leading edge, not its middle, so the first tile starts
-    /// exactly where the header above it and the rail below it start.
+    /// The width of a tile, which is the width of the picture in it.
     ///
     /// 72 pt of picture is what fills the section's body, and a shelf is for seeing what you
     /// parked: at 56 the tiles used three quarters of the room and left a band of black under
     /// them, and a screenshot was too small to tell from the next screenshot.
-    static let column: CGFloat = 92
+    ///
+    /// The name goes under the middle of the picture, and the tile is no wider than the
+    /// picture so that it can. A 92 pt name box over a 72 pt picture, both hung from the
+    /// column's leading edge so the first tile starts where the header does, left no name
+    /// under the middle of the thing it names — and by a different amount for every name,
+    /// since a short one hugs the left of its box and a long one fills it.
+    static let column: CGFloat = 72
     static let thumbnailSize: CGFloat = 72
     /// The same gap the window tiles put between a picture and its name.
     static let labelGap: CGFloat = 4
@@ -228,7 +236,7 @@ struct ShelfItemView: View {
     static var height: CGFloat { thumbnailSize + labelGap + labelHeight }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Self.labelGap) {
+        VStack(spacing: Self.labelGap) {
             thumbnail
                 // The left mouse on the picture belongs to AppKit: a click selects, a double
                 // click opens, and a drag takes every selected file at once, which SwiftUI's
@@ -249,9 +257,9 @@ struct ShelfItemView: View {
                     .opacity(hovering ? 0 : 1)
                 if hovering { actions }
             }
-            .frame(width: Self.column, height: Self.labelHeight, alignment: .leading)
+            .frame(width: Self.column, height: Self.labelHeight)
         }
-        .frame(width: Self.column, alignment: .leading)
+        .frame(width: Self.column)
         .contentShape(Rectangle())
         .help(ageText.isEmpty ? url.path : "\(url.path)\nAdded \(ageText) ago")
         .onHover { hovering = $0 }

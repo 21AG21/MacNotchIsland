@@ -65,17 +65,34 @@ final class WindowsAndControlsTests: XCTestCase {
 
     private var views: [IslandView] { HomeSection.allCases.map { .home(tab: $0.rawValue) } }
 
-    func testEverySectionKeepsASlotInTheRoomThePanelHas() {
-        // The room the band's trailing side actually has on a 15-inch notch, with the close
-        // button showing: this is the case that has to hold every section.
+    /// The band's trailing side on a 15-inch notch: what the sections actually get.
+    private var bandSide: CGFloat {
         let middle = 185 + SwitcherBand.cutoutMargin * 2
-        let side = (IslandLayout.panelWidth - middle) / 2 - SwitcherBand.inset
-        let room = side - (SwitcherBand.slot + 6)
-        let fitted = SwitcherBand.fit(views, in: room)
+        return (IslandLayout.panelWidth - middle) / 2 - SwitcherBand.inset
+    }
+
+    func testEverySectionKeepsASlotInTheRoomThePanelHas() {
+        let fitted = SwitcherBand.fit(views, in: bandSide)
         XCTAssertEqual(fitted.views.count, HomeSection.allCases.count, "no section may be dropped from the switcher")
         XCTAssertGreaterThanOrEqual(fitted.slot, SwitcherBand.minSlot)
         let used = CGFloat(fitted.views.count) * fitted.slot + CGFloat(fitted.views.count - 1) * fitted.gap
-        XCTAssertLessThanOrEqual(used, room)
+        XCTAssertLessThanOrEqual(used, bandSide)
+    }
+
+    /// The close button sits at the leading edge, so its room comes out of the side the live
+    /// activities are on — and it is kept there whether or not the button is showing, or
+    /// pinning a peeked panel would shunt every card along.
+    func testTheCloseButtonsRoomHoldsItAndItsGap() {
+        let sections = SwitcherBand.fit(views, in: bandSide)
+        XCTAssertGreaterThanOrEqual(SwitcherBand.closeRoom, sections.slot + sections.gap,
+                                    "the reservation must cover the button and the gap after it")
+        // Three live activities beside it still fit on the leading side.
+        let cards = SwitcherBand.fit(Array(views.prefix(3)), in: bandSide - SwitcherBand.closeRoom,
+                                     slot: sections.slot, gap: sections.gap)
+        XCTAssertEqual(cards.views.count, 3)
+        let used = SwitcherBand.closeRoom + CGFloat(cards.views.count) * cards.slot
+            + CGFloat(cards.views.count - 1) * cards.gap
+        XCTAssertLessThanOrEqual(used, bandSide)
     }
 
     func testBothSidesOfTheBandUseOneSlotSize() {
@@ -221,5 +238,31 @@ final class WindowsAndControlsTests: XCTestCase {
         center.setControlDragging(false)
         XCTAssertFalse(center.isHovering, "and closes the moment the button comes up")
         center.resetForTesting()
+    }
+
+    // MARK: - A name under a picture
+
+    /// A tile whose name is wider than its picture and hung from the same leading edge puts
+    /// every name a few points left of the thing it names, and a different few for each: a
+    /// short name hugs the left of its box, a long one fills it. Either the name is centred on
+    /// the picture, or the picture is centred in the name's box — never both left.
+    func testShelfTilesAreAsWideAsThePictureInThem() {
+        XCTAssertEqual(ShelfItemView.column, ShelfItemView.thumbnailSize,
+                       "the name is centred under the picture, so the tile is the picture")
+        XCTAssertEqual(ShelfItemView.height,
+                       ShelfItemView.thumbnailSize + ShelfItemView.labelGap + ShelfItemView.labelHeight)
+    }
+
+    /// The Actions row does it the other way about — the disc is the tile, so it lands on the
+    /// panel's content column, and the name is centred on it and overhangs. Which only works
+    /// if the row's spacing is wide enough that two names at full width cannot meet.
+    func testTwoQuickActionNamesCannotTouch() {
+        let overhang = (ActionTile.label - ActionTile.diameter) / 2
+        XCTAssertGreaterThan(overhang, 0, "the name is the wider of the two")
+        XCTAssertGreaterThan(ActionTile.gap, overhang * 2, "and the row leaves air between them")
+        // Eight of them is what the row holds; they still fit the panel's content column.
+        let count: CGFloat = CGFloat(QuickActionsRowView.capacity)
+        let used = count * ActionTile.diameter + (count - 1) * ActionTile.gap
+        XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth)
     }
 }

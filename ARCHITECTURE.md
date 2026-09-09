@@ -95,9 +95,14 @@ so stepping between sections moves the section and leaves the band and the rail 
 lists windows from the window server, captures each with ScreenCaptureKit, and raises, snaps
 or closes one through Accessibility. The system cards and the section bodies they share live
 under `Views/Expanded/`; shared pieces (artwork, progress ring, scrubber, slider, marquee,
-visualizer bars, privacy dots) under `Views/Components/`. The island keeps the iPhone's
-palette (white values, coloured glyphs, artwork-tinted bars); windows (Settings, Welcome)
-follow native macOS conventions in a monochrome palette.
+visualizer bars, privacy dots) under `Views/Components/`. Two of those are what make the
+black read as an object rather than a hole in the screen, and both are applied in
+`IslandBodyView`: `IslandRim` is the hairline along the edges the island really has, and
+`IslandShadow` is what it casts — sized to the surface, and absent on a notched screen at
+rest, where the island *is* the notch. `NotchPanel.restSlack` is the room the window keeps
+for that shadow to fall in. The island keeps the iPhone's palette (white values, coloured
+glyphs, artwork-tinted bars); windows (Settings, Welcome) follow native macOS conventions in
+a monochrome palette.
 
 ## Integration points
 

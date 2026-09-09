@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The panel's top band, the one place the island has that nothing else needs: the live
-/// activities' cards sit left of the camera cutout, the Home sections right of it, and the
-/// cutout itself is the divider. Every view the panel can show is one click away here.
+/// The panel's top band, the one place the island has that nothing else needs: the button that
+/// closes the panel and the live activities' cards sit left of the camera cutout, the Home
+/// sections right of it, and the cutout itself is the divider. Every view the panel can show is
+/// one click away here.
 ///
 /// On a screen with no cutout there is nothing to divide the two around, so they run together
 /// as one row from the leading edge with a step of space between them.
@@ -70,16 +71,14 @@ struct SwitcherBand: View {
     private var straddling: some View {
         let width = IslandLayout.panelWidth
         let side = (width - middle) / 2 - Self.inset
-        // The close button's room is kept whether or not it is showing: the slots must not
-        // resize and shuffle along the moment a peeked panel is pinned.
-        let closeRoom: CGFloat = Self.slot + 6
         // The sections decide the size — there are always more of them — and the activity
         // slots on the other side of the cutout take the same one, so the band reads as one
         // row of buttons rather than two rows of different circles.
-        let right = Self.fit(sections, in: side - closeRoom)
-        let left = Self.fit(cards, in: side, slot: right.slot, gap: right.gap)
+        let right = Self.fit(sections, in: side)
+        let left = Self.fit(cards, in: side - Self.closeRoom, slot: right.slot, gap: right.gap)
         return HStack(spacing: 0) {
             HStack(spacing: left.gap) {
+                closeButton(size: right.slot)
                 // Identified by the view, not by where it sits: a slot arriving pushes the
                 // others across and fades in beside them, where by position every glyph after
                 // it would swap symbol in place and nothing would appear to have moved.
@@ -95,29 +94,26 @@ struct SwitcherBand: View {
             HStack(spacing: right.gap) {
                 ForEach(right.views, id: \.self) { view in slotView(view, size: right.slot) }
                 Spacer(minLength: 0)
-                if center.isOpen { closeButton(size: right.slot) }
             }
             .frame(width: side, alignment: .leading)
         }
     }
 
-    /// A screen with none: one row from the leading edge, the activities first and a step of
-    /// space before the sections, so the two groups still read as two. Split down the middle
-    /// it left the whole left half of the band empty and every glyph sitting right of centre,
-    /// around a camera housing that is not there.
+    /// A screen with none: one row from the leading edge — the close button, then the
+    /// activities, then a step of space before the sections, so the two groups still read as
+    /// two. Split down the middle it left the whole left half of the band empty and every
+    /// glyph sitting right of centre, around a camera housing that is not there.
     private var single: some View {
-        // The close button's room is kept whether or not it is showing, as it is on a notched
-        // screen: the slots must not resize and shuffle along the moment a peeked panel is
-        // pinned.
-        let closeRoom: CGFloat = Self.slot + 6
         let step: CGFloat = cards.isEmpty ? 0 : Self.groupGap
-        let row = Self.fit(cards + sections, in: IslandLayout.panelWidth - Self.inset * 2 - closeRoom - step)
+        let row = Self.fit(cards + sections, in: IslandLayout.panelWidth - Self.inset * 2 - Self.closeRoom - step)
         let shownCards = Array(row.views.prefix(cards.count))
         let shownSections = Array(row.views.dropFirst(cards.count))
         // Spaced by hand rather than by the stack, so the step between the two groups is the
         // step and not the step plus a gap either side of it — which is what the row was
         // measured for.
         return HStack(spacing: 0) {
+            closeButton(size: row.slot)
+            Color.clear.frame(width: row.gap)
             HStack(spacing: row.gap) {
                 ForEach(shownCards, id: \.self) { view in slotView(view, size: row.slot) }
             }
@@ -125,11 +121,8 @@ struct SwitcherBand: View {
             HStack(spacing: row.gap) {
                 ForEach(shownSections, id: \.self) { view in slotView(view, size: row.slot) }
             }
-            // Before the spacer, not after it: on the far side the name would push the close
-            // button left every time the pointer crossed a slot.
             if let name = label { hoverName(name).padding(.leading, 8) }
             Spacer(minLength: 0)
-            if center.isOpen { closeButton(size: row.slot) }
         }
     }
 
@@ -206,7 +199,16 @@ struct SwitcherBand: View {
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
+    /// Room the close button keeps at the leading edge whether or not it is showing: the
+    /// slots must not resize and shuffle along the moment a peeked panel is pinned.
+    static var closeRoom: CGFloat { slot + 6 }
+
     /// The same circle as a slot, so the row is one size across.
+    ///
+    /// At the leading edge, where every window on the Mac keeps the button that closes it —
+    /// and where it gives the band something at both ends. Sitting last, it left the whole
+    /// left of a band with nothing live on it empty and every glyph in the panel crowded into
+    /// the right third.
     private func closeButton(size: CGFloat) -> some View {
         Button(action: { center.collapse(reason: "close button") }) {
             ZStack {
@@ -219,8 +221,11 @@ struct SwitcherBand: View {
             .contentShape(Circle())
         }
         .buttonStyle(IslandButtonStyle())
+        .opacity(center.isOpen ? 1 : 0)
+        .allowsHitTesting(center.isOpen)
         .help("Close")
         .accessibilityLabel("Close")
+        .accessibilityHidden(!center.isOpen)
     }
 
     /// Which way the content pushes when jumping to `view`: the direction it sits in the ring.

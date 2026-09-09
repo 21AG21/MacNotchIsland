@@ -11,9 +11,11 @@ import SwiftUI
 /// beside it stay clickable; there is no invisible canvas to bump into.
 final class NotchPanel: NSPanel {
     static let canvasHeight: CGFloat = 340
-    /// Room around the island at rest: enough for its anti-aliased edge, too little to cover
-    /// anything next to the notch.
-    static let restSlack: CGFloat = 4
+    /// Room around the island at rest: enough for its anti-aliased edge and for the shadow it
+    /// casts past it, and no more. The margin costs nothing next to the notch — a click that
+    /// lands in it falls straight through to whatever is under it, see `NotchHostingView` —
+    /// but a shadow with no room to fall in is sliced off square at the window's own edge.
+    static let restSlack: CGFloat = IslandShadow.reach + 6
     /// Extra room on the sides and below while a spring is in flight, since springs overshoot.
     /// `IslandMotion.open` carries a bounce of 0.28, which puts the shape about 4 % past its
     /// step at the peak, so the slack scales with the step and this is only the floor.
