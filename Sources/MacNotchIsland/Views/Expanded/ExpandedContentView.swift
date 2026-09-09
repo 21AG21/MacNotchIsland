@@ -57,7 +57,7 @@ struct NotchClearance: View {
     @Environment(\.insidePanel) private var insidePanel
     var body: some View {
         Color.clear
-            .frame(height: insidePanel ? 0 : geometry.notchHeight + extra)
+            .frame(height: insidePanel ? 0 : IslandLayout.cardTopBand(geometry) + extra)
             .accessibilityHidden(true)
     }
 }

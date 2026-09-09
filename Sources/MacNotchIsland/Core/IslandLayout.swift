@@ -98,6 +98,15 @@ struct IslandLayout: Equatable {
     /// A system card is narrower: one thing, one or two rows.
     static let cardWidth: CGFloat = 440
 
+    /// The band a card keeps clear above its content: the cutout on a screen that has one,
+    /// and on a screen with none just enough air to hang the content off. A card that keeps
+    /// the height of a camera housing that is not there is a card with a hole in the top of
+    /// it, and the content sitting low in its own shape.
+    static let floatingCardTop: CGFloat = 12
+    static func cardTopBand(_ g: NotchGeometry) -> CGFloat {
+        g.hasPhysicalNotch ? g.notchHeight : floatingCardTop
+    }
+
     /// The trailing slot while a track's title and artist are peeking.
     static let sneakPeekTrailingWidth: CGFloat = 150
 
@@ -201,7 +210,7 @@ struct IslandLayout: Equatable {
                                 floating: floating, topInset: inset, middleWidth: middle)
 
         case .card(let a):
-            return IslandLayout(bodyWidth: cardWidth, bodyHeight: h + a.content.cardHeight,
+            return IslandLayout(bodyWidth: cardWidth, bodyHeight: cardTopBand(g) + a.content.cardHeight,
                                 topRadius: floating ? expandedBottomRadius : expandedTopRadius,
                                 bottomRadius: expandedBottomRadius,
                                 leadingWidth: 0, trailingWidth: 0, privacyWidth: privacy,

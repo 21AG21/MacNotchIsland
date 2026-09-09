@@ -3,6 +3,9 @@ import SwiftUI
 /// The panel's top band, the one place the island has that nothing else needs: the live
 /// activities' cards sit left of the camera cutout, the Home sections right of it, and the
 /// cutout itself is the divider. Every view the panel can show is one click away here.
+///
+/// On a screen with no cutout there is nothing to divide the two around, so they run together
+/// as one row from the leading edge with a step of space between them.
 struct SwitcherBand: View {
     let geometry: NotchGeometry
     let current: IslandView?
@@ -20,6 +23,9 @@ struct SwitcherBand: View {
     static let inset: CGFloat = 16
     /// Room kept clear either side of the physical cutout.
     static let cutoutMargin: CGFloat = 10
+    /// What stands in for the cutout as the divider between the two groups on a screen with
+    /// none: enough that they read as two groups, no more.
+    static let groupGap: CGFloat = 14
 
     private var ring: [IslandView] { center.ring }
 
@@ -35,13 +41,33 @@ struct SwitcherBand: View {
         ring.filter { if case .home = $0 { return true } else { return false } }
     }
 
-    /// The gap in the middle: the cutout plus its margins on a notched screen, a plain gap on a
-    /// floating island.
-    private var middle: CGFloat {
-        geometry.hasPhysicalNotch ? geometry.notchWidth + Self.cutoutMargin * 2 : 24
-    }
+    /// The gap the cutout takes out of the middle of the band, plus its margins. Only
+    /// `straddling` has one.
+    private var middle: CGFloat { geometry.notchWidth + Self.cutoutMargin * 2 }
 
     var body: some View {
+        band
+            .padding(.horizontal, Self.inset)
+            // The row is centred on the notch, not on the band: the band is a couple of points
+            // taller so it straddles the cutout, and centring in that would sit every glyph
+            // lower than the menu bar items either side of it. The extra goes below.
+            .frame(width: IslandLayout.panelWidth, height: geometry.notchHeight)
+            .frame(height: geometry.notchHeight + IslandLayout.bandExtra, alignment: .top)
+            // The slots themselves arrive and leave; the name under the pointer and the disc
+            // that marks the view you are on only change where they are or how they look.
+            .animation(IslandMotion.content, value: ring)
+            .animation(IslandMotion.fade, value: label)
+            .animation(IslandMotion.navigate, value: current)
+    }
+
+    @ViewBuilder
+    private var band: some View {
+        if geometry.hasPhysicalNotch { straddling } else { single }
+    }
+
+    /// A screen with a cutout: the live activities to its left, the sections to its right, and
+    /// the cutout itself as the divider between them.
+    private var straddling: some View {
         let width = IslandLayout.panelWidth
         let side = (width - middle) / 2 - Self.inset
         // The close button's room is kept whether or not it is showing: the slots must not
@@ -52,7 +78,7 @@ struct SwitcherBand: View {
         // row of buttons rather than two rows of different circles.
         let right = Self.fit(sections, in: side - closeRoom)
         let left = Self.fit(cards, in: side, slot: right.slot, gap: right.gap)
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             HStack(spacing: left.gap) {
                 // Identified by the view, not by where it sits: a slot arriving pushes the
                 // others across and fades in beside them, where by position every glyph after
@@ -62,15 +88,7 @@ struct SwitcherBand: View {
                 // The left of the band is empty unless something is live, and a row of small
                 // round glyphs says nothing about itself. So the name of whatever the pointer
                 // is on appears here, against the cutout, for as long as it is on it.
-                if left.views.isEmpty, let name = label {
-                    Text(name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .lineLimit(1)
-                        .transition(.opacity)
-                        .id(name)
-                        .accessibilityHidden(true)
-                }
+                if left.views.isEmpty, let name = label { hoverName(name) }
             }
             .frame(width: side, alignment: .leading)
             Color.clear.frame(width: middle)
@@ -81,17 +99,38 @@ struct SwitcherBand: View {
             }
             .frame(width: side, alignment: .leading)
         }
-        .padding(.horizontal, Self.inset)
-        // The row is centred on the notch, not on the band: the band is a couple of points
-        // taller so it straddles the cutout, and centring in that would sit every glyph
-        // lower than the menu bar items either side of it. The extra goes below.
-        .frame(width: width, height: geometry.notchHeight)
-        .frame(height: geometry.notchHeight + IslandLayout.bandExtra, alignment: .top)
-        // The slots themselves arrive and leave; the name under the pointer and the disc that
-        // marks the view you are on only change where they are or how they look.
-        .animation(IslandMotion.content, value: ring)
-        .animation(IslandMotion.fade, value: label)
-        .animation(IslandMotion.navigate, value: current)
+    }
+
+    /// A screen with none: one row from the leading edge, the activities first and a step of
+    /// space before the sections, so the two groups still read as two. Split down the middle
+    /// it left the whole left half of the band empty and every glyph sitting right of centre,
+    /// around a camera housing that is not there.
+    private var single: some View {
+        let closeRoom: CGFloat = Self.slot + 6
+        let step: CGFloat = cards.isEmpty ? 0 : Self.groupGap
+        let room = IslandLayout.panelWidth - Self.inset * 2 - closeRoom - step
+        let row = Self.fit(cards + sections, in: room)
+        let shown = row.views
+        return HStack(spacing: row.gap) {
+            ForEach(Array(shown.prefix(cards.count)), id: \.self) { view in slotView(view, size: row.slot) }
+            if step > 0 { Color.clear.frame(width: step) }
+            ForEach(Array(shown.dropFirst(cards.count)), id: \.self) { view in slotView(view, size: row.slot) }
+            Spacer(minLength: 0)
+            if let name = label { hoverName(name) }
+            if center.isOpen { closeButton(size: row.slot) }
+        }
+    }
+
+    /// The name of whatever the pointer is on, so a row of small round glyphs says something
+    /// about itself.
+    private func hoverName(_ name: String) -> some View {
+        Text(name)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.55))
+            .lineLimit(1)
+            .transition(.opacity)
+            .id(name)
+            .accessibilityHidden(true)
     }
 
     /// The name of the slot the pointer is on. Only while the pointer is on one: the section

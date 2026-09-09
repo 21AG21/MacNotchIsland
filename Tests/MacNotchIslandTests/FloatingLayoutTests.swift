@@ -94,6 +94,16 @@ final class FloatingLayoutTests: XCTestCase {
         XCTAssertEqual(layout.topRadius, layout.bottomRadius)
         XCTAssertEqual(layout.bottomRadius, IslandLayout.expandedBottomRadius)
         XCTAssertEqual(layout.topInset, external.menuBarHeight + 4, "hangs below the menu bar, never on it")
+        // The band above a card's content is the cutout on a screen that has one. Here there
+        // is none, so keeping its height would leave a hole in the top of the card and the
+        // content sitting low in its own shape.
+        XCTAssertEqual(IslandLayout.cardTopBand(external), IslandLayout.floatingCardTop)
+        XCTAssertEqual(layout.bodyHeight, IslandLayout.floatingCardTop + ActivityContent.custom(
+            CustomActivity(title: "Custom", body: "body", url: nil)).cardHeight)
+        let onNotch = IslandLayout.make(presentation: .card(a), geometry: notched)
+        XCTAssertEqual(IslandLayout.cardTopBand(notched), notched.notchHeight)
+        XCTAssertGreaterThan(onNotch.bodyHeight, layout.bodyHeight,
+                             "a screen with a cutout is the one that has to keep room for it")
     }
 
     func testHomeAndShelfFloatToo() {
