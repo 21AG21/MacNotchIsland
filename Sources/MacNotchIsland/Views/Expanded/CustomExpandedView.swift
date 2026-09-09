@@ -43,7 +43,7 @@ struct CustomExpandedView: View {
                     CircleActionButton(symbol: "arrow.up.forward", tint: .white) { activity.openAction?.perform() }
                 }
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilitySummary)
             // A ring-less progress activity gets the bar under the header; one that asked for a
@@ -51,7 +51,7 @@ struct CustomExpandedView: View {
             if let progress = state.progress, !state.showsRing {
                 LevelBar(level: progress, tint: .white)
                     .frame(height: 4)
-                    .padding(.horizontal, IslandInsets.horizontal)
+                    .islandContentColumn()
                     .padding(.top, 8)
                     .accessibilityHidden(true)
             }

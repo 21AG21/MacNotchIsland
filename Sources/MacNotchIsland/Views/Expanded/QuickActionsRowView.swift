@@ -19,7 +19,7 @@ struct QuickActionsRowView: View {
                     Image(systemName: "bolt")
                         .font(.system(size: 18, weight: .regular))
                         .foregroundStyle(.white.opacity(0.3))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 24, height: 40, alignment: .leading)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("No quick actions yet")
@@ -57,7 +57,9 @@ struct QuickActionsRowView: View {
     }
 }
 
-/// One favourite app: its own icon, its name, and a click that opens it.
+/// One favourite app: its own icon, its name, and a click that opens it. The disc hangs from
+/// the leading edge of its name's column, so the first button in the row starts on the panel's
+/// content column rather than 13 pt inside it.
 private struct AppButton: View {
     let path: String
     let name: String
@@ -68,7 +70,7 @@ private struct AppButton: View {
 
     var body: some View {
         Button(action: { apps.launch(path) }) {
-            VStack(spacing: 5) {
+            VStack(alignment: .leading, spacing: 5) {
                 ZStack {
                     Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
                     if let icon = apps.icon(for: path) {
@@ -87,7 +89,7 @@ private struct AppButton: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .frame(width: 66)
+                    .frame(width: 66, alignment: .leading)
             }
         }
         .buttonStyle(IslandButtonStyle())
@@ -108,7 +110,7 @@ private struct QuickActionButton: View {
 
     var body: some View {
         Button(action: { runner.run(name) }) {
-            VStack(spacing: 5) {
+            VStack(alignment: .leading, spacing: 5) {
                 ZStack {
                     Circle().fill(Color.white.opacity(hovering ? 0.2 : 0.12))
                     Image(systemName: runner.symbol(for: name))
@@ -120,7 +122,7 @@ private struct QuickActionButton: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .frame(width: 66)
+                    .frame(width: 66, alignment: .leading)
             }
         }
         .buttonStyle(IslandButtonStyle())

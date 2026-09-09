@@ -107,6 +107,30 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertLessThanOrEqual(used, 60)
     }
 
+    // MARK: - The section grid
+
+    /// Every section is given the same 140 pt, and what each one puts in it has to fill that
+    /// without spilling out of it. These are the numbers a spacing change is most likely to
+    /// break silently: the panel clips, so an overflow shows up as a truncated last line
+    /// rather than as anything that fails.
+    func testWhatEachSectionPutsInItsBodyFitsThatBody() {
+        XCTAssertEqual(SectionMetrics.bodyHeight,
+                       IslandLayout.sectionHeight - SectionMetrics.headerHeight - SectionMetrics.gapBelowHeader)
+
+        XCTAssertLessThanOrEqual(WindowsSectionView.stripHeight, SectionMetrics.bodyHeight,
+                                 "the window tiles and their names must not spill past the section")
+        XCTAssertGreaterThan(WindowsSectionView.stripHeight, SectionMetrics.bodyHeight - 8,
+                             "a strip well short of the body leaves a band of black under it")
+
+        XCTAssertLessThanOrEqual(ShelfItemView.height, SectionMetrics.bodyHeight)
+
+        // Header, the buttons, the hairline and the presets, with room left for the gap
+        // above and below the rule.
+        let fixed = ActionsSectionView.actionsRow + ActionsSectionView.timerRowHeight + 0.5
+        XCTAssertLessThanOrEqual(fixed + ActionsSectionView.ruleGap * 2, SectionMetrics.bodyHeight,
+                                 "the two rows and the rule between them must fit with their gaps")
+    }
+
     // MARK: - Favourite apps
 
     func testADeletedAppLeavesTheFavouritesButAnUnpluggedOneStays() throws {

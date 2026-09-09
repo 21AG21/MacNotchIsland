@@ -60,7 +60,7 @@ struct TimerExpandedView: View {
                     CircleActionButton(symbol: "xmark", tint: .white, label: "Cancel") { IslandTimer.shared.cancel() }
                 }
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .padding(.bottom, others.isEmpty && !insidePanel ? 16 : 0)
             if !others.isEmpty { otherTimers }
         }
@@ -166,7 +166,7 @@ struct TimerExpandedView: View {
                 }
             }
         }
-        .padding(.horizontal, IslandInsets.horizontal)
+        .islandContentColumn()
     }
 
     private func otherRow(_ entry: TimerEntry, at date: Date, hidden: Int) -> some View {

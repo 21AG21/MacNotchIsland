@@ -26,6 +26,10 @@ struct ShelfAnchorView: NSViewRepresentable {
 /// Horizontal strip of shelf items with thumbnails. Click to select (⌘ toggles, ⇧ extends),
 /// right-click for the actions, drag items out to any app.
 struct ShelfStripView: View {
+    /// What the strip asks for in the narrow Home column; in a section it takes the whole
+    /// body, so the drop zone is the whole of what the pointer sees as the shelf.
+    static let stripHeight: CGFloat = 96
+
     var isDropTarget: Bool
     /// The full-width shelf panel. Home passes the default and gets the narrow column.
     var wide: Bool = false
@@ -114,8 +118,8 @@ struct ShelfStripView: View {
                 items
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 96)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minHeight: Self.stripHeight)
         .background(anchorView)
         .animation(IslandMotion.quick, value: isDropTarget)
     }
@@ -201,11 +205,18 @@ struct ShelfItemView: View {
 
     private var url: URL { item.url }
 
-    /// The width of a tile: the thumbnail with room either side for a name worth reading.
+    /// The width of a tile: the thumbnail with room beside it for a name worth reading. The
+    /// picture hangs from the column's leading edge, not its middle, so the first tile starts
+    /// exactly where the header above it and the rail below it start.
     static let column: CGFloat = 78
+    static let thumbnailSize: CGFloat = 56
+    /// The same gap the window tiles put between a picture and its name.
+    static let labelGap: CGFloat = 4
+    static let labelHeight: CGFloat = 18
+    static var height: CGFloat { thumbnailSize + labelGap + labelHeight }
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(alignment: .leading, spacing: Self.labelGap) {
             thumbnail
                 // The left mouse on the picture belongs to AppKit: a click selects, a double
                 // click opens, and a drag takes every selected file at once, which SwiftUI's
@@ -226,8 +237,9 @@ struct ShelfItemView: View {
                     .opacity(hovering ? 0 : 1)
                 if hovering { actions }
             }
-            .frame(width: Self.column, height: 18)
+            .frame(width: Self.column, height: Self.labelHeight, alignment: .leading)
         }
+        .frame(width: Self.column, alignment: .leading)
         .contentShape(Rectangle())
         .help(ageText.isEmpty ? url.path : "\(url.path)\nAdded \(ageText) ago")
         .onHover { hovering = $0 }
@@ -258,7 +270,7 @@ struct ShelfItemView: View {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().aspectRatio(contentMode: .fit)
                 }
             }
-            .frame(width: 56, height: 56)
+            .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 if isSelected {

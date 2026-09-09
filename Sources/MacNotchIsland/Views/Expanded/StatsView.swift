@@ -8,6 +8,7 @@ struct StatsView: View {
 
     private static let valueFont = Font.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit()
     private static let smallValueFont = Font.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit()
+    private static let detailFont = Font.system(size: 10)
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -33,9 +34,9 @@ struct StatsView: View {
             Text(Self.percentText(stats.sample.cpuPercent))
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+        } footer: {
             Sparkline(values: stats.cpuHistory, ceiling: 20)
-                .frame(height: 22)
-                .padding(.top, 4)
+                .frame(height: 30)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
@@ -50,9 +51,13 @@ struct StatsView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+        } footer: {
             MeterBar(fraction: fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes))
-                .padding(.top, 10)
                 .accessibilityHidden(true)
+            Text(memoryDetail)
+                .font(Self.detailFont)
+                .foregroundStyle(.white.opacity(0.4))
+                .lineLimit(1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Memory")
@@ -66,17 +71,16 @@ struct StatsView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+        } footer: {
             // A volume that will not say how full it is gets the em dash and nothing else,
             // rather than an empty bar and a line explaining itself.
             if let detail = diskDetail {
                 MeterBar(fraction: fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes))
-                    .padding(.top, 10)
                     .accessibilityHidden(true)
                 Text(detail)
-                    .font(.system(size: 10))
+                    .font(Self.detailFont)
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
-                    .padding(.top, 4)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -95,10 +99,10 @@ struct StatsView: View {
                     .foregroundStyle(.white.opacity(0.85))
             }
             .lineLimit(1)
-            .padding(.top, 2)
+            .padding(.top, 1)
+        } footer: {
             Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
-                .frame(height: 18)
-                .padding(.top, 4)
+                .frame(height: 22)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
@@ -113,24 +117,23 @@ struct StatsView: View {
             Text(batteryValue)
                 .font(Self.valueFont)
                 .foregroundStyle(.white)
+        } footer: {
             if let percent = stats.sample.batteryPercent {
                 MeterBar(fraction: Double(percent) / 100)
-                    .padding(.top, 10)
                     .accessibilityHidden(true)
                 if let time = batteryTime {
                     Text(time)
-                        .font(.system(size: 10))
+                        .font(Self.detailFont)
                         .foregroundStyle(.white.opacity(0.4))
                         .lineLimit(1)
-                        .padding(.top, 4)
                 }
             }
             if let detail = batteryDetail {
                 Text(detail)
-                    .font(.system(size: 10))
+                    .font(Self.detailFont)
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
-                    .padding(.top, 2)
+                    .minimumScaleFactor(0.85)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -178,6 +181,14 @@ struct StatsView: View {
         return Self.percentText(fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes) * 100)
     }
 
+    /// "8 GB free" - what is left, said the same way the disk column says it.
+    private var memoryDetail: String {
+        let total = stats.sample.memoryTotalBytes
+        guard total > 0 else { return " " }
+        let free = total - min(total, stats.sample.memoryUsedBytes)
+        return "\(SystemStats.memoryFormatter.string(fromByteCount: Int64(clamping: free))) free"
+    }
+
     /// "412 GB free", or nothing at all when the volume did not answer.
     private var diskDetail: String? {
         let total = stats.sample.diskTotalBytes
@@ -193,25 +204,37 @@ struct StatsView: View {
 
     // MARK: - Furniture
 
-    private func cell<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+    /// One column of the row: the name at the top, the number under it, and whatever draws
+    /// the shape of that number - a trace, a bar, a line of detail - sitting on the section's
+    /// floor. Pinning the footer down is what makes five columns of unequal content read as
+    /// one row, and fills the section rather than leaving 50 pt of black beneath it.
+    private func cell<Value: View, Footer: View>(label: String,
+                                                 @ViewBuilder value: () -> Value,
+                                                 @ViewBuilder footer: () -> Footer) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.4))
-            content()
-            Spacer(minLength: 0)
+            value()
+            Spacer(minLength: 8)
+            VStack(alignment: .leading, spacing: 4) { footer() }
         }
-        .padding(.trailing, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// The hairline between two columns, the same distance from each. It used to sit 16 pt
+    /// from the column on its left and 14 from the one on its right.
     private var divider: some View {
         Rectangle()
             .fill(Color.white.opacity(0.08))
-            .frame(width: 1, height: 74)
-            .padding(.trailing, 14)
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .padding(.horizontal, Self.gutter)
             .accessibilityHidden(true)
     }
+
+    /// Half the space between two columns: the hairline stands in the middle of it.
+    static let gutter: CGFloat = 14
 
     private static func percentText(_ value: Double) -> String {
         "\(Int(value.rounded()))%"

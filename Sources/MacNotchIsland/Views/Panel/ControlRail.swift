@@ -15,7 +15,7 @@ struct ControlRail: View {
     @EnvironmentObject private var center: ActivityCenter
 
     var body: some View {
-        // Budget at 672 pt with everything showing: two sliders (182 and 144), up to seven
+        // Budget at 672 pt with everything showing: two sliders (178 and 140), up to seven
         // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
         HStack(spacing: 12) {
             volume
@@ -73,13 +73,18 @@ struct ControlRail: View {
 
     // MARK: - Sliders
 
+    /// The rail's first glyph is the panel's leftmost mark. Centring it in a 24 pt box set it
+    /// 6 pt inside the column that the hairline above it, every section title and the switcher
+    /// all stand on; it hangs from the leading edge instead, and keeps its full hit area.
+    private static let leadingGlyph: CGFloat = 22
+
     private var volume: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Button(action: { outputs.setMuted(!outputs.isMuted) }) {
                 Image(systemName: outputs.isMuted || (outputs.volume ?? 0) <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 24, height: 24)
+                    .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
                     .contentShape(Rectangle())
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -101,11 +106,11 @@ struct ControlRail: View {
     }
 
     private var brightnessControl: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: brightness.level < 0.5 ? "sun.min.fill" : "sun.max.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 24, height: 24)
+                .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
                 .accessibilityHidden(true)
             IslandSlider(value: brightness.level, onChange: { brightness.set($0) })
                 .frame(width: 112)

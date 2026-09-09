@@ -11,7 +11,7 @@ struct ExpandedContentView: View {
             switch activity.content {
             case .nowPlaying:
                 MusicSectionView(geometry: geometry)
-                    .padding(.horizontal, IslandInsets.horizontal)
+                    .islandContentColumn()
                     .padding(.top, insidePanel ? 0 : geometry.notchHeight + 12)
             case .timer(let t):
                 TimerExpandedView(state: t, geometry: geometry)
@@ -35,7 +35,7 @@ struct ExpandedContentView: View {
                 CustomExpandedView(state: c, activity: activity, geometry: geometry)
             case .shelf:
                 ShelfSectionView(isDropTarget: false)
-                    .padding(.horizontal, IslandInsets.horizontal)
+                    .islandContentColumn()
                     .padding(.top, insidePanel ? 0 : geometry.notchHeight + 12)
             case .unlock, .silent:
                 EmptyView()
@@ -77,6 +77,27 @@ extension EnvironmentValues {
 /// Shared edge insets for the expanded panels, so every card's content lines up with the
 /// Home panel's rather than each view picking its own number.
 enum IslandInsets {
-    /// Leading / trailing inset of an expanded panel's content.
+    /// Leading / trailing inset of a *system card*'s content. The card is a free-standing
+    /// 440 pt shape with no column of its own, so it draws one here.
     static let horizontal: CGFloat = 20
+}
+
+/// Puts content in the island's content column.
+///
+/// Outside the panel that is the card's own inset. Inside the panel it is nothing: the panel
+/// already lays out one 24 pt column that the switcher, every section header, every section's
+/// content and the control rail stand on. Adding a second inset here put a card's content —
+/// the battery bar, a download's progress, the timer's buttons — 20 pt inside the rail
+/// directly beneath it, so stepping from a section to an activity shifted the whole panel.
+private struct ContentColumn: ViewModifier {
+    @Environment(\.insidePanel) private var insidePanel
+
+    func body(content: Content) -> some View {
+        content.padding(.horizontal, insidePanel ? 0 : IslandInsets.horizontal)
+    }
+}
+
+extension View {
+    /// Lines this content up with the panel's column, or insets it inside a system card.
+    func islandContentColumn() -> some View { modifier(ContentColumn()) }
 }

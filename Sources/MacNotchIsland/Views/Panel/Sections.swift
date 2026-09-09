@@ -19,7 +19,7 @@ struct ClipboardSectionView: View {
     @State private var query = ""
 
     var body: some View {
-        VStack(spacing: SectionMetrics.gapBelowHeader) {
+        VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader(store.items.isEmpty ? "Clipboard" : "Clipboard · \(store.items.count) \(store.items.count == 1 ? "item" : "items")") {
                 if !store.items.isEmpty {
                     searchField
@@ -64,8 +64,12 @@ struct ActionsSectionView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
     @ObservedObject private var timers = IslandTimer.shared
 
+    /// Two rows and the rule between them, measured so they fill the section exactly: the
+    /// header and its gap, 64 pt of buttons, the hairline with the same air above and below
+    /// it, and the presets on the floor. Uniform stack spacing plus the rule's own padding
+    /// used to leave 27 pt of black under the presets.
     var body: some View {
-        VStack(spacing: SectionMetrics.gapBelowHeader) {
+        VStack(alignment: .leading, spacing: 0) {
             SectionHeader("Actions") {
                 PillButton(title: "Edit", tint: .white.opacity(0.85)) {
                     UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
@@ -73,25 +77,32 @@ struct ActionsSectionView: View {
                     NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                 }
             }
+            Color.clear.frame(height: SectionMetrics.gapBelowHeader)
             QuickActionsRowView()
-                .frame(height: 64)
+                .frame(height: Self.actionsRow)
+            Spacer(minLength: Self.ruleGap)
             Rectangle()
                 .fill(Color.white.opacity(0.08))
                 .frame(height: 0.5)
-                .padding(.vertical, 6)
                 .accessibilityHidden(true)
+            Spacer(minLength: Self.ruleGap)
             timerRow
-                .frame(height: 28)
-            Spacer(minLength: 0)
+                .frame(height: Self.timerRowHeight)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+
+    static let actionsRow: CGFloat = 64
+    static let timerRowHeight: CGFloat = 28
+    /// The air above and below the hairline between the two rows.
+    static let ruleGap: CGFloat = 8
 
     private var timerRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "timer")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.55))
-                .frame(width: 18)
+                .frame(width: 16, alignment: .leading)
                 .accessibilityHidden(true)
             ForEach([1, 5, 10, 25], id: \.self) { minutes in
                 PillButton(title: "\(minutes)m") {
@@ -120,7 +131,7 @@ struct NotesSectionView: View {
     @SwiftUI.FocusState private var editing: Bool
 
     var body: some View {
-        VStack(spacing: SectionMetrics.gapBelowHeader) {
+        VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Notes") {
                 if !notes.text.isEmpty {
                     PillButton(title: "Copy", tint: .white.opacity(0.85)) { notes.copyAll() }
@@ -168,7 +179,7 @@ struct NotesSectionView: View {
 
 struct StatsSectionView: View {
     var body: some View {
-        VStack(spacing: SectionMetrics.gapBelowHeader) {
+        VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Stats") {
                 PillButton(title: "Activity Monitor", symbol: "arrow.up.forward", tint: .white.opacity(0.85)) {
                     let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")

@@ -53,21 +53,26 @@ struct WindowsSectionView: View {
                         tile(window)
                     }
                 }
-                .padding(.bottom, 2)
+                .padding(.bottom, Self.stripBottom)
             }
-            .frame(height: Self.tileHeight + Self.labelHeight + 4)
+            .frame(height: Self.stripHeight)
         }
     }
 
     // MARK: - A tile
 
+    /// 148 x 88 is close to the shape of a Mac screen, and four of them plus their names fill
+    /// the section's body exactly, with room under the last line for the scroller.
     static let tileWidth: CGFloat = 148
-    static let tileHeight: CGFloat = 84
+    static let tileHeight: CGFloat = 88
     static let labelHeight: CGFloat = 15
+    static let labelGap: CGFloat = 4
+    static let stripBottom: CGFloat = 2
+    static var stripHeight: CGFloat { tileHeight + labelGap + labelHeight + stripBottom }
 
     private func tile(_ window: IslandWindow) -> some View {
         let showsZones = hovered == window.id
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: Self.labelGap) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.white.opacity(0.08))

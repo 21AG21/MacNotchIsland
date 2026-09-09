@@ -64,7 +64,7 @@ struct CallExpandedView: View {
                     goToCall()
                 }
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)

@@ -77,6 +77,23 @@ struct CircleActionButton: View {
     }
 }
 
+/// Whether controls here draw at the smaller size a section header uses.
+///
+/// A section header is one 22 pt line, and a full-size pill is 28 pt tall: dropped on that
+/// line it was squeezed out of shape, and its white 12 pt label out-shouted the very title
+/// it sits beside. `SectionHeader` turns this on for its trailing edge, so a header's
+/// controls shrink to fit the line without every call site saying so.
+private struct IslandCompactControlsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var islandCompactControls: Bool {
+        get { self[IslandCompactControlsKey.self] }
+        set { self[IslandCompactControlsKey.self] = newValue }
+    }
+}
+
 /// Rounded text button ("Join", "Open", timer presets).
 struct PillButton: View {
     let title: String
@@ -85,15 +102,23 @@ struct PillButton: View {
     var prominent: Bool = false
     var action: () -> Void
 
+    @Environment(\.islandCompactControls) private var compact
+
+    /// 28 pt on its own, 21 pt on a header's line.
+    private var metrics: (text: CGFloat, glyph: CGFloat, gap: CGFloat, h: CGFloat, v: CGFloat) {
+        compact ? (11, 10, 4, 9, 4) : (12, 11, 5, 12, 7)
+    }
+
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let symbol { Image(systemName: symbol).font(.system(size: 11, weight: .bold)) }
-                Text(title).font(.system(size: 12, weight: .semibold))
+        let m = metrics
+        return Button(action: action) {
+            HStack(spacing: m.gap) {
+                if let symbol { Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold)) }
+                Text(title).font(.system(size: m.text, weight: .semibold))
             }
             .foregroundStyle(prominent ? Color.black : tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, m.h)
+            .padding(.vertical, m.v)
             .background(Capsule().fill(prominent ? tint : tint.opacity(0.18)))
             .contentShape(Capsule())
         }

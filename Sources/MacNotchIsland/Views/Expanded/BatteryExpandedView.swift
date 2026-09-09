@@ -45,7 +45,7 @@ struct BatteryExpandedView: View {
                         .foregroundStyle(percentTint)
                 }
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(BatteryFormatting.accessibilityLabel(for: state))
@@ -53,7 +53,7 @@ struct BatteryExpandedView: View {
             // The panel has room the 440 pt card does not, and on a laptop this is the card
             // people open on purpose: the level as a bar, and how the battery is ageing.
             if insidePanel {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     ChargeBar(percent: state.percent, tint: state.tint)
                     if let detail = BatteryFormatting.detailLine(for: state) {
                         Text(detail)
@@ -62,8 +62,8 @@ struct BatteryExpandedView: View {
                             .lineLimit(1)
                     }
                 }
-                .padding(.horizontal, IslandInsets.horizontal)
-                .padding(.top, 14)
+                .islandContentColumn()
+                .padding(.top, 12)
                 .accessibilityHidden(true)
             }
         }

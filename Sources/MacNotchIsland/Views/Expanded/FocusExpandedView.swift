@@ -31,7 +31,7 @@ struct FocusExpandedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(state.isOn ? "\(state.name) on" : "\(state.name) off")

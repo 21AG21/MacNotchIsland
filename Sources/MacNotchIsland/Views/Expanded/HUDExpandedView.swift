@@ -27,7 +27,7 @@ struct HUDExpandedView: View {
                     .lineLimit(1)
                     .frame(width: 62, alignment: .trailing)
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")

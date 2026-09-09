@@ -137,6 +137,8 @@ extension SectionEmptyState where Action == EmptyView {
 enum SectionMetrics {
     static let headerHeight: CGFloat = 22
     static let gapBelowHeader: CGFloat = 8
+    /// What a section has left for its content once the header and its gap are taken.
+    static var bodyHeight: CGFloat { IslandLayout.sectionHeight - headerHeight - gapBelowHeader }
 }
 
 /// A section's header line: the name on the left, at most a control or two on the right.
@@ -155,8 +157,11 @@ struct SectionHeader<Trailing: View>: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
-            Spacer(minLength: 0)
-            trailing()
+            Spacer(minLength: 8)
+            // One group, spaced closer than the title is from it, and drawn at the header's
+            // smaller control size so nothing on this line is squeezed by its 22 pt.
+            HStack(spacing: 6) { trailing() }
+                .environment(\.islandCompactControls, true)
         }
         .frame(height: SectionMetrics.headerHeight)
     }

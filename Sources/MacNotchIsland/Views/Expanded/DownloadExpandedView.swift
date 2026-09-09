@@ -41,13 +41,13 @@ struct DownloadExpandedView: View {
                     CircleActionButton(symbol: "arrow.up.forward", tint: .white) { activity.openAction?.perform() }
                 }
             }
-            .padding(.horizontal, IslandInsets.horizontal)
+            .islandContentColumn()
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilitySummary)
             if let p = state.progress, !state.isComplete {
                 LevelBar(level: p, tint: .white)
                     .frame(height: 4)
-                    .padding(.horizontal, IslandInsets.horizontal)
+                    .islandContentColumn()
                     .padding(.top, 8)
                     .accessibilityHidden(true)
             }
