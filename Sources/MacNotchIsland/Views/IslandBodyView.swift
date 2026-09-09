@@ -53,7 +53,7 @@ struct IslandBodyView: View {
         // does. `NotchHostingView.rightMouseDown` has been holding the panel open for a menu
         // that was never there; this is the menu. A shelf tile's own menu wins over it, the
         // way an inner context menu always does.
-        .contextMenu { IslandMenu() }
+        .contextMenu { IslandMenu(activity: presentation.primary) }
         .islandDrop(isTargeted: $dropTargeted) { providers in
             guard prefs.shelfEnabled else { return false }
             return ShelfStore.shared.acceptDrop(providers)

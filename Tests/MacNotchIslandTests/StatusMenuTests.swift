@@ -10,6 +10,27 @@ final class StatusMenuTests: XCTestCase {
         XCTAssertEqual(StatusItemController.presetTitle(minutes: 120), "2 Hours")
     }
 
+    // MARK: - What a right-click on the island offers
+
+    func testTheMenuLeadsWithWhatTheIslandIsShowing() {
+        let info = NowPlayingInfo(title: "Song", artist: "Artist", album: "", duration: 200, elapsed: 10,
+                                  timestamp: Date(), isPlaying: true, bundleID: nil, artwork: nil,
+                                  artworkID: 0, accent: .white)
+        XCTAssertTrue(IslandMenu.hasCommands(.nowPlaying(info)))
+        XCTAssertTrue(IslandMenu.hasCommands(.timer(TimerState(label: "Tea", total: 60, endDate: Date()))))
+        XCTAssertTrue(IslandMenu.hasCommands(.stopwatch(StopwatchState(startedAt: Date()))))
+        XCTAssertTrue(IslandMenu.hasCommands(.shelf(ShelfState(count: 2))))
+        XCTAssertTrue(IslandMenu.hasCommands(.call(CallState(appName: "FaceTime", bundleID: "x", startedAt: Date()))))
+    }
+
+    func testAnActivityWithNothingToCommandAddsNothingToTheMenu() {
+        // A battery percentage is a thing to look at, not a thing to tell to do something —
+        // and a separator over an empty list is worse than no separator.
+        XCTAssertFalse(IslandMenu.hasCommands(.unlock))
+        XCTAssertFalse(IslandMenu.hasCommands(.focus(FocusState(name: "Work", symbol: "moon.fill", isOn: true, tint: "indigo"))))
+        XCTAssertFalse(IslandMenu.hasCommands(.hud(LevelHUD(kind: .volume, level: 0.4))))
+    }
+
     // MARK: - Hidden by the clock, or by the app in front
 
     func testTheIslandIsHiddenOnlyWhileTheClockSaysSo() {
