@@ -63,6 +63,51 @@ final class BluetoothMonitor: NSObject {
         disconnectNotifications[address] = nil
     }
 
+    // MARK: - Reaching a device again
+
+    /// One paired device, as the island lists it.
+    struct Paired: Identifiable, Equatable {
+        var name: String
+        var address: String
+        var symbol: String
+        var isConnected: Bool
+        var id: String { address }
+    }
+
+    /// Everything this Mac has been paired with, connected first and then by name. The reason
+    /// this exists: reconnecting a pair of AirPods is a trip to System Settings, and the
+    /// island already knows they are there.
+    static func paired() -> [Paired] {
+        let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
+        return devices.compactMap { device -> Paired? in
+            guard let address = device.addressString, !address.isEmpty else { return nil }
+            let name = device.name ?? device.nameOrAddress ?? address
+            return Paired(name: name, address: address,
+                          symbol: symbol(for: device, name: name),
+                          isConnected: device.isConnected())
+        }
+        .sorted { a, b in
+            if a.isConnected != b.isConnected { return a.isConnected }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
+
+    /// Connects or disconnects by address. Both calls block until the radio answers — seconds,
+    /// for a device that is asleep in a case — so neither happens on the main thread; the
+    /// island's own notifications say what came of it.
+    static func setConnected(_ connected: Bool, address: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let device = IOBluetoothDevice(addressString: address) else {
+                IslandLog.island.error("no paired device at \(address, privacy: .private)")
+                return
+            }
+            let status = connected ? device.openConnection() : device.closeConnection()
+            if status != kIOReturnSuccess {
+                IslandLog.island.notice("bluetooth \(connected ? "connect" : "disconnect", privacy: .public) refused: \(status, privacy: .public)")
+            }
+        }
+    }
+
     static func symbol(for device: IOBluetoothDevice, name: String) -> String {
         let lower = name.lowercased()
         if lower.contains("airpods max") { return "airpodsmax" }

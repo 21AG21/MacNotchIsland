@@ -32,6 +32,9 @@ struct IslandMenu: View {
         // to be up. One disk is a command; several are a list, because a submenu holding one
         // thing is a click somebody had to make for nothing.
         ejectable
+        // And the other thing that is otherwise a trip to System Settings: putting a pair of
+        // headphones back on. Built when the menu opens, since nothing else needs the list.
+        bluetoothDevices
         Divider()
         // The same pair of states the menu bar shows, said the same way.
         if Self.isPaused(until: prefs.pausedUntil) {
@@ -93,6 +96,29 @@ struct IslandMenu: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// Everything this Mac is paired with, connected first. A click connects what is not and
+    /// disconnects what is — the one thing the menu bar's own Bluetooth item takes three
+    /// clicks and a submenu to do.
+    @ViewBuilder
+    private var bluetoothDevices: some View {
+        let devices = BluetoothMonitor.paired()
+        if !devices.isEmpty {
+            Menu("Bluetooth") {
+                ForEach(devices) { device in
+                    Button(action: { BluetoothMonitor.setConnected(!device.isConnected, address: device.address) }) {
+                        // A tick beside what is connected, the way every list of things on the
+                        // Mac marks the ones that are on.
+                        if device.isConnected {
+                            Label(device.name, systemImage: "checkmark")
+                        } else {
+                            Text(device.name)
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -48,6 +48,16 @@ struct BluetoothExpandedView: View {
                         }
                     }
                 }
+                // Reconnecting a pair of AirPods is a trip to System Settings, and the island
+                // already knows they are there. Only where the address is known, which is
+                // everything the radio itself told us about.
+                if !state.address.isEmpty {
+                    CircleActionButton(symbol: state.isConnected ? "xmark" : "link",
+                                       tint: state.isConnected ? .white : Color.named("blue"),
+                                       label: state.isConnected ? "Disconnect \(state.name)" : "Connect \(state.name)") {
+                        BluetoothMonitor.setConnected(!state.isConnected, address: state.address)
+                    }
+                }
             }
             .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)

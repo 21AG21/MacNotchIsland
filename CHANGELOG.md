@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Put your headphones back on from the island.** A Bluetooth device's card carries Connect or
+  Disconnect now, and the island's menu lists everything this Mac is paired with — connected
+  ones first, with a tick — so reconnecting a pair of AirPods is one click instead of a trip to
+  System Settings. Both calls block until the radio answers, which for a device asleep in a
+  case is seconds, so neither happens on the main thread.
 - **A script can put buttons on its activity.** Anything that can reach the URL scheme —
   Shortcuts, a CI hook, a shell script — can now hand the island up to two named buttons
   alongside what it is showing: `--action Retry --action-url https://ci/retry --action2 Deploy
