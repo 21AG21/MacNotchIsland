@@ -101,8 +101,8 @@ struct ShelfStripView: View {
                 // Return opens the first file whose name matches — the shelf's version of
                 // typing at a Finder window and pressing Return.
                 FindField(matches: shown.count) {
-                    guard let first = shown.first else { return }
-                    shelf.open([first.url])
+                    guard let index = center.findTarget(of: shown.count) else { return }
+                    shelf.open([shown[index].url])
                 }
             }
             if !shelf.items.isEmpty {
@@ -181,9 +181,12 @@ struct ShelfStripView: View {
     private var items: some View {
         IslandScrollStrip(axis: .horizontal) {
             HStack(spacing: 12) {
-                ForEach(shown) { item in
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
                     ShelfItemView(item: item,
-                                  isSelected: selection.contains(item.url),
+                                  // The tile the arrows are on wears the same ring a picked
+                                  // one does: it is what Return is about to open.
+                                  isSelected: selection.contains(item.url)
+                                      || center.findTarget(of: shown.count) == index,
                                   anchor: shareAnchor,
                                   targets: { targets(for: item.url) },
                                   onSelect: { click(item.url) })

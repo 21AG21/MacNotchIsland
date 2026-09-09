@@ -92,6 +92,17 @@ struct FindField: View {
             .foregroundStyle(.white)
             .focused($focused)
             .onSubmit(onSubmit)
+            // The rest of the way Spotlight works: type, walk the matches, press Return. The
+            // field has the keyboard while a find is up, so these belong to it rather than to
+            // the panel's own arrow keys, which are handed back the moment a find begins.
+            .onKeyPress(.upArrow) {
+                ActivityCenter.shared.moveFind(by: -1, count: matches ?? 0)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                ActivityCenter.shared.moveFind(by: 1, count: matches ?? 0)
+                return .handled
+            }
             // The letters that opened this were claimed from the system, not typed into a
             // field; the caret has to be put where they are going, and put there again if the
             // field is reused for the next find.

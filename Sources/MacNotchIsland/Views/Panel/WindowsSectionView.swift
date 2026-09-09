@@ -44,8 +44,8 @@ struct WindowsSectionView: View {
                     // holds the keyboard, and a field that is holding the keyboard has to be
                     // somewhere you can see it.
                     FindField(matches: windows.count) {
-                        guard let first = windows.first else { return }
-                        monitor.focus(first)
+                        guard let index = center.findTarget(of: windows.count) else { return }
+                        monitor.focus(windows[index])
                     }
                     if !selected.isEmpty {
                         // Two or more is a layout; one is a selection on its way to being one,
@@ -109,8 +109,8 @@ struct WindowsSectionView: View {
         } else {
             IslandScrollStrip {
                 HStack(spacing: Self.tileGap) {
-                    ForEach(windows) { window in
-                        tile(window)
+                    ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
+                        tile(window, isFound: center.findTarget(of: windows.count) == index)
                     }
                 }
                 .padding(.bottom, Self.stripBottom)
@@ -151,10 +151,13 @@ struct WindowsSectionView: View {
         if selection.contains(window.id) { selection.remove(window.id) } else { selection.insert(window.id) }
     }
 
-    private func tile(_ window: IslandWindow) -> some View {
+    private func tile(_ window: IslandWindow, isFound: Bool = false) -> some View {
         let showsZones = hovered == window.id
         let dropping = dropTarget == window.id
         let picked = selection.contains(window.id)
+        // What Return would bring forward: marked, so walking the matches with the arrows
+        // shows where you are before you commit to it.
+        let marked = dropping || picked || isFound
         return VStack(alignment: .leading, spacing: Self.labelGap) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -175,8 +178,8 @@ struct WindowsSectionView: View {
                         .foregroundStyle(.white.opacity(0.4))
                 }
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(dropping || picked ? Color.accentColor : Color.white.opacity(showsZones ? 0.35 : 0.12),
-                                  lineWidth: dropping || picked ? 2 : 1)
+                    .strokeBorder(marked ? Color.accentColor : Color.white.opacity(showsZones ? 0.35 : 0.12),
+                                  lineWidth: marked ? 2 : 1)
                 if picked { pickedBadge }
                 if showsZones { zones(window) }
             }
@@ -212,7 +215,7 @@ struct WindowsSectionView: View {
             .frame(width: Self.tileWidth, height: Self.labelHeight, alignment: .leading)
         }
         .animation(IslandMotion.hover, value: showsZones)
-        .animation(IslandMotion.hover, value: picked)
+        .animation(IslandMotion.hover, value: marked)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(window.appName), \(window.label)")
         .accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)

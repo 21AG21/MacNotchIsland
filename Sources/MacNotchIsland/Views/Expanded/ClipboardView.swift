@@ -6,6 +6,8 @@ import SwiftUI
 struct ClipboardView: View {
     /// Text the list is filtered by; empty shows everything.
     var query: String = ""
+    /// The row the find is pointing at, which Return would pick. Nil when nobody is finding.
+    var found: UUID? = nil
     @ObservedObject private var store = ClipboardStore.shared
     @State private var hoveredID: UUID? = nil
 
@@ -26,7 +28,7 @@ struct ClipboardView: View {
         IslandScrollStrip(axis: .vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(ordered) { item in
-                    ClipboardRowView(item: item, isHovered: hoveredID == item.id)
+                    ClipboardRowView(item: item, isHovered: hoveredID == item.id || found == item.id)
                         .onHover { hovering in
                             if hovering {
                                 hoveredID = item.id

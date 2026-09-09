@@ -35,6 +35,7 @@ final class ActivityCenter: ObservableObject {
                 // starts again rather than carrying somebody's search somewhere it means
                 // nothing. Set before the keys are settled, which read it.
                 findQuery = nil
+                findIndex = 0
                 // Every change, not only opening and closing: the keys the panel answers
                 // depend on which section it is on.
                 keyboardControlChanged()
@@ -115,6 +116,7 @@ final class ActivityCenter: ObservableObject {
         openView = nil
         peekView = nil
         findQuery = nil
+        findIndex = 0
         forcedExpandedID = nil
         pinnedID = nil
         micInUse = false
@@ -698,6 +700,30 @@ final class ActivityCenter: ObservableObject {
     /// Published so the section showing can narrow to it and the field can draw itself.
     @Published private(set) var findQuery: String? = nil
 
+    /// Which of the matches the find is pointing at, counting from zero. Typing starts again
+    /// at the top; the arrow keys walk it, and Return takes whatever it is on.
+    @Published private(set) var findIndex = 0
+
+    /// Moves the find's mark by a row, wrapping at both ends the way a menu does.
+    func moveFind(by delta: Int, count: Int) {
+        guard findQuery != nil, count > 0 else { return }
+        findIndex = Self.wrapped(findIndex + delta, count: count)
+    }
+
+    /// Pure: an index brought back inside a list of `count` by wrapping round it.
+    static func wrapped(_ index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return ((index % count) + count) % count
+    }
+
+    /// The row the find is on, given how many there actually are — nil when nobody is finding
+    /// or there is nothing to point at. A list that shrinks under the mark brings it back to
+    /// the last row rather than pointing past the end.
+    func findTarget(of count: Int) -> Int? {
+        guard findQuery != nil, count > 0 else { return nil }
+        return min(findIndex, count - 1)
+    }
+
     /// Start a find with the letter that was just pressed. The panel has to be pinned open on
     /// a section that is a list of things — anywhere else the letters were never claimed, so
     /// this is never reached — and anything but a letter is left alone.
@@ -705,6 +731,7 @@ final class ActivityCenter: ObservableObject {
         guard PanelFind.opensFind(character), PanelFind.searches(openSection) else { return }
         lastInteraction = Date()
         IslandLog.keys.notice("find opened by a key press")
+        findIndex = 0
         withAnimation(IslandMotion.content) { findQuery = character }
         keyboardControlChanged()
     }
@@ -713,6 +740,7 @@ final class ActivityCenter: ObservableObject {
     func beginFind() {
         guard PanelFind.searches(openSection), findQuery == nil else { return }
         lastInteraction = Date()
+        findIndex = 0
         withAnimation(IslandMotion.content) { findQuery = "" }
         keyboardControlChanged()
     }
@@ -720,6 +748,9 @@ final class ActivityCenter: ObservableObject {
     /// What the field types into.
     func updateFind(_ text: String) {
         guard findQuery != nil else { return }
+        // Every keystroke narrows the list under the mark, so the mark goes back to the top:
+        // pointing at the fourth of two rows is not somewhere anybody asked to be.
+        findIndex = 0
         findQuery = text
     }
 
@@ -729,6 +760,7 @@ final class ActivityCenter: ObservableObject {
     func endFind() -> Bool {
         guard findQuery != nil else { return false }
         lastInteraction = Date()
+        findIndex = 0
         withAnimation(IslandMotion.content) { findQuery = nil }
         keyboardControlChanged()
         return true

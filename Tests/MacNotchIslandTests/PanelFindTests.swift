@@ -123,6 +123,54 @@ final class PanelFindTests: XCTestCase {
         XCTAssertNil(center.findQuery, "a letter typed in the scratchpad is part of the note")
     }
 
+    // MARK: - Walking the matches
+
+    func testTheArrowsWalkTheMatchesAndWrapAtBothEnds() {
+        center.open(.home(tab: HomeSection.windows.rawValue))
+        center.beginFind(with: "e")
+        XCTAssertEqual(center.findTarget(of: 3), 0, "a find starts on the first of them")
+        center.moveFind(by: 1, count: 3)
+        XCTAssertEqual(center.findTarget(of: 3), 1)
+        center.moveFind(by: 1, count: 3)
+        center.moveFind(by: 1, count: 3)
+        XCTAssertEqual(center.findTarget(of: 3), 0, "past the end is the top again")
+        center.moveFind(by: -1, count: 3)
+        XCTAssertEqual(center.findTarget(of: 3), 2, "and back off the top is the bottom")
+    }
+
+    func testTypingStartsTheWalkAgain() {
+        center.open(.home(tab: HomeSection.windows.rawValue))
+        center.beginFind(with: "e")
+        center.moveFind(by: 2, count: 5)
+        XCTAssertEqual(center.findTarget(of: 5), 2)
+        center.updateFind("ex")
+        XCTAssertEqual(center.findTarget(of: 5), 0, "a narrower list is walked from the top")
+    }
+
+    func testTheMarkNeverPointsPastTheEndOfAListThatShrank() {
+        center.open(.home(tab: HomeSection.windows.rawValue))
+        center.beginFind(with: "e")
+        center.moveFind(by: 4, count: 5)
+        XCTAssertEqual(center.findTarget(of: 5), 4)
+        XCTAssertEqual(center.findTarget(of: 2), 1, "brought back to the last row there is")
+        XCTAssertNil(center.findTarget(of: 0), "and nothing at all points nowhere")
+    }
+
+    func testThereIsNoMarkWithoutAFind() {
+        center.open(.home(tab: HomeSection.windows.rawValue))
+        XCTAssertNil(center.findTarget(of: 4))
+        center.moveFind(by: 1, count: 4)
+        XCTAssertEqual(center.findIndex, 0, "the arrows are the panel's until a find takes them")
+    }
+
+    func testWrappingIsSoundForAnythingItIsGiven() {
+        XCTAssertEqual(ActivityCenter.wrapped(0, count: 3), 0)
+        XCTAssertEqual(ActivityCenter.wrapped(-1, count: 3), 2)
+        XCTAssertEqual(ActivityCenter.wrapped(-4, count: 3), 2)
+        XCTAssertEqual(ActivityCenter.wrapped(7, count: 3), 1)
+        XCTAssertEqual(ActivityCenter.wrapped(5, count: 0), 0, "no rows, no division by zero")
+    }
+
     // MARK: - What the sections show
 
     func testTheClipboardKeepsItsPinnedRowsFirstWhileItNarrows() {

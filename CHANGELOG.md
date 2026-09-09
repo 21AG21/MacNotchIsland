@@ -6,6 +6,13 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Walk the matches with the arrow keys.** Type-to-find is the rest of the way to Spotlight
+  now: type, press ↑ or ↓ to move through what is left — wrapping at both ends the way a menu
+  does — and Return takes the one you are on rather than always the first. The row it is on
+  wears the same mark a picked one does, so you can see where you are before committing to it,
+  and every keystroke starts the walk again at the top, because pointing at the fourth of two
+  rows is not somewhere anybody asked to be. A list that shrinks under the mark brings it back
+  to the last row there is rather than pointing past the end.
 - **A QR code in a screenshot is a link you can press.** The same look that reads the words in
   a capture now finds a code in it, and the card offers to open where it goes — with the host
   written on the line under the title, because a button that opens a stranger's link without

@@ -136,7 +136,9 @@ final class ScreenshotMonitor {
         let isRecording = url.pathExtension.lowercased() == "mov"
         // The picture itself, not a camera glyph: it is the one thing that says which capture
         // this is, and it is what you pick up to drag somewhere.
-        let picture = isRecording ? (nil, nil) : Self.picture(of: url)
+        // Labelled on both sides, or the ternary settles on a plain pair and the names go.
+        let picture: (thumbnail: NSImage?, pixels: CGSize?) =
+            isRecording ? (thumbnail: nil, pixels: nil) : Self.picture(of: url)
         let state = CaptureState(path: url.path,
                                  isRecording: isRecording,
                                  thumbnail: picture.thumbnail,

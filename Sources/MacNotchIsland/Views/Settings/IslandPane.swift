@@ -39,13 +39,14 @@ struct IslandPane: View {
                     LabeledContent("Quick Look the shelf", value: "Space")
                     LabeledContent("Volume", value: "↑ and ↓")
                     LabeledContent("Find in a list", value: "A to Z")
-                    LabeledContent("Open the first match", value: "Return")
+                    LabeledContent("Walk the matches", value: "↑ and ↓")
+                    LabeledContent("Take the one you are on", value: "Return")
                     LabeledContent("Leave the find", value: "Escape")
                 }
             } header: {
                 Text("While the panel is open")
             } footer: {
-                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes is showing, where every key is yours to type. The digits count the switcher's slots from the left, and Space is Quick Look while the shelf is the section on screen. The letters are claimed only on Windows, the Clipboard and the Shelf, which are the sections that are lists of things: typing on one of them narrows it, Return takes the first match, and Escape leaves the find without closing the panel.")
+                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes is showing, where every key is yours to type. The digits count the switcher's slots from the left, and Space is Quick Look while the shelf is the section on screen. The letters are claimed only on Windows, the Clipboard and the Shelf, which are the sections that are lists of things: typing on one of them narrows it, the vertical arrows walk what is left, Return takes the one you are on, and Escape leaves the find without closing the panel.")
             }
 
             Section {

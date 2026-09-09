@@ -22,6 +22,12 @@ struct ClipboardSectionView: View {
 
     private var matches: [ClipboardItem] { ClipboardView.ordered(store.items, query: center.findQuery) }
 
+    /// The row the arrows are on, which Return would put back on the pasteboard.
+    private var foundID: UUID? {
+        guard let index = center.findTarget(of: matches.count) else { return nil }
+        return matches[index].id
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader(store.items.isEmpty ? "Clipboard" : "Clipboard · \(store.items.count) \(store.items.count == 1 ? "item" : "items")") {
@@ -33,15 +39,15 @@ struct ClipboardSectionView: View {
                     // of something copied an hour ago and press Return, without ever leaving
                     // the keyboard or looking at the list.
                     FindField(matches: matches.count) {
-                        guard let first = matches.first else { return }
-                        store.pick(item: first)
+                        guard let index = center.findTarget(of: matches.count) else { return }
+                        store.pick(item: matches[index])
                     }
                 }
                 if !store.items.isEmpty {
                     PillButton(title: "Clear", tint: .white.opacity(0.85)) { store.clear() }
                 }
             }
-            ClipboardView(query: center.findQuery ?? "")
+            ClipboardView(query: center.findQuery ?? "", found: foundID)
         }
     }
 }
