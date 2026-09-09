@@ -96,6 +96,13 @@ Privacy & Security.
 
 Building from source with `make` has no such step.
 
+macOS ties a permission to the exact copy of the app it was granted to, and an ad-hoc
+signature is a different copy every build. So replacing the app with a newer one starts
+Accessibility, Screen Recording and the rest from nothing again, and the features that need
+them go quiet until they are granted a second time. Settings > Privacy lists what is granted
+right now, with a way straight to each pane of System Settings. A notarized build would keep
+them; that needs a paid Developer ID.
+
 ## Permissions
 
 Nothing is required up front. macOS asks for these lazily:

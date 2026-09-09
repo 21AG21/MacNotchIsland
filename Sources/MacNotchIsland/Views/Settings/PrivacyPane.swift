@@ -66,7 +66,7 @@ struct PrivacyPane: View {
             } header: {
                 Text("Permissions")
             } footer: {
-                Text("Every permission is optional, and asked for only when the feature that needs it is turned on.")
+                Text("Every permission is optional, and asked for only when the feature that needs it is turned on. macOS ties each one to the exact copy of the app it was granted to, so replacing this build with a newer one starts them from nothing again — nothing is wrong, and this list is where to see it.")
             }
 
             // Named, one by one. This used to say "nothing Notch Island reads ever leaves your
