@@ -98,11 +98,14 @@ struct WelcomeView: View {
 
     private var picker: some View {
         VStack(spacing: 0) {
+            // Smaller than page one's app icon on purpose: this page has seven things to say
+            // and that one has a name to introduce. The points come off the picture rather
+            // than off the bottom of the list.
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 44, weight: .regular))
+                .font(.system(size: 34, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.accentColor)
-                .frame(height: 80)
+                .frame(height: 56)
                 .accessibilityHidden(true)
                 .padding(.top, 8)
 
@@ -122,7 +125,7 @@ struct WelcomeView: View {
             // thing that falls off the bottom of it. Which is what it was doing: "Done" and
             // "Open at login" were both under the edge, on the first window a new Mac shows.
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 11) {
                     choice("calendar", "Today", "Your next events and reminders. Needs calendar access.", $prefs.calendarEnabled)
                     choice("macwindow.on.rectangle", "Windows", "Every open window as a tile: click one to switch, or snap it to half the screen.", $prefs.windowsEnabled)
                     choice("tray.full", "Shelf", "Files you drop on the island; downloads and screenshots land there too.", $prefs.shelfEnabled)
@@ -133,9 +136,11 @@ struct WelcomeView: View {
                 }
                 .frame(maxWidth: 420, alignment: .leading)
                 .padding(.vertical, 2)
+                // A lane of its own for the scroller, so it never sits on the switches.
+                .padding(.trailing, 10)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .padding(.top, 24)
+            .padding(.top, 18)
 
             VStack(spacing: 12) {
                 Button(action: dismiss) {
