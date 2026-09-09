@@ -53,6 +53,11 @@ Services/*  ──►  ActivityCenter  ──►  IslandLayout  ──►  Islan
 - **`Core/EnergyPolicy.swift`** — observes sleep, Low Power Mode and battery power and
   publishes an animation interval and a polling multiplier that every animated view and
   every poller respects. Idle CPU is the number we protect.
+- **`Core/IslandLog.swift`** — one `Logger` per part of the app that can fail on its own
+  (`island`, `panel`, `media`, `keys`, `audio`, `display`, `store`, `network`), all under the
+  bundle identifier as the subsystem. Nothing uses `NSLog`: a line with no subsystem cannot
+  be asked for by one, and `App/Diagnostics.swift` — the support report on the menu bar —
+  reads the log back by subsystem and by process.
 
 ## Services
 
