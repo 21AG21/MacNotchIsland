@@ -4,7 +4,7 @@ import CoreLocation
 import EventKit
 import SwiftUI
 
-/// "Privacy & Permissions": what Notch Island is allowed to see, why it asks, and a way
+/// "Privacy": what Notch Island is allowed to see, why it asks, and a way
 /// straight to the matching pane in System Settings. Also the live health of each data
 /// source, so a silently failing feature is never a mystery.
 struct PrivacyPane: View {

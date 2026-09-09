@@ -68,7 +68,9 @@ the unreleased section is what the next tag will ship.
   reports success and makes no window. Nothing said so, because nothing looked. The window is
   built and shown directly now, the way the welcome tour's always has been, through one place
   that every way in goes through. The URL scheme takes a pane too:
-  `notchisland://settings/island`.
+  `notchisland://settings/island`. Two things that could only be seen once it opened: the
+  window landed with a fifth of itself past the right edge of a small screen, and the sidebar
+  showed "Privacy &…".
 - Settings' picker for the apps that hide the island can no longer open behind whatever is in
   front. Notch Island runs as an accessory and is not necessarily the active app when a button
   in its own window is clicked; the Actions pane's picker already asked first.

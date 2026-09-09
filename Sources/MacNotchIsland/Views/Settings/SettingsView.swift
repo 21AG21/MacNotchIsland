@@ -58,14 +58,21 @@ private final class SettingsWindowHost {
         let host = NSHostingController(rootView: SettingsView()
             .environmentObject(ActivityCenter.shared)
             .environmentObject(Preferences.shared))
-        // Sized by the view, which asks for exactly one screenful of Settings; the title comes
-        // from the pane on screen, the way System Settings names its window.
         let w = NSWindow(contentViewController: host)
         w.styleMask = [.titled, .closable, .miniaturizable]
-        w.title = "Notch Island Settings"
+        // Named for the pane it is about to show, the way System Settings names its window.
+        // `navigationTitle` will say the same thing a moment later; without this the window
+        // opens under a different name and changes it in front of you.
+        w.title = (section ?? SettingsSection(rawValue: UserDefaults.standard.string(forKey: "settingsSection") ?? "") ?? .general).title
         // Closing it puts it away rather than tearing it down, so what you were reading is
         // still there the next time, and nothing has to be rebuilt to show it.
         w.isReleasedWhenClosed = false
+        // Sized before it is placed. A hosting controller has not laid its SwiftUI out when
+        // the window is built, so a window centred first is a window of the wrong size
+        // centred, and the right size then grows out of whichever corner the wrong one was
+        // pinned by: 715 points of Settings starting 511 points across a 1024-point screen,
+        // with a fifth of it over the edge.
+        w.setContentSize(SettingsView.windowSize)
         w.center()
         window = w
         w.makeKeyAndOrderFront(nil)
@@ -95,7 +102,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .home: return "Home Panel"
         case .media: return "Media"
         case .shortcuts: return "Actions"
-        case .privacy: return "Privacy & Permissions"
+        case .privacy: return "Privacy"
         case .about: return "About"
         }
     }
@@ -118,6 +125,10 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 /// form on the right, one window title per pane. The sidebar glyphs are neutral grey squares;
 /// selection and controls take the user's own accent colour, as every Apple window does.
 struct SettingsView: View {
+    /// One screenful of Settings, and the size the window is built at — the window cannot ask
+    /// the hosting controller, which has not laid this out yet when it is made.
+    static let windowSize = CGSize(width: 715, height: 470)
+
     @AppStorage("settingsSection") private var storedSection = SettingsSection.general.rawValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -141,7 +152,7 @@ struct SettingsView: View {
                 .navigationTitle(current.title)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(width: 715, height: 470)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
     }
 
     // MARK: Panes
