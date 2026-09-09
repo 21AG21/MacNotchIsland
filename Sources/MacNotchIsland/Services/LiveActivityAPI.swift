@@ -127,7 +127,8 @@ final class LiveActivityAPI {
                 UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
             }
             NSApp.activate(ignoringOtherApps: true)
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            let sent = NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            IslandLog.island.notice("settings window \(sent ? "opened" : "refused", privacy: .public) on \(wanted.isEmpty ? "the last pane" : wanted, privacy: .public)")
         default:
             IslandLog.island.error("unknown notchisland URL: \(url.absoluteString, privacy: .private)")
         }

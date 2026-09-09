@@ -7,3 +7,6 @@ import Foundation
 let url = CommandLine.arguments.dropFirst().first ?? "notchisland://home"
 DistributedNotificationCenter.default().postNotificationName(Notification.Name("com.macnotchisland.api"),
                                                              object: url, userInfo: nil, deliverImmediately: true)
+// The post is handed to distnoted, not to the app; a process that exits on the next line can
+// outrun its own notification.
+Thread.sleep(forTimeInterval: 0.3)

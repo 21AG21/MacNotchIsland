@@ -17,6 +17,10 @@ defaults write "$ID" hasSeenWelcome -bool true
 defaults write "$ID" hapticsEnabled -bool false
 defaults write "$ID" updateChecksEnabled -bool false
 defaults write "$ID" screenshotsToShelfEnabled -bool false
+# EventKit's permission sheet opens in the middle of the screen and stays there, unanswered,
+# for the rest of the run — it has been standing over every screenshot this test has ever
+# taken. Nothing here tests the calendar.
+defaults write "$ID" calendarEnabled -bool false
 
 DIED=0
 SUMMARY="$OUT/summary.txt"
@@ -115,9 +119,7 @@ run_case() {  # name, click y, extra env
 # too.
 run_settings() {
   echo "=== case settings"
-  # The one thing that would ruin the picture: EventKit's permission sheet opens in the middle
-  # of the screen, which is exactly where a new window lands. Nothing here needs the calendar.
-  defaults write "$ID" calendarEnabled -bool false
+  local start; start=$(date '+%Y-%m-%d %H:%M:%S')
   "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/settings-app.log" 2>&1 &
   local pid=$!
   sleep 6
@@ -141,8 +143,17 @@ run_settings() {
   else
     echo "alive settings: NO" >> "$SUMMARY"; DIED=1
   fi
+  # Whether the window ever came up, from what the app logged about the URLs it was sent.
+  local logfile="$OUT/settings-unified.log"
+  log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact > "$logfile" 2>&1
+  echo "--- unified log"
+  grep -c . "$logfile" >/dev/null 2>&1 && tail -n 40 "$logfile"
+  local opened; opened=$(grep -c 'settings window' "$logfile" || true)
+  echo "--- settings opened: $opened"
+  echo "settings opened: $opened" >> "$SUMMARY"
+  if [ "$opened" -lt 1 ]; then echo "SMOKE FAILED: notchisland://settings never opened the window"; DIED=1; fi
+  echo "--- app stderr"; tail -n 20 "$OUT/settings-app.log"
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
-  defaults delete "$ID" calendarEnabled 2>/dev/null
   sleep 1
 }
 
