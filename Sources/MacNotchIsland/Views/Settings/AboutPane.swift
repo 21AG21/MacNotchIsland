@@ -39,6 +39,7 @@ struct AboutPane: View {
             Section {
                 LabeledContent {
                     Button("Check for Updates…") { UpdateChecker.shared.checkNow() }
+                        .disabled(updates.status == .checking)
                 } label: {
                     Text("Updates")
                     Text(updateDetail)
@@ -86,14 +87,17 @@ struct AboutPane: View {
         return short
     }
 
+    /// This row is the answer to the button beside it. It used to describe only a check that
+    /// succeeded, so pressing the button with no network changed nothing on the screen the
+    /// button is on.
     private var updateDetail: String {
-        if updates.updateAvailable, let latest = updates.latestVersion {
-            return "Version \(latest) is available."
+        switch updates.status {
+        case .never: return "Checked once a day when automatic checks are on."
+        case .checking: return "Checking…"
+        case .upToDate: return "Notch Island is up to date."
+        case .available(let latest): return "Version \(latest) is available."
+        case .unreachable(let why): return "\(why). Try again in a moment."
         }
-        if updates.latestVersion != nil {
-            return "Notch Island is up to date."
-        }
-        return "Checked once a day when automatic checks are on."
     }
 
     private func openRepository() {

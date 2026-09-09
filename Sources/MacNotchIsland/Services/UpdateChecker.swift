@@ -13,6 +13,20 @@ final class UpdateChecker: ObservableObject {
     /// True once `latestVersion` is newer than the running build.
     @Published private(set) var updateAvailable = false
 
+    /// Where the last check got to. The island's alert is a flourish and can be switched off,
+    /// hidden, or simply missed; the window the button lives in has to answer as well.
+    enum Status: Equatable {
+        case never
+        case checking
+        case upToDate
+        case available(String)
+        /// The short reason, ready to read.
+        case unreachable(String)
+    }
+    @Published private(set) var status: Status = .never
+    /// What to go back to if the request in flight is cancelled rather than answered.
+    private var statusBeforeCheck: Status = .never
+
     private static let releasesURL = URL(string: "https://api.github.com/repos/21AG21/MacNotchIsland/releases/latest")!
     /// Where a person can look for themselves when the check could not be made.
     private static let releasesPageURL = URL(string: "https://github.com/21AG21/MacNotchIsland/releases")!
@@ -50,6 +64,7 @@ final class UpdateChecker: ObservableObject {
         timer = nil
         task?.cancel()
         task = nil
+        if status == .checking { status = statusBeforeCheck }
     }
 
     /// User-initiated (a "Check for Updates…" menu item): always hits the network and always
@@ -69,6 +84,8 @@ final class UpdateChecker: ObservableObject {
         // Never wake the network while the Mac is asleep.
         guard !EnergyPolicy.shared.isAsleep else { return }
         task?.cancel()
+        if status != .checking { statusBeforeCheck = status }
+        status = .checking
         var request = URLRequest(url: Self.releasesURL, timeoutInterval: 12)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
@@ -86,11 +103,14 @@ final class UpdateChecker: ObservableObject {
         switch Self.outcome(data: data, status: status, error: error) {
         case .cancelled:
             // A newer check took over, or the feature was switched off mid-flight. Nothing was
-            // learned, so nothing is recorded and nothing is said.
+            // learned, so nothing is recorded and nothing is said — and the row goes back to
+            // what it said before, rather than sitting on "Checking…" for ever.
+            if status == .checking { status = statusBeforeCheck }
             return
 
         case .unreachable(let reason, let detail):
             IslandLog.network.error("update check failed: \(detail, privacy: .public)")
+            status = .unreachable(reason)
             // Deliberately not stamped: the day between checks is a day between *answers*. A
             // Mac that was asleep in a hotel lift must not go quiet until tomorrow because of
             // it, so the hourly timer simply tries again.
@@ -100,6 +120,7 @@ final class UpdateChecker: ObservableObject {
             // GitHub answered, and there is nothing published to be behind.
             stampCheck()
             updateAvailable = false
+            status = .upToDate
             if forced { showUpToDateAlert() }
 
         case .latest(let release):
@@ -108,6 +129,7 @@ final class UpdateChecker: ObservableObject {
             latestVersion = release.version
             let newer = Self.isNewer(release.version, than: current)
             updateAvailable = newer
+            status = newer ? .available(release.version) : .upToDate
             guard newer else {
                 if forced { showUpToDateAlert() }
                 return

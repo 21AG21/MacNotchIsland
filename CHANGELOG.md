@@ -39,7 +39,9 @@ the unreleased section is what the next tag will ship.
   yet), and "Couldn't check for updates" with the reason and a way to the releases page. A
   failed check is also no longer recorded as a check, so the next one is an hour away rather
   than a day; and both answers to a manual check open as the card, since "Up to date" as the
-  pill was a green tick beside an ellipsis.
+  pill was a green tick beside an ellipsis. About now says where the last check got to —
+  "Checking…", the version, or the reason it could not be made — so the button answers on the
+  screen it is on, and not only on an island that may be hidden or unwatched.
 - **What Notch Island keeps on this Mac is yours alone.** Everything you have copied, the
   notes you jot down and the lyrics it caches were written with whatever permissions the
   system happened to hand out — 644 on a stock Mac, which is readable by every other account
