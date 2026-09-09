@@ -353,6 +353,21 @@ final class GalleryTests: XCTestCase {
         ])
     }
 
+    /// A reading and the next few hours, since the gallery has neither a network nor a
+    /// location to ask for one.
+    private static func weather() {
+        let now = Date()
+        let codes = [1, 2, 3, 61, 61, 2]
+        let degrees = [17.0, 16.4, 15.8, 15.0, 14.2, 13.6]
+        let hours = (0..<6).map { i in
+            WeatherService.Hour(date: now.addingTimeInterval(Double(i + 1) * 3600),
+                                temperatureC: degrees[i], weatherCode: codes[i], isDay: i < 4)
+        }
+        WeatherService.shared.seedForGallery(
+            WeatherService.Snapshot(temperatureC: 17.6, weatherCode: 2, windKmh: 11, isDay: true,
+                                    highC: 19, lowC: 11, placeName: "London", hours: hours))
+    }
+
     /// Apps every Mac has, so the row draws real icons.
     private static func favouriteApps() {
         FavoriteApps.shared.seedForGallery([
@@ -457,7 +472,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-home-quiet", setup: panel("home")),
             Scene(name: "panel-music", setup: panel("music") { c in c.upsert(nowPlaying()) }),
             Scene(name: "panel-music-empty", setup: panel("music")),
-            Scene(name: "panel-today", setup: panel("today") { _ in today() }),
+            Scene(name: "panel-today", setup: panel("today") { _ in today(); weather() }),
             Scene(name: "panel-today-empty", setup: panel("today")),
             Scene(name: "panel-controls", setup: panel("controls")),
             Scene(name: "panel-windows", setup: panel("windows")),

@@ -26,6 +26,10 @@ struct TodaySectionView: View {
             }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // The rest of the day, along the floor of the section: the space under three
+            // appointments was the emptiest part of the panel, and what happens next outside
+            // is the one thing a section called Today was missing.
+            if prefs.weatherEnabled, !weather.hours.isEmpty { hourly }
         }
         .onAppear {
             agenda.viewerAppeared()
@@ -35,6 +39,49 @@ struct TodaySectionView: View {
             agenda.viewerDisappeared()
             if prefs.weatherEnabled { weather.stop() }
         }
+    }
+
+    // MARK: - The next few hours
+
+    /// Six hours across the width, each an hour, a glyph and a figure — the shape of every
+    /// hourly forecast anybody has ever read.
+    static let hourlyHeight: CGFloat = 40
+
+    private var hourly: some View {
+        HStack(spacing: 0) {
+            ForEach(weather.hours) { hour in
+                VStack(spacing: 1) {
+                    Text(Self.hourLabel(hour.date))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.45))
+                    Image(systemName: WeatherService.condition(code: hour.weatherCode, isDay: hour.isDay).symbol)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(height: 14)
+                    Text(WeatherService.formatTemperature(hour.temperatureC, fahrenheit: WeatherService.usesFahrenheit))
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(Self.hourLabel(hour.date)), \(WeatherService.formatTemperature(hour.temperatureC, fahrenheit: WeatherService.usesFahrenheit))")
+            }
+        }
+        .frame(height: Self.hourlyHeight)
+        .accessibilityElement(children: .contain)
+    }
+
+    /// "17", or "5 PM" where the clock is a twelve-hour one — the machine's own preference,
+    /// asked once per hour rather than formatted per cell.
+    static func hourLabel(_ date: Date, calendar: Calendar = .current) -> String {
+        let hour = calendar.component(.hour, from: date)
+        guard let template = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current),
+              template.contains("h") || template.contains("K") else {
+            return "\(hour)"
+        }
+        let suffix = hour < 12 ? "AM" : "PM"
+        let twelve = hour % 12 == 0 ? 12 : hour % 12
+        return "\(twelve) \(suffix)"
     }
 
     // MARK: - Weather, in one line

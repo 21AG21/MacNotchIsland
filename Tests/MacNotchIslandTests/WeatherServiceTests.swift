@@ -265,4 +265,53 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: true), "8 mph")
     }
 
+
+    // MARK: - The next few hours
+
+    private func times(_ offsets: [Int], from now: Date) -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = Calendar.current.timeZone
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        return offsets.map { formatter.string(from: now.addingTimeInterval(Double($0) * 3600)) }
+    }
+
+    func testTheStripStartsAfterNowAndStopsAtSix() {
+        let now = Date()
+        let stamps = times(Array(-3...12), from: now)
+        let block = WeatherService.Forecast.Hourly(time: stamps,
+                                                   temperature: stamps.indices.map { Double($0) },
+                                                   weatherCode: stamps.map { _ in 3 },
+                                                   isDay: stamps.map { _ in 1 })
+        let hours = WeatherService.hours(from: block, now: now)
+        XCTAssertEqual(hours.count, WeatherService.hoursAhead)
+        XCTAssertTrue(hours.allSatisfy { $0.date > now }, "an hour that has been is not a forecast")
+        XCTAssertEqual(hours, hours.sorted { $0.date < $1.date }, "in the order they will happen")
+        XCTAssertTrue(hours.allSatisfy { $0.isDay })
+    }
+
+    func testAShortAnswerIsNotReadOffTheEndOf() {
+        // The arrays come back parallel; one of them being short is a malformed answer, not a
+        // reason to walk off the end of it.
+        let now = Date()
+        let stamps = times([1, 2, 3, 4], from: now)
+        let block = WeatherService.Forecast.Hourly(time: stamps, temperature: [10, 11],
+                                                   weatherCode: nil, isDay: nil)
+        let hours = WeatherService.hours(from: block, now: now)
+        XCTAssertEqual(hours.count, 2)
+        XCTAssertEqual(hours.map(\.weatherCode), [0, 0], "no code is a clear sky, not a crash")
+    }
+
+    func testNoHourlyBlockIsNoStrip() {
+        XCTAssertTrue(WeatherService.hours(from: nil).isEmpty)
+        XCTAssertTrue(WeatherService.hours(from: WeatherService.Forecast.Hourly(time: nil, temperature: nil,
+                                                                               weatherCode: nil, isDay: nil)).isEmpty)
+    }
+
+    func testAnHourIsLabelledTheWayTheClockIs() {
+        let calendar = Calendar.current
+        let afternoon = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
+        let label = TodaySectionView.hourLabel(afternoon, calendar: calendar)
+        XCTAssertTrue(label == "17" || label == "5 PM", label)
+    }
 }

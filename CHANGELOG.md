@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **The rest of the day, along the floor of Today.** Six hours across the width of the section
+  — the hour, what it is doing and how warm it will be — under the events and reminders. The
+  space under three appointments was the emptiest part of the panel, and what happens next
+  outside is the one thing a section called Today was missing. Two days are asked for now
+  rather than one, because "the next six hours" at nine in the evening is tomorrow.
 - **Where the sound comes from, as well as where it goes.** The rail's sound button lists both
   halves of Control Centre's Sound module now — Output, and Input where there is more than one
   to choose from. Which microphone the Mac is listening to is the setting nobody can reach

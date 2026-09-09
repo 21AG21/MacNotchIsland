@@ -40,6 +40,15 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     /// One reading, in the units Open-Meteo answers in (Celsius, km/h). This is also the
     /// shape cached in UserDefaults, so a relaunch starts with the last known weather
     /// instead of an empty panel.
+    /// One hour of the forecast: when, how warm, and what it is doing.
+    struct Hour: Codable, Equatable, Identifiable {
+        var date: Date
+        var temperatureC: Double
+        var weatherCode: Int
+        var isDay: Bool
+        var id: Date { date }
+    }
+
     struct Snapshot: Codable, Equatable {
         var temperatureC: Double
         /// WMO weather interpretation code — see `condition(code:isDay:)`.
@@ -50,6 +59,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         var lowC: Double?
         var placeName: String?
         var updatedAt: Date
+        /// The next few hours, when the forecast carried them.
+        var hours: [Hour] = []
 
         init(temperatureC: Double,
              weatherCode: Int,
@@ -58,7 +69,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
              highC: Double? = nil,
              lowC: Double? = nil,
              placeName: String? = nil,
-             updatedAt: Date = Date()) {
+             updatedAt: Date = Date(),
+             hours: [Hour] = []) {
             self.temperatureC = temperatureC
             self.weatherCode = weatherCode
             self.windKmh = windKmh
@@ -67,6 +79,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             self.lowC = lowC
             self.placeName = placeName
             self.updatedAt = updatedAt
+            self.hours = hours
         }
     }
 
@@ -82,6 +95,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     @Published private(set) var conditionText: String = ""
     @Published private(set) var placeName: String? = nil
     @Published private(set) var updatedAt: Date? = nil
+    /// The next few hours, for the strip in Today. Empty until a forecast carrying them lands.
+    @Published private(set) var hours: [Hour] = []
 
     // MARK: - Configuration
 
@@ -315,8 +330,10 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             URLQueryItem(name: "longitude", value: "\(lon)"),
             URLQueryItem(name: "current", value: "temperature_2m,weather_code,wind_speed_10m,is_day"),
             URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min"),
+            URLQueryItem(name: "hourly", value: "temperature_2m,weather_code,is_day"),
             URLQueryItem(name: "timezone", value: "auto"),
-            URLQueryItem(name: "forecast_days", value: "1"),
+            // Two days, because "the next six hours" at nine in the evening is tomorrow.
+            URLQueryItem(name: "forecast_days", value: "2"),
         ]
         return components?.url
     }
@@ -367,11 +384,48 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
                         windKmh: current.windSpeed ?? 0,
                         isDay: (current.isDay ?? 1) != 0,
                         highC: decoded.daily?.maxTemperature?.first,
-                        lowC: decoded.daily?.minTemperature?.first)
+                        lowC: decoded.daily?.minTemperature?.first,
+                        hours: hours(from: decoded.hourly))
+    }
+
+    /// How many hours ahead the strip shows.
+    static let hoursAhead = 6
+
+    /// The next few hours out of an hourly block, starting with the one after this one.
+    ///
+    /// Open-Meteo returns local wall-clock times with no zone on them, because the request
+    /// asked for `timezone=auto` — so they are read in the machine's own zone, which is the
+    /// one the forecast was made for.
+    ///
+    /// Pure, so the arithmetic can be tested without the network.
+    static func hours(from block: Forecast.Hourly?, now: Date = Date(),
+                      calendar: Calendar = .current) -> [Hour] {
+        guard let block, let times = block.time else { return [] }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        // The three arrays are parallel, and a short one is a malformed answer rather than a
+        // reason to read off the end of it.
+        func value<T>(_ array: [T]?, _ index: Int) -> T? {
+            guard let array, index >= 0, index < array.count else { return nil }
+            return array[index]
+        }
+        var out: [Hour] = []
+        for (index, raw) in times.enumerated() {
+            guard let date = formatter.date(from: raw), date > now else { continue }
+            guard let temperature = value(block.temperature, index) else { continue }
+            out.append(Hour(date: date,
+                            temperatureC: temperature,
+                            weatherCode: value(block.weatherCode, index) ?? 0,
+                            isDay: (value(block.isDay, index) ?? 1) != 0))
+            if out.count == hoursAhead { break }
+        }
+        return out
     }
 
     /// Just the fields the panel needs out of an Open-Meteo forecast payload.
-    private struct Forecast: Decodable {
+    struct Forecast: Decodable {
         struct Current: Decodable {
             let temperature: Double
             let weatherCode: Int
@@ -382,6 +436,20 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
                 case temperature = "temperature_2m"
                 case weatherCode = "weather_code"
                 case windSpeed = "wind_speed_10m"
+                case isDay = "is_day"
+            }
+        }
+
+        struct Hourly: Decodable {
+            let time: [String]?
+            let temperature: [Double]?
+            let weatherCode: [Int]?
+            let isDay: [Int]?
+
+            enum CodingKeys: String, CodingKey {
+                case time
+                case temperature = "temperature_2m"
+                case weatherCode = "weather_code"
                 case isDay = "is_day"
             }
         }
@@ -398,6 +466,12 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
         let current: Current
         let daily: Daily?
+        let hourly: Hourly?
+    }
+
+    /// Fills in a reading for the gallery, which has no network and no location.
+    func seedForGallery(_ snapshot: Snapshot) {
+        apply(snapshot, cache: false)
     }
 
     // MARK: - Publishing & cache
@@ -415,6 +489,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         placeName = fresh.placeName
         lastPlaceName = fresh.placeName ?? lastPlaceName
         updatedAt = fresh.updatedAt
+        hours = fresh.hours
         state = .ready
         if cache { writeCache(fresh) }
     }

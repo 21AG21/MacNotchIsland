@@ -162,10 +162,13 @@ final class GestureRouterTests: XCTestCase {
     func testTheSectionListIsOneListEverywhere() {
         let prefs = Preferences.shared
         let saved = (prefs.shelfEnabled, prefs.clipboardEnabled, prefs.quickActionsEnabled, prefs.statsEnabled, prefs.notesEnabled, prefs.calendarEnabled)
+        let savedControls = prefs.controlsEnabled
         defer {
             (prefs.shelfEnabled, prefs.clipboardEnabled, prefs.quickActionsEnabled, prefs.statsEnabled, prefs.notesEnabled, prefs.calendarEnabled) = saved
+            prefs.controlsEnabled = savedControls
         }
         prefs.shelfEnabled = false
+        prefs.controlsEnabled = false
         prefs.clipboardEnabled = true
         XCTAssertEqual(HomeSection.resolve("shelf", prefs: prefs), .clipboard, "a section that is off resolves to the nearest one that is on")
         XCTAssertEqual(HomeSection.resolve("nonsense", prefs: prefs), .home)
