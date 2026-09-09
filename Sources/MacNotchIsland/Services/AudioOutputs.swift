@@ -150,17 +150,12 @@ final class AudioOutputs: ObservableObject {
         reloadDevices()
     }
 
-    /// When the island last set the level itself, from its own slider.
-    ///
-    /// A slider you are holding is its own feedback, and a display popping up over it says
-    /// nothing you cannot already see. This is what tells the two apart — the panel's own
-    /// write from anything else on the Mac — rather than "some control somewhere is being
-    /// dragged", which also caught the scrubber and swallowed unrelated displays.
+    /// When the island last set the level itself, from its own slider. See `LocalWrite`.
     private(set) static var lastLocalWrite = Date.distantPast
 
     /// Whether the island wrote the level itself a moment ago.
-    static func wroteRecently(within seconds: TimeInterval = 0.6, now: Date = Date()) -> Bool {
-        now.timeIntervalSince(lastLocalWrite) < seconds
+    static func wroteRecently(now: Date = Date()) -> Bool {
+        LocalWrite.isRecent(lastLocalWrite, now: now)
     }
 
     func setVolume(_ level: Float) {
@@ -228,36 +223,28 @@ final class AudioOutputs: ObservableObject {
             return nil
         }
         if let cachedOutput, cachedOutput.id == id { return cachedOutput }
-        let device = Device(id: id, name: name(of: id), transport: transport(of: id))
+        // A device that will not say its name yet — Bluetooth in the moment it becomes the
+        // default — is answered as no device rather than as one called "Output", and nothing
+        // is remembered, so the next ask gets the real name instead of the placeholder for
+        // the life of the process.
+        guard let name = readName(of: id) else { return nil }
+        let device = Device(id: id, name: name, transport: transport(of: id))
         cachedOutput = device
         return device
     }
 
-    /// Whether the Mac can set this device's level at all. HDMI and some AirPlay targets
-    /// simply carry the sound at whatever the thing at the other end is set to, and asking
-    /// for the level returns nothing — which is a different thing from a read that failed.
-    static func hasVolumeControl(_ device: AudioDeviceID) -> Bool {
-        // The same elements the writer writes: some aggregate and USB devices carry the
-        // control on their channels rather than on the main element, and asking only about
-        // the main one would call a device unsettable that `writeOutputVolume` can in fact
-        // set through the channel loop.
-        for element in [kAudioObjectPropertyElementMain, UInt32(1), UInt32(2)] {
-            var address = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-                                                     mScope: kAudioDevicePropertyScopeOutput,
-                                                     mElement: element)
-            if AudioObjectHasProperty(device, &address) { return true }
-        }
-        return false
+    private static func name(of device: AudioDeviceID) -> String {
+        readName(of: device) ?? "Output"
     }
 
-    private static func name(of device: AudioDeviceID) -> String {
+    /// The device's name, or nil when it will not give one.
+    private static func readName(of device: AudioDeviceID) -> String? {
         var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
                                                  mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var value: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr, let name = value?.takeRetainedValue() else {
-            return "Output"
-        }
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr,
+              let name = value?.takeRetainedValue() else { return nil }
         return name as String
     }
 

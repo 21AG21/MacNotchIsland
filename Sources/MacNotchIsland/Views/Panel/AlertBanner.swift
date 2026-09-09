@@ -18,10 +18,19 @@ struct AlertBanner: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if case .hud(let hud) = activity.content {
-                    // The level gets the room a banner has: a long bar and the figure.
-                    LevelBar(level: hud.isMuted ? 0 : hud.level, tint: .white)
-                        .frame(width: 140, height: 4)
-                    Text(hud.isMuted ? "Muted" : "\(Int((hud.level * 100).rounded()))%")
+                    // The level gets the room a banner has: a long bar and the figure. An
+                    // output that carries its own level has no bar to draw — an empty one
+                    // there reads as a Mac turned all the way down, which is the opposite.
+                    if hud.isUnavailable {
+                        Text(hud.device ?? "Set on the device")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .lineLimit(1)
+                    } else {
+                        LevelBar(level: hud.isMuted ? 0 : hud.level, tint: .white)
+                            .frame(width: 140, height: 4)
+                    }
+                    Text(LevelHUD.readout(hud))
                         .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(.white)
                         .frame(width: 44, alignment: .trailing)

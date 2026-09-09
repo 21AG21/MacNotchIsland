@@ -71,22 +71,27 @@ final class AudioMonitor {
     // MARK: Events
 
     private func volumeChanged() {
+        // The level is read and remembered whatever happens next: a change that is suppressed
+        // is still a change, and leaving the remembered one behind would make the next
+        // genuine one look like no change at all.
+        guard let v = readVolume() else { return }
+        let moved = abs(v - lastVolume) > 0.001
+        lastVolume = v
+        guard moved else { return }
         // Only once the island has actually taken the media keys over. Otherwise macOS is
         // already drawing its bezel for this, and a second one beside it is pure noise.
         guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive,
-              !AudioOutputs.wroteRecently(), let v = readVolume() else { return }
+              !AudioOutputs.wroteRecently() else { return }
         let muted = readMute() ?? false
-        guard abs(v - lastVolume) > 0.001 else { return }
-        lastVolume = v
         let hud = LevelHUD.volume(level: Double(v), isMuted: muted, output: AudioOutputs.currentOutput())
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)
     }
 
     private func muteChanged() {
-        guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive,
-              let muted = readMute() else { return }
-        guard muted != lastMute else { return }
+        guard let muted = readMute() else { return }
+        let moved = muted != lastMute
         lastMute = muted
+        guard moved, Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.isActive else { return }
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: muted)), priority: 85)
         ActivityCenter.shared.showAlert(activity, duration: 2, haptic: false)
     }
@@ -204,6 +209,23 @@ final class AudioMonitor {
         }
         if !ok { NSLog("Notch Island: could not set the output volume on device \(device).") }
         return ok
+    }
+
+    /// Whether the Mac can set the default output's level at all.
+    ///
+    /// Asked about the same property, on the same elements, that `writeOutputVolume` writes:
+    /// the virtual main volume on the main element, the per-channel scalar on the channels.
+    /// Asking for the virtual one on a channel always answers no, because the HAL only
+    /// synthesises it on the main element — which is why this belongs here, beside the
+    /// address it shares, rather than anywhere that has to guess at it.
+    static func outputHasVolumeControl() -> Bool {
+        let device = defaultOutputDevice()
+        guard device != 0 else { return false }
+        for element in [kAudioObjectPropertyElementMain, AudioObjectPropertyElement(1), AudioObjectPropertyElement(2)] {
+            var address = volumeAddress(element: element)
+            if AudioObjectHasProperty(device, &address) { return true }
+        }
+        return false
     }
 
     static func readOutputMute() -> Bool? {

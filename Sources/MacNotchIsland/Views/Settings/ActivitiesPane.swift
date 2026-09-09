@@ -13,10 +13,10 @@ struct ActivitiesPane: View {
     /// taken the keys over, macOS is drawing its own bezel and the island stays quiet.
     private var hudFooter: String {
         guard prefs.hudReplacementEnabled else {
-            return "Left off, the island says nothing at all about volume or brightness — not for the "
-                 + "keys, and not for a change made anywhere else — because macOS draws its own bezel "
-                 + "for them and two of those for one keypress is worse than either. Turn it on and the "
-                 + "island answers the media keys itself, shows every other change too, and names the "
+            return "Left off, macOS keeps its own bezel and the island adds nothing beside it — two of "
+                 + "those for one keypress is worse than either. Scrolling on the island still shows "
+                 + "its own display, because nothing else answers that. Turn this on and the island "
+                 + "takes the media keys over, shows changes made anywhere else too, and names the "
                  + "headphones or speaker the sound is going to."
         }
         guard hud.isActive else {

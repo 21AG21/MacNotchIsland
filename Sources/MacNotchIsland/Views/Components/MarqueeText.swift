@@ -40,9 +40,13 @@ struct MarqueeText: View {
                 // waits over a second before it does — still begins at its first letter,
                 // which should not be dimmed for nothing.
                 .mask(alignment: .leading) {
+                    // The leading fade comes in with the movement: as a switch at the first
+                    // half point of travel it snapped the first letters from solid to gone in
+                    // one frame, once every cycle, which was louder than the hard edge it
+                    // replaced.
                     Self.edgeFade(across: geo.size.width,
-                                  leading: offset > 0.5,
-                                  trailing: scrolling)
+                                  leading: min(1, offset / Double(Self.fadeWidth)),
+                                  trailing: scrolling ? 1 : 0)
                 }
             }
         }
@@ -63,13 +67,16 @@ struct MarqueeText: View {
     /// proportion `fadeWidth` is of the room there is — clamped, so a slot as narrow as the
     /// pill's sneak peek keeps most of itself readable rather than becoming mostly gradient.
     /// With neither end asked for, every stop is opaque and this is a plain rectangle.
-    private static func edgeFade(across width: CGFloat, leading: Bool, trailing: Bool) -> LinearGradient {
+    /// `leading` and `trailing` are how far in each fade has come, 0 (none) to 1 (full).
+    private static func edgeFade(across width: CGFloat, leading: Double, trailing: Double) -> LinearGradient {
         let inset = min(0.2, fadeWidth / max(width, 1))
+        let head = min(1, max(0, leading))
+        let tail = min(1, max(0, trailing))
         return LinearGradient(stops: [
-            .init(color: .black.opacity(leading ? 0 : 1), location: 0),
-            .init(color: .black, location: leading ? inset : 0),
-            .init(color: .black, location: trailing ? 1 - inset : 1),
-            .init(color: .black.opacity(trailing ? 0 : 1), location: 1),
+            .init(color: .black.opacity(1 - head), location: 0),
+            .init(color: .black, location: inset * head),
+            .init(color: .black, location: 1 - inset * tail),
+            .init(color: .black.opacity(1 - tail), location: 1),
         ], startPoint: .leading, endPoint: .trailing)
     }
 

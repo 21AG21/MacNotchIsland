@@ -287,6 +287,9 @@ final class GestureRouter {
     /// that. Posting here is safe: the alert carries the same id, so a duplicate replaces
     /// itself.
     private func postVolumeHUD(level: Float, muted: Bool) {
+        // Not gated on the island having taken the keys over, unlike every other path: a
+        // scroll on the island is the island's own control, macOS draws nothing for it, and
+        // no slider moves where you can see it. This display is the only answer there is.
         guard Preferences.shared.volumeHUDEnabled else { return }
         let hud = LevelHUD.volume(level: Double(level), isMuted: muted, output: AudioOutputs.currentOutput())
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85),

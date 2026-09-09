@@ -55,13 +55,16 @@ final class SystemHUDTests: XCTestCase {
     }
 
     /// A slider you are holding is its own feedback, so the island does not put a display
-    /// over it — but only for a change the island itself just made, not for any drag anywhere.
+    /// over it — but only for a change the island itself just made, and only for as long as
+    /// the hand is plausibly still on it.
     func testTheIslandKnowsWhenItWasTheOneThatSetTheLevel() {
         let now = Date()
-        XCTAssertFalse(AudioOutputs.wroteRecently(now: now),
-                       "nothing has written, so nothing should be suppressed")
-        XCTAssertFalse(AudioOutputs.wroteRecently(within: 0.6, now: now.addingTimeInterval(5)),
-                       "and a write from five seconds ago is not a slider under the finger")
+        XCTAssertTrue(LocalWrite.isRecent(now.addingTimeInterval(-0.1), now: now),
+                      "a write a tenth of a second ago is a slider under the finger")
+        XCTAssertFalse(LocalWrite.isRecent(now.addingTimeInterval(-5), now: now),
+                       "one from five seconds ago is not")
+        XCTAssertFalse(LocalWrite.isRecent(.distantPast, now: now),
+                       "and never having written is not either")
     }
 
     func testTheIslandStartsOutLeavingTheSystemBezelAlone() {

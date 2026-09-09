@@ -167,6 +167,13 @@ struct LevelHUD: Equatable {
     /// sound at whatever level the thing at the other end is at. Swallowing the key and
     /// showing nothing would leave the press looking broken.
     var isUnavailable: Bool = false
+
+    /// The number, or what stands in for it when there is no number to give. One definition,
+    /// because the pill, the banner and the card all have to say the same thing.
+    static func readout(_ state: LevelHUD) -> String {
+        if state.isUnavailable { return "\u{2014}" }
+        return state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%"
+    }
 }
 
 struct SilentState: Equatable {

@@ -61,8 +61,13 @@ final class VolumeFeedbackSound {
     /// click takes to finish, and restarting a single sound on each repeat cuts every click
     /// off a few milliseconds in and turns sixteen notches into a buzz.
     private lazy var voices: [NSSound] = {
-        guard let path = Self.candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else { return [] }
-        return (0..<3).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
+        // The first path that both exists and opens — a file that is there but that NSSound
+        // will not decode should fall through to the next candidate, not end the search.
+        for path in Self.candidates where FileManager.default.fileExists(atPath: path) {
+            let loaded = (0..<3).compactMap { _ in NSSound(contentsOfFile: path, byReference: true) }
+            if !loaded.isEmpty { return loaded }
+        }
+        return []
     }()
     private var nextVoice = 0
 
@@ -113,6 +118,11 @@ final class MediaKeyInterceptor {
     static let systemDefinedEventType: UInt32 = 14
     /// `NX_SUBTYPE_AUX_CONTROL_BUTTONS`.
     static let auxControlSubtype: Int16 = 8
+
+    /// How many times a tap that will not be created is asked for again. The watch timer
+    /// runs for as long as the feature is on, so without a cap it would ask forever and write
+    /// a line to the system log every few seconds for the life of the process.
+    static let maxTapAttempts = 5
 
     /// One notch of the macOS volume / brightness bar.
     static let coarseStep: Float = 1.0 / 16.0
@@ -224,6 +234,10 @@ final class MediaKeyInterceptor {
             }
             self.installTap()
             self.verifyTap()
+            // Not only after a key: a key we have handed back to macOS never reaches `apply`,
+            // so refreshing there alone would latch the answer off for the session the moment
+            // an output with no level of its own became the default.
+            self.refreshCapabilities()
         }
         timer.tolerance = 1
         trustTimer = timer
@@ -234,12 +248,14 @@ final class MediaKeyInterceptor {
         SystemHUDReplacement.shared.set(false)
         lock.lock()
         let port = tapPort
+        let loop = tapRunLoop
         tapPort = nil
         lock.unlock()
+        tapFailures = 0
         guard let port else { return }
         CGEvent.tapEnable(tap: port, enable: false)
         CFMachPortInvalidate(port)
-        if let loop = tapRunLoop { CFRunLoopStop(loop) }
+        if let loop { CFRunLoopStop(loop) }
         tapThread = nil
     }
 
@@ -258,7 +274,7 @@ final class MediaKeyInterceptor {
         lock.lock()
         let alreadyInstalled = tapPort != nil
         lock.unlock()
-        guard running, !alreadyInstalled else { return }
+        guard running, !alreadyInstalled, tapFailures < Self.maxTapAttempts else { return }
 
         let mask = CGEventMask(1 << 14) // NSEvent.EventType.systemDefined
         guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap,
@@ -268,9 +284,8 @@ final class MediaKeyInterceptor {
                                            callback: mediaKeyTapCallback,
                                            userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
             tapFailures += 1
-            NSLog("Notch Island: could not create the media-key event tap (attempt \(tapFailures)); the system HUD stays in charge.")
-            // Trust can take a moment to settle after the prompt, so retry a few times.
-            if tapFailures < 5 { pollForTrust() }
+            SystemHUDReplacement.shared.set(false)
+            NSLog("Notch Island: could not create the media-key event tap (attempt \(tapFailures) of \(Self.maxTapAttempts)); the system HUD stays in charge.")
             return
         }
         tapFailures = 0
@@ -330,7 +345,13 @@ final class MediaKeyInterceptor {
         }
         CGEvent.tapEnable(tap: port, enable: true)
         let live = CGEvent.tapIsEnabled(tap: port)
-        DispatchQueue.main.async { SystemHUDReplacement.shared.set(live) }
+        // Asked again on the main thread rather than asserted from here: by the time this
+        // runs the feature may have been switched off, and a stale `true` would leave the
+        // island drawing its display beside the system's with no tap at all behind it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.running else { return }
+            self.verifyTap()
+        }
         NSLog("Notch Island: the media-key event tap was disabled by the system; re-enabled: \(live).")
     }
 
@@ -371,14 +392,7 @@ final class MediaKeyInterceptor {
     /// corrects the answer by the next press.
     private func refreshCapabilities() {
         let brightnessOK = brightness.currentBrightness() != nil
-        let volumeOK: Bool
-        if AudioMonitor.readOutputVolume() != nil {
-            volumeOK = true
-        } else if let output = AudioOutputs.currentOutput() {
-            volumeOK = AudioOutputs.hasVolumeControl(output.id)
-        } else {
-            volumeOK = false
-        }
+        let volumeOK = AudioMonitor.readOutputVolume() != nil || AudioMonitor.outputHasVolumeControl()
         lock.lock()
         canSetBrightness = brightnessOK
         canSetVolume = volumeOK
@@ -422,19 +436,24 @@ final class MediaKeyInterceptor {
         case MediaKey.brightnessDown: adjustBrightness(delta: -1, step: step, isRepeat: isRepeat)
         default: break
         }
-        // Plugging a display in or picking a different output changes what the keys can do,
-        // so the answer is refreshed by the press that follows.
-        refreshCapabilities()
+        // A single press picks up a change at once; an auto-repeat does not, because these
+        // are blocking hardware reads and a held key repeats twenty times a second. The watch
+        // timer covers everything in between.
+        if !isRepeat { refreshCapabilities() }
+    }
+
+    /// A remembered level or mute state belongs to the device it was read from; stepping from
+    /// a stranger's number would write a stranger's number.
+    private func forgetOtherDevices() {
+        let device = AudioMonitor.defaultOutputDevice()
+        guard device != lastVolumeDevice else { return }
+        lastVolume = nil
+        lastMuted = nil
+        lastVolumeDevice = device
     }
 
     private func adjustVolume(delta: Int, step: Float, isRepeat: Bool, flags: CGEventFlags) {
-        // A remembered level belongs to the device it was read from.
-        let device = AudioMonitor.defaultOutputDevice()
-        if device != lastVolumeDevice {
-            lastVolume = nil
-            lastMuted = nil
-            lastVolumeDevice = device
-        }
+        forgetOtherDevices()
         // Some outputs — HDMI, a few AirPlay targets — carry the sound at whatever level the
         // thing at the other end is set to. The key has already been swallowed by the time we
         // get here, so saying so is the only alternative to the press doing nothing at all.
@@ -448,10 +467,9 @@ final class MediaKeyInterceptor {
             // read that merely failed is not a read that could never succeed, and should not
             // be reported as one.
             guard !isRepeat, Preferences.shared.volumeHUDEnabled,
-                  let output = AudioOutputs.currentOutput(),
-                  !AudioOutputs.hasVolumeControl(output.id) else { return }
+                  !AudioMonitor.outputHasVolumeControl() else { return }
             ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud,
-                                                           content: .hud(.unavailableVolume(output: output)),
+                                                           content: .hud(.unavailableVolume(output: AudioOutputs.currentOutput())),
                                                            priority: 85),
                                             duration: 1.5, haptic: false)
             return
@@ -477,6 +495,7 @@ final class MediaKeyInterceptor {
     }
 
     private func toggleMute() {
+        forgetOtherDevices()
         guard let muted = AudioMonitor.readOutputMute() ?? lastMuted else { return }
         let next = !muted
         guard AudioMonitor.writeOutputMute(next) else { return }

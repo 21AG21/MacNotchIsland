@@ -19,8 +19,12 @@ struct HUDExpandedView: View {
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
-                    LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
-                        .frame(height: 4)
+                    // No bar where there is no level: an empty one says "turned all the way
+                    // down", which is not what an output that sets its own level means.
+                    if !state.isUnavailable {
+                        LevelBar(level: state.isMuted ? 0 : state.level, tint: .white)
+                            .frame(height: 4)
+                    }
                     if let device = state.device {
                         Text(device)
                             .font(.system(size: 11, weight: .medium))
@@ -29,7 +33,7 @@ struct HUDExpandedView: View {
                     }
                 }
                 .accessibilityHidden(true)
-                Text(Self.readout(state))
+                Text(LevelHUD.readout(state))
                     .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
                     .contentTransition(.numericText())
@@ -44,12 +48,6 @@ struct HUDExpandedView: View {
             .accessibilityValue(Self.spoken(state))
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
-    }
-
-    /// The number, or what stands in for it when there is no number to give.
-    private static func readout(_ state: LevelHUD) -> String {
-        if state.isUnavailable { return "\u{2014}" }
-        return state.isMuted ? "Muted" : "\(Int((state.level * 100).rounded()))%"
     }
 
     /// "62 percent, AirPods Pro" — the output is worth saying out loud too.
