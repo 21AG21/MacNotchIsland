@@ -61,39 +61,39 @@ struct IslandBodyView: View {
         center.pressedPanel == panelID && !layout.isExpanded
     }
 
-    /// A hairline of the faintest light along the island's own edges.
+    /// `IslandRim`, cut to the shape the island is wearing.
     ///
-    /// Against a pale menu bar the island's black is its own edge and this is barely there.
-    /// Against a dark wallpaper, where macOS draws the menu bar nearly black, it is the only
-    /// thing that says where the island ends — without it the shape dissolves into the bar and
-    /// what is in it reads as two marks floating in a void rather than as one object.
+    /// The fused island has three edges, not four: `openTop` leaves the screen's own out, and
+    /// the fade takes care of the ears that run along it. A floating pill has four real edges
+    /// and gets the whole closed loop at full strength.
     ///
-    /// The fused island has three edges, not four. Its top is not an edge at all: it runs
-    /// along the top of the screen, into the black `topBleed` keeps solid up there, so the
-    /// outline leaves it out (`openTop`) and then fades in as the shape descends. The fade is
-    /// for the ears, which leave the screen edge horizontally — stroking that first stretch
-    /// would lay a lit hairline along the very top row of the display. A floating pill has
-    /// four real edges and gets the whole closed loop at full strength.
+    /// At rest on a notched screen it has none at all. An island showing nothing *is* the
+    /// notch — the same width, the same height, and the black in it is the bezel's — so an
+    /// outline there would trace the camera housing in the island's own rounding rather than
+    /// the housing's, and land beside it. Having something to say is what makes it an object,
+    /// and an object gets an edge.
     @ViewBuilder
     private var rim: some View {
         let outline = NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius,
                                  floating: layout.floating, isPill: layout.isPillBottom,
                                  openTop: !layout.floating)
-            .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            .stroke(IslandRim.color, lineWidth: IslandRim.width)
             .accessibilityHidden(true)
         if layout.floating {
             outline
-        } else {
+        } else if !isResting {
             outline.mask {
                 LinearGradient(colors: [.clear, .black], startPoint: .top,
-                               endPoint: UnitPoint(x: 0.5, y: Self.rimFade / max(1, layout.bodyHeight)))
+                               endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, layout.bodyHeight)))
             }
         }
     }
 
-    /// How far down the fused island's sides the rim takes to reach full strength. Long
-    /// enough to cover the ears' horizontal run, short enough that the sides are still lit.
-    static let rimFade: CGFloat = 10
+    /// Nothing to show: the island is the notch and nothing more.
+    private var isResting: Bool {
+        if case .idle = presentation { return true }
+        return false
+    }
 
     @ViewBuilder
     private var content: some View {

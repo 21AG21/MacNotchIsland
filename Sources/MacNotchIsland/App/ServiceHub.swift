@@ -69,7 +69,10 @@ final class ServiceHub {
         ShelfStore.shared.refreshActivity()
         p.clipboardEnabled ? clipboard.start() : clipboard.stop()
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
-        p.hudReplacementEnabled ? mediaKeys.start() : mediaKeys.stop()
+        // With both displays switched off there is no key left for the island to take, and
+        // an event tap that swallows nothing is not worth asking anyone for Accessibility.
+        (p.hudReplacementEnabled && (p.volumeHUDEnabled || p.brightnessHUDEnabled))
+            ? mediaKeys.start() : mediaKeys.stop()
         p.capsLockEnabled ? capsLock.start() : capsLock.stop()
         if p.quickActionsEnabled && !requestedShortcuts {
             requestedShortcuts = true

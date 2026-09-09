@@ -10,6 +10,11 @@ struct BubbleView: View {
     var body: some View {
         ZStack {
             Circle().fill(Color.black)
+            // The bubble hangs clear of the notch with nothing behind it, so it is an object
+            // on every screen and wears the whole rim — see `IslandRim`.
+            Circle()
+                .strokeBorder(IslandRim.color, lineWidth: IslandRim.width)
+                .accessibilityHidden(true)
             glyph
         }
         .frame(width: diameter, height: diameter)

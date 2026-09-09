@@ -617,9 +617,6 @@ final class MediaKeyInterceptor {
             // not answer just now; it does not claim the hardware is incapable. Repeats stay
             // quiet: the first press of the held key has already said it.
             if !isRepeat { postUnavailable() }
-            // Whatever it is, the cached answer that let this key be swallowed is no longer
-            // to be trusted. A repeat does not refresh at the end of `apply`, so it asks here.
-            if isRepeat { refreshCapabilities() }
             return
         }
         var muted = AudioMonitor.readOutputMute(device: device) ?? lastMuted ?? false

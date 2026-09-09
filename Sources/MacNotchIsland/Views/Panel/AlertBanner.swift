@@ -22,7 +22,8 @@ struct AlertBanner: View {
                     // output that carries its own level has no bar to draw — an empty one
                     // there reads as a Mac turned all the way down, which is the opposite.
                     if hud.isUnavailable {
-                        Text(hud.device ?? "Set on the device")
+                        // The output is named in the title; this says what to do about it.
+                        Text("Set on the device")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                             .lineLimit(1)
@@ -61,7 +62,12 @@ struct AlertBanner: View {
         case .timer(let t): return t.isFinished ? "\(t.label) done" : t.label
         case .unlock: return "Unlocked"
         case .silent(let s): return s.isSilent ? "Silent" : "Sound on"
-        case .hud(let h): return h.isMuted ? "Muted" : h.title
+        // Where the sound is going, whenever that is worth saying — it is the one thing the
+        // system's bezel never tells you, and the reason this display is worth having. The
+        // glyph beside it is already that device's, and the bar and the figure to the right
+        // say the level, so the word "Volume" here would be the only thing in the row that
+        // said nothing.
+        case .hud(let h): return h.isMuted ? "Muted" : (h.device ?? h.title)
         default: return IslandAccessibility.compactLabel(for: activity.content)
         }
     }
