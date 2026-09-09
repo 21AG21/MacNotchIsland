@@ -45,7 +45,7 @@ struct TodaySectionView: View {
             HStack(spacing: 5) {
                 Image(systemName: weather.conditionSymbol)
                     .font(.system(size: 11, weight: .semibold))
-                Text(WeatherService.formatTemperature(celsius, usesMetric: WeatherService.usesMetric)
+                Text(WeatherService.formatTemperature(celsius, fahrenheit: WeatherService.usesFahrenheit)
                      + (weather.conditionText.isEmpty ? "" : "  " + weather.conditionText))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)

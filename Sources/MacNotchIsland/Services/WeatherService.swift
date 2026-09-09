@@ -432,10 +432,14 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     // MARK: - Formatting (pure, unit-tested)
 
-    /// True when this Mac's locale wants Celsius and km/h.
-    static var usesMetric: Bool {
-        Locale.current.measurementSystem == .metric
-    }
+    /// Which units this Mac's reader wants. Two questions, not one.
+    ///
+    /// `Locale.MeasurementSystem` has three cases and only one of them is `.metric`: the
+    /// United Kingdom is its own, and it takes its temperature in Celsius and its speed in
+    /// miles per hour. Asking `== .metric` for both — which is what this did — put Fahrenheit
+    /// in front of every reader in Britain.
+    static var usesFahrenheit: Bool { Locale.current.measurementSystem == .us }
+    static var usesMilesPerHour: Bool { Locale.current.measurementSystem != .metric }
 
     /// WMO weather interpretation code → an SF Symbol and a short label. Night codes get
     /// the moon variants where one exists. Anything unrecognised falls back to plain cloud.
@@ -462,19 +466,19 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         }
     }
 
-    /// "21°" — whole degrees in the reader's scale. The scale is chosen by the caller
-    /// (`usesMetric`) rather than spelled out, the way every weather widget shows it.
-    static func formatTemperature(_ celsius: Double, usesMetric: Bool) -> String {
-        let value = usesMetric ? celsius : celsius * 9 / 5 + 32
+    /// "21°" — whole degrees in the reader's scale, which the caller names rather than the
+    /// number spelling it out, the way every weather widget shows it.
+    static func formatTemperature(_ celsius: Double, fahrenheit: Bool) -> String {
+        let value = fahrenheit ? celsius * 9 / 5 + 32 : celsius
         let rounded = Int(value.rounded())
         return "\(rounded)°"
     }
 
     /// "12 km/h" or "8 mph", whole units.
-    static func formatWind(_ kmh: Double, usesMetric: Bool) -> String {
-        if usesMetric {
-            return "\(Int(kmh.rounded())) km/h"
+    static func formatWind(_ kmh: Double, milesPerHour: Bool) -> String {
+        if milesPerHour {
+            return "\(Int((kmh * 0.621371).rounded())) mph"
         }
-        return "\(Int((kmh * 0.621371).rounded())) mph"
+        return "\(Int(kmh.rounded())) km/h"
     }
 }

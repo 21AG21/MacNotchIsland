@@ -78,34 +78,34 @@ final class WeatherServiceTests: XCTestCase {
     // MARK: - formatTemperature
 
     func testMetricTemperatureIsWholeCelsius() {
-        XCTAssertEqual(WeatherService.formatTemperature(21.4, usesMetric: true), "21°")
-        XCTAssertEqual(WeatherService.formatTemperature(21.6, usesMetric: true), "22°")
-        XCTAssertEqual(WeatherService.formatTemperature(0, usesMetric: true), "0°")
+        XCTAssertEqual(WeatherService.formatTemperature(21.4, fahrenheit: false), "21°")
+        XCTAssertEqual(WeatherService.formatTemperature(21.6, fahrenheit: false), "22°")
+        XCTAssertEqual(WeatherService.formatTemperature(0, fahrenheit: false), "0°")
     }
 
     func testImperialTemperatureConvertsToFahrenheit() {
-        XCTAssertEqual(WeatherService.formatTemperature(0, usesMetric: false), "32°")
-        XCTAssertEqual(WeatherService.formatTemperature(100, usesMetric: false), "212°")
-        XCTAssertEqual(WeatherService.formatTemperature(21.4, usesMetric: false), "71°")
+        XCTAssertEqual(WeatherService.formatTemperature(0, fahrenheit: true), "32°")
+        XCTAssertEqual(WeatherService.formatTemperature(100, fahrenheit: true), "212°")
+        XCTAssertEqual(WeatherService.formatTemperature(21.4, fahrenheit: true), "71°")
     }
 
     func testFreezingTemperaturesKeepTheirSign() {
-        XCTAssertEqual(WeatherService.formatTemperature(-3.4, usesMetric: true), "-3°")
-        XCTAssertEqual(WeatherService.formatTemperature(-40, usesMetric: false), "-40°")
+        XCTAssertEqual(WeatherService.formatTemperature(-3.4, fahrenheit: false), "-3°")
+        XCTAssertEqual(WeatherService.formatTemperature(-40, fahrenheit: true), "-40°")
     }
 
     func testNearZeroNeverPrintsMinusZero() {
-        XCTAssertEqual(WeatherService.formatTemperature(-0.4, usesMetric: true), "0°")
+        XCTAssertEqual(WeatherService.formatTemperature(-0.4, fahrenheit: false), "0°")
     }
 
     // MARK: - formatWind
 
     func testWindFormatting() {
-        XCTAssertEqual(WeatherService.formatWind(12.3, usesMetric: true), "12 km/h")
-        XCTAssertEqual(WeatherService.formatWind(0, usesMetric: true), "0 km/h")
+        XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: false), "12 km/h")
+        XCTAssertEqual(WeatherService.formatWind(0, milesPerHour: false), "0 km/h")
         // 12.3 km/h is 7.6 mph.
-        XCTAssertEqual(WeatherService.formatWind(12.3, usesMetric: false), "8 mph")
-        XCTAssertEqual(WeatherService.formatWind(100, usesMetric: false), "62 mph")
+        XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: true), "8 mph")
+        XCTAssertEqual(WeatherService.formatWind(100, milesPerHour: true), "62 mph")
     }
 
     // MARK: - forecastURL
@@ -249,4 +249,20 @@ final class WeatherServiceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(WeatherService.Snapshot.self, from: data)
         XCTAssertEqual(decoded, original)
     }
+    // MARK: - Which units, for whom
+
+    /// Three measurement systems, not two. Britain takes its temperature in Celsius and its
+    /// speed in miles per hour, and one flag for both put Fahrenheit in front of every reader
+    /// there.
+    func testTheUnitedKingdomGetsCelsiusAndMilesPerHour() {
+        for (system, fahrenheit, mph) in [(Locale.MeasurementSystem.metric, false, false),
+                                          (.uk, false, true),
+                                          (.us, true, true)] {
+            XCTAssertEqual(system == .us, fahrenheit, "\(system) and Fahrenheit")
+            XCTAssertEqual(system != .metric, mph, "\(system) and miles per hour")
+        }
+        XCTAssertEqual(WeatherService.formatTemperature(21.4, fahrenheit: false), "21°")
+        XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: true), "8 mph")
+    }
+
 }
