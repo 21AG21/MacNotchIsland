@@ -127,9 +127,13 @@ final class ScreenshotMonitor {
         ShelfStore.shared.add([url])
         let name = url.lastPathComponent
         let isRecording = url.pathExtension.lowercased() == "mov"
+        // "On the shelf" is the whole point of the alert, and the trailing slot is the only
+        // half of the pill that carries text: without it this was a camera glyph beside an
+        // ellipsis, and neither the file's name nor where it went was ever said.
         let custom = CustomActivity(title: isRecording ? "Screen recording" : "Screenshot",
                                     subtitle: name,
                                     symbol: isRecording ? "record.circle" : "camera.viewfinder",
+                                    trailingText: "On the shelf",
                                     url: url)
         var alert = IslandActivity(id: "screenshot-" + name, kind: .custom, content: .custom(custom), priority: 85)
         alert.openAction = .url(url)

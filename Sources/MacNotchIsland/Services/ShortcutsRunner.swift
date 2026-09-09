@@ -92,15 +92,27 @@ final class ShortcutsRunner: ObservableObject {
             DispatchQueue.main.async {
                 ActivityCenter.shared.end(id: activityID)
                 if result.succeeded {
+                    // The word goes in the trailing slot, which is the only half of the pill
+                    // that carries text. As the title it was invisible: the pill showed a
+                    // green tick beside the ellipsis a custom activity draws when it has no
+                    // value to put there. The name is still the title, so resting on it names
+                    // the shortcut that finished.
                     ActivityCenter.shared.showAlert(IslandActivity(
                         id: activityID + "-result", kind: .custom,
-                        content: .custom(CustomActivity(title: "Done", symbol: "checkmark.circle.fill", tint: "green")),
+                        content: .custom(CustomActivity(title: name, symbol: "checkmark.circle.fill",
+                                                        tint: "green", trailingText: "Done")),
                         priority: 90), duration: 2)
                 } else {
+                    // A failure opens as the card and stays long enough to read. The reason
+                    // the Shortcuts app gave was being handed to a pill that has nowhere to
+                    // draw a subtitle, so it went nowhere at all.
                     ActivityCenter.shared.showAlert(IslandActivity(
                         id: activityID + "-result", kind: .custom,
-                        content: .custom(CustomActivity(title: "Failed", subtitle: result.stderrFirstLine, symbol: "xmark.circle.fill", tint: "red")),
-                        priority: 90), duration: 2)
+                        content: .custom(CustomActivity(title: name,
+                                                        subtitle: Self.reason(from: result.stderrFirstLine),
+                                                        symbol: "exclamationmark.triangle.fill",
+                                                        tint: "red", trailingText: "Failed")),
+                        priority: 90, presentation: .expanded), duration: 5)
                 }
             }
         }
@@ -109,6 +121,19 @@ final class ShortcutsRunner: ObservableObject {
     private struct ProcessResult {
         var succeeded: Bool
         var stderrFirstLine: String?
+    }
+
+    /// What `shortcuts` printed, tidied into one line of a card: trimmed, and cut at a length
+    /// that still ends in a whole word. Nil or blank becomes a sentence rather than a gap,
+    /// because a failure with no reason at all still has to say that it failed.
+    static func reason(from stderr: String?) -> String {
+        let text = (stderr ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "The Shortcuts app gave no reason." }
+        let limit = 64
+        guard text.count > limit else { return text }
+        let head = text.prefix(limit)
+        let cut = head.lastIndex(of: " ").map { String(head[..<$0]) } ?? String(head)
+        return cut.trimmingCharacters(in: .whitespaces) + "…"
     }
 
     private static func execute(arguments: [String]) -> ProcessResult {

@@ -27,4 +27,28 @@ final class ShortcutsRunnerTests: XCTestCase {
         XCTAssertEqual(ShortcutsRunner.parseList(""), [])
         XCTAssertEqual(ShortcutsRunner.parseList("\n\n   \n"), [])
     }
+
+    // MARK: - What a failed shortcut says
+
+    func testAFailureWithNothingToSayStillSaysSomething() {
+        XCTAssertFalse(ShortcutsRunner.reason(from: nil).isEmpty)
+        XCTAssertFalse(ShortcutsRunner.reason(from: "   \n ").isEmpty)
+        XCTAssertEqual(ShortcutsRunner.reason(from: nil), ShortcutsRunner.reason(from: ""))
+    }
+
+    func testAReasonIsTrimmedAndKeptToOneReadableLine() {
+        XCTAssertEqual(ShortcutsRunner.reason(from: "  No such shortcut.  "), "No such shortcut.")
+        let long = "The operation could not be completed because the shortcut asked for something this Mac does not have"
+        let short = ShortcutsRunner.reason(from: long)
+        XCTAssertLessThanOrEqual(short.count, 66, short)
+        XCTAssertTrue(short.hasSuffix("…"), short)
+        // Cut at a space, so the line never ends mid-word.
+        XCTAssertFalse(short.dropLast().hasSuffix(" "), short)
+        XCTAssertTrue(long.hasPrefix(String(short.dropLast())), short)
+    }
+
+    func testAReasonThatAlreadyFitsIsLeftAlone() {
+        let text = "Shortcut “Morning” was not found."
+        XCTAssertEqual(ShortcutsRunner.reason(from: text), text)
+    }
 }

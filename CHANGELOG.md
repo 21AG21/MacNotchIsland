@@ -32,6 +32,13 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **Three alerts that had nothing to say now say it.** A custom activity draws an ellipsis in
+  the pill when it carries no trailing value, and three of the app's own alerts were relying
+  on a title the pill has no room for. Running a Shortcut showed a green tick beside an
+  ellipsis instead of "Done", and — worse — a failed one showed a red cross beside an
+  ellipsis while the reason the Shortcuts app gave went nowhere at all; a failure now opens as
+  the card, names the shortcut, and stays long enough to read the reason. A screenshot says
+  "On the shelf", and copied diagnostics say "Copied".
 - **"Check for Updates…" no longer says "Up to date" when it could not ask.** A Mac with no
   network, or GitHub answering 403, took the same branch as a successful check and got the
   green tick — the one thing a check like this must never get wrong. There are now three

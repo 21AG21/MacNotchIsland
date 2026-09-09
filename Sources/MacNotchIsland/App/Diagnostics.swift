@@ -17,7 +17,8 @@ enum Diagnostics {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(text, forType: .string)
-                let done = CustomActivity(title: "Diagnostics copied")
+                let done = CustomActivity(title: "Diagnostics copied", symbol: "doc.on.clipboard",
+                                          trailingText: "Copied")
                 ActivityCenter.shared.showAlert(IslandActivity(id: "diagnostics", kind: .custom, content: .custom(done), priority: 85),
                                                 duration: 2, haptic: false)
             }
