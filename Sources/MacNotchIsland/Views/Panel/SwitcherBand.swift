@@ -106,18 +106,28 @@ struct SwitcherBand: View {
     /// it left the whole left half of the band empty and every glyph sitting right of centre,
     /// around a camera housing that is not there.
     private var single: some View {
+        // The close button's room is kept whether or not it is showing, as it is on a notched
+        // screen: the slots must not resize and shuffle along the moment a peeked panel is
+        // pinned.
         let closeRoom: CGFloat = Self.slot + 6
         let step: CGFloat = cards.isEmpty ? 0 : Self.groupGap
-        let room = IslandLayout.panelWidth - Self.inset * 2 - closeRoom - step
-        let row = Self.fit(cards + sections, in: room)
-        let shown = row.views
-        return HStack(spacing: row.gap) {
-            ForEach(Array(shown.prefix(cards.count)), id: \.self) { view in slotView(view, size: row.slot) }
-            if step > 0 { Color.clear.frame(width: step) }
-            ForEach(Array(shown.dropFirst(cards.count)), id: \.self) { view in slotView(view, size: row.slot) }
+        let row = Self.fit(cards + sections, in: IslandLayout.panelWidth - Self.inset * 2 - closeRoom - step)
+        let shownCards = Array(row.views.prefix(cards.count))
+        let shownSections = Array(row.views.dropFirst(cards.count))
+        // Spaced by hand rather than by the stack, so the step between the two groups is the
+        // step and not the step plus a gap either side of it — which is what the row was
+        // measured for.
+        return HStack(spacing: 0) {
+            HStack(spacing: row.gap) {
+                ForEach(shownCards, id: \.self) { view in slotView(view, size: row.slot) }
+            }
+            if !shownCards.isEmpty { Color.clear.frame(width: step) }
+            HStack(spacing: row.gap) {
+                ForEach(shownSections, id: \.self) { view in slotView(view, size: row.slot) }
+            }
             // Before the spacer, not after it: on the far side the name would push the close
             // button left every time the pointer crossed a slot.
-            if let name = label { hoverName(name).padding(.leading, 6) }
+            if let name = label { hoverName(name).padding(.leading, 8) }
             Spacer(minLength: 0)
             if center.isOpen { closeButton(size: row.slot) }
         }
