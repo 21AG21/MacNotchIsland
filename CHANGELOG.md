@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Where the sound comes from, as well as where it goes.** The rail's sound button lists both
+  halves of Control Centre's Sound module now — Output, and Input where there is more than one
+  to choose from. Which microphone the Mac is listening to is the setting nobody can reach
+  without opening System Settings, and it is the one that matters in the half-second before a
+  call starts.
 - **Controls: the two lists Control Centre has and a row of toggles cannot.** A new section
   holding the networks in range and the devices this Mac is paired with, each under its own
   switch. Click a network you have joined before and it joins again; click one you have not and

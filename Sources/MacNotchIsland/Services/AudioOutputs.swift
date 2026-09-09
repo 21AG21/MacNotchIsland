@@ -65,6 +65,10 @@ final class AudioOutputs: ObservableObject {
 
     @Published private(set) var devices: [Device] = []
     @Published private(set) var current: Device?
+    /// Where the sound comes *from*: the other half of Control Centre's Sound module, and the
+    /// half nobody can reach without opening System Settings.
+    @Published private(set) var inputs: [Device] = []
+    @Published private(set) var currentInput: Device?
     /// 0...1, or nil when the device has no volume control (HDMI, some AirPlay targets).
     @Published private(set) var volume: Float?
     @Published private(set) var isMuted = false
@@ -115,6 +119,7 @@ final class AudioOutputs: ObservableObject {
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
         if list != devices { devices = list }
+        reloadInputs()
         let defaultID = AudioMonitor.defaultOutputDevice()
         let now = list.first { $0.id == defaultID }
         if now != current { current = now }
@@ -135,6 +140,46 @@ final class AudioOutputs: ObservableObject {
             }
         }
         reloadLevel()
+    }
+
+    /// The devices that can record, and which of them the Mac is listening to.
+    private func reloadInputs() {
+        let list = Self.allDeviceIDs()
+            .filter { Self.inputStreamCount($0) > 0 }
+            .map { Device(id: $0, name: Self.name(of: $0), transport: Self.transport(of: $0)) }
+            .sorted { a, b in
+                if (a.transport == kAudioDeviceTransportTypeBuiltIn) != (b.transport == kAudioDeviceTransportTypeBuiltIn) {
+                    return a.transport == kAudioDeviceTransportTypeBuiltIn
+                }
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        if list != inputs { inputs = list }
+        let defaultID = Self.defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
+        let now = list.first { $0.id == defaultID }
+        if now != currentInput { currentInput = now }
+    }
+
+    /// Which device a system-wide default points at.
+    static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioDeviceID {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr else { return 0 }
+        return device
+    }
+
+    /// Listens through this one instead. The same write the Sound pane makes.
+    func selectInput(_ device: Device) {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var id = device.id
+        let status = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+                                                UInt32(MemoryLayout<AudioDeviceID>.size), &id)
+        if status != noErr {
+            IslandLog.island.error("could not switch the input: \(status, privacy: .public)")
+        }
+        reloadInputs()
     }
 
     private func reloadLevel() {
@@ -223,8 +268,16 @@ final class AudioOutputs: ObservableObject {
     }
 
     private static func outputStreamCount(_ device: AudioDeviceID) -> Int {
+        streamCount(device, scope: kAudioDevicePropertyScopeOutput)
+    }
+
+    private static func inputStreamCount(_ device: AudioDeviceID) -> Int {
+        streamCount(device, scope: kAudioDevicePropertyScopeInput)
+    }
+
+    private static func streamCount(_ device: AudioDeviceID, scope: AudioObjectPropertyScope) -> Int {
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
-                                                 mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+                                                 mScope: scope, mElement: kAudioObjectPropertyElementMain)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr else { return 0 }
         return Int(size) / MemoryLayout<AudioStreamID>.size

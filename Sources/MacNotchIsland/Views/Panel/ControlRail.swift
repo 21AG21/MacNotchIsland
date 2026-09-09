@@ -133,12 +133,30 @@ struct ControlRail: View {
                 outputGlyph
             } else {
                 Menu {
-                    ForEach(outputs.devices) { device in
-                        Button(action: { outputs.select(device) }) {
-                            if device == outputs.current {
-                                Label(device.shortName, systemImage: "checkmark")
-                            } else {
-                                Text(device.shortName)
+                    // Both halves of Control Centre's Sound module. The input is the one
+                    // nobody can reach without opening System Settings, and it is the one
+                    // that matters at the moment a call starts.
+                    Section("Output") {
+                        ForEach(outputs.devices) { device in
+                            Button(action: { outputs.select(device) }) {
+                                if device == outputs.current {
+                                    Label(device.shortName, systemImage: "checkmark")
+                                } else {
+                                    Text(device.shortName)
+                                }
+                            }
+                        }
+                    }
+                    if outputs.inputs.count > 1 {
+                        Section("Input") {
+                            ForEach(outputs.inputs) { device in
+                                Button(action: { outputs.selectInput(device) }) {
+                                    if device == outputs.currentInput {
+                                        Label(device.shortName, systemImage: "checkmark")
+                                    } else {
+                                        Text(device.shortName)
+                                    }
+                                }
                             }
                         }
                     }
@@ -154,8 +172,8 @@ struct ControlRail: View {
                 .fixedSize()
             }
         }
-        .help(outputs.current.map { "Sound is going to \($0.name)" } ?? "Choose the output")
-        .accessibilityLabel("Output: \(outputs.current?.name ?? "unknown")")
+        .help(outputs.current.map { "Sound is going to \($0.name)" } ?? "Choose where the sound goes")
+        .accessibilityLabel("Sound: \(outputs.current?.name ?? "unknown")")
     }
 
     private var brightnessControl: some View {
