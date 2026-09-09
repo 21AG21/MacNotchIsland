@@ -240,4 +240,57 @@ final class IslandTimerTests: XCTestCase {
     func testARunningTimerIsJustItsName() {
         XCTAssertEqual(TimerExpandedView.headline(for: state("Pasta")), "Pasta")
     }
+
+    // MARK: - The sleep timer
+
+    func testASleepTimerIsACountdownWithAJobAtTheEndOfIt() {
+        let timer = IslandTimer.shared
+        timer.cancelAll()
+        defer { timer.cancelAll() }
+        timer.startSleep(seconds: 30 * 60)
+        let sleeping = timer.sleepTimer
+        XCTAssertNotNil(sleeping)
+        XCTAssertEqual(sleeping?.whenDone, .pausePlayback)
+        XCTAssertEqual(sleeping?.label, IslandTimer.sleepLabel)
+    }
+
+    func testThereIsOnlyEverOneOfThem() {
+        // Two countdowns racing to silence the same track is not what anybody asked for.
+        let timer = IslandTimer.shared
+        timer.cancelAll()
+        defer { timer.cancelAll() }
+        timer.startSleep(seconds: 15 * 60)
+        let first = timer.sleepTimer?.id
+        timer.startSleep(seconds: 45 * 60)
+        XCTAssertEqual(timer.timers.filter { $0.whenDone == .pausePlayback }.count, 1)
+        XCTAssertNotEqual(timer.sleepTimer?.state.total, 15 * 60, "the new one replaced it")
+        XCTAssertNotNil(first)
+    }
+
+    func testCancellingOneLeavesTheOtherTimersAlone() {
+        let timer = IslandTimer.shared
+        timer.cancelAll()
+        defer { timer.cancelAll() }
+        timer.start(seconds: 5 * 60, label: "Tea")
+        timer.startSleep(seconds: 30 * 60)
+        timer.cancelSleep()
+        XCTAssertNil(timer.sleepTimer)
+        XCTAssertEqual(timer.timers.map(\.label), ["Tea"])
+    }
+
+    func testAnOrdinaryTimerHasNoJobAtTheEnd() {
+        let timer = IslandTimer.shared
+        timer.cancelAll()
+        defer { timer.cancelAll() }
+        timer.start(seconds: 60, label: "Tea")
+        XCTAssertEqual(timer.timers.first?.whenDone, TimerFinish.none)
+        XCTAssertNil(timer.sleepTimer)
+    }
+
+    func testTheSleepChoicesReadTheWayAClockSaysThem() {
+        XCTAssertEqual(IslandMenu.sleepTitle(15), "15 minutes")
+        XCTAssertEqual(IslandMenu.sleepTitle(60), "1 hour")
+        XCTAssertEqual(IslandMenu.sleepTitle(90), "1 hour 30 minutes")
+        XCTAssertEqual(IslandMenu.sleepTitle(120), "2 hours")
+    }
 }

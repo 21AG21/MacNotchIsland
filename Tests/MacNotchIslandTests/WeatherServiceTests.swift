@@ -118,8 +118,10 @@ final class WeatherServiceTests: XCTestCase {
         let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
         XCTAssertEqual(values["current"], "temperature_2m,weather_code,wind_speed_10m,is_day")
         XCTAssertEqual(values["daily"], "temperature_2m_max,temperature_2m_min")
+        XCTAssertEqual(values["hourly"], "temperature_2m,weather_code,is_day")
         XCTAssertEqual(values["timezone"], "auto")
-        XCTAssertEqual(values["forecast_days"], "1")
+        // Two, because "the next six hours" at nine in the evening is tomorrow.
+        XCTAssertEqual(values["forecast_days"], "2")
     }
 
     func testForecastURLRoundsTheCoordinateItSends() throws {

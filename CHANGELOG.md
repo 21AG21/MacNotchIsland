@@ -6,6 +6,12 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **A sleep timer.** The thing everybody sets on a phone at night, on the Mac at last: right-
+  click the island while something is playing and pick how long — fifteen minutes to an hour and
+  a half — and the music stops at the end of it. It is a real countdown with a real card, so
+  you can see how long is left, pause it, add a minute or cancel it; it just does not ring,
+  because waking somebody to tell them the music has stopped is the opposite of what they
+  asked for. One at a time, and `notchctl sleep 30` for a script.
 - **A window tile has a menu.** Right-click one for everything the zones on it do, in words —
   and the two they cannot: hiding the app and quitting it, both named, so nobody quits
   something by reaching for a glyph. Nothing else on the Mac lets you quit an app from a

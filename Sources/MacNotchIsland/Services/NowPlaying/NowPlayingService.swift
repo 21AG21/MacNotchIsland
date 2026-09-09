@@ -277,6 +277,14 @@ final class NowPlayingService: ObservableObject {
         optimisticallyToggle()
     }
 
+    /// Stops whatever is playing, and does nothing at all when nothing is. What a sleep timer
+    /// asks for at the end of it: `togglePlayPause` on a Mac that has already gone quiet would
+    /// start the music up again, which is the one thing it must not do.
+    func pauseIfPlaying() {
+        guard info?.isPlaying == true else { return }
+        togglePlayPause()
+    }
+
     func next() {
         switch activeBackend {
         case .appleScript: appleScript.command(.next, bundleID: info?.bundleID)

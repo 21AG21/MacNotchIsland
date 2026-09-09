@@ -11,6 +11,7 @@
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
 #   notchctl timer add [minutes]                (another minute for the running timer)
 #   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
+#   notchctl sleep [minutes]                     notchctl sleep cancel
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
 #   notchctl home [home|music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
@@ -90,6 +91,12 @@ case "$cmd" in
       *) add minutes "${1:?minutes required}"; shift; parse_flags "$@"; open_url "timer" ;;
     esac ;;
   # The URL scheme has had these since the stopwatch did; this wrapper had not.
+  sleep)
+    case "${1:-}" in
+      cancel|stop) open_url "sleep/cancel" ;;
+      "") open_url "sleep" ;;
+      *) add minutes "$1"; open_url "sleep" ;;
+    esac ;;
   stopwatch)
     case "${1:-}" in
       ""|start) open_url "stopwatch" ;;

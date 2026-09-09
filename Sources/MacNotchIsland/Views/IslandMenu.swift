@@ -18,6 +18,7 @@ struct IslandMenu: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var volumes = VolumeMonitor.shared
+    @ObservedObject private var timers = IslandTimer.shared
 
     var body: some View {
         if let activity, Self.hasCommands(activity.content) {
@@ -64,6 +65,7 @@ struct IslandMenu: View {
             Button(info.isPlaying ? "Pause" : "Play") { NowPlayingService.shared.togglePlayPause() }
             Button("Next Track") { NowPlayingService.shared.next() }
             Button("Previous Track") { NowPlayingService.shared.previous() }
+            sleepMenu
         case .timer(let state):
             if state.isFinished {
                 Button("Repeat") { IslandTimer.shared.repeatLast() }
@@ -97,6 +99,36 @@ struct IslandMenu: View {
         default:
             EmptyView()
         }
+    }
+
+    /// The thing everybody sets a timer on a phone for at night, on the Mac at last: a
+    /// countdown whose whole point is the silence at the end of it.
+    @ViewBuilder
+    private var sleepMenu: some View {
+        if let sleeping = timers.sleepTimer {
+            Button("Cancel Sleep Timer") { IslandTimer.shared.cancelSleep() }
+                .help(sleeping.label)
+        } else {
+            Menu("Stop Playing In") {
+                ForEach(Self.sleepChoices, id: \.self) { minutes in
+                    Button(Self.sleepTitle(minutes)) {
+                        IslandTimer.shared.startSleep(seconds: TimeInterval(minutes) * 60)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The choices, in minutes. The ones a bedside timer offers.
+    static let sleepChoices = [15, 30, 45, 60, 90]
+
+    /// "15 minutes", "1 hour", "1 hour 30 minutes".
+    static func sleepTitle(_ minutes: Int) -> String {
+        guard minutes >= 60 else { return "\(minutes) minutes" }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        let hourText = hours == 1 ? "1 hour" : "\(hours) hours"
+        return rest == 0 ? hourText : "\(hourText) \(rest) minutes"
     }
 
     /// Everything this Mac is paired with, connected first. A click connects what is not and

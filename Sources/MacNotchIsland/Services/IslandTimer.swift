@@ -4,10 +4,19 @@ import UserNotifications
 
 /// One countdown owned by `IslandTimer`. iOS runs several at once: whichever finishes soonest
 /// takes the island and the others fall back to the minimal bubble.
+/// What a timer does when it rings, beyond ringing. A sleep timer is a countdown whose
+/// whole point is what happens at the end of it.
+enum TimerFinish: Equatable {
+    case none
+    /// Stop whatever is playing — the thing everybody sets a timer on a phone for at night.
+    case pausePlayback
+}
+
 struct TimerEntry: Identifiable, Equatable {
     let id: String
     var label: String
     var state: TimerState
+    var whenDone: TimerFinish = .none
     /// Higher wins the island. The soonest-to-finish timer sits one point above the rest.
     var priority: Int = 90
     var createdAt: Date = Date()
@@ -124,6 +133,30 @@ final class IslandTimer: ObservableObject {
 
     func repeatLast() {
         start(seconds: lastDuration, label: lastLabel)
+    }
+
+    /// The label a sleep timer wears, and the one the card shows.
+    static let sleepLabel = "Sleep"
+
+    /// Stop playing in so many seconds. One at a time: asking for another moves the old one
+    /// rather than leaving two countdowns racing to silence the same track.
+    func startSleep(seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        cancelSleep()
+        guard let id = add(seconds: seconds, label: Self.sleepLabel) else { return }
+        guard let index = timers.firstIndex(where: { $0.id == id }) else { return }
+        timers[index].whenDone = .pausePlayback
+        publishAll()
+    }
+
+    /// The sleep timer, if one is counting down.
+    var sleepTimer: TimerEntry? {
+        timers.first { $0.whenDone == .pausePlayback && !$0.state.isFinished }
+    }
+
+    func cancelSleep() {
+        guard let entry = sleepTimer else { return }
+        cancel(id: entry.id)
     }
 
     /// Adds a timer and returns its activity id, or `nil` when the island is already full.
@@ -376,6 +409,13 @@ final class IslandTimer: ObservableObject {
     }
 
     private func finish(_ entry: TimerEntry) {
+        // A sleep timer's job is the silence at the end of it, so it does not ring: waking
+        // somebody to tell them the music has stopped is the opposite of what they asked for.
+        if entry.whenDone == .pausePlayback {
+            NowPlayingService.shared.pauseIfPlaying()
+            remove(id: entry.id)
+            return
+        }
         if Preferences.shared.timerSoundEnabled {
             NSSound(named: "Glass")?.play()
         }
