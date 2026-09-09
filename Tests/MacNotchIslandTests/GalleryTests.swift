@@ -384,6 +384,14 @@ final class GalleryTests: XCTestCase {
             Scene(name: "card-call") { c in c.upsert(call()); c.forceExpanded(id: "call", for: 60) },
 
             // The panel, pinned, on each view it can show.
+            Scene(name: "panel-home", setup: panel("home") { c in
+                c.upsert(nowPlaying())
+                clipboard()
+                today()
+                favouriteApps()
+                NotesStore.shared.text = "Ring the dentist\nPick up the parcel"
+            }),
+            Scene(name: "panel-home-quiet", setup: panel("home")),
             Scene(name: "panel-music", setup: panel("music") { c in c.upsert(nowPlaying()) }),
             Scene(name: "panel-music-empty", setup: panel("music")),
             Scene(name: "panel-today", setup: panel("today") { _ in today() }),

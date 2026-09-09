@@ -6,6 +6,13 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **A Home for the panel.** The panel opens on a grid of tiles now, the way Control Centre is
+  arranged: what is playing takes a wide tile with its cover and a play button on it, and every
+  other section is a tile beside it carrying its name and a glimpse of what is in it — the next
+  thing in your day, how many files are on the shelf, the first line of your notes. Click one
+  and it opens. A row of small glyphs beside the notch says a section exists; it does not say
+  what is in it, and somebody who has just installed the app has no way of finding out. The
+  switcher is still there for going straight somewhere, and Home is the first slot on it.
 - **Walk the matches with the arrow keys.** Type-to-find is the rest of the way to Spotlight
   now: type, press ↑ or ↓ to move through what is left — wrapping at both ends the way a menu
   does — and Return takes the one you are on rather than always the first. The row it is on

@@ -72,7 +72,8 @@ struct PanelView: View {
                 MusicSectionView(geometry: geometry)
             }
         case .home(let tab):
-            switch HomeSection(rawValue: tab) ?? .music {
+            switch HomeSection(rawValue: tab) ?? .home {
+            case .home: HomeGridView()
             case .music: MusicSectionView(geometry: geometry)
             case .today: TodaySectionView()
             case .windows: WindowsSectionView()

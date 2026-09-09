@@ -3,10 +3,15 @@ import Foundation
 /// The sections of the Home panel, in the order the switcher shows them. The one list the
 /// switcher, the keyboard ring, the swipes, the URL scheme and the panel itself all read.
 enum HomeSection: String, CaseIterable {
+    /// The panel's front door: every section as a tile, with a glimpse of what is in it. The
+    /// way Control Centre is arranged, and the way somebody who has never opened this app
+    /// finds out that any of the rest of it exists.
+    case home
     case music, today, windows, shelf, clipboard, actions, notes, stats
 
     var title: String {
         switch self {
+        case .home: return "Home"
         case .music: return "Now Playing"
         case .today: return "Today"
         case .windows: return "Windows"
@@ -20,6 +25,7 @@ enum HomeSection: String, CaseIterable {
 
     var symbol: String {
         switch self {
+        case .home: return "square.grid.2x2"
         case .music: return "music.note"
         case .today: return "calendar"
         case .windows: return "macwindow.on.rectangle"
@@ -35,6 +41,9 @@ enum HomeSection: String, CaseIterable {
     /// it is what the island is for.
     func isEnabled(_ prefs: Preferences) -> Bool {
         switch self {
+        // Neither of these has a switch: one is the way to everything else, the other is what
+        // the island is for.
+        case .home: return true
         case .music: return true
         case .today: return prefs.calendarEnabled
         case .windows: return prefs.windowsEnabled
@@ -49,7 +58,7 @@ enum HomeSection: String, CaseIterable {
     /// Switches a section on or off. Now Playing has no switch, so it is left alone.
     func setEnabled(_ enabled: Bool, in prefs: Preferences) {
         switch self {
-        case .music: break
+        case .home, .music: break
         case .today: prefs.calendarEnabled = enabled
         case .windows: prefs.windowsEnabled = enabled
         case .shelf: prefs.shelfEnabled = enabled
@@ -87,7 +96,12 @@ enum HomeSection: String, CaseIterable {
         ordered(prefs).filter { $0.isEnabled(prefs) }
     }
 
-    static let fallback = HomeSection.music
+    static let fallback = HomeSection.home
+
+    /// The sections the Home grid shows as tiles: everything but itself.
+    static func tiles(_ prefs: Preferences) -> [HomeSection] {
+        ordered(prefs).filter { $0 != .home && $0.isEnabled(prefs) }
+    }
 
     /// The section a raw tab name maps to, or the nearest one that is switched on.
     static func resolve(_ raw: String, prefs: Preferences) -> HomeSection {

@@ -318,6 +318,16 @@ final class ActivityCenterTests: XCTestCase {
 
     // MARK: - The order of the sections
 
+    func testTheGridIsTheFrontDoorAndCannotBeSwitchedOff() {
+        let prefs = Preferences.shared
+        XCTAssertEqual(HomeSection.allCases.first, .home, "Home is the first slot on the switcher")
+        XCTAssertEqual(HomeSection.fallback, .home)
+        HomeSection.home.setEnabled(false, in: prefs)
+        XCTAssertTrue(HomeSection.home.isEnabled(prefs), "there is no switch for it")
+        XCTAssertFalse(HomeSection.tiles(prefs).contains(.home), "and it is not a tile on itself")
+        XCTAssertEqual(Set(HomeSection.tiles(prefs)), Set(HomeSection.allCases).subtracting([.home]))
+    }
+
     func testTheSectionsShipInTheOrderTheyAreWrittenIn() {
         XCTAssertEqual(HomeSection.order(stored: []), HomeSection.allCases)
     }

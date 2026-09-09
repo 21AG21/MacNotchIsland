@@ -32,7 +32,7 @@ struct HomePanelPane: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
                 .accessibilityHidden(true)
-            if section == .music {
+            if section == .home || section == .music {
                 Text(section.title)
                 Spacer(minLength: 8)
                 Text("Always on")
@@ -59,6 +59,7 @@ struct HomePanelPane: View {
 
     private static func help(for section: HomeSection) -> String {
         switch section {
+        case .home: return "Every section as a tile, with a glimpse of what is in it."
         case .music: return "What is playing, wherever it is playing."
         case .today: return "Your next events and reminders. Asks for calendar and reminders access when first opened."
         case .windows: return "Every open window as a live tile: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows."
@@ -100,7 +101,7 @@ struct HomePanelPane: View {
             } header: {
                 Text("Sections")
             } footer: {
-                Text("Drag a section to move it. Now Playing has no switch — it is what the island is for — but it can be moved like the rest. Step between sections with the buttons beside the notch, a sideways swipe, or Tab; the digits 1 to 9 count them from the left in this order.")
+                Text("Drag a section to move it. Home and Now Playing have no switch — one is the way to everything else, the other is what the island is for — but both can be moved like the rest. Step between sections with the buttons beside the notch, a sideways swipe, or Tab; the digits 1 to 9 count them from the left in this order.")
             }
 
             Section {
