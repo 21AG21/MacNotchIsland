@@ -6,6 +6,9 @@ struct HomePanelPane: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var windows = WindowsMonitor.shared
     @AppStorage("settingsSection") private var selectedSection = SettingsSection.general.rawValue
+    /// Held rather than built inside `onReceive`, where it would be a new publisher on every
+    /// pass of the body — and this body runs whenever a preference on it changes.
+    private let permissionTicker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     /// The choices offered for shelf expiry, in hours.
     private static let expiryOptions: [Double] = [0, 1, 6, 24, 72, 168]
@@ -93,9 +96,7 @@ struct HomePanelPane: View {
             .disabled(!prefs.windowsEnabled)
             // Permissions are granted in System Settings, which tells nobody; the rows are
             // re-read while this pane is open so a grant shows up without a relaunch.
-            .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-                windows.refreshPermissions()
-            }
+            .onReceive(permissionTicker) { _ in windows.refreshPermissions() }
 
             Section {
                 Toggle("Camera mirror", isOn: $prefs.mirrorEnabled)
@@ -104,7 +105,7 @@ struct HomePanelPane: View {
                 Text("Control rail")
             } footer: {
                 HStack(spacing: 8) {
-                    Text("Volume, brightness, Wi-Fi, Bluetooth, light and dark, Keep Awake, AirDrop for the shelf and Settings are always in the rail under every section. Choose the apps and shortcuts that appear in the Actions section there.")
+                    Text("Volume, light and dark, Keep Awake and Settings are in the rail under every section; brightness, Wi-Fi and Bluetooth when this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Choose the apps and shortcuts that appear in the Actions section there.")
                     Button("Open Actions") {
                         selectedSection = SettingsSection.shortcuts.rawValue
                     }

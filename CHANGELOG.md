@@ -62,6 +62,12 @@ the unreleased section is what the next tag will ship.
   you have selected. It stands down on that section and stays everywhere else, which is what
   it is for. While there: the rail's buttons slide over when one of them comes or goes rather
   than jumping, which they also do when a Mac has no Wi-Fi or no Bluetooth to offer.
+- Settings' picker for the apps that hide the island can no longer open behind whatever is in
+  front. Notch Island runs as an accessory and is not necessarily the active app when a button
+  in its own window is clicked; the Actions pane's picker already asked first.
+- The Home Panel pane said the control rail always holds eight things. It holds four always,
+  three when the Mac has the hardware for them, and AirDrop when there is something on the
+  shelf and you are not already looking at it.
 - Settings' Island pane had its keyboard shortcuts listed at the top and the control that
   sets them at the bottom, with two unrelated sections in between, and the list told you to
   change the shortcut "under Actions", where there has never been anything to change it with.

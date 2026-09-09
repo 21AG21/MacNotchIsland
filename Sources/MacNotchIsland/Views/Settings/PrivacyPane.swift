@@ -9,7 +9,13 @@ import SwiftUI
 /// source, so a silently failing feature is never a mystery.
 struct PrivacyPane: View {
     @State private var locationManager = CLLocationManager()
+    /// Nothing on this pane is published: every status is read from the system as the body is
+    /// built. Touching this is what asks for the body again, so a permission granted in System
+    /// Settings while this window is open turns from "Not granted" to "Granted" on its own.
     @State private var tick = 0
+    /// Held, not built inside `onReceive`: a publisher made there is a new publisher on every
+    /// pass of the body, and this body runs on every beat of it.
+    private let ticker = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Form {
@@ -71,9 +77,7 @@ struct PrivacyPane: View {
             }
         }
         .formStyle(.grouped)
-        .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in
-            tick += 1
-        }
+        .onReceive(ticker) { _ in tick += 1 }
     }
 
     // MARK: Rows

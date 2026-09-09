@@ -157,6 +157,10 @@ struct HiddenAppsList: View {
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.message = "Choose apps that should hide the island while they are frontmost."
         panel.prompt = "Add"
+        // Notch Island runs as an accessory, so it is not necessarily the active app when a
+        // button in its own window is clicked. Without this the picker can come up behind
+        // whatever is in front — the same reason the Actions pane's picker asks first.
+        NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK else { return }
         var identifiers = prefs.hiddenAppBundleIDs
         for url in panel.urls {
