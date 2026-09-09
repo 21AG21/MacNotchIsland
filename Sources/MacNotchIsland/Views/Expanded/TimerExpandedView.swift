@@ -107,11 +107,20 @@ struct TimerExpandedView: View {
         }
     }
 
-    /// Cancelling is the quietest thing on the card: a bare glyph, no disc, but still a
-    /// 40 pt target to hit.
-    private var headline: String {
-        if state.isFinished { return pomodoro == nil ? "Timer done" : "\(state.label) done" }
-        return state.isPaused ? "Paused" : state.label
+    private var headline: String { Self.headline(for: state) }
+
+    /// The line over the countdown: the name the timer was given, and what has become of it.
+    ///
+    /// A finished timer used to say "Timer done" and drop the name — which is the one thing
+    /// worth saying, because several timers can run at once and the card is how you tell
+    /// which of them rang. Only a timer with no name of its own falls back to the generic
+    /// sentence. Pure and static so the rule can be tested.
+    static func headline(for state: TimerState) -> String {
+        let name = state.label.trimmingCharacters(in: .whitespaces)
+        let named = !name.isEmpty && name != "Timer"
+        if state.isFinished { return named ? "\(name) done" : "Timer done" }
+        if state.isPaused { return named ? "\(name) paused" : "Paused" }
+        return state.label
     }
 
     /// "Timer, 4 minutes 59 seconds remaining", "Pasta timer paused, 1 minute remaining",

@@ -35,6 +35,10 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **The card for a timer that rang names the timer.** It said "Timer done" and dropped the
+  name you gave it — and several timers can run at once, so which one rang is the only thing
+  the card had to say. VoiceOver had been saying "Pasta timer done" all along; the card now
+  agrees with it. A paused timer keeps its name too.
 - **`notchisland://settings/actions` opens the Actions pane.** Inside the app that pane is
   called `shortcuts`, and the URL scheme only answered to that — but somebody writing a URL
   is reading the sidebar, where it says Actions. Every pane now answers to the name on the

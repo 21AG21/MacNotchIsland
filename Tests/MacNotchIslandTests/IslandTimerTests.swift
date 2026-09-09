@@ -173,4 +173,34 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertEqual(timer.state?.label, "Focus 1/2")
         XCTAssertEqual(timer.state?.total, 120)
     }
+
+    // MARK: - What the card says over the countdown
+
+    private func state(_ label: String, finished: Bool = false, paused: Bool = false) -> TimerState {
+        var s = TimerState(label: label, total: 300, endDate: Date().addingTimeInterval(300))
+        s.isFinished = finished
+        if paused { s.pausedRemaining = 60 }
+        return s
+    }
+
+    func testTheCardNamesTheTimerThatRang() {
+        // Several timers can run at once, so which one rang is the only thing worth saying.
+        XCTAssertEqual(TimerExpandedView.headline(for: state("Pasta", finished: true)), "Pasta done")
+        XCTAssertEqual(TimerExpandedView.headline(for: state("Focus 2/4", finished: true)), "Focus 2/4 done")
+    }
+
+    func testATimerWithNoNameOfItsOwnFallsBackToTheGenericLine() {
+        XCTAssertEqual(TimerExpandedView.headline(for: state("Timer", finished: true)), "Timer done")
+        XCTAssertEqual(TimerExpandedView.headline(for: state("", finished: true)), "Timer done")
+        XCTAssertEqual(TimerExpandedView.headline(for: state("  ", finished: true)), "Timer done")
+    }
+
+    func testAPausedTimerKeepsItsNameToo() {
+        XCTAssertEqual(TimerExpandedView.headline(for: state("Pasta", paused: true)), "Pasta paused")
+        XCTAssertEqual(TimerExpandedView.headline(for: state("Timer", paused: true)), "Paused")
+    }
+
+    func testARunningTimerIsJustItsName() {
+        XCTAssertEqual(TimerExpandedView.headline(for: state("Pasta")), "Pasta")
+    }
 }
