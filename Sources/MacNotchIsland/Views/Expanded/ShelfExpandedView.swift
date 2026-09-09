@@ -36,7 +36,7 @@ struct ShelfStripView: View {
     @State private var shareAnchor = ShelfShareAnchor()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SectionHeader.gapBelow) {
+        VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             header
             strip
         }

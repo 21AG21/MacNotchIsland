@@ -19,7 +19,7 @@ struct ClipboardSectionView: View {
     @State private var query = ""
 
     var body: some View {
-        VStack(spacing: SectionHeader.gapBelow) {
+        VStack(spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader(store.items.isEmpty ? "Clipboard" : "Clipboard · \(store.items.count) \(store.items.count == 1 ? "item" : "items")") {
                 if !store.items.isEmpty {
                     searchField
@@ -65,7 +65,7 @@ struct ActionsSectionView: View {
     @ObservedObject private var timers = IslandTimer.shared
 
     var body: some View {
-        VStack(spacing: SectionHeader.gapBelow) {
+        VStack(spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Actions") {
                 PillButton(title: "Edit", tint: .white.opacity(0.85)) {
                     UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
@@ -120,7 +120,7 @@ struct NotesSectionView: View {
     @SwiftUI.FocusState private var editing: Bool
 
     var body: some View {
-        VStack(spacing: SectionHeader.gapBelow) {
+        VStack(spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Notes") {
                 if !notes.text.isEmpty {
                     PillButton(title: "Copy", tint: .white.opacity(0.85)) { notes.copyAll() }
@@ -168,7 +168,7 @@ struct NotesSectionView: View {
 
 struct StatsSectionView: View {
     var body: some View {
-        VStack(spacing: SectionHeader.gapBelow) {
+        VStack(spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Stats") {
                 PillButton(title: "Activity Monitor", symbol: "arrow.up.forward", tint: .white.opacity(0.85)) {
                     let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")

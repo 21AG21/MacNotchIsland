@@ -131,6 +131,14 @@ extension SectionEmptyState where Action == EmptyView {
     }
 }
 
+/// The measures every section's top shares: the header's own height, and the gap under it.
+/// A plain enum rather than statics on `SectionHeader`, which is generic over what it holds
+/// on its trailing edge and so cannot be named without saying what that is.
+enum SectionMetrics {
+    static let headerHeight: CGFloat = 22
+    static let gapBelowHeader: CGFloat = 8
+}
+
 /// A section's header line: the name on the left, at most a control or two on the right.
 struct SectionHeader<Trailing: View>: View {
     let title: String
@@ -141,11 +149,6 @@ struct SectionHeader<Trailing: View>: View {
         self.trailing = trailing
     }
 
-    /// The header's own height, and the gap every section leaves under it. One number each,
-    /// so the first line of every section starts on the same baseline.
-    static let height: CGFloat = 22
-    static let gapBelow: CGFloat = 8
-
     var body: some View {
         HStack(spacing: 8) {
             Text(title)
@@ -155,7 +158,7 @@ struct SectionHeader<Trailing: View>: View {
             Spacer(minLength: 0)
             trailing()
         }
-        .frame(height: Self.height)
+        .frame(height: SectionMetrics.headerHeight)
     }
 }
 

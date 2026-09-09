@@ -12,7 +12,7 @@ struct WindowsSectionView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SectionHeader.gapBelow) {
+        VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Windows") {
                 // Each permission does half of this section: one draws the pictures, the other
                 // moves and closes the windows. Whichever is missing is offered here, because

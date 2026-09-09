@@ -10,10 +10,10 @@ struct TodaySectionView: View {
 
     private static let eventRow: CGFloat = 36
     private static let reminderRow: CGFloat = 28
-    private static let listHeight: CGFloat = IslandLayout.sectionHeight - SectionHeader.height - SectionHeader.gapBelow
+    private static let listHeight: CGFloat = IslandLayout.sectionHeight - SectionMetrics.headerHeight - SectionMetrics.gapBelowHeader
 
     var body: some View {
-        VStack(spacing: SectionHeader.gapBelow) {
+        VStack(spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Today") {
                 if prefs.weatherEnabled { weatherLine }
             }
