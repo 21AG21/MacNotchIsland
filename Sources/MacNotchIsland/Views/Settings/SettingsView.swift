@@ -27,8 +27,8 @@ enum SettingsWindow {
     ///
     /// An action being accepted is not the same as a window arriving, and from outside the app
     /// the two look identical — which is exactly how this stayed broken. One line per time
-    /// anybody opens Settings, in the support report and in the smoke test.
-    private static func reportWindows() {
+    /// anybody opens Settings or the tour, in the support report and in the smoke test.
+    static func reportWindows() {
         DispatchQueue.main.asyncAfter(deadline: .now() + windowSettle) {
             let list = NSApp.windows
                 .filter { !($0 is NotchPanel) }

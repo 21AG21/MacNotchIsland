@@ -233,7 +233,10 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
     func showIfFirstLaunch() {
-        guard !Preferences.shared.hasSeenWelcome else { return }
+        guard !Preferences.shared.hasSeenWelcome else {
+            IslandLog.island.debug("welcome: this Mac has seen the tour")
+            return
+        }
         show()
     }
 
@@ -263,6 +266,10 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         window = w
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // The same line Settings writes, for the same reason: a window that does not turn up
+        // leaves nothing behind to look at otherwise, and the smoke test found exactly that.
+        IslandLog.island.notice("welcome window opened \(NSStringFromRect(w.frame), privacy: .public)")
+        SettingsWindow.reportWindows()
     }
 
     private func close() {

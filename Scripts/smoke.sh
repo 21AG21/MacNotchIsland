@@ -130,12 +130,20 @@ run_case() {  # name, click y, extra env
 # screen: it is a quarter of the bytes, and it does not depend on guessing where the window
 # landed. The job log these come back through has the island's whole gallery in it too.
 shoot() {  # name, pid
-  local name=$1 pid=$2 id
+  local name=$1 pid=$2 id tries=0
   # A window that cannot be found is a failure, not a note. The first run of this printed
   # "no window to photograph" eleven times and went green, because nothing was checking.
-  id=$("$OUT/windowid" "$pid" 200) || {
-    echo "SMOKE FAILED: no window to photograph for $name"; DIED=1; return
-  }
+  #
+  # A window that is merely late is not that, though. A cold runner takes its time putting
+  # one up, and the tour went red once for exactly that and once only — so it is given a few
+  # seconds to arrive before the case is called broken.
+  until id=$("$OUT/windowid" "$pid" 200); do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 8 ]; then
+      echo "SMOKE FAILED: no window to photograph for $name"; DIED=1; return
+    fi
+    sleep 1
+  done
   screencapture -x -o -l"$id" "$OUT/$name.png" || return
   sips -Z 720 "$OUT/$name.png" >/dev/null 2>&1
   sips -s format jpeg -s formatOptions 50 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null 2>&1
@@ -148,6 +156,7 @@ shoot() {  # name, pid
 # has not.
 run_welcome() {
   echo "=== case welcome"
+  local start; start=$(date '+%Y-%m-%d %H:%M:%S')
   defaults delete "$ID" hasSeenWelcome 2>/dev/null
   "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/welcome-app.log" 2>&1 &
   local pid=$!
@@ -158,6 +167,21 @@ run_welcome() {
   "$OUT/key" 36
   sleep 1
   shoot "welcome-2" "$pid"
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "alive welcome: yes" >> "$SUMMARY"
+  else
+    echo "alive welcome: NO" >> "$SUMMARY"; DIED=1
+  fi
+  # What the app said while the tour should have been up. The first time this case failed
+  # there was nothing whatsoever to look at: no log, no stderr, only "no window".
+  local logfile="$OUT/welcome-unified.log"
+  log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact > "$logfile" 2>&1
+  local opened; opened=$(grep -c 'welcome window opened' "$logfile" || true)
+  echo "--- welcome opened: $opened"
+  echo "welcome opened: $opened" >> "$SUMMARY"
+  echo "--- windows the app had"; grep 'app windows:\|welcome' "$logfile" | tail -n 5
+  echo "--- app stderr"; tail -n 20 "$OUT/welcome-app.log"
+  if [ "$opened" -lt 1 ]; then echo "SMOKE FAILED: the tour never opened its window"; DIED=1; fi
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   defaults write "$ID" hasSeenWelcome -bool true
   sleep 1
