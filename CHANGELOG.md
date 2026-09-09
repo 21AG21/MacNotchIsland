@@ -32,6 +32,17 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **Settings rows that named their own section, and a section that named the wrong thing.**
+  General's "Appearance" held "Show on all displays" and "Hide in full-screen apps": one says
+  where the island is drawn, the other says when it is not drawn at all, and neither is an
+  appearance — and the footer under them explained only the second. They are now "Displays"
+  and "Hiding", the latter next to the list of apps that hide it. In Activities, the switch at
+  the top of "Now Playing" was called "Now Playing", the one under "Privacy indicators" was
+  called "Microphone and camera indicators", and the one under "Volume and brightness" was
+  called "Show volume and brightness in the island"; each now says what it does instead of
+  repeating the heading above it. On Island, two switches were near enough the same sentence —
+  "Open when the pointer rests on the island" and "Open the panel when the empty island is
+  hovered" — and the second is now "Open from the empty notch too", which is what it means.
 - **The tour's seventh choice was not really being offered.** Three of the seven descriptions
   on "Choose What It Shows" ran to two lines, which pushed the last one — volume and
   brightness, the choice that changes the most about the app — under the bottom of the list.

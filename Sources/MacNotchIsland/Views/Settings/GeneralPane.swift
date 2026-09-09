@@ -19,15 +19,26 @@ struct GeneralPane: View {
                 Text("Update checks run once a day against the project's releases page. Nothing is downloaded or installed automatically.")
             }
 
+            // These two used to sit under "Appearance", which neither of them is: one says
+            // where the island is drawn and the other says when it is not drawn at all. The
+            // footer explained only the second of them, too.
             Section {
                 Toggle("Show on all displays", isOn: $prefs.showOnAllDisplays)
                     .help("Displays without a notch get a simulated island along the top edge.")
+            } header: {
+                Text("Displays")
+            } footer: {
+                Text("A display without a notch gets an island of its own along the top edge, with the same morphs. Left off, only the built-in display has one.")
+            }
+
+            // The two ways the island gets out of the way, one after the other.
+            Section {
                 Toggle("Hide in full-screen apps", isOn: $prefs.hideInFullscreen)
                     .help("Keep the island out of the way while an app is full screen.")
             } header: {
-                Text("Appearance")
+                Text("Hiding")
             } footer: {
-                Text("The island returns as soon as you leave full screen.")
+                Text("The island returns as soon as you leave full screen. The menu bar can also hide it for an hour at a time.")
             }
 
             Section {

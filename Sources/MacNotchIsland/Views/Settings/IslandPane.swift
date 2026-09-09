@@ -30,7 +30,11 @@ struct IslandPane: View {
             Section {
                 Toggle("Open when the pointer rests on the island", isOn: $prefs.hoverToExpand)
                     .help("The panel opens under the pointer, on what is playing or running, and closes when it leaves. A click keeps it open.")
-                Toggle("Open the panel when the empty island is hovered", isOn: $prefs.expandOnIdleHover)
+                // Reads as what it is: a modifier of the switch above it. The two used to be
+                // near enough the same sentence — one of them in the passive — and nothing
+                // said which of them governed which island.
+                Toggle("Open from the empty notch too", isOn: $prefs.expandOnIdleHover)
+                    .help("With nothing playing or running there is nothing to peek at, so resting on the notch does nothing unless this is on.")
                 if prefs.hoverToExpand || prefs.expandOnIdleHover {
                     SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
                 }

@@ -33,7 +33,7 @@ struct ActivitiesPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Now Playing", isOn: $prefs.nowPlayingEnabled)
+                Toggle("Show what is playing", isOn: $prefs.nowPlayingEnabled)
                     .help("Show what Music, Spotify, Safari or any app using the system player is playing.")
                 Picker("Keep paused music for", selection: keepPaused) {
                     Text("Not at all").tag(0.0)
@@ -77,7 +77,7 @@ struct ActivitiesPane: View {
             }
 
             Section {
-                Toggle("Show volume and brightness in the island", isOn: $prefs.hudReplacementEnabled)
+                Toggle("Answer the volume and brightness keys", isOn: $prefs.hudReplacementEnabled)
                     .help("The island takes the media keys over and becomes the only heads-up display for volume, mute and brightness.")
                 // Not disabled with the master switch: it also owns the display a scroll on
                 // the island puts up, which works either way, and a display with no way to
@@ -106,7 +106,7 @@ struct ActivitiesPane: View {
             }
 
             Section {
-                Toggle("Microphone and camera indicators", isOn: $prefs.privacyIndicatorsEnabled)
+                Toggle("Microphone and camera", isOn: $prefs.privacyIndicatorsEnabled)
                     .help("A dot in the island whenever the microphone or camera is in use.")
                 Toggle("Calls", isOn: $prefs.callDetectionEnabled)
                     .help("FaceTime, Zoom, Teams, Meet, Slack, Discord and Webex.")
