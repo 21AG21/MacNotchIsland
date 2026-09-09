@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum ActivityKind: String {
-    case nowPlaying, timer, stopwatch, call, battery, bluetooth, focus, hud, silent, unlock, calendar, download, drive, custom, shelf
+    case nowPlaying, timer, stopwatch, call, battery, bluetooth, focus, hud, silent, unlock, calendar, download, drive, capture, custom, shelf
 }
 
 enum InitialPresentation: Equatable { case compact, expanded }
@@ -212,6 +212,42 @@ struct CustomActivity: Equatable {
     var showsRing: Bool = false
 }
 
+/// A capture the user has just taken: a screenshot or a screen recording.
+///
+/// macOS puts a thumbnail in the corner of the screen for a few seconds, and everything you
+/// might want to do with the picture is behind opening it. The island already knew a capture
+/// had happened; this is the picture itself, with the two things anybody actually wants —
+/// the image on the pasteboard, and the words in it on the pasteboard.
+struct CaptureState: Equatable {
+    var path: String
+    var isRecording = false
+    /// The picture itself, small. Nil for a recording, or where the file could not be read.
+    var thumbnail: NSImage? = nil
+    /// Whether it was put on the shelf, which is a switch and so not always true.
+    var onShelf = false
+    /// The text Vision found in it, once it has looked. Nil while it is still looking, and
+    /// empty where there was nothing to find.
+    var text: String? = nil
+
+    var url: URL { URL(fileURLWithPath: path) }
+    var name: String { (path as NSString).lastPathComponent }
+    var title: String { isRecording ? "Screen recording" : "Screenshot" }
+    var symbol: String { isRecording ? "record.circle" : "camera.viewfinder" }
+
+    /// The word the pill shows on its trailing edge: where the capture went, when it went
+    /// somewhere, and otherwise what it is.
+    var trailingText: String {
+        if onShelf { return "On the shelf" }
+        return isRecording ? "Recorded" : "Captured"
+    }
+
+    /// Whether there are words worth offering to copy.
+    var hasText: Bool {
+        guard let text else { return false }
+        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 /// An external disk: what it is called, how full it is, and what has just happened to it.
 ///
 /// The Mac's own answer to plugging a drive in is an icon appearing on a desktop nobody can
@@ -312,6 +348,7 @@ enum ActivityContent: Equatable {
     case calendar(CalendarState)
     case download(DownloadState)
     case drive(DriveState)
+    case capture(CaptureState)
     case custom(CustomActivity)
     case shelf(ShelfState)
 
@@ -334,6 +371,8 @@ enum ActivityContent: Equatable {
         case .calendar: return (34, 64)
         case .download(let d): return (34, d.progress != nil ? 40 : 70)
         case .drive(let d): return (34, d.event == .connected && d.total > 0 ? 72 : 64)
+        // "On the shelf" is what the trailing half says, and it needs the room for it.
+        case .capture: return (34, 88)
         case .custom(let c):
             if c.progress != nil && c.showsRing { return (34, 40) }
             let text = c.trailingText ?? ""
@@ -361,6 +400,7 @@ enum ActivityContent: Equatable {
         case .calendar: return (28, 0)
         case .download(let d): return (28, d.progress != nil && !d.isComplete ? 28 : 0)
         case .drive: return (28, 0)
+        case .capture: return (28, 0)
         case .custom(let c): return (28, c.progress != nil && c.showsRing ? 28 : 0)
         case .shelf: return (28, 28)
         }
@@ -389,6 +429,7 @@ enum ActivityContent: Equatable {
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
         // The bar is how full the disk is, and it is only drawn where the size could be read.
         case .drive(let d): return d.fill == nil ? Self.cardRow : Self.cardRowWithBar
+        case .capture: return Self.cardRow
         case .custom(let c):
             if c.body != nil { return Self.cardTwoRows }
             return c.progress != nil && !c.showsRing ? Self.cardRowWithBar : Self.cardRow

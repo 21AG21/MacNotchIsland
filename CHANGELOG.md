@@ -6,6 +6,15 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **The screenshot you just took, on the island.** A capture used to be a camera glyph and the
+  words "On the shelf". It is a card now, with the picture itself on it — drag it from there
+  into a message or a document and it never has to touch the Desktop — and the three things
+  anybody wants: the picture on the pasteboard, the words in the picture on the pasteboard, and
+  Open. The words come from Vision, read once while the card is on screen, and **Copy Text**
+  appears only where there was something to find, so the card never offers what it cannot give.
+  Captures are their own switch in Activities now rather than a side effect of the shelf: with
+  the shelf off a screenshot is still announced, where it used to be silent, and the pill says
+  what actually happened to it rather than claiming the shelf either way.
 - **The island knows about your disks.** Plug an external drive in and its card arrives with
   its name, how full it is, and — where the Mac itself has never put one — an Eject button. The
   reason people yank a drive out is that ejecting it means hunting for its icon on a desktop

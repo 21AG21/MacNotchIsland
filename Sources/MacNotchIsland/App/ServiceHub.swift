@@ -103,7 +103,9 @@ final class ServiceHub {
         p.updateChecksEnabled ? updates.start() : updates.stop()
         p.hideInFullscreen ? fullscreen.start() : fullscreen.stop()
         p.hiddenAppBundleIDs.isEmpty ? hiddenApps.stop() : hiddenApps.start()
-        (p.shelfEnabled && p.screenshotsToShelfEnabled) ? screenshots.start() : screenshots.stop()
+        // The card is the feature now, and the shelf is one of the things it does: a capture
+        // is still announced with the shelf switched off, where it used to be silent.
+        p.screenshotsEnabled ? screenshots.start() : screenshots.stop()
         (p.nowPlayingEnabled && p.reactiveVisualizerEnabled) ? audioLevel.start() : audioLevel.stop()
     }
 }

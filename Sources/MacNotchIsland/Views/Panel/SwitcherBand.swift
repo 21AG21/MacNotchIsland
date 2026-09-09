@@ -289,6 +289,7 @@ struct SwitcherBand: View {
             case .calendar(let c): return Entry(symbol: "calendar", title: c.title, tint: Color.named(c.tint))
             case .download(let d): return Entry(symbol: d.isComplete ? "checkmark" : "arrow.down", title: d.name, tint: Color.named("blue"))
             case .drive(let d): return Entry(symbol: d.symbol, title: d.name, tint: Color.named(d.tint))
+            case .capture(let c): return Entry(symbol: c.symbol, title: c.title, tint: Color.named("blue"))
             case .custom(let c): return Entry(symbol: c.symbol, title: c.title, tint: Color.named(c.tint))
             case .nowPlaying: return Entry(symbol: HomeSection.music.symbol, title: HomeSection.music.title, tint: .white)
             case .shelf: return Entry(symbol: HomeSection.shelf.symbol, title: HomeSection.shelf.title, tint: .white)

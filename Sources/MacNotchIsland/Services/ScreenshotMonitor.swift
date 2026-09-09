@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 
 /// Watches the user's screenshot folder (com.apple.screencapture "location", default
 /// ~/Desktop), drops each new capture on the shelf and shows a brief "Screenshot" alert in
@@ -16,7 +17,11 @@ final class ScreenshotMonitor {
 
     private static let settleDelay: TimeInterval = 0.3
     private static let maxSettleChecks = 10
-    private static let alertDuration: TimeInterval = 2.5
+    /// The card stays up long enough to reach for one of its buttons — about as long as the
+    /// thumbnail macOS puts in the corner of the screen.
+    private static let alertDuration: TimeInterval = 4
+    /// How big the picture on the card is drawn, in pixels, at Retina scale and a little over.
+    static let thumbnailPixels: CGFloat = 240
 
     /// Leading words macOS uses for captures in the common locales, plus CleanShot.
     private static let prefixes: [String] = [
@@ -124,21 +129,35 @@ final class ScreenshotMonitor {
     }
 
     private func publish(_ url: URL) {
-        ShelfStore.shared.add([url])
+        let prefs = Preferences.shared
+        let onShelf = prefs.shelfEnabled && prefs.screenshotsToShelfEnabled
+        if onShelf { ShelfStore.shared.add([url]) }
         let name = url.lastPathComponent
         let isRecording = url.pathExtension.lowercased() == "mov"
-        // "On the shelf" is the whole point of the alert, and the trailing slot is the only
-        // half of the pill that carries text: without it this was a camera glyph beside an
-        // ellipsis, and neither the file's name nor where it went was ever said.
-        let custom = CustomActivity(title: isRecording ? "Screen recording" : "Screenshot",
-                                    subtitle: name,
-                                    symbol: isRecording ? "record.circle" : "camera.viewfinder",
-                                    trailingText: "On the shelf",
-                                    url: url)
-        var alert = IslandActivity(id: "screenshot-" + name, kind: .custom, content: .custom(custom), priority: 85)
+        // The picture itself, not a camera glyph: it is the one thing that says which capture
+        // this is, and it is what you pick up to drag somewhere.
+        let state = CaptureState(path: url.path,
+                                 isRecording: isRecording,
+                                 thumbnail: isRecording ? nil : Self.thumbnail(of: url),
+                                 onShelf: onShelf)
+        var alert = IslandActivity(id: "screenshot-" + name, kind: .capture, content: .capture(state),
+                                   priority: 85, presentation: .expanded)
         alert.openAction = .url(url)
-        // The shelf already gave a haptic tap for the new item.
-        ActivityCenter.shared.showAlert(alert, duration: Self.alertDuration, haptic: false)
+        // The shelf already gave a haptic tap for the new item; without the shelf, this is the
+        // only feedback there is.
+        ActivityCenter.shared.showAlert(alert, duration: Self.alertDuration, haptic: !onShelf)
+    }
+
+    /// A small copy of the capture for the card and the pill. Read through ImageIO rather than
+    /// `NSImage`, so a 6K grab never becomes a 6K bitmap in memory to be shown at 44 points.
+    static func thumbnail(of url: URL) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
+              ] as CFDictionary) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 
     private func remember(_ path: String) {

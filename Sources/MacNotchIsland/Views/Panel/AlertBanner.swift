@@ -57,6 +57,7 @@ struct AlertBanner: View {
         case .focus(let f): return f.isOn ? "\(f.name) on" : "\(f.name) off"
         case .download(let d): return d.isComplete ? "\(d.name) downloaded" : "Downloading \(d.name)"
         case .drive(let d): return "\(d.name) — \(d.subtitle)"
+        case .capture(let c): return c.title
         case .calendar(let c): return c.title
         case .custom(let c): return c.title
         case .call(let c): return "Call in \(c.appName)"

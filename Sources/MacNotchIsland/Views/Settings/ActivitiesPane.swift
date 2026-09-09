@@ -131,6 +131,8 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Downloads", isOn: $prefs.downloadsEnabled)
                     .help("Safari, Chrome and Firefox downloads in your Downloads folder, with a progress ring.")
+                Toggle("Screenshots", isOn: $prefs.screenshotsEnabled)
+                    .help("The picture you just took, with Copy, Copy Text and Open on it — and draggable straight into a message.")
                 Toggle("External disks", isOn: $prefs.drivesEnabled)
                     .help("A card when a drive is plugged in, with Eject on it, and a word when one is unplugged.")
                 Toggle("Timer sound", isOn: $prefs.timerSoundEnabled)
@@ -138,7 +140,7 @@ struct ActivitiesPane: View {
             } header: {
                 Text("Downloads, disks and timers")
             } footer: {
-                Text("Finished downloads and screenshots can also land on the shelf. Turn that on in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
+                Text("A capture's card shows the picture itself: drag it from there into a message without it ever touching the Desktop, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots can also land on the shelf — turn that on in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
             }
         }
         .formStyle(.grouped)

@@ -190,6 +190,16 @@ final class GalleryTests: XCTestCase {
                        openAction: .url(URL(fileURLWithPath: "/Volumes/Backup")))
     }
 
+    private static func capture(_ recording: Bool = false) -> IslandActivity {
+        let name = recording ? "Screen Recording 2026-09-09 at 21.14.02.mov"
+                             : "Screenshot 2026-09-09 at 21.14.02.png"
+        let state = CaptureState(path: "/Users/you/Desktop/" + name, isRecording: recording,
+                                 thumbnail: nil, onShelf: true, text: recording ? nil : "Notch Island")
+        return IslandActivity(id: "capture", kind: .capture, content: .capture(state),
+                              priority: 85, presentation: .expanded,
+                              openAction: .url(URL(fileURLWithPath: "/Users/you/Desktop/" + name)))
+    }
+
     private static func calendar() -> IslandActivity {
         IslandActivity(id: "calendar", kind: .calendar,
                        content: .calendar(CalendarState(title: "Design review", start: Date().addingTimeInterval(7 * 60),
@@ -328,6 +338,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "compact-call") { c in c.upsert(call()) },
             Scene(name: "compact-download") { c in c.upsert(download()) },
             Scene(name: "compact-drive") { c in c.upsert(drive()) },
+            Scene(name: "compact-capture") { c in c.upsert(capture()) },
             Scene(name: "compact-calendar") { c in c.upsert(calendar()) },
             Scene(name: "compact-custom-delivery") { c in c.upsert(custom()) },
             Scene(name: "compact-shelf") { c in ShelfStore.shared.add(files); c.upsert(shelf(count: files.count)) },
@@ -400,6 +411,11 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-call", setup: card(call)),
             Scene(name: "panel-download", setup: card(download)),
             Scene(name: "panel-drive", setup: card({ drive() })),
+            Scene(name: "card-capture") { c in
+                let a = capture()
+                c.upsert(a)
+                c.forceExpanded(id: a.id, for: 60)
+            },
             Scene(name: "card-drive") { c in
                 let a = drive()
                 c.upsert(a)

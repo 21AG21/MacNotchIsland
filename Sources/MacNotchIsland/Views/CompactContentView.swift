@@ -103,6 +103,21 @@ struct CompactLeadingView: View {
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(Color.named(d.tint))
                     .contentTransition(.symbolEffect(.replace))
+            case .capture(let c):
+                // The picture itself where the glyph would be, the way Now Playing puts the
+                // cover there: it is the one thing that says which capture this is.
+                if let image = c.thumbnail {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: height - 10, height: height - 10)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .transition(IslandMotion.pop(scale: 0.6))
+                } else {
+                    Image(systemName: c.symbol)
+                        .font(.system(size: iconSize, weight: .semibold))
+                        .foregroundStyle(Color.named("blue"))
+                }
             case .custom(let c):
                 Image(systemName: c.symbol)
                     .font(.system(size: iconSize, weight: .semibold))
@@ -248,6 +263,8 @@ struct CompactTrailingView: View {
             case .drive(let d):
                 Text(d.trailingText).font(d.event == .connected ? numeralFont : wordFont)
                     .foregroundStyle(.white).lineLimit(1)
+            case .capture(let c):
+                Text(c.trailingText).font(wordFont).foregroundStyle(.white).lineLimit(1)
             case .custom(let c):
                 if let p = c.progress, c.showsRing {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named(c.tint))
@@ -335,6 +352,9 @@ enum IslandAccessibility {
 
         case .drive(let d):
             return "\(d.name), \(d.subtitle)"
+
+        case .capture(let c):
+            return "\(c.title), \(c.name)"
 
         case .custom(let c):
             if let sub = c.subtitle ?? c.trailingText, !sub.isEmpty { return "\(c.title), \(sub)" }
