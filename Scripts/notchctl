@@ -7,8 +7,10 @@
 #   notchctl end <id>
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
+#   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
+#   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
-#   notchctl home [music|today|shelf|clipboard|actions|notes|stats] | collapse
+#   notchctl home [music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
 #   notchctl settings [general|island|activities|home|media|shortcuts|privacy|about]
 set -euo pipefail
 
@@ -48,6 +50,10 @@ parse_flags() {
       --duration) add duration "$2"; shift 2 ;;
       --priority) add priority "$2"; shift 2 ;;
       --label) add label "$2"; shift 2 ;;
+      --work) add work "$2"; shift 2 ;;
+      --rest) add rest "$2"; shift 2 ;;
+      --cycles) add cycles "$2"; shift 2 ;;
+      --long) add long "$2"; shift 2 ;;
       --expanded) add expanded 1; shift ;;
       --ring) add ring 1; shift ;;
       *) echo "unknown flag: $1" >&2; exit 2 ;;
@@ -66,8 +72,16 @@ case "$cmd" in
     add title "${1:?alert title required}"; shift; parse_flags "$@"; open_url "alert" ;;
   timer)
     case "${1:-}" in
-      cancel|pause|resume) open_url "timer/$1" ;;
+      cancel|stop|pause|resume) open_url "timer/$1" ;;
+      pomodoro) shift; parse_flags "$@"; open_url "timer/pomodoro" ;;
       *) add minutes "${1:?minutes required}"; shift; parse_flags "$@"; open_url "timer" ;;
+    esac ;;
+  # The URL scheme has had these since the stopwatch did; this wrapper had not.
+  stopwatch)
+    case "${1:-}" in
+      ""|start) open_url "stopwatch" ;;
+      lap|stop|pause|reset|cancel) open_url "stopwatch/$1" ;;
+      *) echo "usage: notchctl stopwatch [lap|stop|reset]" >&2; exit 2 ;;
     esac ;;
   shelf)
     case "${1:-}" in
@@ -82,5 +96,7 @@ case "$cmd" in
   settings)
     if [ -n "${1:-}" ]; then open_url "settings/$1"; else open_url "settings"; fi ;;
   *)
-    sed -n '2,12p' "$0"; exit 2 ;;
+    # The comment block at the top, however long it grows: a fixed line range is a usage
+    # message that goes quietly out of date the first time a command is added.
+    awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 2 ;;
 esac
