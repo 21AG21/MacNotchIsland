@@ -45,6 +45,10 @@ the unreleased section is what the next tag will ship.
   check. Each is listed now with what it sends, who it asks, and whether it is switched on at
   this moment. A blanket promise is the worst thing to be wrong about on the screen people
   come to in order to check.
+- **A new Mac is not asked for the calendar before it has been told what this is.** Starting
+  the calendar asks macOS for access, and that sheet was the first thing Notch Island put on a
+  new machine — ahead of the window that introduces the app, and ahead of the page where Today
+  is offered as a switch. It waits for the tour now.
 - Running the test suite no longer leaves anything behind on the machine that ran it. The
   writers that turn a dropped picture, link or piece of text into a file are static and put it
   where the app really puts it — which is the point of testing them — and every run added

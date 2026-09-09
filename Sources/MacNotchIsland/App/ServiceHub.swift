@@ -45,6 +45,17 @@ final class ServiceHub {
             .store(in: &cancellables)
     }
 
+    /// Whether the calendar may run, which is the same as whether macOS may be asked for it.
+    ///
+    /// Held until the tour has been through. Starting it asks for the calendar, and that sheet
+    /// was the first thing a new Mac saw of Notch Island — ahead of the window that introduces
+    /// the app, and ahead of the page where Today is offered as a switch. Asking for something
+    /// a moment before offering to ask properly is the wrong way round. The hub re-applies on
+    /// every preference change, and finishing the tour is one.
+    static func wantsCalendar(_ p: Preferences) -> Bool {
+        p.calendarEnabled && p.hasSeenWelcome
+    }
+
     private func apply() {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
@@ -62,7 +73,7 @@ final class ServiceHub {
         p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
         p.callDetectionEnabled ? calls.start() : calls.stop()
         p.focusEnabled ? focus.start() : focus.stop()
-        p.calendarEnabled ? calendar.start() : calendar.stop()
+        Self.wantsCalendar(p) ? calendar.start() : calendar.stop()
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
         p.downloadsEnabled ? downloads.start() : downloads.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()

@@ -417,4 +417,25 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.openView, .home(tab: "music"), "the music pill opens the Now Playing section")
         center.collapse(reason: "test")
     }
+    // MARK: - What a new Mac is asked, and when
+
+    /// Nothing asks the system for anything before the tour has been through. Starting the
+    /// calendar asks macOS for it, and that sheet was the first thing a new Mac saw of this
+    /// app — ahead of the window that introduces it, and ahead of the page where Today is
+    /// offered as a switch.
+    func testTheCalendarWaitsForTheTour() {
+        let prefs = Preferences.shared
+        let seen = prefs.hasSeenWelcome
+        let calendar = prefs.calendarEnabled
+        defer { prefs.hasSeenWelcome = seen; prefs.calendarEnabled = calendar }
+
+        prefs.calendarEnabled = true
+        prefs.hasSeenWelcome = false
+        XCTAssertFalse(ServiceHub.wantsCalendar(prefs), "not before the tour")
+        prefs.hasSeenWelcome = true
+        XCTAssertTrue(ServiceHub.wantsCalendar(prefs), "and after it, if it is switched on")
+        prefs.calendarEnabled = false
+        XCTAssertFalse(ServiceHub.wantsCalendar(prefs), "never when it is switched off")
+    }
+
 }
