@@ -96,6 +96,29 @@ struct WelcomeView: View {
 
     // MARK: - Page two: what it shows
 
+    /// The one line under each choice's name.
+    ///
+    /// Seven of them have to be on the screen at once, and they only are while each is a
+    /// single line: three of these used to run to two, which pushed the seventh — the volume
+    /// and brightness keys, the choice that changes the most — under the bottom of the list.
+    /// The list scrolls, but a Mac with overlay scrollbars shows nothing there until somebody
+    /// scrolls, so the seventh choice was, in practice, not offered at all.
+    ///
+    /// They live here rather than inline so a test can hold them to their one line. The
+    /// fuller explanation of each is in Settings, which is where there is room for it.
+    enum ChoiceLine {
+        static let today = "Your day's events and reminders."
+        static let windows = "Every open window as a tile you can snap."
+        static let shelf = "Files you drop on the island wait here."
+        static let clipboard = "Recent copies, pinned ones first."
+        static let notes = "A scratchpad that keeps what you type."
+        static let stats = "Processor, memory, network and battery."
+        static let keys = "Answered in the island, not by macOS."
+        static let all = [today, windows, shelf, clipboard, notes, stats, keys]
+        /// About as much as fits on one line at the width the tour gives these.
+        static let limit = 44
+    }
+
     private var picker: some View {
         VStack(spacing: 0) {
             // Smaller than page one's app icon on purpose: this page has seven things to say
@@ -119,20 +142,20 @@ struct WelcomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 4)
 
-            // Scrolls if it has to. Seven choices with a line or two of explanation each is
-            // more than a fixed height can promise — at larger text sizes, or if an eighth is
-            // ever added — and the button that dismisses this window is not allowed to be the
-            // thing that falls off the bottom of it. Which is what it was doing: "Done" and
-            // "Open at login" were both under the edge, on the first window a new Mac shows.
+            // All seven fit without scrolling. It scrolls anyway, because a fixed height can
+            // promise nothing at larger text sizes or if an eighth is ever added — and the
+            // button that dismisses this window is not allowed to be the thing that falls off
+            // the bottom of it. Which is what it was doing: "Done" and "Open at login" were
+            // both under the edge, on the first window a new Mac shows.
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
-                    choice("calendar", "Today", "Your next events and reminders. Needs calendar access.", $prefs.calendarEnabled)
-                    choice("macwindow.on.rectangle", "Windows", "Every open window as a tile: click one to switch, or snap it to half the screen.", $prefs.windowsEnabled)
-                    choice("tray.full", "Shelf", "Files you drop on the island; downloads and screenshots land there too.", $prefs.shelfEnabled)
-                    choice("doc.on.clipboard", "Clipboard", "Recent copies, pinned ones first.", $prefs.clipboardEnabled)
-                    choice("note.text", "Notes", "A scratchpad that keeps whatever you type.", $prefs.notesEnabled)
-                    choice("gauge.with.dots.needle.bottom.50percent", "Stats", "Processor, memory, network and battery health.", $prefs.statsEnabled)
-                    choice("speaker.wave.2", "Volume and brightness", "The island answers the media keys instead of the system bezel. Left off, macOS keeps its own.", $prefs.hudReplacementEnabled)
+                    choice("calendar", "Today", ChoiceLine.today, $prefs.calendarEnabled)
+                    choice("macwindow.on.rectangle", "Windows", ChoiceLine.windows, $prefs.windowsEnabled)
+                    choice("tray.full", "Shelf", ChoiceLine.shelf, $prefs.shelfEnabled)
+                    choice("doc.on.clipboard", "Clipboard", ChoiceLine.clipboard, $prefs.clipboardEnabled)
+                    choice("note.text", "Notes", ChoiceLine.notes, $prefs.notesEnabled)
+                    choice("gauge.with.dots.needle.bottom.50percent", "Stats", ChoiceLine.stats, $prefs.statsEnabled)
+                    choice("speaker.wave.2", "Volume and brightness", ChoiceLine.keys, $prefs.hudReplacementEnabled)
                 }
                 .frame(maxWidth: 420, alignment: .leading)
                 .padding(.vertical, 2)

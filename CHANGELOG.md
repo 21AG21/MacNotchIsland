@@ -32,6 +32,12 @@ the unreleased section is what the next tag will ship.
   Activities, and nothing but the title, artist and album is ever sent.
 
 ### Fixed
+- **The tour's seventh choice was not really being offered.** Three of the seven descriptions
+  on "Choose What It Shows" ran to two lines, which pushed the last one — volume and
+  brightness, the choice that changes the most about the app — under the bottom of the list.
+  The list scrolls, but a Mac with overlay scrollbars shows nothing there until somebody
+  happens to scroll, so most people would never have seen it. Every description is one line
+  now, all seven are on the screen at once, and a test holds them to it.
 - **Two rows that did not line up.** In Stats, the battery's meter sat thirteen points above
   the memory and disk meters beside it: the footers were pushed against the floor of each
   column, and the battery is the one column with two lines of small print under its bar, so
