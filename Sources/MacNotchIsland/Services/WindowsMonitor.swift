@@ -330,6 +330,18 @@ final class WindowsMonitor: ObservableObject {
         return true
     }
 
+    /// Opens files with the app a window belongs to. Dropping a file on a tile is "open this
+    /// in that", which needs no Accessibility: it is the same thing as dropping it on the
+    /// app's Dock icon.
+    @discardableResult
+    func open(_ urls: [URL], with window: IslandWindow) -> Bool {
+        guard !urls.isEmpty,
+              let app = NSRunningApplication(processIdentifier: window.pid)?.bundleURL else { return false }
+        NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+        ActivityCenter.shared.collapse(reason: "opened a file in a window's app")
+        return true
+    }
+
     /// Sends a window to the next display, keeping the share of the screen it had. The one
     /// move the zones could not make: they all rearrange a window on the display it is
     /// already on.

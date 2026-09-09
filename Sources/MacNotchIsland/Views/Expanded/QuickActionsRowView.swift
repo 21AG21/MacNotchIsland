@@ -155,7 +155,7 @@ private struct QuickActionButton: View {
         .animation(IslandMotion.hover, value: hovering)
         .animation(IslandMotion.hover, value: dropping)
         .onDrop(of: [UTType.fileURL], isTargeted: $dropping) { providers in
-            QuickActionButton.paths(from: providers) { paths in
+            DroppedFiles.paths(from: providers) { paths in
                 guard !paths.isEmpty else { return }
                 runner.run(name, inputPaths: paths)
             }
@@ -163,23 +163,5 @@ private struct QuickActionButton: View {
         }
         .help("Run \(name), or drop files on it to run it with them.")
         .accessibilityLabel("Run shortcut \(name)")
-    }
-
-    /// The files a drop carried, in the order they were dragged, once every provider has
-    /// answered. A provider that answers with nothing is simply left out.
-    private static func paths(from providers: [NSItemProvider], completion: @escaping ([String]) -> Void) {
-        let group = DispatchGroup()
-        var found = [URL?](repeating: nil, count: providers.count)
-        let lock = NSLock()
-        for (index, provider) in providers.enumerated() {
-            guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { continue }
-            group.enter()
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                let url = ShelfStore.fileURL(from: item)
-                lock.lock(); found[index] = url; lock.unlock()
-                group.leave()
-            }
-        }
-        group.notify(queue: .main) { completion(found.compactMap { $0?.path }) }
     }
 }

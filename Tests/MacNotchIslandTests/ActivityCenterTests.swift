@@ -33,11 +33,21 @@ final class ActivityCenterTests: XCTestCase {
         center.setDragTargeted(false)
     }
 
-    func testADragLeavesTheActionsSectionAloneSoAFileCanReachATile() {
-        center.open(.home(tab: HomeSection.actions.rawValue))
+    func testADragLeavesTheSectionsWhoseTilesTakeOneAlone() {
+        // Their tiles are drop targets of their own; the shelf's well would cover them.
+        for section in ActivityCenter.dropTargetSections {
+            center.open(.home(tab: section.rawValue))
+            center.setDragTargeted(true)
+            XCTAssertEqual(center.presentation, .panel(.home(tab: section.rawValue)),
+                           "\(section.rawValue) takes its own drops")
+            center.setDragTargeted(false)
+        }
+    }
+
+    func testTheShelfSectionItselfStillShowsTheWell() {
+        center.open(.home(tab: HomeSection.shelf.rawValue))
         center.setDragTargeted(true)
-        // Its tiles are drop targets of their own; the shelf's well would cover them.
-        XCTAssertEqual(center.presentation, .panel(.home(tab: HomeSection.actions.rawValue)))
+        XCTAssertEqual(center.presentation, .shelf)
         center.setDragTargeted(false)
     }
 

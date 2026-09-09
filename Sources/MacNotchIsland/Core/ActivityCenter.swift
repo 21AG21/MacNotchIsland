@@ -196,10 +196,11 @@ final class ActivityCenter: ObservableObject {
         let hovering = hoverPanel != nil && (panel == nil || hoverPanel == panel)
         let dragging = dragPanel != nil && (panel == nil || dragPanel == panel)
 
-        // A drag means the shelf everywhere but one place: the Actions section, whose tiles
-        // are drop targets of their own. The shelf's well would cover them before a file could
-        // reach one, and a file dropped anywhere else on the island still goes to the shelf.
-        if dragging && prefs.shelfEnabled && openSection != .actions { return .shelf }
+        // A drag means the shelf everywhere but the two sections whose own content takes one:
+        // the shelf's well would cover their tiles before a file could reach one. A file
+        // dropped anywhere else on the island still goes to the shelf.
+        let sectionTakesDrops = openSection.map { Self.dropTargetSections.contains($0) } ?? false
+        if dragging && prefs.shelfEnabled && !sectionTakesDrops { return .shelf }
 
         let peeking = hovering && prefs.hoverToExpand
         // An alert takes the island unless a panel is showing; then it is drawn over the panel
@@ -628,6 +629,10 @@ final class ActivityCenter: ObservableObject {
         select(target, direction: index > here ? 1 : -1)
         return true
     }
+
+    /// Sections whose own tiles are drop targets: a quick action runs a shortcut with what
+    /// you drop on it, a window tile opens what you drop on it with that app.
+    static let dropTargetSections: Set<HomeSection> = [.actions, .windows]
 
     /// The section the panel is pinned on, if it is pinned on one. Not the peek: a peek
     /// follows the pointer, and during a drag the pointer is holding something.

@@ -1,11 +1,14 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Every window on the Mac as a strip of live tiles: click one to bring it to the front, or
 /// use the row of zones that appears on it to put it somewhere. Mission Control, in the notch.
 struct WindowsSectionView: View {
     @ObservedObject private var monitor = WindowsMonitor.shared
     @State private var hovered: CGWindowID?
+    /// The tile a file is being held over, if any.
+    @State private var dropTarget: CGWindowID?
 
     private var windows: [IslandWindow] {
         RenderMode.isGallery ? WindowsSectionView.sampleWindows : monitor.windows
@@ -76,6 +79,7 @@ struct WindowsSectionView: View {
 
     private func tile(_ window: IslandWindow) -> some View {
         let showsZones = hovered == window.id
+        let dropping = dropTarget == window.id
         return VStack(alignment: .leading, spacing: Self.labelGap) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -96,7 +100,8 @@ struct WindowsSectionView: View {
                         .foregroundStyle(.white.opacity(0.4))
                 }
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.white.opacity(showsZones ? 0.35 : 0.12), lineWidth: 1)
+                    .strokeBorder(dropping ? Color.accentColor : Color.white.opacity(showsZones ? 0.35 : 0.12),
+                                  lineWidth: dropping ? 2 : 1)
                 if showsZones { zones(window) }
             }
             .frame(width: Self.tileWidth, height: Self.tileHeight)
@@ -104,6 +109,18 @@ struct WindowsSectionView: View {
             .onTapGesture { monitor.focus(window) }
             .onHover { inside in
                 hovered = inside ? window.id : (hovered == window.id ? nil : hovered)
+            }
+            // "Open this in that": the same thing as dropping a file on the app's Dock icon,
+            // in front of the window you want it in.
+            .onDrop(of: [UTType.fileURL], isTargeted: Binding(
+                get: { dropTarget == window.id },
+                set: { inside in dropTarget = inside ? window.id : (dropTarget == window.id ? nil : dropTarget) }
+            )) { providers in
+                DroppedFiles.paths(from: providers) { paths in
+                    guard !paths.isEmpty else { return }
+                    monitor.open(paths.map { URL(fileURLWithPath: $0) }, with: window)
+                }
+                return true
             }
 
             HStack(spacing: 5) {

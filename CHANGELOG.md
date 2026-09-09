@@ -6,11 +6,14 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Drop a file on a window tile to open it in that app.** The same thing as dropping it on
+  the app's Dock icon, except in front of the window you want it in — and it needs no
+  permission at all.
 - **Drop a file on a quick action to run the shortcut with it.** The Actions row is a rack of
   droplets now: drag a file onto a tile and the shortcut runs with that file as its input,
-  once per file, under one activity. While Actions is the section on screen a drag leaves it
-  alone rather than turning the panel into the shelf's drop well, so a file can actually reach
-  a tile; anywhere else on the island a drop still goes to the shelf.
+  once per file, under one activity. While either of those two sections is on screen a drag
+  leaves it alone rather than turning the panel into the shelf's drop well, so a file can
+  actually reach a tile; anywhere else on the island a drop still goes to the shelf.
 - **A Focus quietens the island.** While one is on, the alerts that arrive on their own are
   held back: a finished download, a device connecting, an event coming up, an alert a script
   pushed, the charger going in. Everything you did yourself still shows — a key, a click, a

@@ -30,7 +30,7 @@ and the same content layout as iOS.
 | — | Windows: every open window as a live tile. Click one to bring it forward; the zones on it send it to a half of the screen, fill the screen, centre it or move it to the next display, and the two corner buttons minimise or close it. Pictures need Screen Recording, moving needs Accessibility; without them the windows are still listed by app. |
 | — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume, and hold Option while scrolling for brightness. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
 | — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a slot of the switcher, Space plays and pauses, ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes or the clipboard search is showing. |
-| — | Drop a file on a quick action and the shortcut runs with that file as its input — the Actions row is a rack of droplets. |
+| — | Drop a file on a quick action and the shortcut runs with that file as its input — the Actions row is a rack of droplets. Drop one on a window tile and it opens in that app. |
 | — | A shelf that takes anything: files, a picture, a link or selected text dragged onto the notch. Drag the whole selection back out in one go, Quick Look any of it, AirDrop or share it. |
 | — | Clipboard history that pastes: pick an item and it goes straight into whatever you were typing — or drag one out of the panel and into a document, a message or a folder. |
 | — | Keep Awake from the control rail or the menu bar: the Mac and its display stay on until you switch it off again. |
