@@ -6,6 +6,14 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Put the sections in your own order.** The panel's sections have always come in the order
+  they were written in. Home Panel lists them now, the way Control Center is arranged: drag a
+  row and the section moves everywhere at once — the switcher, a sideways swipe, Tab, and the
+  digit that reaches it. Each section's switch is on its own row beside its name and its glyph,
+  so what a section is and whether you want it are one line rather than two lists. Now Playing
+  can be moved like the rest but says "Always on" where its switch would be, because it is what
+  the island is for. An order written by an older version never hides a section a newer one
+  adds: anything the stored list does not mention keeps its place at the end.
 - **Carry a file to a section instead of putting it down first.** The switcher's slots are
   spring-loaded, the way a Finder window's folders are: drag a file onto the island, rest it on
   a slot for a moment, and the panel goes there — so a file picked up anywhere can reach a

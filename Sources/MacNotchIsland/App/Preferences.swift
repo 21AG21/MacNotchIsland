@@ -71,6 +71,8 @@ final class Preferences: ObservableObject {
     @Published var hotkeyModifiers: Double { didSet { d.set(hotkeyModifiers, forKey: "hotkeyModifiers") } }
     /// Bundle identifiers of apps that hide the island while they are frontmost.
     @Published var hiddenAppBundleIDs: [String] { didSet { d.set(hiddenAppBundleIDs, forKey: "hiddenAppBundleIDs") } }
+    /// The order the panel's sections are in, by raw name. Empty means the order they ship in.
+    @Published var sectionOrder: [String] { didSet { d.set(sectionOrder, forKey: "sectionOrder") } }
     /// Unix time until which the island stays hidden (0 = not paused).
     @Published var pausedUntil: Double { didSet { d.set(pausedUntil, forKey: "pausedUntil") } }
 
@@ -156,6 +158,7 @@ final class Preferences: ObservableObject {
         hotkeyModifiers = double("hotkeyModifiers", 6144)     // controlKey | optionKey
         pausedUntil = double("pausedUntil", 0)
         hiddenAppBundleIDs = UserDefaults.standard.stringArray(forKey: "hiddenAppBundleIDs") ?? []
+        sectionOrder = UserDefaults.standard.stringArray(forKey: "sectionOrder") ?? []
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)

@@ -13,30 +13,84 @@ struct HomePanelPane: View {
     /// The choices offered for shelf expiry, in hours.
     private static let expiryOptions: [Double] = [0, 1, 6, 24, 72, 168]
 
+    /// A row of the arrangement list, and so the height of the list itself: eight of them,
+    /// with no scroller of its own inside a form that already scrolls.
+    private static let rowHeight: CGFloat = 26
+
+    /// One section: its glyph, its name, and its switch. Now Playing cannot be switched off,
+    /// so it says so in the place the switch would be rather than showing a dead one.
+    @ViewBuilder
+    private func sectionRow(_ section: HomeSection) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: section.symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+            if section == .music {
+                Text(section.title)
+                Spacer(minLength: 8)
+                Text("Always on")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Toggle(section.title, isOn: Binding(
+                    get: { section.isEnabled(prefs) },
+                    set: { section.setEnabled($0, in: prefs) }
+                ))
+                .help(Self.help(for: section))
+            }
+        }
+        .frame(height: Self.rowHeight)
+    }
+
+    /// Moving a row writes the whole order, so the stored list is always complete and the
+    /// next version's new section still lands at the end of it rather than in the middle.
+    private func move(from source: IndexSet, to destination: Int) {
+        var order = HomeSection.ordered(prefs)
+        order.move(fromOffsets: source, toOffset: destination)
+        prefs.sectionOrder = order.map(\.rawValue)
+    }
+
+    private static func help(for section: HomeSection) -> String {
+        switch section {
+        case .music: return "What is playing, wherever it is playing."
+        case .today: return "Your next events and reminders. Asks for calendar and reminders access when first opened."
+        case .windows: return "Every open window as a live tile: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows."
+        case .shelf: return "Drag files onto the island to keep them within reach."
+        case .clipboard: return "Recent copies, pinned ones first."
+        case .actions: return "Run your favourite shortcuts from the panel."
+        case .notes: return "A scratchpad that keeps whatever you type."
+        case .stats: return "Processor, memory, network and battery health."
+        }
+    }
+
     var body: some View {
         Form {
             Section {
-                Toggle("Today", isOn: $prefs.calendarEnabled)
-                    .help("Your next events and reminders. Asks for calendar and reminders access when first opened.")
+                // One list, in the order the panel shows them, with each section's switch on
+                // its own row — the way Control Center is arranged. Dragging a row moves the
+                // section everywhere at once: the switcher, a sideways swipe, Tab, and the
+                // digit that reaches it.
+                List {
+                    ForEach(HomeSection.ordered(prefs), id: \.self) { section in
+                        sectionRow(section)
+                    }
+                    .onMove(perform: move)
+                }
+                .listStyle(.plain)
+                .frame(height: Self.rowHeight * CGFloat(HomeSection.allCases.count))
+                .scrollDisabled(true)
                 Toggle("Weather in Today", isOn: $prefs.weatherEnabled)
                     .help("The conditions outside, in the Today header. Asks for your location when first opened. Data from Open-Meteo.")
                     .disabled(!prefs.calendarEnabled)
-                Toggle("Windows", isOn: $prefs.windowsEnabled)
-                    .help("Every open window as a live tile: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows.")
-                Toggle("Shelf", isOn: $prefs.shelfEnabled)
-                    .help("Drag files onto the island to keep them within reach.")
-                Toggle("Clipboard", isOn: $prefs.clipboardEnabled)
-                    .help("Recent copies, pinned ones first.")
-                Toggle("Actions", isOn: $prefs.quickActionsEnabled)
-                    .help("Run your favourite shortcuts from the panel.")
-                Toggle("Notes", isOn: $prefs.notesEnabled)
-                    .help("A scratchpad that keeps whatever you type.")
-                Toggle("Stats", isOn: $prefs.statsEnabled)
-                    .help("Processor, memory, network and battery health.")
+                if prefs.sectionOrder != HomeSection.allCases.map(\.rawValue), !prefs.sectionOrder.isEmpty {
+                    Button("Put the Sections Back in Order") { prefs.sectionOrder = [] }
+                }
             } header: {
                 Text("Sections")
             } footer: {
-                Text("Now Playing is always there. Step between sections with the buttons beside the notch, a sideways swipe, or Tab.")
+                Text("Drag a section to move it. Now Playing has no switch — it is what the island is for — but it can be moved like the rest. Step between sections with the buttons beside the notch, a sideways swipe, or Tab; the digits 1 to 9 count them from the left in this order.")
             }
 
             Section {

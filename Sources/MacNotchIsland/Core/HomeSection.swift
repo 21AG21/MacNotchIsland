@@ -60,8 +60,31 @@ enum HomeSection: String, CaseIterable {
         }
     }
 
+    /// Every section, in the order the user has put them in. The switcher, a sideways swipe,
+    /// Tab and the digit keys all walk this, so moving a section moves it everywhere at once.
+    static func ordered(_ prefs: Preferences) -> [HomeSection] {
+        order(stored: prefs.sectionOrder)
+    }
+
+    /// The stored order, made sound: names that are no longer sections are dropped, a name
+    /// listed twice counts once, and anything the stored order never mentioned keeps its place
+    /// at the end — so a section a later version adds appears rather than vanishing because an
+    /// older build wrote the list without it.
+    ///
+    /// Pure, so the rule can be tested.
+    static func order(stored: [String]) -> [HomeSection] {
+        var seen: Set<HomeSection> = []
+        var result: [HomeSection] = []
+        for raw in stored {
+            guard let section = HomeSection(rawValue: raw), seen.insert(section).inserted else { continue }
+            result.append(section)
+        }
+        result += allCases.filter { !seen.contains($0) }
+        return result
+    }
+
     static func available(_ prefs: Preferences) -> [HomeSection] {
-        allCases.filter { $0.isEnabled(prefs) }
+        ordered(prefs).filter { $0.isEnabled(prefs) }
     }
 
     static let fallback = HomeSection.music
@@ -71,8 +94,9 @@ enum HomeSection: String, CaseIterable {
         let wanted = HomeSection(rawValue: raw) ?? fallback
         let open = available(prefs)
         if open.contains(wanted) { return wanted }
-        // Land on the nearest available section rather than always on the first one.
-        let all = allCases
+        // Land on the nearest available section rather than always on the first one — nearest
+        // in the order the user put them in, which is the order they are stepped through.
+        let all = ordered(prefs)
         guard let index = all.firstIndex(of: wanted) else { return fallback }
         let after = all[index...].first { open.contains($0) }
         let before = all[..<index].last { open.contains($0) }

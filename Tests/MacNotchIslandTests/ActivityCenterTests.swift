@@ -309,6 +309,53 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.presentation, .idle)
     }
 
+    // MARK: - The order of the sections
+
+    func testTheSectionsShipInTheOrderTheyAreWrittenIn() {
+        XCTAssertEqual(HomeSection.order(stored: []), HomeSection.allCases)
+    }
+
+    func testAStoredOrderIsFollowed() {
+        let stored = [HomeSection.stats.rawValue, HomeSection.music.rawValue]
+        let order = HomeSection.order(stored: stored)
+        XCTAssertEqual(Array(order.prefix(2)), [.stats, .music])
+        XCTAssertEqual(Set(order), Set(HomeSection.allCases), "and nothing is lost")
+    }
+
+    func testASectionTheStoredOrderNeverMentionedKeepsItsPlaceAtTheEnd() {
+        // What an older build wrote will not name a section a later one added; it has to
+        // appear rather than vanish.
+        let order = HomeSection.order(stored: [HomeSection.notes.rawValue])
+        XCTAssertEqual(order.first, .notes)
+        XCTAssertEqual(order.count, HomeSection.allCases.count)
+    }
+
+    func testAnOrderWithRubbishInItIsStillAnOrder() {
+        let order = HomeSection.order(stored: ["notes", "notes", "chocolate", ""])
+        XCTAssertEqual(order.first, .notes)
+        XCTAssertEqual(order.count, HomeSection.allCases.count, "no duplicates, no ghosts")
+    }
+
+    func testTheRingWalksTheSectionsInTheUsersOrder() {
+        let prefs = Preferences.shared
+        defer { prefs.sectionOrder = [] }
+        prefs.sectionOrder = [HomeSection.stats.rawValue, HomeSection.notes.rawValue]
+        let sections = center.ring.compactMap { view -> HomeSection? in
+            guard case .home(let tab) = view else { return nil }
+            return HomeSection(rawValue: tab)
+        }
+        XCTAssertEqual(Array(sections.prefix(2)), [.stats, .notes])
+    }
+
+    func testADigitReachesTheSlotTheUserPutThere() {
+        let prefs = Preferences.shared
+        defer { prefs.sectionOrder = [] }
+        prefs.sectionOrder = [HomeSection.stats.rawValue]
+        center.showHome()
+        XCTAssertTrue(center.selectSlot(0))
+        XCTAssertEqual(center.currentView, .home(tab: HomeSection.stats.rawValue))
+    }
+
     // MARK: - The keyboard
 
     func testOnlyAPinnedNotesSectionOrALiveFindAsksForTheKeyboard() {
