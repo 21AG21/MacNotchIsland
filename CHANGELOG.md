@@ -6,6 +6,16 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **A script can put buttons on its activity.** Anything that can reach the URL scheme —
+  Shortcuts, a CI hook, a shell script — can now hand the island up to two named buttons
+  alongside what it is showing: `--action Retry --action-url https://ci/retry --action2 Deploy
+  --action2-shortcut "Ship it"`. Each opens a web link or runs a Shortcut by name, which are
+  the two things the script could already do for itself — the difference is that they are now
+  offered where the person is looking rather than where the script is running. A button with
+  no name, or with nowhere to go, is dropped rather than drawn as something that does nothing,
+  and a button's link is held to the same three schemes every other link a script pushes is:
+  a button that opened `file:` would be a way to make somebody click on something they were
+  never shown.
 - **A Home for the panel.** The panel opens on a grid of tiles now, the way Control Centre is
   arranged: what is playing takes a wide tile with its cover and a play button on it, and every
   other section is a tile beside it carrying its name and a glimpse of what is in it — the next

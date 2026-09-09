@@ -4,6 +4,8 @@
 #   notchctl activity <id> --title "Building" [--subtitle "xcodebuild"] [--symbol hammer.fill]
 #                          [--tint blue] [--progress 0.4] [--trailing "40%"] [--body "…"]
 #                          [--url https://…] [--ttl 600] [--expanded] [--ring] [--priority 70]
+#                          [--action Retry --action-url https://ci/retry]
+#                          [--action2 Deploy --action2-shortcut "Ship it" --action2-symbol play.fill]
 #   notchctl end <id>
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
@@ -11,7 +13,7 @@
 #   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
-#   notchctl home [music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
+#   notchctl home [home|music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
 #   notchctl settings [general|island|activities|home|media|actions|privacy|about]
 set -euo pipefail
 
@@ -57,6 +59,15 @@ parse_flags() {
       --long) add long "$2"; shift 2 ;;
       --expanded) add expanded 1; shift ;;
       --ring) add ring 1; shift ;;
+      # Buttons. Each takes a name and one of a link or a Shortcut, and there are two slots.
+      --action) add action "$2"; shift 2 ;;
+      --action-url) add action_url "$2"; shift 2 ;;
+      --action-shortcut) add action_shortcut "$2"; shift 2 ;;
+      --action-symbol) add action_symbol "$2"; shift 2 ;;
+      --action2) add action2 "$2"; shift 2 ;;
+      --action2-url) add action2_url "$2"; shift 2 ;;
+      --action2-shortcut) add action2_shortcut "$2"; shift 2 ;;
+      --action2-symbol) add action2_symbol "$2"; shift 2 ;;
       *) echo "unknown flag: $1" >&2; exit 2 ;;
     esac
   done

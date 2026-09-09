@@ -68,7 +68,7 @@ struct ShelfStripView: View {
 
     /// Whether this strip is the pinned Shelf section rather than the drop well the island
     /// turns into mid-drag.
-    private var canFind: Bool { PanelFind.searches(center.openSection) }
+    private var canFind: Bool { PanelFind.searches(center.shownSection) }
 
     /// What the strip shows: everything on the shelf, or the files whose names answer to what
     /// was typed on this section.

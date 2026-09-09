@@ -4,6 +4,7 @@ import AppKit
 /// (works from Shortcuts' "Open URLs", scripts, CI hooks) and a distributed notification.
 ///
 ///   notchisland://activity?id=build&title=Building&subtitle=xcodebuild&symbol=hammer.fill&tint=blue&progress=0.4&trailing=40%25&ttl=600&expanded=1&ring=1&url=https://…
+///   …&action=Retry&action_url=https://ci/retry&action2=Deploy&action2_shortcut=Ship%20it
 ///   notchisland://activity/end?id=build
 ///   notchisland://alert?title=Deployed&symbol=checkmark.circle.fill&tint=green&duration=3
 ///   notchisland://timer?minutes=5&label=Tea       notchisland://timer/cancel | pause | resume
@@ -24,6 +25,32 @@ final class LiveActivityAPI {
         token = DistributedNotificationCenter.default().addObserver(forName: Self.notificationName, object: nil, queue: .main) { [weak self] note in
             if let s = note.userInfo?["url"] as? String, let url = URL(string: s) { self?.handle(url) }
             else if let s = note.object as? String, let url = URL(string: s) { self?.handle(url) }
+        }
+    }
+
+    /// At most two buttons, because that is what a card has room for beside its text.
+    static let maxActions = 2
+
+    /// The buttons a script asked for, read out of the query.
+    ///
+    ///   &action=Retry&action_url=https://ci.example/retry
+    ///   &action2=Run%20it&action2_shortcut=Deploy%20staging&action2_symbol=play.fill
+    ///
+    /// A button with no title, or with nowhere to go, is dropped rather than drawn as
+    /// something that does nothing. A link is held to the same three schemes every other link
+    /// a script pushes is: a button that opened `file:` or another app's scheme would be a way
+    /// to make somebody click on something they were never shown.
+    ///
+    /// Pure, so the rules can be tested without a URL to open.
+    static func actions(from q: [String: String]) -> [CustomAction] {
+        (1...maxActions).compactMap { index in
+            let key = index == 1 ? "action" : "action\(index)"
+            guard let title = q[key]?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { return nil }
+            let action = CustomAction(title: title,
+                                      symbol: q[key + "_symbol"],
+                                      url: safeLink(q[key + "_url"]),
+                                      shortcut: q[key + "_shortcut"])
+            return action.isUsable ? action : nil
         }
     }
 
@@ -55,6 +82,7 @@ final class LiveActivityAPI {
             custom.body = q["body"]
             custom.url = Self.safeLink(q["url"])
             custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
+            custom.actions = Self.actions(from: q)
             let priority = q["priority"].flatMap { Int($0) } ?? 70
             var activity = IslandActivity(id: "api-" + id, kind: .custom, content: .custom(custom), priority: priority)
             if let ttl = q["ttl"].flatMap({ Double($0) }), ttl > 0 { activity.expiresAt = Date().addingTimeInterval(ttl) }
@@ -75,6 +103,7 @@ final class LiveActivityAPI {
             custom.trailingText = q["trailing"] ?? q["title"]
             custom.body = q["body"]
             custom.url = Self.safeLink(q["url"])
+            custom.actions = Self.actions(from: q)
             let expanded = ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased())
             var activity = IslandActivity(id: "api-alert", kind: .custom, content: .custom(custom), priority: 85,
                                           presentation: expanded ? .expanded : .compact)

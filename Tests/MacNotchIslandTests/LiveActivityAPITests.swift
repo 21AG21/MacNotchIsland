@@ -121,4 +121,50 @@ final class LiveActivityAPITests: XCTestCase {
             XCTAssertEqual(SettingsSection.named(section.title), section)
         }
     }
+
+    // MARK: - Buttons a script asks for
+
+    func testAScriptCanAskForButtons() {
+        let actions = LiveActivityAPI.actions(from: [
+            "action": "Retry", "action_url": "https://ci.example/retry",
+            "action2": "Deploy", "action2_shortcut": "Ship it", "action2_symbol": "play.fill",
+        ])
+        XCTAssertEqual(actions.count, 2)
+        XCTAssertEqual(actions[0].title, "Retry")
+        XCTAssertEqual(actions[0].url?.absoluteString, "https://ci.example/retry")
+        XCTAssertEqual(actions[1].shortcut, "Ship it")
+        XCTAssertEqual(actions[1].symbol, "play.fill")
+        XCTAssertNil(actions[1].url)
+    }
+
+    func testAButtonWithNowhereToGoIsNotDrawn() {
+        // A button that does nothing is not a button.
+        XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "Retry"]).isEmpty)
+        XCTAssertTrue(LiveActivityAPI.actions(from: ["action_url": "https://example.com"]).isEmpty,
+                      "and one with no name is not one either")
+        XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "   ", "action_url": "https://example.com"]).isEmpty)
+        XCTAssertTrue(LiveActivityAPI.actions(from: [:]).isEmpty)
+    }
+
+    func testAButtonIsHeldToTheSameLinksEverythingElseIs() {
+        // A button that opened a file, or another app's scheme, would be a way to make
+        // somebody click on something they were never shown.
+        for bad in ["file:///etc/passwd", "notchisland://settings", "ftp://example.com", "javascript:alert(1)"] {
+            XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "Go", "action_url": bad]).isEmpty, bad)
+        }
+        XCTAssertEqual(LiveActivityAPI.actions(from: ["action": "Mail", "action_url": "mailto:a@b.c"]).count, 1)
+    }
+
+    func testNoMoreThanTwo() {
+        let q = ["action": "One", "action_url": "https://a.example",
+                 "action2": "Two", "action2_url": "https://b.example",
+                 "action3": "Three", "action3_url": "https://c.example"]
+        XCTAssertEqual(LiveActivityAPI.actions(from: q).count, LiveActivityAPI.maxActions)
+    }
+
+    func testTheSecondButtonCanStandAlone() {
+        // Numbering is which slot it is in, not how many came before it.
+        let actions = LiveActivityAPI.actions(from: ["action2": "Only", "action2_url": "https://example.com"])
+        XCTAssertEqual(actions.map(\.title), ["Only"])
+    }
 }

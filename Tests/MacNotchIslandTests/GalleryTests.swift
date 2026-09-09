@@ -270,6 +270,18 @@ final class GalleryTests: XCTestCase {
                        priority: 70)
     }
 
+    /// A scripted activity with the buttons a script can put on it.
+    private static func customActions() -> IslandActivity {
+        var custom = CustomActivity(title: "Build failed", subtitle: "notch-island · main",
+                                    symbol: "xmark.octagon.fill", tint: "red")
+        custom.actions = [
+            CustomAction(title: "Retry", symbol: "arrow.clockwise",
+                         url: URL(string: "https://example.com/retry")),
+            CustomAction(title: "Logs", url: URL(string: "https://example.com/logs")),
+        ]
+        return IslandActivity(id: "api-build", kind: .custom, content: .custom(custom), priority: 80)
+    }
+
     private static func charging() -> IslandActivity {
         IslandActivity(id: "battery", kind: .battery,
                        content: .battery(BatteryState(percent: 82, isCharging: true, isPluggedIn: true, event: .pluggedIn,
@@ -490,6 +502,12 @@ final class GalleryTests: XCTestCase {
             },
             Scene(name: "panel-calendar", setup: card(calendar)),
             Scene(name: "panel-custom-delivery", setup: card(custom)),
+            Scene(name: "panel-custom-actions", setup: card(customActions)),
+            Scene(name: "card-custom-actions") { c in
+                let a = customActions()
+                c.upsert(a)
+                c.forceExpanded(id: a.id, for: 60)
+            },
             Scene(name: "panel-battery", setup: card(charging)),
             Scene(name: "panel-bluetooth", setup: card(airPods)),
             Scene(name: "panel-busy") { c in

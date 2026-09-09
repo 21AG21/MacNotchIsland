@@ -200,6 +200,22 @@ struct CalendarState: Equatable {
     var tint: String
 }
 
+/// A button a script asked the island to put on its activity: what it says, and the one thing
+/// it does. Either a web link or a Shortcut by name — the two things a script can already do
+/// for itself, offered where the person is looking rather than where the script is running.
+struct CustomAction: Equatable {
+    var title: String
+    var symbol: String? = nil
+    var url: URL? = nil
+    var shortcut: String? = nil
+
+    /// Whether it would do anything at all. A button that does nothing is not a button.
+    var isUsable: Bool {
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return url != nil || !(shortcut ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
 struct CustomActivity: Equatable {
     var title: String
     var subtitle: String? = nil
@@ -210,6 +226,8 @@ struct CustomActivity: Equatable {
     var body: String? = nil
     var url: URL? = nil
     var showsRing: Bool = false
+    /// At most two: a card has room for two buttons beside its text, and a third is a toolbar.
+    var actions: [CustomAction] = []
 }
 
 /// A capture the user has just taken: a screenshot or a screen recording.

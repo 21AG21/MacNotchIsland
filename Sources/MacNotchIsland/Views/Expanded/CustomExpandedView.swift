@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Expanded view for third-party Live Activities pushed through the URL scheme / notchctl.
@@ -8,6 +9,17 @@ struct CustomExpandedView: View {
     @Environment(\.insidePanel) private var insidePanel
 
     private var tint: Color { Color.named(state.tint) }
+
+    /// A web link, or a Shortcut by name. The panel goes first either way: whatever happens
+    /// next happens in another app, and the island has no business sitting over it.
+    static func perform(_ action: CustomAction) {
+        ActivityCenter.shared.collapse(reason: "a scripted action")
+        if let url = action.url {
+            NSWorkspace.shared.open(url)
+        } else if let name = action.shortcut, !name.trimmingCharacters(in: .whitespaces).isEmpty {
+            ShortcutsRunner.shared.run(name)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,7 +51,18 @@ struct CustomExpandedView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
-                if state.url != nil {
+                // The buttons a script asked for, named rather than glyphed: a script's action
+                // is "Retry" or "Open the logs", and a disc with an arrow on it says neither.
+                ForEach(Array(state.actions.prefix(LiveActivityAPI.maxActions).enumerated()), id: \.offset) { pair in
+                    PillButton(title: pair.element.title, symbol: pair.element.symbol,
+                               tint: tint, prominent: pair.offset == 0) {
+                        Self.perform(pair.element)
+                    }
+                    // At the size a row's controls are, so two of them and the title always
+                    // fit across a card that is 440 points wide.
+                    .environment(\.islandCompactControls, true)
+                }
+                if state.url != nil, state.actions.isEmpty {
                     CircleActionButton(symbol: "arrow.up.forward", tint: .white) { activity.openAction?.perform() }
                 }
             }

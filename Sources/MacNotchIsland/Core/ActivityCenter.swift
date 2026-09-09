@@ -210,7 +210,10 @@ final class ActivityCenter: ObservableObject {
         // A drag means the shelf everywhere but the two sections whose own content takes one:
         // the shelf's well would cover their tiles before a file could reach one. A file
         // dropped anywhere else on the island still goes to the shelf.
-        let sectionTakesDrops = openSection.map { Self.dropTargetSections.contains($0) } ?? false
+        // The section on screen, pinned or peeked. Asking only about the pinned one meant a
+        // drag over a peeked Actions row turned it into the shelf's well and hid the very
+        // tiles the file was being carried to.
+        let sectionTakesDrops = shownSection.map { Self.dropTargetSections.contains($0) } ?? false
         if dragging && prefs.shelfEnabled && !sectionTakesDrops { return .shelf }
 
         let peeking = hovering && prefs.hoverToExpand
@@ -681,6 +684,13 @@ final class ActivityCenter: ObservableObject {
     /// Sections whose own tiles are drop targets: a quick action runs a shortcut with what
     /// you drop on it, a window tile opens what you drop on it with that app.
     static let dropTargetSections: Set<HomeSection> = [.actions, .windows]
+
+    /// The section on screen, whether the panel is pinned open or only under the pointer.
+    /// What the user is looking at, as opposed to what they have committed to.
+    var shownSection: HomeSection? {
+        guard case .home(let tab)? = currentView else { return nil }
+        return HomeSection(rawValue: tab)
+    }
 
     /// The section the panel is pinned on, if it is pinned on one. Not the peek: a peek
     /// follows the pointer, and during a drag the pointer is holding something.
