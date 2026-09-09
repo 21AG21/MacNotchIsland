@@ -129,9 +129,13 @@ run_case() {  # name, click y, extra env
 # One window, photographed by its own number rather than cropped out of a picture of the
 # screen: it is a quarter of the bytes, and it does not depend on guessing where the window
 # landed. The job log these come back through has the island's whole gallery in it too.
-shoot() {  # name
-  local name=$1 id
-  id=$("$OUT/windowid" MacNotchIsland 200) || { echo "--- $name: no window to photograph"; return; }
+shoot() {  # name, pid
+  local name=$1 pid=$2 id
+  # A window that cannot be found is a failure, not a note. The first run of this printed
+  # "no window to photograph" eleven times and went green, because nothing was checking.
+  id=$("$OUT/windowid" "$pid" 200) || {
+    echo "SMOKE FAILED: no window to photograph for $name"; DIED=1; return
+  }
   screencapture -x -o -l"$id" "$OUT/$name.png" || return
   sips -Z 720 "$OUT/$name.png" >/dev/null 2>&1
   sips -s format jpeg -s formatOptions 50 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null 2>&1
@@ -148,12 +152,12 @@ run_welcome() {
   "$APP/Contents/MacOS/MacNotchIsland" > "$OUT/welcome-app.log" 2>&1 &
   local pid=$!
   sleep 7
-  shoot "welcome-1"
+  shoot "welcome-1" "$pid"
   # The second page: the switches a new Mac is offered. Continue is the window's default
   # button, so Return presses it wherever the window happens to have landed.
   "$OUT/key" 36
   sleep 1
-  shoot "welcome-2"
+  shoot "welcome-2" "$pid"
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   defaults write "$ID" hasSeenWelcome -bool true
   sleep 1
@@ -168,7 +172,7 @@ run_settings() {
   for pane in general island activities home media shortcuts privacy about; do
     "$OUT/notify" "notchisland://settings/$pane"
     sleep 2
-    shoot "settings-$pane"
+    shoot "settings-$pane" "$pid"
   done
   if kill -0 "$pid" 2>/dev/null; then
     echo "alive settings: yes" >> "$SUMMARY"
