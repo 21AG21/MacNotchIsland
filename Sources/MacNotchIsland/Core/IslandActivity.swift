@@ -14,9 +14,13 @@ enum OpenAction: Equatable {
     func perform() {
         switch self {
         case .app(let id):
-            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
-                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            // The app is normally the one whose activity is on the island, so it is running
+            // and this cannot fail. When it does, the log is the only place that can say so.
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else {
+                IslandLog.island.error("nothing installed for \(id, privacy: .public)")
+                return
             }
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         case .url(let url):
             NSWorkspace.shared.open(url)
         }
