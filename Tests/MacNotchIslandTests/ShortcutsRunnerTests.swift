@@ -23,6 +23,12 @@ final class ShortcutsRunnerTests: XCTestCase {
         XCTAssertEqual(ShortcutsRunner.parseList(output), ["Morning Routine", "Focus On", "Screenshot", "Dark Mode"])
     }
 
+    func testTheSameNameIsNeverListedTwice() {
+        // The name is the identity of a row, a favourite and the argument `shortcuts run`
+        // gets. Two of them would be two rows SwiftUI cannot tell apart.
+        XCTAssertEqual(ShortcutsRunner.parseList("Tea\nTea\nCoffee\n  Tea  \n"), ["Tea", "Coffee"])
+    }
+
     func testParseListEmptyOutput() {
         XCTAssertEqual(ShortcutsRunner.parseList(""), [])
         XCTAssertEqual(ShortcutsRunner.parseList("\n\n   \n"), [])

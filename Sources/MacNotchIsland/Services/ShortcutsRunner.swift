@@ -30,7 +30,10 @@ final class ShortcutsRunner: ObservableObject {
 
     private init() {
         let stored = UserDefaults.standard.array(forKey: Self.favoritesKey) as? [String] ?? []
-        favorites = Array(stored.prefix(Self.maxFavorites))
+        // Read the same way the listing is: the name is the identity, and a stored list with
+        // one twice would draw two tiles that cannot be told apart.
+        var seen = Set<String>()
+        favorites = Array(stored.filter { seen.insert($0).inserted }.prefix(Self.maxFavorites))
         symbolOverrides = UserDefaults.standard.dictionary(forKey: Self.symbolsKey) as? [String: String] ?? [:]
     }
 
@@ -73,12 +76,18 @@ final class ShortcutsRunner: ObservableObject {
         favorites = live
     }
 
-    /// Parses `shortcuts list` output: one name per line, trimmed, blank lines dropped.
+    /// Parses `shortcuts list` output: one name per line, trimmed, blank lines dropped, and
+    /// the same name never twice.
+    ///
+    /// The name is the identity everywhere else — the row in Settings, the favourite, the
+    /// argument `shortcuts run` is given — so two lines with the same name would be two rows
+    /// SwiftUI cannot tell apart, and a switch on one of them would move both.
     static func parseList(_ output: String) -> [String] {
-        output
+        var seen = Set<String>()
+        return output
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     // MARK: - Running
