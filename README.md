@@ -58,6 +58,8 @@ cd MacNotchIsland
 make            # builds build/MacNotchIsland.app
 make run        # builds and launches
 make install    # copies to /Applications
+make test       # runs the test suite
+make dmg        # builds a drag-to-Applications disk image
 ```
 
 The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the

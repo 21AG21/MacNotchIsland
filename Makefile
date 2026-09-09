@@ -1,4 +1,4 @@
-.PHONY: all build bundle run install clean
+.PHONY: all build bundle run install test dmg clean
 
 all: bundle
 
@@ -13,6 +13,12 @@ run:
 
 install:
 	Scripts/build.sh --install
+
+test:
+	swift test
+
+dmg:
+	Scripts/make-dmg.sh
 
 clean:
 	rm -rf .build build
