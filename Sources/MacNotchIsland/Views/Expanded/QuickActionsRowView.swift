@@ -14,11 +14,7 @@ struct QuickActionsRowView: View {
     /// The way to fill this row: straight to the pane that does it, rather than to whichever
     /// pane Settings happened to be left on. The section's header offers the same thing when
     /// there is already something here to edit.
-    static func openSettings() {
-        UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
+    static func openSettings() { SettingsWindow.open(.shortcuts) }
 
     var body: some View {
         Group {

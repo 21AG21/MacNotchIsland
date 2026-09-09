@@ -148,7 +148,7 @@ run_settings() {
   log show --start "$start" --predicate "subsystem == \"$ID\"" --info --style compact > "$logfile" 2>&1
   echo "--- unified log"
   grep -c . "$logfile" >/dev/null 2>&1 && tail -n 40 "$logfile"
-  local opened; opened=$(grep -c 'settings window' "$logfile" || true)
+  local opened; opened=$(grep -c 'settings window opened' "$logfile" || true)
   echo "--- settings opened: $opened"
   echo "settings opened: $opened" >> "$SUMMARY"
   if [ "$opened" -lt 1 ]; then echo "SMOKE FAILED: notchisland://settings never opened the window"; DIED=1; fi

@@ -174,10 +174,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     @objc private func showNow() { ActivityCenter.shared.pause(for: 0) }
 
-    @objc private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
+    @objc private func openSettings() { SettingsWindow.open() }
 
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func copyDiagnostics() { Diagnostics.copyToPasteboard() }

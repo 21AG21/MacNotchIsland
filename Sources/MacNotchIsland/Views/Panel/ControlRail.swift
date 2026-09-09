@@ -64,10 +64,7 @@ struct ControlRail: View {
             if showsAirDrop {
                 railButton(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
             }
-            railButton(symbol: "gearshape", label: "Settings") {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
+            railButton(symbol: "gearshape", label: "Settings") { SettingsWindow.open() }
         }
         .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.railHeight)
         // The row is not a fixed set: Wi-Fi and Bluetooth appear with the hardware, the

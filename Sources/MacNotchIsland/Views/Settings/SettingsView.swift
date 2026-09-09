@@ -1,4 +1,32 @@
+import AppKit
 import SwiftUI
+
+/// Opening Settings, in one place.
+///
+/// SwiftUI's `Settings` scene installs its opener on the responder chain under a selector with
+/// no public symbol, and the name has already changed once — `showPreferencesWindow:` before
+/// macOS 14, `showSettingsWindow:` after. Four call sites each spelled it out by hand, none of
+/// them looked at what `sendAction` returned, and so a name that stopped answering would have
+/// taken every way into this window at once, silently. This asks under both names and says
+/// which one answered.
+enum SettingsWindow {
+    private static let selectors = ["showSettingsWindow:", "showPreferencesWindow:"]
+
+    @discardableResult
+    static func open(_ section: SettingsSection? = nil) -> Bool {
+        if let section {
+            UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        for name in selectors {
+            guard NSApp.sendAction(Selector((name)), to: nil, from: nil) else { continue }
+            IslandLog.island.notice("settings window opened by \(name, privacy: .public) on \(section?.rawValue ?? "the last pane", privacy: .public)")
+            return true
+        }
+        IslandLog.island.error("settings window refused: nothing in the responder chain opens it")
+        return false
+    }
+}
 
 /// The panes in the Settings sidebar, in the order System Settings would list them.
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {

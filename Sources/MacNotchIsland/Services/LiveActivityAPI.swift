@@ -122,13 +122,7 @@ final class LiveActivityAPI {
             center.collapse()
         case ("settings", let pane):
             // notchisland://settings, notchisland://settings/island, notchisland://settings?pane=about
-            let wanted = (q["pane"] ?? pane).lowercased()
-            if let section = SettingsSection(rawValue: wanted) {
-                UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
-            }
-            NSApp.activate(ignoringOtherApps: true)
-            let sent = NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            IslandLog.island.notice("settings window \(sent ? "opened" : "refused", privacy: .public) on \(wanted.isEmpty ? "the last pane" : wanted, privacy: .public)")
+            SettingsWindow.open(SettingsSection(rawValue: (q["pane"] ?? pane).lowercased()))
         default:
             IslandLog.island.error("unknown notchisland URL: \(url.absoluteString, privacy: .private)")
         }
