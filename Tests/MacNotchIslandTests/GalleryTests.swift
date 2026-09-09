@@ -53,6 +53,12 @@ final class GalleryTests: XCTestCase {
             center.resetForTesting()
             center.setHovering(false)
             ShelfStore.shared.clear()
+            // Every store the panel reads starts empty for each scene; the scene fills in
+            // whatever it means to show. Without this the sections that read the calendar,
+            // the pasteboard and the user's apps could only ever be reviewed empty.
+            AgendaStore.shared.seedForGallery(events: [], reminders: [])
+            ClipboardStore.shared.seedForGallery([])
+            FavoriteApps.shared.seedForGallery([])
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
             let geometry = scene.floating ? Self.plain : Self.notch
@@ -199,6 +205,50 @@ final class GalleryTests: XCTestCase {
                        priority: 30)
     }
 
+    // MARK: - What the sections show
+
+    /// Two events and two reminders: the shape of an afternoon that is still ahead.
+    private static func today() {
+        let now = Date()
+        AgendaStore.shared.seedForGallery(
+            events: [
+                AgendaStore.Event(id: "e1", title: "Design review", start: now.addingTimeInterval(7 * 60),
+                                  end: now.addingTimeInterval(67 * 60), isAllDay: false, location: "Caffè Macs",
+                                  joinURL: URL(string: "https://zoom.us/j/123"), tint: "blue"),
+                AgendaStore.Event(id: "e2", title: "1:1 with Sam", start: now.addingTimeInterval(95 * 60),
+                                  end: now.addingTimeInterval(125 * 60), isAllDay: false, location: nil,
+                                  joinURL: nil, tint: "purple"),
+            ],
+            reminders: [
+                AgendaStore.Reminder(id: "r1", title: "Send the notes round", due: now.addingTimeInterval(3 * 3600),
+                                     isCompleted: false, priority: 1, tint: "orange"),
+                AgendaStore.Reminder(id: "r2", title: "Book the flight", due: nil, isCompleted: false,
+                                     priority: 0, tint: "green"),
+            ])
+    }
+
+    /// A history with one of each kind in it.
+    private static func clipboard() {
+        let now = Date()
+        ClipboardStore.shared.seedForGallery([
+            ClipboardItem(kind: .url, text: "https://developer.apple.com/design/human-interface-guidelines",
+                          date: now.addingTimeInterval(-60), pinned: true),
+            ClipboardItem(kind: .text, text: "let panelWidth: CGFloat = 720", date: now.addingTimeInterval(-8 * 60)),
+            ClipboardItem(kind: .text, text: "Flat 4, 18 Rosebery Avenue, London EC1R 4TD",
+                          date: now.addingTimeInterval(-42 * 60)),
+        ])
+    }
+
+    /// Apps every Mac has, so the row draws real icons.
+    private static func favouriteApps() {
+        FavoriteApps.shared.seedForGallery([
+            "/System/Applications/Music.app",
+            "/System/Applications/Mail.app",
+            "/System/Applications/Notes.app",
+            "/System/Applications/Calendar.app",
+        ].filter { FileManager.default.fileExists(atPath: $0) })
+    }
+
     // MARK: - Scenes
 
     /// Lets the hover delay elapse so the panel opens under the (simulated) pointer.
@@ -261,14 +311,17 @@ final class GalleryTests: XCTestCase {
             // The panel, pinned, on each view it can show.
             Scene(name: "panel-music", setup: panel("music") { c in c.upsert(nowPlaying()) }),
             Scene(name: "panel-music-empty", setup: panel("music")),
-            Scene(name: "panel-today", setup: panel("today")),
+            Scene(name: "panel-today", setup: panel("today") { _ in today() }),
+            Scene(name: "panel-today-empty", setup: panel("today")),
             Scene(name: "panel-windows", setup: panel("windows")),
             Scene(name: "panel-shelf", setup: panel("shelf") { _ in ShelfStore.shared.add(files) }),
             Scene(name: "panel-shelf-empty", setup: panel("shelf")),
-            Scene(name: "panel-clipboard", setup: panel("clipboard")),
-            Scene(name: "panel-actions", setup: panel("actions")),
+            Scene(name: "panel-clipboard", setup: panel("clipboard") { _ in clipboard() }),
+            Scene(name: "panel-clipboard-empty", setup: panel("clipboard")),
+            Scene(name: "panel-actions", setup: panel("actions") { _ in favouriteApps() }),
+            Scene(name: "panel-actions-empty", setup: panel("actions")),
             Scene(name: "panel-notes", setup: panel("notes")),
-            Scene(name: "panel-stats", setup: panel("stats")),
+            Scene(name: "panel-stats", setup: panel("stats") { _ in SystemStats.shared.seedForGallery() }),
             Scene(name: "panel-timer", setup: card(timer)),
             Scene(name: "panel-stopwatch", setup: card(stopwatch)),
             Scene(name: "panel-call", setup: card(call)),

@@ -115,7 +115,9 @@ struct ShelfStripView: View {
             if shelf.items.isEmpty {
                 emptyState
             } else {
-                items
+                // The tiles start under the header, the way the window tiles do; the rest of
+                // the strip stays theirs to be dropped into.
+                items.frame(maxHeight: .infinity, alignment: .top)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -153,8 +155,9 @@ struct ShelfStripView: View {
                 }
             }
             // No inset of its own: the first tile lines up with the section's header and with
-            // every other section's content.
-            .padding(.vertical, 5)
+            // every other section's content. Three points of air above and below is what the
+            // selection ring needs, and no more.
+            .padding(.vertical, 3)
             // A dropped file pops into place and the rest shuffle over; a removed one shrinks away.
             .animation(IslandMotion.content, value: shelf.items)
         }

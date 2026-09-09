@@ -50,6 +50,13 @@ final class FavoriteApps: ObservableObject {
         return !folder.isEmpty && !fileManager.fileExists(atPath: folder)
     }
 
+    /// Fills the row for the rendered gallery. Does nothing outside it, so the only defaults
+    /// this can ever write to are the test runner's own.
+    func seedForGallery(_ paths: [String]) {
+        guard RenderMode.isGallery else { return }
+        self.paths = Array(paths.prefix(Self.maximum))
+    }
+
     static func name(of path: String) -> String {
         FileManager.default.displayName(atPath: path).replacingOccurrences(of: ".app", with: "")
     }

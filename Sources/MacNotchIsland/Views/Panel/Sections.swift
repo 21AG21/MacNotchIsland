@@ -130,6 +130,9 @@ struct NotesSectionView: View {
     // Qualified: the island has a `FocusState` of its own, the payload of a Focus activity.
     @SwiftUI.FocusState private var editing: Bool
 
+    /// What `TextEditor` insets its text by on macOS.
+    private static let editorInset: CGFloat = 5
+
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Notes") {
@@ -151,6 +154,10 @@ struct NotesSectionView: View {
                         .scrollContentBackground(.hidden)
                         .scrollIndicators(.never)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // The editor keeps 5 pt of its own either side of the text. Taking
+                        // that back is what puts a note's first character on the same column
+                        // as the title above it, and its last on the same edge as the rail.
+                        .padding(.horizontal, -Self.editorInset)
                         .focused($editing)
                         .accessibilityLabel("Notes")
                 }
@@ -159,7 +166,6 @@ struct NotesSectionView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.3))
                         .padding(.top, 1)
-                        .padding(.leading, 5)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }

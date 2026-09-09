@@ -45,6 +45,19 @@ final class AgendaStore: ObservableObject {
 
     private init() {}
 
+    // MARK: - The gallery
+
+    /// Puts a day in the store for the rendered gallery, which runs on a machine with no
+    /// calendar to read and would otherwise only ever show the empty state. Does nothing
+    /// outside the gallery, so the shipping app can never be handed invented events.
+    func seedForGallery(events: [Event], reminders: [Reminder]) {
+        guard RenderMode.isGallery else { return }
+        self.events = events
+        self.reminders = reminders
+        eventsAccess = .fullAccess
+        remindersAccess = .fullAccess
+    }
+
     // MARK: - Lifetime
 
     /// A view that shows the agenda appeared. The first viewer asks for access.
@@ -98,6 +111,9 @@ final class AgendaStore: ObservableObject {
     // MARK: - Reading
 
     func refresh() {
+        // The gallery is handed its day rather than reading one, and this machine has no
+        // calendar: refreshing here would only take the seeded day away again.
+        guard !RenderMode.isGallery else { return }
         let now = Date()
         if canReadEvents {
             let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-5 * 60), end: now.addingTimeInterval(24 * 3600), calendars: nil)

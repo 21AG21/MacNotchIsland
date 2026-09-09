@@ -118,6 +118,13 @@ final class ClipboardStore: ObservableObject {
     private var persistWork: DispatchWorkItem?
     private var pendingThumbnails: Set<UUID> = []
 
+    /// Fills the history for the rendered gallery, which starts with an empty pasteboard.
+    /// Does nothing outside the gallery.
+    func seedForGallery(_ items: [ClipboardItem]) {
+        guard RenderMode.isGallery else { return }
+        self.items = items
+    }
+
     private init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
         items = ClipboardStore.loadPersisted()

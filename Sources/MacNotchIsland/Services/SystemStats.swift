@@ -73,10 +73,35 @@ final class SystemStats: ObservableObject {
 
     private init() {}
 
+    // MARK: - The gallery
+
+    /// A Mac at work, for the rendered gallery. Sampling on the machine that renders it puts
+    /// an idle runner's zeroes on screen and leaves every trace empty, so the section can
+    /// only be reviewed as five em dashes. Does nothing outside the gallery.
+    func seedForGallery() {
+        guard RenderMode.isGallery else { return }
+        sample = Sample(cpuPercent: 23,
+                        memoryUsedBytes: 18_400_000_000, memoryTotalBytes: 24_000_000_000,
+                        networkDownBytesPerSec: 1_480_000, networkUpBytesPerSec: 96_000,
+                        batteryHealthPercent: 97, cycleCount: 112, batteryTemperatureC: 31,
+                        diskUsedBytes: 604_000_000_000, diskTotalBytes: 1_000_000_000_000,
+                        batteryPercent: 82, batteryCharging: false, batteryMinutesRemaining: 220)
+        cpuHistory = (0..<Self.historyLength).map { i in
+            let t = Double(i)
+            return max(0, 14 + 9 * sin(t / 3.1) + 5 * sin(t / 1.3))
+        }
+        networkHistory = (0..<Self.historyLength).map { i in
+            let t = Double(i)
+            return max(0, 320_000 + 900_000 * sin(t / 4.7) + 300_000 * sin(t / 1.9))
+        }
+    }
+
     // MARK: - Lifecycle
 
     /// Balanced with `stop()`. Safe to nest: only the first call starts the timer.
     func start() {
+        // The gallery is handed its numbers; sampling would only take them away again.
+        guard !RenderMode.isGallery else { return }
         subscribers += 1
         guard subscribers == 1 else { return }
         isRunning = true
@@ -100,6 +125,7 @@ final class SystemStats: ObservableObject {
 
     /// Balanced with `start()`. Sampling stops entirely once the last caller has gone.
     func stop() {
+        guard !RenderMode.isGallery else { return }
         guard subscribers > 0 else { return }
         subscribers -= 1
         guard subscribers == 0 else { return }

@@ -119,6 +119,10 @@ struct PillButton: View {
             .foregroundStyle(prominent ? Color.black : tint)
             .padding(.horizontal, m.h)
             .padding(.vertical, m.v)
+            // On a header line every control is exactly the line's height, so a pill and the
+            // clipboard's search field are two capsules of one size rather than two of nearly
+            // one size.
+            .frame(height: compact ? SectionMetrics.headerHeight : nil)
             .background(Capsule().fill(prominent ? tint : tint.opacity(0.18)))
             .contentShape(Capsule())
         }
