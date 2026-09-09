@@ -11,6 +11,15 @@ struct QuickActionsRowView: View {
     /// reach for most.
     static let capacity = 8
 
+    /// The way to fill this row: straight to the pane that does it, rather than to whichever
+    /// pane Settings happened to be left on. The section's header offers the same thing when
+    /// there is already something here to edit.
+    static func openSettings() {
+        UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
     var body: some View {
         Group {
             if runner.favorites.isEmpty && apps.apps.isEmpty {
@@ -30,13 +39,7 @@ struct QuickActionsRowView: View {
                             .foregroundStyle(.white.opacity(0.4))
                     }
                     Spacer(minLength: 8)
-                    PillButton(title: "Choose Actions…") {
-                        // Straight to the pane that fills this row, rather than to whichever
-                        // pane Settings happened to be left on.
-                        UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
-                        NSApp.activate(ignoringOtherApps: true)
-                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    }
+                    PillButton(title: "Choose Actions…") { Self.openSettings() }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .accessibilityElement(children: .contain)

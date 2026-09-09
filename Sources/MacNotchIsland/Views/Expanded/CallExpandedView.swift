@@ -57,8 +57,11 @@ struct CallExpandedView: View {
                     .accessibilityLabel(spokenLabel(at: ctx.date))
                 }
                 // Nothing public can hang up another app's call, so this jumps to the app that
-                // owns it, in the call's own green rather than a hang-up red that would lie.
-                CircleActionButton(symbol: "phone.fill", tint: Color.named("green"),
+                // owns it: the call's own green, rather than a hang-up red that would lie —
+                // and the arrow the rest of the app uses for a button that leaves, because a
+                // filled green disc with a handset in it is the one control on a phone that
+                // means answer, and this does not answer anything.
+                CircleActionButton(symbol: "arrow.up.forward", tint: Color.named("green"),
                                    filled: true, glyph: .white,
                                    label: "Go to call in \(state.appName)") {
                     goToCall()

@@ -65,6 +65,8 @@ struct ClipboardSectionView: View {
 /// Favourite Shortcuts as round buttons, and the timer presets, which are actions too.
 struct ActionsSectionView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
+    /// Watched only so the header knows whether the row below it is empty.
+    @ObservedObject private var apps = FavoriteApps.shared
     @ObservedObject private var timers = IslandTimer.shared
     /// Watched, not merely read: the pill's title is "Stopwatch" or "Stop" depending on it,
     /// and the row was only ever redrawn because something else in the panel happened to
@@ -78,10 +80,11 @@ struct ActionsSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("Actions") {
-                PillButton(title: "Edit", tint: .white.opacity(0.85)) {
-                    UserDefaults.standard.set(SettingsSection.shortcuts.rawValue, forKey: "settingsSection")
-                    NSApp.activate(ignoringOtherApps: true)
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                // Nothing to edit yet means the empty row below is already offering the only
+                // thing there is to do, in more words and with the reason for it. Two pills
+                // on one screen opening the same pane of Settings is one pill.
+                if !isEmpty {
+                    PillButton(title: "Edit", tint: .white.opacity(0.85)) { QuickActionsRowView.openSettings() }
                 }
             }
             Color.clear.frame(height: SectionMetrics.gapBelowHeader)
@@ -98,6 +101,8 @@ struct ActionsSectionView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+
+    private var isEmpty: Bool { runner.favorites.isEmpty && apps.apps.isEmpty }
 
     static let actionsRow: CGFloat = 64
     static let timerRowHeight: CGFloat = 28
