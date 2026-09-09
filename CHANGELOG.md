@@ -62,12 +62,13 @@ the unreleased section is what the next tag will ship.
   you have selected. It stands down on that section and stays everywhere else, which is what
   it is for. While there: the rail's buttons slide over when one of them comes or goes rather
   than jumping, which they also do when a Mac has no Wi-Fi or no Bluetooth to offer.
-- Every way into Settings — the rail's gear, the menu bar item, both buttons in the Actions
-  section and the `notchisland://settings` URL — now goes through one place that asks under
-  both names SwiftUI has used for the window's opener and says in the log which one answered.
-  Four call sites each spelled the undocumented selector out by hand and none looked at
-  whether it worked, so a name that stopped answering would have taken all four at once,
-  silently. The URL also takes a pane now: `notchisland://settings/island`.
+- **Settings opens.** It did not. Every way in — the rail's gear, the menu bar item, both
+  buttons in the Actions section — asked SwiftUI's `Settings` scene for its window through the
+  undocumented selector that scene installs, and on an app with no Dock icon that selector
+  reports success and makes no window. Nothing said so, because nothing looked. The window is
+  built and shown directly now, the way the welcome tour's always has been, through one place
+  that every way in goes through. The URL scheme takes a pane too:
+  `notchisland://settings/island`.
 - Settings' picker for the apps that hide the island can no longer open behind whatever is in
   front. Notch Island runs as an accessory and is not necessarily the active app when a button
   in its own window is clicked; the Actions pane's picker already asked first.

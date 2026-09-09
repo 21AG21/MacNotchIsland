@@ -153,6 +153,12 @@ run_settings() {
   echo "--- windows the app had"; grep 'app windows:' "$logfile" | tail -n 3
   echo "settings opened: $opened" >> "$SUMMARY"
   if [ "$opened" -lt 1 ]; then echo "SMOKE FAILED: notchisland://settings never opened the window"; DIED=1; fi
+  # Being told a window opened is not a window. The app has its status bar item and nothing
+  # else until Settings is up, so a count above one is the window itself.
+  local windows; windows=$(grep -c 'app windows: [2-9]' "$logfile" || true)
+  echo "--- settings windows seen: $windows"
+  echo "settings windows: $windows" >> "$SUMMARY"
+  if [ "$windows" -lt 1 ]; then echo "SMOKE FAILED: the settings window was never actually there"; DIED=1; fi
   echo "--- app stderr"; tail -n 20 "$OUT/settings-app.log"
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   sleep 1

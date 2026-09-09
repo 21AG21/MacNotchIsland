@@ -1,51 +1,76 @@
 import AppKit
 import SwiftUI
 
-/// Opening Settings, in one place.
+/// The Settings window: built and owned here, not left to SwiftUI's `Settings` scene.
 ///
-/// SwiftUI's `Settings` scene installs its opener on the responder chain under a selector with
-/// no public symbol, and the name has already changed once — `showPreferencesWindow:` before
-/// macOS 14, `showSettingsWindow:` after. Four call sites each spelled it out by hand, none of
-/// them looked at what `sendAction` returned, and so a name that stopped answering would have
-/// taken every way into this window at once, silently. This asks under both names and says
-/// which one answered.
+/// That scene is how a SwiftUI app is supposed to get one, and every way in used to ask for it
+/// through `showSettingsWindow:` — the undocumented selector it installs on the responder
+/// chain. On this app it does not work, and it does not fail either: `sendAction` returns
+/// true, and no window is ever made. Notch Island has no Dock icon (`setActivationPolicy` is
+/// `.accessory`), which is where a SwiftUI app's Settings scene stops appearing, and every
+/// switch in this window was unreachable behind an action that reported success three times
+/// running while the app's only window was its status bar item.
+///
+/// So the window is made the same way the welcome tour's has always been made: an
+/// `NSHostingController` in an `NSWindow` this owns and shows itself. Nothing undocumented is
+/// left in the path, and `reportWindows` writes down what actually came up.
 enum SettingsWindow {
-    private static let selectors = ["showSettingsWindow:", "showPreferencesWindow:"]
-
     @discardableResult
     static func open(_ section: SettingsSection? = nil) -> Bool {
-        if let section {
-            UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        for name in selectors {
-            guard NSApp.sendAction(Selector((name)), to: nil, from: nil) else { continue }
-            IslandLog.island.notice("settings window opened by \(name, privacy: .public) on \(section?.rawValue ?? "the last pane", privacy: .public)")
-            reportWindows()
-            return true
-        }
-        IslandLog.island.error("settings window refused: nothing in the responder chain opens it")
+        SettingsWindowHost.shared.show(section)
+        IslandLog.island.notice("settings window opened on \(section?.rawValue ?? "the last pane", privacy: .public)")
         reportWindows()
-        return false
+        return true
     }
 
     /// What windows the app has a moment after asking for one.
     ///
-    /// The action being accepted is not the same as a window arriving — a responder can claim
-    /// the selector and put nothing on screen — and the difference is invisible from the
-    /// outside. This is the line that says which of the two happened, in the support report
-    /// and in the smoke test, and it costs one log line per time anybody opens Settings.
+    /// An action being accepted is not the same as a window arriving, and from outside the app
+    /// the two look identical — which is exactly how this stayed broken. One line per time
+    /// anybody opens Settings, in the support report and in the smoke test.
     private static func reportWindows() {
         DispatchQueue.main.asyncAfter(deadline: .now() + windowSettle) {
             let list = NSApp.windows
                 .filter { !($0 is NotchPanel) }
                 .map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible)" }
-            IslandLog.island.notice("app windows: \(list.isEmpty ? "none" : list.joined(separator: " | "), privacy: .public)")
+            IslandLog.island.notice("app windows: \(list.count, privacy: .public) — \(list.isEmpty ? "none" : list.joined(separator: " | "), privacy: .public)")
         }
     }
 
-    /// Long enough for SwiftUI to have built and shown the window it was asked for.
+    /// Long enough for the window to have been built and shown.
     static let windowSettle: TimeInterval = 0.6
+}
+
+/// Holds the one Settings window, so opening it twice does not make two.
+private final class SettingsWindowHost {
+    static let shared = SettingsWindowHost()
+    private var window: NSWindow?
+
+    func show(_ section: SettingsSection?) {
+        if let section {
+            UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
+        }
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let host = NSHostingController(rootView: SettingsView()
+            .environmentObject(ActivityCenter.shared)
+            .environmentObject(Preferences.shared))
+        // Sized by the view, which asks for exactly one screenful of Settings; the title comes
+        // from the pane on screen, the way System Settings names its window.
+        let w = NSWindow(contentViewController: host)
+        w.styleMask = [.titled, .closable, .miniaturizable]
+        w.title = "Notch Island Settings"
+        // Closing it puts it away rather than tearing it down, so what you were reading is
+        // still there the next time, and nothing has to be rebuilt to show it.
+        w.isReleasedWhenClosed = false
+        w.center()
+        window = w
+        w.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 }
 
 /// The panes in the Settings sidebar, in the order System Settings would list them.
