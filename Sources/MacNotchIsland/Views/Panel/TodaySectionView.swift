@@ -45,15 +45,24 @@ struct TodaySectionView: View {
             HStack(spacing: 5) {
                 Image(systemName: weather.conditionSymbol)
                     .font(.system(size: 11, weight: .semibold))
+                // The separator the rest of the app uses between two facts on one line, in
+                // place of the two spaces that stood here.
                 Text(WeatherService.formatTemperature(celsius, fahrenheit: WeatherService.usesFahrenheit)
-                     + (weather.conditionText.isEmpty ? "" : "  " + weather.conditionText))
+                     + (weather.conditionText.isEmpty ? "" : " · " + weather.conditionText))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
             }
             .foregroundStyle(.white.opacity(0.45))
             .accessibilityElement(children: .combine)
         } else if weather.state == .denied {
-            EmptyView()
+            // A switch somebody turned on and that then shows nothing at all is
+            // indistinguishable from one that does not work. Location is the one thing the
+            // weather cannot do without, and this is the same offer the Windows section makes
+            // for the permissions it needs.
+            PillButton(title: "Allow Location", tint: .white.opacity(0.85)) {
+                SystemSettingsPane.location.open()
+            }
+            .accessibilityLabel(Text("Weather needs your location. Open Location Services."))
         }
     }
 

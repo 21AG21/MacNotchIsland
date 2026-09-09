@@ -31,6 +31,11 @@ the unreleased section is what the next tag will ship.
   washes into the black behind Now Playing, the way the phone does it. Switchable off in
   Activities, and nothing but the title, artist and album is ever sent.
 
+- **Weather that has been refused your location says so.** Turning "Weather in Today" on and
+  then refusing the location prompt left the line simply absent, which is indistinguishable
+  from a switch that does not work. Today's header now offers "Allow Location", the same way
+  the Windows section offers the permissions it needs. The temperature and the conditions are
+  also separated by the same middle dot the rest of the app uses, rather than two spaces.
 - **Privacy lists Reminders, which the app asks for and the list left out.** Today reads two
   things from EventKit and macOS grants them separately; the screen whose whole purpose is to
   say what Notch Island may see named only one of them. The prompts macOS shows also referred
