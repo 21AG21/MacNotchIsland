@@ -87,6 +87,19 @@ final class LiveActivityAPITests: XCTestCase {
         XCTAssertEqual(center.presentation, .idle)
     }
 
+    func testAURLCannotOpenASectionThatIsSwitchedOff() {
+        let prefs = Preferences.shared
+        let wasOn = prefs.statsEnabled
+        defer { prefs.statsEnabled = wasOn }
+        prefs.statsEnabled = false
+        handle("notchisland://home/stats")
+        // The switcher has no slot for a section that is off, so opening the panel on it
+        // would leave the band with nothing lit. The panel opens where it usually does.
+        XCTAssertNotEqual(center.openView, .home(tab: "stats"))
+        guard case .panel = center.presentation else { return XCTFail("the panel still opens") }
+        handle("notchisland://collapse")
+    }
+
     // MARK: - Naming a settings pane
 
     func testAPaneCanBeNamedTheWayTheSidebarNamesIt() {

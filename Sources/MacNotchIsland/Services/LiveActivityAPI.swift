@@ -114,9 +114,16 @@ final class LiveActivityAPI {
         case ("home", let tab):
             // notchisland://home, notchisland://home/shelf, notchisland://home?tab=clipboard
             let wanted = (q["tab"] ?? tab).lowercased()
-            if HomeSection(rawValue: wanted) != nil {
+            // A section the user has switched off is not in the switcher, so opening the
+            // panel on it would leave the band with nothing lit and the arrows stepping out
+            // of a view they cannot step back into. The panel opens where it usually does,
+            // and the log says why, since nothing else here can.
+            if let section = HomeSection(rawValue: wanted), section.isEnabled(Preferences.shared) {
                 center.open(.home(tab: wanted))
             } else {
+                if !wanted.isEmpty {
+                    IslandLog.island.notice("home: \(wanted, privacy: .public) is not a section that is switched on")
+                }
                 center.showHome()
             }
         case ("collapse", _):
