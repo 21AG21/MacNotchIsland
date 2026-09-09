@@ -222,6 +222,10 @@ struct WindowsSectionView: View {
         }
         .animation(IslandMotion.hover, value: showsZones)
         .animation(IslandMotion.hover, value: marked)
+        // Everything a tile can do to a window, in words — including the two that belong to
+        // the app rather than the window, which nothing else on the Mac offers from a picture
+        // of it.
+        .contextMenu { menu(window) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(window.appName), \(window.label)")
         .accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
@@ -229,6 +233,27 @@ struct WindowsSectionView: View {
         .accessibilityAction(named: picked ? "Leave it out" : "Pick it out to tile") {
             if picked { selection.remove(window.id) } else { selection.insert(window.id) }
         }
+    }
+
+    /// A tile's own menu. The zones on the picture are for the pointer; this is for the
+    /// person who wants to be told what the choices are, and it carries the two the zones
+    /// cannot: hiding the app, and quitting it.
+    @ViewBuilder
+    private func menu(_ window: IslandWindow) -> some View {
+        Button("Bring to Front") { monitor.focus(window) }
+        Button("Minimise") { monitor.minimise(window) }
+        Divider()
+        ForEach(SnapZone.allCases) { zone in
+            Button(zone.title) { monitor.snap(window, to: zone) }
+        }
+        if NSScreen.screens.count > 1 {
+            Button("Next Display") { monitor.sendToNextDisplay(window) }
+        }
+        Divider()
+        Button("Close Window") { monitor.close(window) }
+        // The app's own two. Named, so nobody quits something by reaching for a glyph.
+        Button("Hide \(window.appName)") { NSRunningApplication(processIdentifier: window.pid)?.hide() }
+        Button("Quit \(window.appName)") { NSRunningApplication(processIdentifier: window.pid)?.terminate() }
     }
 
     /// The tick on a picked tile, in the corner the zones do not use.

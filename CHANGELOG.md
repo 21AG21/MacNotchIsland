@@ -6,6 +6,10 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **A window tile has a menu.** Right-click one for everything the zones on it do, in words —
+  and the two they cannot: hiding the app and quitting it, both named, so nobody quits
+  something by reaching for a glyph. Nothing else on the Mac lets you quit an app from a
+  picture of one of its windows.
 - **Compress, on the shelf.** The one thing everybody does to a pile of files before sending
   them, and the reason half of those piles go to the Desktop first. Right-click a selection and
   the archive lands beside the files it was made from and on the shelf, ready to AirDrop —
