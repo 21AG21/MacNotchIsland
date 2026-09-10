@@ -149,6 +149,20 @@ final class ShelfStore: ObservableObject {
 
     func remove(_ url: URL) { remove([url]) }
 
+    /// Takes items off the shelf without touching what is behind them. For a file that has
+    /// gone somewhere on purpose: it is somewhere else now, not gone, and the Trash pass
+    /// `remove` makes has no business anywhere near it.
+    func forget(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let targets = Set(urls.map { $0.standardizedFileURL })
+        let before = items.count
+        items.removeAll { targets.contains($0.url) }
+        guard items.count != before else { return }
+        pruneThumbnailCache()
+        persist()
+        rescheduleSweep()
+    }
+
     func clear() {
         guard !items.isEmpty else { return }
         let leaving = urls
@@ -231,6 +245,66 @@ final class ShelfStore: ObservableObject {
 
     func open(_ urls: [URL]) {
         for url in urls { _ = NSWorkspace.shared.open(url) }
+    }
+
+    /// Files what is picked out into a folder of somebody's choosing, and takes it off the
+    /// shelf once it is there.
+    ///
+    /// The shelf is a staging post — things land on it on the way somewhere — and "somewhere"
+    /// was the one verb it did not have. A move, not a copy: leaving a second version behind
+    /// is how a Downloads folder becomes what a Downloads folder becomes.
+    func saveTo(_ urls: [URL]) {
+        let files = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !files.isEmpty else { return }
+        // The panel is in the way of a sheet, and this app does not take focus on its own —
+        // so it does now, once, for as long as the chooser is up.
+        ActivityCenter.shared.collapse(reason: "filing what is on the shelf")
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Move Here"
+        panel.message = files.count == 1
+            ? "Where should \(files[0].lastPathComponent) go?"
+            : "Where should these \(files.count) files go?"
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        move(files, to: folder)
+    }
+
+    /// Moves each file, stepping around a name that is taken, and drops whatever arrived from
+    /// the shelf. A file that will not move is left where it is and on the shelf, so nothing
+    /// is ever lost between the two.
+    func move(_ files: [URL], to folder: URL) {
+        var moved: [URL] = []
+        for file in files {
+            let destination = Self.unusedURL(folder.appendingPathComponent(file.lastPathComponent))
+            do {
+                try FileManager.default.moveItem(at: file, to: destination)
+                moved.append(file)
+            } catch {
+                IslandLog.island.error("could not move \(file.lastPathComponent, privacy: .private): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        guard !moved.isEmpty else { return announceMoveRefused() }
+        // Off the shelf, but never into the Trash: they are somewhere else now, not gone.
+        forget(moved)
+        let custom = CustomActivity(title: moved.count == 1 ? "Moved" : "Moved \(moved.count) files",
+                                    subtitle: folder.lastPathComponent,
+                                    symbol: "folder.fill", tint: "blue",
+                                    trailingText: folder.lastPathComponent)
+        var alert = IslandActivity(id: "shelf-moved", kind: .custom, content: .custom(custom), priority: 80)
+        alert.openAction = .url(folder)
+        ActivityCenter.shared.showAlert(alert, duration: 2.5)
+    }
+
+    private func announceMoveRefused() {
+        let custom = CustomActivity(title: "Could not move those", symbol: "exclamationmark.triangle.fill",
+                                    tint: "orange", trailingText: "Failed")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "shelf-moved", kind: .custom,
+                                                       content: .custom(custom), priority: 80),
+                                        duration: 3)
     }
 
     /// Zips what is picked out and puts the archive on the shelf beside it.

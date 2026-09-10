@@ -382,6 +382,7 @@ struct ShelfItemView: View {
         Button("Quick Look") { ShelfQuickLook.shared.show(targets()) }
         Button("Reveal in Finder") { shelf.revealInFinder(targets()) }
         Divider()
+        Button("Move to…") { shelf.saveTo(targets()) }
         Button("Compress") { shelf.compress(targets()) }
         Button("AirDrop") { shelf.airDrop(targets()) }
         Button("Share…") {

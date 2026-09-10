@@ -6,6 +6,13 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Move to…, on the shelf.** The shelf is a staging post — things land on it on the way
+  somewhere — and "somewhere" was the one verb it did not have. Right-click a selection, pick a
+  folder, and the files go there and come off the shelf. A move, not a copy: leaving a second
+  version behind is how a Downloads folder becomes what a Downloads folder becomes. A name
+  that is taken gets a number rather than an overwrite, a file that will not move is left
+  where it is *and* on the shelf so nothing is lost between the two, and nothing goes to the
+  Trash on the way — the files are somewhere else now, not gone.
 - **A sleep timer.** The thing everybody sets on a phone at night, on the Mac at last: right-
   click the island while something is playing and pick how long — fifteen minutes to an hour and
   a half — and the music stops at the end of it. It is a real countdown with a real card, so

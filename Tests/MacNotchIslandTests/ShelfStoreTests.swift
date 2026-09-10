@@ -339,6 +339,57 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertNil(center.activity(id: ShelfStore.activityID))
     }
 
+    // MARK: - Filing things away
+
+    func testMovingTakesFilesOffTheShelfAndPutsThemWhereTheyWereSent() {
+        let shelf = ShelfStore.shared
+        shelf.clear()
+        defer { shelf.clear() }
+        let from = tempFolder(), to = tempFolder()
+        defer { try? FileManager.default.removeItem(at: from); try? FileManager.default.removeItem(at: to) }
+        let file = from.appendingPathComponent("Note.txt")
+        FileManager.default.createFile(atPath: file.path, contents: Data("hello".utf8))
+        shelf.add([file])
+        XCTAssertEqual(shelf.items.count, 1)
+
+        shelf.move([file], to: to)
+        XCTAssertTrue(shelf.items.isEmpty, "off the shelf once it is somewhere else")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: to.appendingPathComponent("Note.txt").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), "a move, not a copy")
+    }
+
+    func testAMoveNeverOverwritesWhatIsAlreadyThere() {
+        let shelf = ShelfStore.shared
+        shelf.clear()
+        defer { shelf.clear() }
+        let from = tempFolder(), to = tempFolder()
+        defer { try? FileManager.default.removeItem(at: from); try? FileManager.default.removeItem(at: to) }
+        FileManager.default.createFile(atPath: to.appendingPathComponent("Note.txt").path, contents: Data("theirs".utf8))
+        let file = from.appendingPathComponent("Note.txt")
+        FileManager.default.createFile(atPath: file.path, contents: Data("mine".utf8))
+        shelf.add([file])
+        shelf.move([file], to: to)
+        let theirs = try? String(contentsOf: to.appendingPathComponent("Note.txt"), encoding: .utf8)
+        XCTAssertEqual(theirs, "theirs", "what was there is untouched")
+        let mine = try? String(contentsOf: to.appendingPathComponent("Note 2.txt"), encoding: .utf8)
+        XCTAssertEqual(mine, "mine", "and what arrived is beside it")
+    }
+
+    func testAFileThatWillNotMoveStaysOnTheShelf() {
+        let shelf = ShelfStore.shared
+        shelf.clear()
+        defer { shelf.clear() }
+        let from = tempFolder()
+        defer { try? FileManager.default.removeItem(at: from) }
+        let file = from.appendingPathComponent("Note.txt")
+        FileManager.default.createFile(atPath: file.path, contents: Data())
+        shelf.add([file])
+        // Nowhere to move it to: the destination does not exist.
+        shelf.move([file], to: URL(fileURLWithPath: "/nowhere/at/all"))
+        XCTAssertEqual(shelf.items.count, 1, "nothing is lost between the two")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
     // MARK: - Compressing
 
     private func tempFolder() -> URL {
