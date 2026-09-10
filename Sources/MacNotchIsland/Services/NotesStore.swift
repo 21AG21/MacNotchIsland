@@ -7,7 +7,10 @@ import Foundation
 final class NotesStore: ObservableObject {
     static let shared = NotesStore()
 
-    @Published var text: String {
+    /// Empty until `loadIfNeeded` reads the file. A `didSet` that persists means the default
+    /// must never be written back on its own: nothing here schedules a save unless the text
+    /// actually changes, and loading assigns the file's own contents.
+    @Published var text: String = "" {
         didSet { if text != oldValue { schedulePersist() } }
     }
 
