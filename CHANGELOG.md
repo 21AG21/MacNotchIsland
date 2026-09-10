@@ -19,6 +19,11 @@ the unreleased section is what the next tag will ship.
   moment on it, because that failure was designed for rather than hoped against.
 
 ### Changed
+- **The front door widens rather than leave a section off it.** The grid held eight tiles, and
+  switching everything on now makes nine. That mattered more than it looks: the band beside the
+  notch cannot hold every section at a size anybody can hit either, so a section with no tile
+  *and* no slot is a section nobody would ever find. It goes to six columns when it has to —
+  narrower tiles are a smaller price than an invisible one.
 - **The switcher's slots are big enough to hit.** With every section switched on they came out
   at 21 pt — a couple of millimetres apiece, seven under Apple's floor for a control a pointer
   drives, in the menu bar, which is the least forgiving strip on the screen: the hand arrives

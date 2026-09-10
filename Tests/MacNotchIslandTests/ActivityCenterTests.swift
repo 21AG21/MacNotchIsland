@@ -624,6 +624,37 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ServiceHub.wantsCalendar(prefs), "never when it is switched off")
     }
 
+    // MARK: - The front door holds every tile there is
+
+    func testTheGridWidensRatherThanLeaveASectionOffTheFrontDoor() {
+        // The band beside the notch cannot hold every section at a size anybody can hit, so
+        // the grid is the only place some of them appear at all. A section with no tile and
+        // no slot is a section nobody will ever find.
+        let prefs = Preferences.shared
+        HomeSection.allCases.forEach { $0.setEnabled(true, in: prefs) }
+        let everything = HomeSection.tiles(prefs)
+        let columns = HomeGridView.columns(for: everything.count)
+        XCTAssertGreaterThanOrEqual(HomeGridView.capacity(columns: columns), everything.count,
+                                    "every section switched on at once still has somewhere to stand")
+    }
+
+    func testTheGridKeepsItsFiveColumnsUntilItHasTo() {
+        XCTAssertEqual(HomeGridView.columns(for: 8), HomeGridView.columns)
+        XCTAssertEqual(HomeGridView.columns(for: 9), HomeGridView.crowdedColumns, "and widens at the ninth")
+        XCTAssertEqual(HomeGridView.capacity(columns: HomeGridView.columns), 8,
+                       "three beside Now Playing and five underneath")
+        XCTAssertEqual(HomeGridView.capacity(columns: HomeGridView.crowdedColumns), 10)
+    }
+
+    func testAWiderGridStillFitsTheColumnItIsDrawnIn() {
+        for columns in [HomeGridView.columns, HomeGridView.crowdedColumns] {
+            let width = HomeGridView.tileWidth(columns: columns)
+            let used = CGFloat(columns) * width + CGFloat(columns - 1) * HomeGridView.gap
+            XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth, "\(columns) columns")
+            XCTAssertGreaterThan(width, 90, "a tile narrower than this cannot hold a section's name")
+        }
+    }
+
     // MARK: - What the outline is told about the last step
 
     func testAHoverExitForgetsWhichWayTheLastStepWent() {

@@ -20,30 +20,51 @@ struct HomeGridView: View {
     @ObservedObject private var inbox = NotificationInbox.shared
     @State private var hovered: HomeSection?
 
-    /// Five columns and two rows fill the section exactly; Now Playing takes two of the five,
-    /// which leaves three beside it and up to five underneath — room for eight sections. A
-    /// ninth switched on is the one the grid has nowhere to put; the switcher, a swipe and the
-    /// digits all still reach it.
+    /// Two rows, and as many columns as it takes. Now Playing is two columns wide, so a
+    /// five-column grid holds three tiles beside it and five underneath: eight sections.
+    ///
+    /// Switch on more than that and it goes to six rather than leave one of them off. The
+    /// front door is where somebody who has just installed this finds out that any of the rest
+    /// of it exists, and the band beside the notch cannot hold every section either — a
+    /// section with no tile *and* no slot is a section nobody will ever find. Narrower tiles
+    /// are a smaller price than an invisible one.
     static let columns = 5
+    static let crowdedColumns = 6
     static let gap: CGFloat = 10
     static let radius: CGFloat = 12
-    static var tileWidth: CGFloat {
+
+    /// How many tiles a grid of this many columns can show: the row beside Now Playing, which
+    /// is two columns poorer, and the whole row under it.
+    static func capacity(columns: Int) -> Int { (columns - 2) + columns }
+
+    /// The grid this many tiles need. It never goes past six: a seventh column would put the
+    /// tiles under ninety points, where the name of a section stops fitting on one line, and
+    /// at that point the honest answer is that the grid is full.
+    static func columns(for count: Int) -> Int {
+        count > capacity(columns: columns) ? crowdedColumns : columns
+    }
+
+    static func tileWidth(columns: Int) -> CGFloat {
         ((IslandLayout.panelContentWidth - gap * CGFloat(columns - 1)) / CGFloat(columns)).rounded(.down)
     }
     static var tileHeight: CGFloat { ((IslandLayout.sectionHeight - gap) / 2).rounded(.down) }
-    static var wideWidth: CGFloat { tileWidth * 2 + gap }
+    static func wideWidth(columns: Int) -> CGFloat { tileWidth(columns: columns) * 2 + gap }
 
     private var tiles: [HomeSection] { HomeSection.tiles(prefs) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Self.gap) {
+        let columns = Self.columns(for: tiles.count)
+        let width = Self.tileWidth(columns: columns)
+        // The wide tile eats two of the top row's columns.
+        let acrossTheTop = columns - 2
+        return VStack(alignment: .leading, spacing: Self.gap) {
             HStack(spacing: Self.gap) {
-                nowPlayingTile
-                ForEach(Array(tiles.prefix(3)), id: \.self) { tile($0) }
+                nowPlayingTile(width: Self.wideWidth(columns: columns))
+                ForEach(Array(tiles.prefix(acrossTheTop)), id: \.self) { tile($0, width: width) }
                 Spacer(minLength: 0)
             }
             HStack(spacing: Self.gap) {
-                ForEach(Array(tiles.dropFirst(3).prefix(Self.columns)), id: \.self) { tile($0) }
+                ForEach(Array(tiles.dropFirst(acrossTheTop).prefix(columns)), id: \.self) { tile($0, width: width) }
                 Spacer(minLength: 0)
             }
         }
@@ -64,7 +85,7 @@ struct HomeGridView: View {
         return nil
     }
 
-    private var nowPlayingTile: some View {
+    private func nowPlayingTile(width: CGFloat) -> some View {
         let info = self.info
         return Button(action: { open(.music) }) {
             HStack(spacing: 10) {
@@ -101,7 +122,7 @@ struct HomeGridView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .frame(width: Self.wideWidth, height: Self.tileHeight)
+            .frame(width: width, height: Self.tileHeight)
             .background(background(for: .music))
             .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
         }
@@ -118,7 +139,7 @@ struct HomeGridView: View {
 
     // MARK: - The rest
 
-    private func tile(_ section: HomeSection) -> some View {
+    private func tile(_ section: HomeSection, width: CGFloat) -> some View {
         Button(action: { open(section) }) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: section.symbol)
@@ -135,7 +156,7 @@ struct HomeGridView: View {
                     .lineLimit(1)
             }
             .padding(10)
-            .frame(width: Self.tileWidth, height: Self.tileHeight, alignment: .topLeading)
+            .frame(width: width, height: Self.tileHeight, alignment: .topLeading)
             .background(background(for: section))
             .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
         }
