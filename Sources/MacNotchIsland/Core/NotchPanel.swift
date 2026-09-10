@@ -184,11 +184,19 @@ final class NotchPanel: NSPanel {
     static let driftTolerance: CGFloat = 0.5
 
     private func placeIfDrifted() {
+        guard !refitScheduled else { return }
+        let target = restFrame()
         // Never while the island is mid-morph: opening the panel deliberately grows the window
         // past its resting size and shrinks it again when the animation has finished, and this
-        // would snap it back into the middle of that.
-        guard settleWork == nil, !refitScheduled else { return }
-        let target = restFrame()
+        // would snap it back into the middle of that. Asked of the window rather than of the
+        // pending settle, which is no answer at all: every refit leaves one behind and nothing
+        // ever takes it away again, so the one scheduled in `init` stood in front of this
+        // correction for the whole life of the panel and it never ran once. A window already
+        // the size it rests at is in the middle of nothing — and the settle is aiming at this
+        // same rest frame, so the two can never pull the window in different directions.
+        //
+        // A point of slack either way, as `same(_:_:)` allows: AppKit may round what it is given.
+        guard abs(frame.width - target.width) < 1, abs(frame.height - target.height) < 1 else { return }
         // Only where it *is*, not how big it is: the size belongs to whatever the island is
         // showing, and correcting that here would be a second opinion about it.
         guard abs(frame.minX - target.minX) > Self.driftTolerance

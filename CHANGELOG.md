@@ -52,6 +52,18 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **Today cannot freeze on yesterday.** The gate that stops two calendar reads overlapping was
+  only ever released when the read answered, and EventKit's completion is not guaranteed to
+  arrive — an account that never replies, or access revoked mid-flight, left it shut for the
+  rest of the session: the section kept showing yesterday, every later refresh returned at the
+  door, and a ticked reminder never resolved. A read that has not answered inside half a minute
+  is given up on, and one that answers after that is ignored rather than allowed to publish
+  stale results over the top.
+- **The island can find its way back after a Space change.** `placeIfDrifted` — the correction
+  for an island left in the wrong place by a Space transition or a display waking, which its own
+  comment says nothing else was ever going to fix — has never once run. Its guard tested a piece
+  of work that is set at the end of every refit and never cleared, so it was true from the first
+  refit onwards.
 - **The gallery cannot file a picture under the wrong name.** It is the only eye this project
   has — nobody working on it can run the app — and it was switching sections on from a
   hand-written list that had missed Controls. A section that is switched off is not drawn empty:

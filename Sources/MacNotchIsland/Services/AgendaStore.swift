@@ -52,6 +52,16 @@ final class AgendaStore: ObservableObject {
     /// flight together are two round trips for one answer, and the slower of them lands last
     /// carrying the older news.
     private var pass = RadioPass()
+    /// The reading now in flight: which one it is, and the moment it was asked for.
+    ///
+    /// `fetchReminders` takes a completion and promises nothing about calling it — access can
+    /// be taken away mid-flight, and an account can simply never come back — so a reading that
+    /// has gone quiet is given up on rather than waited on for the rest of the session. The
+    /// number is what tells an answer arriving after that it is speaking to nobody.
+    ///
+    /// Main queue, like everything else here that decides what is shown.
+    private var reading = 0
+    private var asked: Date?
     /// What the store last said about the reminders, before anything the user has since asked
     /// for is laid over the top. Main queue, like everything else that decides what is shown.
     private var fetched: [Reminder] = []
@@ -137,17 +147,21 @@ final class AgendaStore: ObservableObject {
         // The gallery is handed its day rather than reading one, and this machine has no
         // calendar: refreshing here would only take the seeded day away again.
         guard !RenderMode.isGallery else { return }
+        giveUpOnAStuckReading()
         guard pass.start() else { return }
+        let now = Date()
+        reading += 1
+        asked = now
+        let answering = reading
         // Both answers are read where they are shown, before anything leaves the main queue:
         // they are published properties, and a published property is main-thread-only.
         let wantsEvents = canReadEvents
         let wantsReminders = canReadReminders
-        let now = Date()
         queue.async { [weak self] in
             guard let self else { return }
             let day = wantsEvents ? Self.dayEvents(in: self.store, at: now) : []
             guard wantsReminders else {
-                self.publish(events: day, reminders: [])
+                self.publish(events: day, reminders: [], answering: answering)
                 return
             }
             let endOfDay = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 3600)
@@ -155,15 +169,19 @@ final class AgendaStore: ObservableObject {
             // Answers on a queue of EventKit's own choosing, which is why the pass is not
             // finished until this half is in too.
             self.store.fetchReminders(matching: predicate) { [weak self] found in
-                self?.publish(events: day, reminders: Self.dueReminders(from: found ?? []))
+                self?.publish(events: day, reminders: Self.dueReminders(from: found ?? []), answering: answering)
             }
         }
     }
 
     /// Where every reading lands, and the only place any of this is written: the main queue.
-    private func publish(events: [Event], reminders: [Reminder]) {
+    private func publish(events: [Event], reminders: [Reminder], answering: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // An answer to a reading that was given up on is speaking to nobody: it must not
+            // put an old day on screen, and it must not hand back a gate it no longer holds.
+            guard Self.answers(answering, current: self.reading) else { return }
+            self.asked = nil
             if self.events != events { self.events = events }
             self.fetched = reminders
             self.ticked = Self.settling(self.ticked, against: reminders)
@@ -179,6 +197,38 @@ final class AgendaStore: ObservableObject {
     private func show() {
         let shown = Self.showing(fetched, ticked: ticked)
         if reminders != shown { reminders = shown }
+    }
+
+    // MARK: - A reading that never answers
+
+    /// How long a reading may go unanswered before the store stops waiting on it. Longer than
+    /// an honest round trip to somebody's mail server, and shorter than the minute's poll, so
+    /// the first poll to come round after a fetch has gone quiet is the one that frees it.
+    static let readingDeadline: TimeInterval = 30
+
+    /// Whether a reading asked for at `started` has had long enough. Waiting on one for ever
+    /// was how the section came to sit on yesterday for the rest of a session: the pass was
+    /// never finished, so the poll, the change notification and the reading behind a tick all
+    /// stood down behind it, and nothing was ever going to come along and let them through.
+    static func abandons(startedAt started: Date, at now: Date = Date()) -> Bool {
+        now.timeIntervalSince(started) >= readingDeadline
+    }
+
+    /// Whether an answer belongs to the reading still in flight. One that was given up on can
+    /// still come back — nothing here can cancel an EventKit fetch, there being no handle to
+    /// cancel — and by then the day it is carrying is old news and the gate it would hand back
+    /// belongs to somebody else.
+    static func answers(_ reading: Int, current: Int) -> Bool { reading == current }
+
+    /// Stops waiting on a reading that has gone quiet, so the ask about to be made can go.
+    /// Main thread, from the top of `refresh`, which is the one thing that comes back to look.
+    private func giveUpOnAStuckReading() {
+        guard pass.isRunning, let started = asked, Self.abandons(startedAt: started) else { return }
+        IslandLog.store.error("a reading of the day went unanswered; giving up on it")
+        reading += 1
+        asked = nil
+        // Whatever was asked for while it ran is served by the ask this is clearing the way for.
+        _ = pass.finish()
     }
 
     /// The next day's events, turned into something the panel can hold before they go

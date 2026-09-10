@@ -306,6 +306,58 @@ final class IslandLayoutTests: XCTestCase {
         }
     }
 
+    /// What a row of slots really measures, summed the way the stack lays it out: a rectangle
+    /// for every slot, and what is left of the gap between each pair of them. Built from the
+    /// two the row is actually made of rather than from the arithmetic that decides how many
+    /// there are — the point being that the two can disagree, and did.
+    private func bandRowWidth(_ count: Int, slot: CGFloat, gap: CGFloat) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let hit = SwitcherBand.hit(slot: slot, gap: gap)
+        let air = SwitcherBand.spacing(slot: slot, gap: gap)
+        return (0..<count).reduce(CGFloat(0)) { total, index in
+            total + hit.width + (index == 0 ? 0 : air)
+        }
+    }
+
+    /// The row is measured in circles and laid out in targets, and a target is wider than the
+    /// circle inside it. Counting the room in the one and spending it in the other put the last
+    /// slot of a full row up to two points past the edge of the frame it sits in — never at the
+    /// width the panel ships at, which is why nobody saw it, and waiting for the first narrower
+    /// panel or wider cutout that came along. Whatever the row is measured against, it is what
+    /// the row then draws.
+    func testTheRowNeverDrawsPastTheRoomItWasMeasuredFor() {
+        var rooms: [CGFloat] = ([160, 180, 185, 200, 220] as [CGFloat]).map { bandSide(notch: $0) }
+        rooms.append(IslandLayout.panelWidth - SwitcherBand.inset * 2 - SwitcherBand.closeRoom
+                     - SwitcherBand.groupGap)
+        // And every width in between, a point at a time. The fault only shows where the room
+        // runs out a point or two short of a whole target, which is a panel nobody happened to
+        // have built yet.
+        rooms.append(contentsOf: stride(from: CGFloat(20), through: 320, by: 1))
+        for room in rooms {
+            for count in 1...(HomeSection.allCases.count + 4) {
+                let note = "\(count) slots in \(room) pt"
+                let fitted = SwitcherBand.fit(bandSlots(count), in: room)
+                XCTAssertLessThanOrEqual(bandRowWidth(fitted.views.count, slot: fitted.slot, gap: fitted.gap),
+                                         room, note)
+                // Nor one slot fewer than the room would take: a budget that has drifted the
+                // other way drops a section that had a place, which is just as wrong.
+                if fitted.views.count < count {
+                    XCTAssertGreaterThan(bandRowWidth(fitted.views.count + 1, slot: fitted.slot, gap: fitted.gap),
+                                         room, note)
+                }
+                // The activity slots take the size the sections settled on, and count
+                // themselves into what is left over. Same arithmetic, same promise.
+                let sized = SwitcherBand.fit(bandSlots(count), in: room, slot: fitted.slot, gap: fitted.gap)
+                XCTAssertLessThanOrEqual(bandRowWidth(sized.views.count, slot: sized.slot, gap: sized.gap),
+                                         room, note)
+                if sized.views.count < count {
+                    XCTAssertGreaterThan(bandRowWidth(sized.views.count + 1, slot: sized.slot, gap: sized.gap),
+                                         room, note)
+                }
+            }
+        }
+    }
+
     /// The circle a slot is drawn as and the rectangle it takes its click in are two different
     /// sizes on purpose: a band wide enough to draw a full row of 28 pt circles would cost the
     /// panel room it has not got, while letting each slot take its click in the air it was

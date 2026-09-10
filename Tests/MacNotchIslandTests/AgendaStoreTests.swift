@@ -3,9 +3,10 @@ import XCTest
 @testable import MacNotchIsland
 
 /// The agenda's rules, on a machine with no calendar: the gate that keeps two readings off one
-/// store, the tick that is shown before Reminders has agreed to it, and the rectangle the tick
-/// box takes its click in. Nothing here asks EventKit for anything, and nothing here should
-/// ever make a test run ask for a calendar it does not have.
+/// store, the deadline that stops it waiting on one for ever, the tick that is shown before
+/// Reminders has agreed to it, and the rectangle the tick box takes its click in. Nothing here
+/// asks EventKit for anything, and nothing here should ever make a test run ask for a calendar
+/// it does not have.
 final class AgendaStoreTests: XCTestCase {
 
     private func reminder(_ id: String, completed: Bool = false) -> AgendaStore.Reminder {
@@ -39,6 +40,47 @@ final class AgendaStoreTests: XCTestCase {
         XCTAssertTrue(pass.finish(), "and is handed back the moment the poll is done")
         XCTAssertTrue(pass.start(), "so it can go")
         XCTAssertFalse(pass.finish(), "with nobody waiting behind it")
+    }
+
+    // MARK: - A reading that never answers
+
+    func testAFetchThatNeverAnswersDoesNotFreezeTheDay() {
+        // Nothing obliges EventKit to call a completion back: access taken away mid-flight, or
+        // an account that simply never comes round. The gate was held for the rest of the
+        // session while the section sat on yesterday, so a reading is given up on in the end.
+        let asked = Date()
+        XCTAssertFalse(AgendaStore.abandons(startedAt: asked, at: asked.addingTimeInterval(1)),
+                       "a reading a second old is slow, not lost")
+        XCTAssertFalse(AgendaStore.abandons(startedAt: asked,
+                                            at: asked.addingTimeInterval(AgendaStore.readingDeadline - 0.5)),
+                       "and the account is given every second it was promised")
+        XCTAssertTrue(AgendaStore.abandons(startedAt: asked,
+                                           at: asked.addingTimeInterval(AgendaStore.readingDeadline)))
+        // Which is worth nothing unless the gate comes back with it: this is what every later
+        // ask was standing down behind.
+        var pass = RadioPass()
+        XCTAssertTrue(pass.start())
+        XCTAssertFalse(pass.start(), "the poll, the notification and the tick all stand down")
+        _ = pass.finish()
+        XCTAssertTrue(pass.start(), "so giving up on the reading has to open the gate again")
+    }
+
+    func testTheDeadlineComesRoundBeforeThePollDoes() {
+        // The poll is the only thing that comes back to look, so a deadline longer than it
+        // would leave the day frozen for a whole minute more than it had to.
+        XCTAssertLessThan(AgendaStore.readingDeadline, 60)
+        XCTAssertGreaterThan(AgendaStore.readingDeadline, AgendaStore.tickSettle,
+                             "and no reading is given up on before a tick it might settle")
+    }
+
+    func testAReadingThatWasGivenUpOnHasNothingLeftToSay() {
+        // The fetch that went quiet may still answer, long after its gate was handed on. The
+        // day it left with is hours old by then, and handing that gate back a second time would
+        // let two readings run at once — which is the thing the gate exists to prevent.
+        XCTAssertTrue(AgendaStore.answers(4, current: 4), "the reading in flight is the one that speaks")
+        XCTAssertFalse(AgendaStore.answers(3, current: 4), "the one that was given up on is talking to nobody")
+        XCTAssertFalse(AgendaStore.answers(0, current: 1))
+        XCTAssertFalse(AgendaStore.answers(5, current: 4), "and nothing that has not been asked for yet")
     }
 
     // MARK: - A tick, before the store has agreed to it

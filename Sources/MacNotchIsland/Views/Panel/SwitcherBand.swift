@@ -238,14 +238,17 @@ struct SwitcherBand: View {
     /// sections, the ones at the end lose their place rather than everyone losing the aim.
     static func fit(_ views: [IslandView], in room: CGFloat) -> (views: [IslandView], slot: CGFloat, gap: CGFloat) {
         guard !views.isEmpty, room > 0 else { return ([], slot, gap) }
-        let count = CGFloat(views.count)
-        if count * slot + (count - 1) * gap <= room { return (views, slot, gap) }
-        let tight = (room - (count - 1) * minGap) / count
+        let count = views.count
+        if rowWidth(count, slot: slot, gap: gap) <= room { return (views, slot, gap) }
+        // Solved against the pitch alone — a whole target for every slot, with nothing claimed
+        // back for the air after the last one, since what that comes to depends on the very
+        // size being solved for. Erring the safe way here costs the row nothing: it only ever
+        // gives a point back at a circle wider than the pointer's floor, which is a circle this
+        // band never draws.
+        let tight = room / CGFloat(count) - minGap
         if tight >= minSlot { return (views, min(slot, tight.rounded(.down)), minGap) }
-        // Even at the smallest size they do not all fit: drop the ones at the end. Every one
-        // that stays is a whole target wide, `minSlot + minGap` being exactly one of those.
-        let fits = max(0, Int((room + minGap) / (minSlot + minGap)))
-        return (Array(views.prefix(fits)), minSlot, minGap)
+        // Even at the smallest size they do not all fit: drop the ones at the end.
+        return (Array(views.prefix(fitting(in: room, slot: minSlot, gap: minGap))), minSlot, minGap)
     }
 
     /// The same, at a size somebody else has already settled on: only the number of slots is
@@ -253,8 +256,27 @@ struct SwitcherBand: View {
     static func fit(_ views: [IslandView], in room: CGFloat, slot: CGFloat, gap: CGFloat)
         -> (views: [IslandView], slot: CGFloat, gap: CGFloat) {
         guard !views.isEmpty, room > 0 else { return ([], slot, gap) }
-        let fits = max(0, Int((room + gap) / (slot + gap)))
-        return (Array(views.prefix(fits)), slot, gap)
+        return (Array(views.prefix(fitting(in: room, slot: slot, gap: gap))), slot, gap)
+    }
+
+    /// What a run of slots comes to once it is laid out, which is not the circles and the air
+    /// between them: each slot is laid out in the rectangle it takes its click in — wider than
+    /// its circle — and the stack keeps only what is left of the gap between those. Budgeting
+    /// for the circles instead had the row measured at two points less than it then drew, which
+    /// is two points past the frame it sits in — harmless at the width the panel ships at, and
+    /// waiting for a narrower one or a wider cutout.
+    static func rowWidth(_ count: Int, slot: CGFloat, gap: CGFloat) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let n = CGFloat(count)
+        return n * hit(slot: slot, gap: gap).width + (n - 1) * spacing(slot: slot, gap: gap)
+    }
+
+    /// How many of those the room will take: the largest count whose `rowWidth` still fits.
+    static func fitting(in room: CGFloat, slot: CGFloat, gap: CGFloat) -> Int {
+        let air = spacing(slot: slot, gap: gap)
+        let step = hit(slot: slot, gap: gap).width + air
+        guard step > 0 else { return 0 }
+        return max(0, Int((room + air) / step))
     }
 
     /// The rectangle a slot takes its click in, given the size it is drawn at and the air
