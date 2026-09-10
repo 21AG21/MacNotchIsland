@@ -46,7 +46,7 @@ struct SwitcherBand: View {
     /// Which settles the smallest circle the row will draw before it starts dropping slots
     /// instead: 26 and the 2 pt beside it are the 28 the pointer needs, and there is nothing
     /// left to give. A section that loses its slot is still one step away on the ring, and one
-    /// step away beats ten you cannot hit.
+    /// step away beats a row of slots nobody can land on.
     static var minSlot: CGFloat { minHit - minGap }
 
     static let inset: CGFloat = 16
