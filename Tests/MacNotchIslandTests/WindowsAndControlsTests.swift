@@ -485,4 +485,41 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertGreaterThan(used, IslandLayout.panelContentWidth - CGFloat(ControlsSectionView.columns),
                              "at most a point lost per column to rounding")
     }
+
+    // MARK: - The level on a device row
+
+    func testTheEarThatRunsOutFirstIsTheOneOnTheRow() {
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(left: 88, right: 62)), 62,
+                       "a pair stops working when the emptier bud does")
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(left: 40, right: 95)), 40)
+    }
+
+    func testOneEarAnsweringIsEnoughForARow() {
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(right: 74)), 74,
+                       "a bud still in the case reports nothing, and the other one is in use")
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(left: 74)), 74)
+    }
+
+    func testAKeyboardHasOneBatteryAndThatIsTheOneShown() {
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(single: 42)), 42)
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(left: 55, caseLevel: 20, single: 90)), 55,
+                       "what is in your ears comes before the case and before any single reading")
+    }
+
+    func testANumberOffTheScaleIsNotAReading() {
+        // Asleep, or never asked, a device leaves a 0 behind in the registry; a flat one would
+        // have long since stopped answering at all.
+        XCTAssertNil(BluetoothBattery.summary(BluetoothBattery.Levels(left: 0, right: 0)))
+        XCTAssertNil(BluetoothBattery.summary(BluetoothBattery.Levels(single: 101)))
+        XCTAssertNil(BluetoothBattery.summary(BluetoothBattery.Levels(single: -1)))
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(left: 0, right: 66)), 66,
+                       "the ear that did answer is still worth a number")
+        XCTAssertEqual(BluetoothBattery.summary(BluetoothBattery.Levels(left: 0, single: 30)), 30)
+    }
+
+    func testADeviceThatSaysNothingGetsNoLevelAtAll() {
+        XCTAssertNil(BluetoothBattery.summary(BluetoothBattery.Levels()))
+        XCTAssertNil(BluetoothBattery.summary(BluetoothBattery.Levels(caseLevel: 80)),
+                     "a case on its own is not the level of the thing you are wearing")
+    }
 }

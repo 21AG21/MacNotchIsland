@@ -166,12 +166,20 @@ struct ControlsSectionView: View {
                     ForEach(devices) { device in
                         row(title: device.name,
                             trailing: {
-                                Image(systemName: device.symbol)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.45))
+                                HStack(spacing: 5) {
+                                    if let battery = device.battery {
+                                        Text("\(battery)%")
+                                            .font(.system(size: 10).monospacedDigit())
+                                            .foregroundStyle(Self.batteryTint(battery))
+                                    }
+                                    Image(systemName: device.symbol)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
                             },
                             lock: false,
-                            isOn: device.isConnected) {
+                            isOn: device.isConnected,
+                            detail: device.battery.map { "\($0) percent" }) {
                             BluetoothMonitor.setConnected(!device.isConnected, address: device.address)
                             // The radio takes a moment; ask again once it has had one.
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -182,6 +190,12 @@ struct ControlsSectionView: View {
                 }
             }
         }
+    }
+
+    /// Quiet grey for a level nobody needs to act on, and a warm red for the one that wants
+    /// catching — the keyboard that will die mid-sentence this afternoon.
+    static func batteryTint(_ percent: Int) -> Color {
+        percent <= 10 ? Color(red: 1, green: 0.42, blue: 0.4) : Color.white.opacity(0.45)
     }
 
     // MARK: - Where the sound goes, and comes from
@@ -224,9 +238,14 @@ struct ControlsSectionView: View {
 
     // MARK: - One row of any list
 
+    /// `detail` is what a row has to say beyond its name and its tick — a battery level, so
+    /// far. Wi-Fi and Sound rows have nothing of the sort and leave it out.
     private func row<Trailing: View>(title: String, @ViewBuilder trailing: () -> Trailing,
-                                     lock: Bool, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+                                     lock: Bool, isOn: Bool, detail: String? = nil,
+                                     action: @escaping () -> Void) -> some View {
+        var label = isOn ? "\(title), on" : title
+        if let detail { label += ", \(detail)" }
+        return Button(action: action) {
             HStack(spacing: 6) {
                 // A tick where the joined network and the connected device are, which is how
                 // every list of things on the Mac marks the ones that are on.
@@ -251,7 +270,7 @@ struct ControlsSectionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
-        .accessibilityLabel(isOn ? "\(title), on" : title)
+        .accessibilityLabel(label)
     }
 }
 

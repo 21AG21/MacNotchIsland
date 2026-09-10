@@ -393,9 +393,10 @@ final class GalleryTests: XCTestCase {
         ])
         BluetoothMonitor.galleryDevices = [
             BluetoothMonitor.Paired(name: "AirPods Pro", address: "00-11-22-33-44-55",
-                                    symbol: "airpodspro", isConnected: true),
+                                    symbol: "airpodspro", isConnected: true, battery: 68),
+            // Low enough to draw the warning colour, which is the half of the row worth seeing.
             BluetoothMonitor.Paired(name: "Magic Keyboard", address: "00-11-22-33-44-56",
-                                    symbol: "keyboard.fill", isConnected: true),
+                                    symbol: "keyboard.fill", isConnected: true, battery: 9),
             BluetoothMonitor.Paired(name: "Beats Studio", address: "00-11-22-33-44-57",
                                     symbol: "beats.headphones", isConnected: false),
             BluetoothMonitor.Paired(name: "DualSense", address: "00-11-22-33-44-58",

@@ -6,6 +6,12 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **How much is left in the headphones.** Every connected Bluetooth device on the Controls list
+  now carries its charge beside its glyph, and a pair of buds shows the ear that will run out
+  first, because that is the one that ends the listening. Under ten per cent it turns red — the
+  keyboard that is going to die mid-sentence this afternoon is the only reading anybody needed
+  to be told about. One walk of the registry answers for the whole list and it happens off the
+  main thread, so the panel never waits for the radio.
 - **Sound, as a third list in Controls.** Where the sound goes *and* where it comes from, on
   the panel: every output the Mac has, then every input, each headed and the live one ticked,
   so switching to the AirPods or off the wrong microphone is one click rather than a trip to
