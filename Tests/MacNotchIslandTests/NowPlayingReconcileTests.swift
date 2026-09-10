@@ -83,4 +83,54 @@ final class NowPlayingReconcileTests: XCTestCase {
         let result = NowPlayingService.reconcile(incoming: stale, current: current, optimistic: pending, now: t0 + 0.2)
         XCTAssertEqual(result.position(at: t0 + 0.2), 90.2, accuracy: 0.05, "the seek target, advanced by the time since")
     }
+
+    // MARK: - Whether a backend is still worth listening to
+
+    func testABackendThatHasGoneQuietStopsClaimingToBeHealthy() {
+        // The fault this replaces was a one-way latch: a backend that answered once kept the
+        // credit for it until the app was relaunched, and held every fallback shut behind it.
+        // A backend answering once and then going silent is exactly how this breaks in the
+        // wild, on the macOS point release that moves MediaRemote.
+        let now = Date()
+        XCTAssertTrue(BackendHealth.isFresh(now.addingTimeInterval(-5), now: now, within: 12))
+        XCTAssertFalse(BackendHealth.isFresh(now.addingTimeInterval(-30), now: now, within: 12))
+        XCTAssertFalse(BackendHealth.isFresh(nil, now: now, within: 12), "never heard from is not fresh")
+    }
+
+    func testAClockNudgedBackwardsDoesNotKillAWorkingBackend() {
+        // Time sync moving the clock a second must not read as a death.
+        let now = Date()
+        XCTAssertTrue(BackendHealth.isFresh(now.addingTimeInterval(3), now: now, within: 12))
+    }
+
+    func testDeathsAreCountedAsARateRatherThanForever() {
+        // A lifetime budget of five is spent by a helper that dies once a day, after five days
+        // of uptime — and the island then stays dark for the rest of the run. A rate forgives
+        // the slow drip and still catches the crash loop the budget was written for.
+        let now = Date()
+        let onceADay = (1...6).map { now.addingTimeInterval(-Double($0) * 86_400) }
+        XCTAssertFalse(BackendHealth.hasBlownBudget(onceADay, endingAt: now, window: 300, budget: 5),
+                       "six deaths spread over six days is not a crash loop")
+        let crashLoop = (1...6).map { now.addingTimeInterval(-Double($0) * 10) }
+        XCTAssertTrue(BackendHealth.hasBlownBudget(crashLoop, endingAt: now, window: 300, budget: 5),
+                      "six deaths in a minute is")
+    }
+
+    func testOnlyTheFailuresInsideTheWindowAreCountedAgainstIt() {
+        let now = Date()
+        let mixed = [now.addingTimeInterval(-10), now.addingTimeInterval(-400), now.addingTimeInterval(-20)]
+        XCTAssertEqual(BackendHealth.recentFailures(mixed, endingAt: now, window: 300).count, 2)
+    }
+
+    func testTheDeathOfAHelperWeHaveAlreadyReplacedIsNotOurs() {
+        // Two stop/start cycles in quick succession could leave the older helper's termination
+        // clearing the handle to the newer one — which then left the newer one alive with
+        // nobody holding it, feeding the island for the rest of the session.
+        let held = Process()
+        let older = Process()
+        XCTAssertTrue(AdapterBackend.isTheHelperWeHold(held, held: held))
+        XCTAssertFalse(AdapterBackend.isTheHelperWeHold(older, held: held), "an older one that has since been replaced")
+        XCTAssertFalse(AdapterBackend.isTheHelperWeHold(nil, held: held))
+        XCTAssertFalse(AdapterBackend.isTheHelperWeHold(held, held: nil))
+    }
 }

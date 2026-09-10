@@ -197,12 +197,31 @@ final class NotchPanel: NSPanel {
         place(target)
     }
 
-    /// The island takes key-window status only while something is being typed into — the Notes
-    /// scratchpad, or a find open on one of the sections that are lists — so it never pulls
-    /// focus from the app the user is working in. Clicks land regardless, thanks to
-    /// acceptsFirstMouse on the hosting view.
-    override var canBecomeKey: Bool { ActivityCenter.shared.wantsKeyboard }
+    /// The island takes key-window status while the panel is pinned open, and while something
+    /// on it is being typed into — the Notes scratchpad, or a find. A peek takes nothing:
+    /// the pointer is only passing over. Clicks land regardless, thanks to acceptsFirstMouse
+    /// on the hosting view.
+    ///
+    /// It pulls focus from the app in front, and that is the point rather than a cost. The
+    /// panel's keys are claimed from every application at once; leaving the keyboard with the
+    /// app behind meant clicking the island and carrying on typing put the letters into a find
+    /// nobody had asked for instead of into the reply they were writing. Holding the keyboard
+    /// is what makes the claim honest, and it is visible — the window behind dims — so it is
+    /// obvious where the typing is going.
+    override var canBecomeKey: Bool { ActivityCenter.shared.wantsPanelKeyboard }
     override var canBecomeMain: Bool { false }
+
+    /// Key status is what licenses the panel's hot keys, so the centre is told the moment it
+    /// changes either way. See `ActivityCenter.panelKeyChanged`.
+    override func becomeKey() {
+        super.becomeKey()
+        ActivityCenter.shared.panelKeyChanged()
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        ActivityCenter.shared.panelKeyChanged()
+    }
 
     /// AppKit keeps ordinary windows clear of the menu bar by pushing them down. This one has
     /// to sit on the screen's top edge, so it keeps the frame it asks for.
@@ -211,7 +230,7 @@ final class NotchPanel: NSPanel {
     /// Follows what the panel needs: key status while a section that is typed into is open,
     /// handed straight back when that section goes.
     private func syncKeyboard() {
-        guard ActivityCenter.shared.wantsKeyboard else { return scheduleKeyRelease() }
+        guard ActivityCenter.shared.wantsPanelKeyboard else { return scheduleKeyRelease() }
         keyReleaseWork?.cancel()
         keyReleaseWork = nil
         guard !isKeyWindow, isVisible, ownsKeyboard else { return }
@@ -236,7 +255,7 @@ final class NotchPanel: NSPanel {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.keyReleaseWork = nil
-            guard self.isKeyWindow, !ActivityCenter.shared.wantsKeyboard else { return }
+            guard self.isKeyWindow, !ActivityCenter.shared.wantsPanelKeyboard else { return }
             self.orderOut(nil)
             self.orderFrontRegardless()
         }

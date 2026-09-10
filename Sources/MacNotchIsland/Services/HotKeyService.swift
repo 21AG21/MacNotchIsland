@@ -72,9 +72,8 @@ final class HotKeyService: ObservableObject {
     private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
     private var escapeArmed = false
-    private var panelKeysArmed = false
-    /// Whether the alphabet is claimed too, which depends on the section as well as the panel.
-    private var letterKeysArmed = false
+    /// What the panel is allowed to take from the keyboard at this moment, see `claim`.
+    private var panelClaim = KeyClaim.nothing
     private var cancellables = Set<AnyCancellable>()
     private static let signature: OSType = 0x4E4F5443 // "NOTC"
 
@@ -153,7 +152,7 @@ final class HotKeyService: ObservableObject {
             registrationFailed = false
         }
         if escapeArmed { registerWhileOpen() }
-        if panelKeysArmed { registerPanelKeys() }
+        if panelClaim.bareKeys { registerPanelKeys() }
     }
 
     /// Escape, and the main combo's modifiers with the arrow keys, are claimed only while the
@@ -181,8 +180,8 @@ final class HotKeyService: ObservableObject {
     /// The keys the panel answers on its own, with nothing held down: the arrows step between
     /// views the way a sideways swipe does, the digits go straight to a slot of the switcher,
     /// Space plays and pauses, and the vertical arrows move the volume — the keyboard's
-    /// version of a scroll. Claimed only while the panel is pinned open, and dropped the
-    /// instant it lands on a section that is typed into.
+    /// version of a scroll. Claimed only while `claim` says they are the island's, which is
+    /// while its own window holds the keyboard and nothing on it is being typed into.
     private func registerPanelKeys() {
         register(.panelLeft, keyCode: kVK_LeftArrow, modifiers: 0)
         register(.panelRight, keyCode: kVK_RightArrow, modifiers: 0)
@@ -195,7 +194,7 @@ final class HotKeyService: ObservableObject {
         }
         // The alphabet, but only where there is a list to look through: on Now Playing or
         // Stats a letter is nobody's to take, so it is left alone.
-        guard letterKeysArmed else { return }
+        guard panelClaim.letters else { return }
         for (index, code) in Self.letterKeyCodes.enumerated() {
             guard let slot = Slot(rawValue: UInt32(31 + index)) else { continue }
             register(slot, keyCode: code, modifiers: 0)
@@ -234,19 +233,61 @@ final class HotKeyService: ObservableObject {
         if armed { registerWhileOpen() } else { unregisterWhileOpen() }
     }
 
-    /// Armed while the panel is pinned open on a section nobody types into. See
-    /// `ActivityCenter.ownsPanelKeys`, which decides it. `letters` is the narrower question of
-    /// whether this section is a list worth searching, and it changes as the panel steps from
-    /// one section to the next while the rest of the keys stay claimed — so both are settled
-    /// here, and a change to either re-registers the set.
-    func setPanelKeysArmed(_ armed: Bool, letters: Bool = false) {
-        let wantsLetters = armed && letters
-        guard armed != panelKeysArmed || wantsLetters != letterKeysArmed else { return }
-        panelKeysArmed = armed
-        letterKeysArmed = wantsLetters
+    /// The two halves of the claim: the keys the panel answers itself — the arrows, the digits
+    /// and Space — and the alphabet, which costs twenty-six more keys and only means something
+    /// where there is a list to look through.
+    struct KeyClaim: Equatable {
+        let bareKeys: Bool
+        let letters: Bool
+        static let nothing = KeyClaim(bareKeys: false, letters: false)
+    }
+
+    /// Whether the island may take a bare key press out of the world at this moment, and
+    /// whether that stretches to the alphabet.
+    ///
+    /// These keys are registered with Carbon, which takes them from every application at once
+    /// and hands them here instead. Being open is no licence for that. A pinned panel does not
+    /// activate its app and, until it is asked to, does not take the keyboard either: clicking
+    /// the island leaves Mail frontmost with the insertion point still blinking in the reply
+    /// somebody is halfway through, and the letters they type next belong to that reply. Taking
+    /// them anyway is how a sentence arrived with every letter missing, Space stopped their
+    /// music mid-bar, and a 3 typed into a form jumped the switcher.
+    ///
+    /// So the licence is key status, which is the one thing here nobody has to guess at: while
+    /// one of the island's own windows is the key window the system has already settled who the
+    /// keyboard belongs to, and it is not the app behind — so nothing claimed can be taken from
+    /// anybody. It is a licence and not a delivery route: the presses still arrive through
+    /// Carbon, so nothing depends on where the first responder happens to be. And when key
+    /// status goes — to another app, or to a menu or a Quick Look panel the island opened
+    /// itself — the claim goes with it in the same turn of the run loop, because it is the same
+    /// call that lets go of both.
+    ///
+    /// `textFieldUp` is the other way of the keys not being ours. The Notes scratchpad, or a
+    /// find already running, is somewhere the user types *into* the island, and a key taken as
+    /// a hot key never reaches the field it was meant for.
+    ///
+    /// Every key class goes the same way, and deliberately so. The digits and the arrows and
+    /// Space do less damage than a letter — a caret moved, a track paused — but each of them is
+    /// a keystroke somebody pressed while looking somewhere else, and there is no honest line
+    /// to draw between them. The keyboard shortcut's own combinations are untouched: modifiers
+    /// with Tab or an arrow are nobody else's to lose, so those stay claimed the whole time the
+    /// island is open, and a panel that never gets the keyboard can still be steered with them.
+    static func claim(pinnedOpen: Bool, holdsKeyboard: Bool, textFieldUp: Bool,
+                      listSection: Bool, enabled: Bool) -> KeyClaim {
+        guard enabled, pinnedOpen, holdsKeyboard, !textFieldUp else { return .nothing }
+        return KeyClaim(bareKeys: true, letters: listSection)
+    }
+
+    /// Settles what is claimed. Both halves at once: the letters come and go as the panel steps
+    /// from one section to the next while the rest of the keys stay put, so a change to either
+    /// re-registers the set. See `ActivityCenter.panelClaim`, which holds the state `claim`
+    /// reads.
+    func setPanelKeys(_ claim: KeyClaim) {
+        guard claim != panelClaim else { return }
+        panelClaim = claim
         guard handlerRef != nil else { return }
         unregisterPanelKeys()
-        if armed { registerPanelKeys() }
+        if claim.bareKeys { registerPanelKeys() }
     }
 
     static var currentKeyCode: Int {

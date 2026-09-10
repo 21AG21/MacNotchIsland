@@ -791,8 +791,48 @@ final class ActivityCenter: ObservableObject {
     /// Only while the panel is pinned open: a peek follows the pointer and takes nothing from
     /// the keyboard. And never while a section that is typed into is showing — nothing the
     /// island claims may sit between somebody and their own text.
+    ///
+    /// Necessary but no longer sufficient: see `HotKeyService.claim`, which also asks whether
+    /// the island is actually holding the keyboard. Being open was never a licence to take a
+    /// key out of somebody else's text field.
     static func ownsPanelKeys(open: Bool, typing: Bool, enabled: Bool) -> Bool {
         enabled && open && !typing
+    }
+
+    /// Whether one of the island's own windows is the key window right now.
+    ///
+    /// The panel's keys are global hot keys — Carbon hands them here instead of to whoever was
+    /// typing — so the question of whether they may be claimed is really the question of whether
+    /// the keyboard is already ours. Key status is the system's own answer to that, and the only
+    /// one nobody has to guess at.
+    @Published private(set) var holdsKeyboard = false
+
+    /// A panel became or stopped being the key window.
+    ///
+    /// Asked again on the next turn rather than answered here: at the moment `resignKey` runs
+    /// the window has not stopped being key yet, and with an island on several screens the
+    /// question is about all of them together, not the one that spoke.
+    func panelKeyChanged() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let holds = NSApp.windows.contains { ($0 as? NotchPanel)?.isKeyWindow == true }
+            guard holds != self.holdsKeyboard else { return }
+            self.holdsKeyboard = holds
+            self.keyboardControlChanged()
+        }
+    }
+
+    /// Whether the island should be holding the keyboard at all.
+    ///
+    /// A pinned panel takes it, which is the change that makes its keys honest: until it did,
+    /// clicking the island left the app behind frontmost with the insertion point still in
+    /// somebody's half-written reply, and the letters they typed next were taken out of it.
+    /// Taking key status is visible — the window behind dims its focus — so somebody can see
+    /// where their typing is going, which is the whole difference between a claim and a theft.
+    /// A peek takes nothing: the pointer is only passing over.
+    var wantsPanelKeyboard: Bool {
+        if wantsKeyboard { return true }
+        return openView != nil && Preferences.shared.panelKeysEnabled
     }
 
     /// Re-reads whether the panel's own keys should be claimed. Called when the panel moves
@@ -802,16 +842,19 @@ final class ActivityCenter: ObservableObject {
     /// Whether the digits and the arrows are the island's at this moment. The switcher shows
     /// a slot's number beside its name while they are, which is where somebody is looking
     /// when they want to know how to get to it.
-    var panelKeysActive: Bool {
-        Self.ownsPanelKeys(open: openView != nil, typing: wantsKeyboard,
-                           enabled: Preferences.shared.panelKeysEnabled)
+    var panelKeysActive: Bool { currentClaim.bareKeys }
+
+    /// What the island may take from the keyboard as things stand.
+    private var currentClaim: HotKeyService.KeyClaim {
+        HotKeyService.claim(pinnedOpen: openView != nil,
+                            holdsKeyboard: holdsKeyboard,
+                            textFieldUp: wantsKeyboard,
+                            listSection: PanelFind.searches(openSection),
+                            enabled: Preferences.shared.panelKeysEnabled)
     }
 
     private func keyboardControlChanged() {
-        HotKeyService.shared.setPanelKeysArmed(
-            Self.ownsPanelKeys(open: openView != nil, typing: wantsKeyboard,
-                               enabled: Preferences.shared.panelKeysEnabled),
-            letters: PanelFind.searches(openSection))
+        HotKeyService.shared.setPanelKeys(currentClaim)
     }
 
     /// One step along the ring. Without `wrap` the ends are ends (a swipe is spatial); with it

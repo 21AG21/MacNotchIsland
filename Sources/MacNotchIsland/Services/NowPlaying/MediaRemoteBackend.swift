@@ -15,8 +15,29 @@ final class MediaRemoteBackend {
     private typealias GetPIDFn = @convention(c) (DispatchQueue, @escaping (Int32) -> Void) -> Void
 
     var onUpdate: ((NowPlayingInfo?) -> Void)?
-    /// True once MediaRemote has delivered a non-empty payload in this process.
-    private(set) var isHealthy = false
+
+    /// MediaRemote answers questions, it does not report in, so a payload that arrived a minute
+    /// ago says nothing about whether the framework is still talking to us. Health lapses this
+    /// long after the last usable one — comfortably more than the ten seconds between the
+    /// refreshes the service sends, so an answered question always renews it in time.
+    static let staleAfter: TimeInterval = 15
+
+    /// True while MediaRemote is still handing over payloads with a track in them.
+    ///
+    /// This used to be true from the first usable payload until the app was relaunched, which is
+    /// the worst possible shape for it: the point release that stops MediaRemote answering is
+    /// exactly the moment the card goes blank, and a flag that could never fall kept the
+    /// AppleScript fallback shut behind it, with nothing said to the user and nothing to be done
+    /// short of quitting the app.
+    var isHealthy: Bool { BackendHealth.isFresh(lastPayload, now: Date(), within: Self.staleAfter) }
+
+    /// Whether we are registered for notifications *right now* — not whether the framework has
+    /// ever been loaded. Those two used to be the same flag, so switching Now Playing off and on
+    /// again left this backend loaded, unregistered, without observers, and still claiming to be
+    /// healthy: switched off in every way except the one that gated the fallbacks.
+    private var started = false
+    /// When MediaRemote last handed over a payload with a track in it.
+    private var lastPayload: Date?
 
     private var handle: UnsafeMutableRawPointer?
     private var getInfo: GetNowPlayingInfoFn?
@@ -40,7 +61,24 @@ final class MediaRemoteBackend {
     ]
 
     func start() {
-        guard handle == nil else { return }
+        guard !started else { return }
+        if handle == nil { load() }
+        guard handle != nil else { return }
+        started = true
+
+        register?(DispatchQueue.main)
+        for name in notifications {
+            let token = NotificationCenter.default.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                self?.refresh()
+            }
+            observers.append(token)
+        }
+        refresh()
+    }
+
+    /// The framework itself is loaded once and kept: unloading a private framework that has
+    /// registered callbacks of its own is a far worse idea than holding a handle we may need again.
+    private func load() {
         guard let h = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW) else {
             IslandLog.media.error("MediaRemote is unavailable")
             return
@@ -53,21 +91,17 @@ final class MediaRemoteBackend {
         sendCommandFn = symbol("MRMediaRemoteSendCommand", SendCommandFn.self)
         setElapsedFn = symbol("MRMediaRemoteSetElapsedTime", SetElapsedFn.self)
         getPIDFn = symbol("MRMediaRemoteGetNowPlayingApplicationPID", GetPIDFn.self)
-
-        register?(DispatchQueue.main)
-        for name in notifications {
-            let token = NotificationCenter.default.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
-                self?.refresh()
-            }
-            observers.append(token)
-        }
-        refresh()
     }
 
     func stop() {
+        started = false
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
         unregister?()
+        // Health cannot outlive being switched off, or the AppleScript poller would stay gated
+        // behind a backend that is no longer listening to anything.
+        lastPayload = nil
+        lastRefresh = .distantPast
     }
 
     private func symbol<T>(_ name: String, _ type: T.Type) -> T? {
@@ -80,7 +114,7 @@ final class MediaRemoteBackend {
     }
 
     func refresh() {
-        guard let getInfo else { return }
+        guard started, let getInfo else { return }
         lastRefresh = Date()
         getInfo(DispatchQueue.main) { [weak self] dict in
             self?.parse(dict)
@@ -88,6 +122,8 @@ final class MediaRemoteBackend {
     }
 
     private func parse(_ d: [String: Any]) {
+        // An answer to a question we asked before we were switched off is no longer ours to act on.
+        guard started else { return }
         guard !d.isEmpty else {
             if isHealthy { onUpdate?(nil) }
             return
@@ -124,7 +160,7 @@ final class MediaRemoteBackend {
             if isHealthy { onUpdate?(nil) }
             return
         }
-        isHealthy = true
+        lastPayload = Date()
 
         if let getPIDFn {
             getPIDFn(DispatchQueue.main) { [weak self] pid in

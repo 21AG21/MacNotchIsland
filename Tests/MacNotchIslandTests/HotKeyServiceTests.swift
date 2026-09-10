@@ -126,4 +126,63 @@ final class HotKeyServiceTests: XCTestCase {
         let names = HotKeyService.letterKeyCodes.map { HotKeyService.keyName(for: $0) }
         XCTAssertEqual(names, (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) })
     }
+
+    // MARK: - What the island may take out of the world
+
+    /// Every way of asking, with everything else right.
+    private func claim(pinnedOpen: Bool = true, holdsKeyboard: Bool = true, textFieldUp: Bool = false,
+                       listSection: Bool = true, enabled: Bool = true) -> HotKeyService.KeyClaim {
+        HotKeyService.claim(pinnedOpen: pinnedOpen, holdsKeyboard: holdsKeyboard,
+                            textFieldUp: textFieldUp, listSection: listSection, enabled: enabled)
+    }
+
+    func testTheIslandNeverTakesALetterMeantForSomebodyElsesTextField() {
+        // The bug this rule exists for. These keys are registered with Carbon, which takes them
+        // from every application at once. A pinned panel does not activate its app, so clicking
+        // the island used to leave Mail frontmost with the insertion point still blinking in a
+        // half-written reply — and the whole alphabet claimed. Every letter typed next went
+        // into a find in the island instead of into the reply.
+        XCTAssertEqual(claim(holdsKeyboard: false), .nothing,
+                       "open, but the keyboard belongs to the app in front")
+    }
+
+    func testNoKeyClassIsTreatedAsHarmlessWhenTheKeyboardIsNotOurs() {
+        // A digit or Space does less damage than a letter — a caret moved, a track paused —
+        // but each is still a keystroke somebody pressed while looking somewhere else.
+        let none = claim(holdsKeyboard: false, listSection: false)
+        XCTAssertFalse(none.bareKeys)
+        XCTAssertFalse(none.letters)
+    }
+
+    func testTheKeysAreOnlyOursWhileWeAreHoldingTheKeyboard() {
+        XCTAssertTrue(claim().bareKeys, "pinned, holding the keyboard, nothing being typed into")
+        XCTAssertEqual(claim(pinnedOpen: false), .nothing, "a peek takes nothing")
+        XCTAssertEqual(claim(textFieldUp: true), .nothing, "nor does the island's own text field")
+        XCTAssertEqual(claim(enabled: false), .nothing, "nor when the user switched them off")
+    }
+
+    func testTheAlphabetIsOnlyWorthClaimingWhereThereIsAListToSearch() {
+        // On Now Playing or Stats a letter is nobody's to take, but the arrows and digits still
+        // step and jump, so the two halves of the claim are answered separately.
+        let notAList = claim(listSection: false)
+        XCTAssertTrue(notAList.bareKeys)
+        XCTAssertFalse(notAList.letters)
+        XCTAssertTrue(claim(listSection: true).letters)
+    }
+
+    func testLettersAreNeverClaimedWithoutTheKeysUnderThem() {
+        // Twenty-six global hot keys with no licence behind them is the worst version of this
+        // bug, so no combination may produce letters without the rest.
+        for pinned in [true, false] {
+            for holds in [true, false] {
+                for typing in [true, false] {
+                    for on in [true, false] {
+                        let c = claim(pinnedOpen: pinned, holdsKeyboard: holds,
+                                      textFieldUp: typing, listSection: true, enabled: on)
+                        if c.letters { XCTAssertTrue(c.bareKeys, "letters without the bare keys") }
+                    }
+                }
+            }
+        }
+    }
 }

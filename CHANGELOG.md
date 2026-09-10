@@ -52,6 +52,26 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **The island cannot take a key that was meant for somebody else.** Its panel keys — the
+  arrows, the digits, Space and, on a list, the whole alphabet — are registered with Carbon,
+  which takes them from every application at once. They were claimed on the strength of the
+  panel being open, and a pinned panel does not activate its app: clicking the island left Mail
+  frontmost with the insertion point still blinking in a half-written reply, and every letter
+  typed next went into a find in the island instead of into the reply. Space stopped the music
+  mid-bar; a 3 typed into a form jumped the switcher. Now the panel takes the keyboard when it
+  is pinned, and the keys are only claimed while it is actually holding it. Key status is the
+  system's own answer to who the keyboard belongs to, it is visible — the window behind dims —
+  and when it goes, the claim goes with it in the same turn.
+- **Now Playing recovers instead of going dark for good.** Health was a one-way latch: a backend
+  that answered once kept the credit until the app was relaunched, so the moment MediaRemote went
+  quiet — which is exactly how this breaks, on the point release that moves it — the card cleared,
+  the fallbacks stayed shut behind it, and nothing said a word. Health lapses now, on recency.
+  A helper that stops writing without exiting is caught by a watchdog rather than believed
+  forever. Deaths are counted as a rate, not a lifetime total of five, so a helper that dies once
+  a day no longer runs out after five days. A helper already replaced no longer clears the handle
+  to its successor and leave it running unowned. And a helper that is answering but has nothing
+  to report is no longer mistaken for a dead one, which had a perfectly working Mac firing
+  AppleScript at Music and Spotify every two seconds forever.
 - **The rail stops standing in front of the opening spring.** Mounting it ran a CoreAudio device
   enumeration, a DisplayServices read and both radios synchronously, at the exact moment the
   island began to grow — so the first hundred milliseconds of every open dropped frames and the
