@@ -293,8 +293,13 @@ final class IslandLayoutTests: XCTestCase {
         let kept = CGFloat(fitted.views.count)
         XCTAssertLessThanOrEqual(kept * SwitcherBand.minHit - SwitcherBand.minGap, room)
         XCTAssertGreaterThan((kept + 1) * SwitcherBand.minHit - SwitcherBand.minGap, room)
-        // At every count on the way there it keeps everything the room can hold.
+        // One slot more than the room can hold, whatever that number turns out to be: the
+        // slot goes and the size stays, never the other way about.
         let most = Int((room + SwitcherBand.minGap) / SwitcherBand.minHit)
+        let crowded = SwitcherBand.fit(bandSlots(most + 1), in: room)
+        XCTAssertEqual(crowded.views.count, most)
+        XCTAssertEqual(crowded.slot, SwitcherBand.minSlot)
+        // And at every count on the way there it keeps everything the room can hold.
         for count in 1...all.count {
             XCTAssertEqual(SwitcherBand.fit(bandSlots(count), in: room).views.count,
                            min(count, most), "\(count) sections")

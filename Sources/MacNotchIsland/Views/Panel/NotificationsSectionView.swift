@@ -16,14 +16,6 @@ struct NotificationsSectionView: View {
 
     private var matches: [NotificationInbox.Entry] { Self.ordered(inbox.entries, query: center.findQuery) }
 
-    /// The row the arrows are on. Nothing happens to it on Return — there is nowhere for a
-    /// notification that has already been and gone to be opened — but walking the matches
-    /// still has to show where you are.
-    private var foundID: UUID? {
-        guard let index = center.findTarget(of: matches.count) else { return nil }
-        return matches[index].id
-    }
-
     /// The list as it is drawn: collapsed into a block per app, the app that spoke most
     /// recently first, and only what answers the find.
     ///
@@ -67,11 +59,18 @@ struct NotificationsSectionView: View {
     }
 
     private var list: some View {
-        IslandScrollStrip(axis: .vertical) {
+        // Worked out once for the whole list rather than once per row: grouping two hundred
+        // notifications is not the sort of thing to do forty times on the way down a column.
+        let rows = matches
+        // The row the arrows are on. Nothing happens to it on Return — a notification that has
+        // been and gone has nowhere to be opened — but walking the matches has to show where
+        // you are, so it is marked the way a row under the pointer is.
+        let found = center.findTarget(of: rows.count).map { rows[$0].id }
+        return IslandScrollStrip(axis: .vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(matches) { entry in
-                    NotificationRowView(entry: entry, isFound: foundID == entry.id)
-                    if entry.id != matches.last?.id {
+                ForEach(rows) { entry in
+                    NotificationRowView(entry: entry, isFound: found == entry.id)
+                    if entry.id != rows.last?.id {
                         Rectangle()
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 0.5)
