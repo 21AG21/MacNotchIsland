@@ -481,14 +481,14 @@ final class ClipboardStore: ObservableObject {
             if !missingFileIDs.isEmpty { missingFileIDs = [] }
             return
         }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        DispatchQueue.global(qos: .utility).async {
             var gone = Set<UUID>()
             for entry in entries {
                 let isGone = ClipboardStore.filesAreGone(urls: entry.urls,
                                                          exists: { FileManager.default.fileExists(atPath: $0.path) })
                 if isGone { gone.insert(entry.id) }
             }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 // The history can have moved on while the disk was being asked.
                 let answers = ClipboardStore.pruned(gone, to: self.items)

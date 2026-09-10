@@ -213,6 +213,8 @@ final class WiFiScanner: ObservableObject {
 struct RadioPass {
     private(set) var isRunning = false
 
+    init() {}
+
     /// Whether the caller is the one that gets to go. Balanced by `finish()` when its answer
     /// has been shown.
     mutating func start() -> Bool {
