@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import MacNotchIsland
 
@@ -176,5 +177,31 @@ final class BatteryDetailTests: XCTestCase {
 
         let bare = BatteryState(percent: 80, isCharging: true, isPluggedIn: true, event: .pluggedIn)
         XCTAssertEqual(BatteryFormatting.accessibilityLabel(for: bare), "Battery 80 percent")
+    }
+
+    // MARK: - Enough charge
+
+    func testItSaysSoWhenTheChargeCrossesTheMark() {
+        XCTAssertTrue(BatteryMonitor.crossedChargeLimit(previous: 79, now: 80, limit: 80, alreadySaid: false))
+        XCTAssertTrue(BatteryMonitor.crossedChargeLimit(previous: 60, now: 92, limit: 80, alreadySaid: false),
+                      "a jump past the mark is still crossing it")
+    }
+
+    func testItSaysSoOncePerCharge() {
+        XCTAssertFalse(BatteryMonitor.crossedChargeLimit(previous: 79, now: 80, limit: 80, alreadySaid: true))
+        XCTAssertFalse(BatteryMonitor.crossedChargeLimit(previous: 80, now: 81, limit: 80, alreadySaid: false),
+                       "already past it is not crossing it")
+    }
+
+    func testNoMarkIsNoAlert() {
+        XCTAssertFalse(BatteryMonitor.crossedChargeLimit(previous: 79, now: 80, limit: 0, alreadySaid: false))
+        // A hundred is what the full alert is for; two words for one moment is one too many.
+        XCTAssertFalse(BatteryMonitor.crossedChargeLimit(previous: 99, now: 100, limit: 100, alreadySaid: false))
+    }
+
+    func testTheAlertIsNamedAfterWhatToDoAboutIt() {
+        let state = BatteryState(percent: 80, isCharging: true, isPluggedIn: true, event: .charged)
+        XCTAssertEqual(state.title, "Enough Charge")
+        XCTAssertEqual(state.tint, Color.named("green"))
     }
 }

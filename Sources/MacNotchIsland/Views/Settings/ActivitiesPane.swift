@@ -131,6 +131,15 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Downloads", isOn: $prefs.downloadsEnabled)
                     .help("Safari, Chrome and Firefox downloads in your Downloads folder, with a progress ring.")
+                Picker("Tell me at", selection: chargeAlert) {
+                    Text("Never").tag(0.0)
+                    Text("70%").tag(70.0)
+                    Text("80%").tag(80.0)
+                    Text("85%").tag(85.0)
+                    Text("90%").tag(90.0)
+                }
+                .pickerStyle(.menu)
+                .help("A laptop that lives on its charger sits at a hundred per cent, which is where a lithium battery ages fastest. Said once per charge.")
                 Toggle("Screenshots", isOn: $prefs.screenshotsEnabled)
                     .help("The picture you just took, with Copy, Copy Text and Open on it — and draggable straight into a message.")
                 Toggle("External disks", isOn: $prefs.drivesEnabled)
@@ -140,11 +149,21 @@ struct ActivitiesPane: View {
             } header: {
                 Text("Downloads, disks and timers")
             } footer: {
-                Text("A capture's card shows the picture itself: drag it from there into a message without it ever touching the Desktop, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots can also land on the shelf — turn that on in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
+                Text("A laptop that lives on its charger sits at a hundred per cent, which is where a lithium battery ages fastest; the island can say when it has had enough, once per charge. A capture's card shows the picture itself: drag it from there into a message without it ever touching the Desktop, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots can also land on the shelf — turn that on in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
             }
         }
         .formStyle(.grouped)
     }
+
+    /// The charge mark, snapped to one of the offered figures.
+    private var chargeAlert: Binding<Double> {
+        Binding(
+            get: { SettingsFormat.nearest(prefs.chargeAlertPercent, in: Self.chargeOptions) },
+            set: { prefs.chargeAlertPercent = $0 }
+        )
+    }
+
+    private static let chargeOptions: [Double] = [0, 70, 80, 85, 90]
 
     /// Menus store discrete choices; a value set by an older build is shown as its nearest match.
     private var keepPaused: Binding<Double> {

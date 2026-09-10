@@ -37,6 +37,8 @@ final class Preferences: ObservableObject {
     @Published var drivesEnabled: Bool { didSet { d.set(drivesEnabled, forKey: "drivesEnabled") } }
     @Published var screenshotsEnabled: Bool { didSet { d.set(screenshotsEnabled, forKey: "screenshotsEnabled") } }
     @Published var controlsEnabled: Bool { didSet { d.set(controlsEnabled, forKey: "controlsEnabled") } }
+    /// Tell me when the battery reaches this, once per charge. 0 is off.
+    @Published var chargeAlertPercent: Double { didSet { d.set(chargeAlertPercent, forKey: "chargeAlertPercent") } }
     @Published var addDownloadsToShelf: Bool { didSet { d.set(addDownloadsToShelf, forKey: "addDownloadsToShelf") } }
     @Published var screenshotsToShelfEnabled: Bool { didSet { d.set(screenshotsToShelfEnabled, forKey: "screenshotsToShelfEnabled") } }
     @Published var lowPowerEnabled: Bool { didSet { d.set(lowPowerEnabled, forKey: "lowPowerEnabled") } }
@@ -129,6 +131,7 @@ final class Preferences: ObservableObject {
         drivesEnabled = bool("drivesEnabled", true)
         screenshotsEnabled = bool("screenshotsEnabled", true)
         controlsEnabled = bool("controlsEnabled", true)
+        chargeAlertPercent = d.object(forKey: "chargeAlertPercent") as? Double ?? 0
         addDownloadsToShelf = bool("addDownloadsToShelf", true)
         screenshotsToShelfEnabled = bool("screenshotsToShelfEnabled", true)
         lowPowerEnabled = bool("lowPowerEnabled", true)

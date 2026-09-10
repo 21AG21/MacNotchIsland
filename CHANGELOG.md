@@ -6,6 +6,11 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Tell me when it has had enough charge.** A laptop that lives on its charger sits at a
+  hundred per cent, which is where a lithium battery ages fastest, and macOS will not say a
+  word about it. Pick a mark in Activities — 70, 80, 85 or 90 — and the island says "Enough
+  Charge" once per charge when the battery crosses it. Once, not every reading: it resets when
+  the charger comes out.
 - **Move to…, on the shelf.** The shelf is a staging post — things land on it on the way
   somewhere — and "somewhere" was the one verb it did not have. Right-click a selection, pick a
   folder, and the files go there and come off the shelf. A move, not a copy: leaving a second

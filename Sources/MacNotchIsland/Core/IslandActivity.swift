@@ -112,7 +112,11 @@ struct CallState: Equatable {
     var startedAt: Date
 }
 
-enum BatteryEvent: Equatable { case pluggedIn, unplugged, low, critical, full }
+enum BatteryEvent: Equatable {
+    case pluggedIn, unplugged, low, critical, full
+    /// Reached the mark somebody set to be told at — "enough, you can unplug it".
+    case charged
+}
 
 struct BatteryState: Equatable {
     var percent: Int

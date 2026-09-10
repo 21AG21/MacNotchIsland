@@ -379,7 +379,7 @@ enum IslandAccessibility {
 extension BatteryState {
     var tint: Color {
         if event == .low || event == .critical || (percent <= 20 && !isPluggedIn) { return Color.named("red") }
-        if isCharging || isPluggedIn || event == .full { return Color.named("green") }
+        if isCharging || isPluggedIn || event == .full || event == .charged { return Color.named("green") }
         return .white
     }
 
@@ -390,6 +390,8 @@ extension BatteryState {
         case .low: return "Low Battery"
         case .critical: return "Very Low Battery"
         case .full: return "Charged"
+        // Named after what to do about it, not after the number: the number is beside it.
+        case .charged: return "Enough Charge"
         }
     }
 }

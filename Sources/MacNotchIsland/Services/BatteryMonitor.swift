@@ -21,6 +21,8 @@ final class BatteryMonitor {
 
     private var source: CFRunLoopSource?
     private var last: Snapshot?
+    /// Said once per charge, cleared when the charger comes out.
+    private var announcedLimit = false
     private var warnedLow = false
     private var warnedCritical = false
     private var announcedFull = false
@@ -82,6 +84,7 @@ final class BatteryMonitor {
             warnedCritical = false
         } else if !now.pluggedIn && previous.pluggedIn {
             announcedFull = false
+            announcedLimit = false
             show(BatteryState(percent: now.percent, isCharging: false, isPluggedIn: false, event: .unplugged), duration: 1.8)
         }
 
@@ -97,7 +100,27 @@ final class BatteryMonitor {
         } else if now.percent >= 100 && !announcedFull && previous.percent < 100 {
             announcedFull = true
             show(BatteryState(percent: 100, isCharging: false, isPluggedIn: true, event: .full))
+        } else if Self.crossedChargeLimit(previous: previous.percent, now: now.percent,
+                                          limit: Preferences.shared.chargeAlertPercent,
+                                          alreadySaid: announcedLimit) {
+            announcedLimit = true
+            show(BatteryState(percent: now.percent, isCharging: now.charging, isPluggedIn: true, event: .charged),
+                 duration: 4)
         }
+    }
+
+    /// Whether this is the moment to say "that is enough charge".
+    ///
+    /// A laptop that lives on its charger sits at a hundred per cent for years, and a hundred
+    /// per cent is where a lithium battery ages fastest. macOS will not tell anybody when to
+    /// unplug; this will, once per charge, at whatever mark they set.
+    ///
+    /// Pure, so the rule can be tested without a battery to drain.
+    static func crossedChargeLimit(previous: Int, now: Int, limit: Double, alreadySaid: Bool) -> Bool {
+        guard !alreadySaid, limit > 0 else { return false }
+        let mark = Int(limit.rounded())
+        guard mark < 100 else { return false }
+        return now >= mark && previous < mark
     }
 
     private func show(_ state: BatteryState, duration: TimeInterval? = nil, expanded: Bool = false) {
