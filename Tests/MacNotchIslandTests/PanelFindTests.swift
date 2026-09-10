@@ -1,4 +1,3 @@
-import AppKit
 import XCTest
 @testable import MacNotchIsland
 
@@ -170,16 +169,16 @@ final class PanelFindTests: XCTestCase {
     /// things that close the panel fire for our own windows; Space on the shelf did the same
     /// to Quick Look. Wanting the keyboard is not being owed it by our own windows.
     func testTheIslandLeavesTheKeyboardWithWhicheverOfOurOwnWindowsHasIt() {
-        XCTAssertFalse(NotchPanel.holdsKeyboardElsewhere([]),
+        XCTAssertFalse(PanelKeyboard.heldByAnotherOfOurs([]),
                        "no windows at all, so nobody is holding it")
-        XCTAssertFalse(NotchPanel.holdsKeyboardElsewhere([(isKey: true, isPanel: true)]),
+        XCTAssertFalse(PanelKeyboard.heldByAnotherOfOurs([(isKey: true, isPanel: true)]),
                        "an island panel holding the keyboard is the island holding it")
-        XCTAssertTrue(NotchPanel.holdsKeyboardElsewhere([(isKey: true, isPanel: false)]),
+        XCTAssertTrue(PanelKeyboard.heldByAnotherOfOurs([(isKey: true, isPanel: false)]),
                       "Settings, or a Quick Look panel: the island must not take it straight back")
-        XCTAssertTrue(NotchPanel.holdsKeyboardElsewhere([(isKey: true, isPanel: true),
+        XCTAssertTrue(PanelKeyboard.heldByAnotherOfOurs([(isKey: true, isPanel: true),
                                                          (isKey: true, isPanel: false)]),
                       "and a panel of ours being key as well is no licence to take it")
-        XCTAssertFalse(NotchPanel.holdsKeyboardElsewhere([(isKey: false, isPanel: false),
+        XCTAssertFalse(PanelKeyboard.heldByAnotherOfOurs([(isKey: false, isPanel: false),
                                                           (isKey: false, isPanel: true)]),
                        "a window that is not key is not holding the keyboard")
     }

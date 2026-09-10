@@ -254,15 +254,13 @@ final class NotchPanel: NSPanel {
     /// would not accept a keystroke, and no way out, because none of the three things that
     /// close the panel fire for our own windows. Space on the shelf did the same to Quick
     /// Look. Wanting the keyboard is not the same as being owed it by our own windows.
+    ///
+    /// The live window list is read here; the rule it is put to is `PanelKeyboard`.
     private static var anotherOfOursHasIt: Bool {
-        holdsKeyboardElsewhere(NSApp.windows.map { (isKey: $0.isKeyWindow, isPanel: $0 is NotchPanel) })
-    }
-
-    /// The rule behind `anotherOfOursHasIt`, with the window list handed in so it can be asked
-    /// without an application around it: one of our windows that is not an island panel is the
-    /// key window. Nothing here decides anything the caller above does not.
-    static func holdsKeyboardElsewhere(_ windows: [(isKey: Bool, isPanel: Bool)]) -> Bool {
-        windows.contains { $0.isKey && !$0.isPanel }
+        let windows = NSApp.windows.map { window in
+            (isKey: window.isKeyWindow, isPanel: window is NotchPanel)
+        }
+        return PanelKeyboard.heldByAnotherOfOurs(windows)
     }
 
     /// With an island on several screens, the one under the pointer takes the keyboard;
@@ -432,5 +430,18 @@ final class NotchPanel: NSPanel {
         }
         settleWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay, execute: work)
+    }
+}
+
+/// Who among this app's own windows is holding the keyboard.
+///
+/// The decision on its own, away from `NSApp`, so it can be asked with a list of windows
+/// rather than with an application running. `NotchPanel.anotherOfOursHasIt` reads the live
+/// list and hands it in; nothing here decides anything that call does not.
+enum PanelKeyboard {
+    /// Whether one of our windows that is not an island panel — Settings, a Quick Look panel —
+    /// is the key window, in which case the island leaves the keyboard where it is.
+    static func heldByAnotherOfOurs(_ windows: [(isKey: Bool, isPanel: Bool)]) -> Bool {
+        windows.contains { $0.isKey && !$0.isPanel }
     }
 }

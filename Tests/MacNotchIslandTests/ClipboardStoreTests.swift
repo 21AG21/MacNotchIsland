@@ -285,7 +285,7 @@ final class ClipboardStoreTests: XCTestCase {
     /// The question used to be put to the file system from inside the row's own body, which is
     /// run again on every hover and every scroll of a fifty-row list. A sweep asks it once per
     /// file instead, and what a row reads is the answer the last sweep left behind.
-    func testASweepAsksTheDiskOncePerFileAndTheRowOnlyReadsTheAnswer() {
+    func testASweepAsksTheDiskOncePerFileAndTheRowOnlyReadsTheAnswer() throws {
         var asked = 0
         let entry = item("/tmp/one.txt\n/tmp/two.txt", kind: .file)
         _ = ClipboardStore.filesAreGone(urls: entry.fileURLs, exists: { _ in
@@ -298,7 +298,7 @@ final class ClipboardStoreTests: XCTestCase {
         // it can: a history handed in, and swept against the files really under it.
         let there = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("clipboard-sweep-\(UUID().uuidString).txt")
-        try? Data("still here".utf8).write(to: there)
+        try Data("still here".utf8).write(to: there)
         defer { try? FileManager.default.removeItem(at: there) }
         let alive = item(there.path, kind: .file, at: 1)
         let gone = item("/tmp/no-such-file-\(UUID().uuidString).txt", kind: .file, at: 2)
