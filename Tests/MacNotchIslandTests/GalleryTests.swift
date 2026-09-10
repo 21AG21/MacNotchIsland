@@ -25,6 +25,9 @@ final class GalleryTests: XCTestCase {
         /// own edge — and is why nobody noticed that on a dark one the shape dissolves into
         /// the bar entirely and what is in it reads as marks floating in a void.
         var dark = false
+        /// The view this scene means to be a picture of, where it names one. Checked after the
+        /// setup has run — see the note at the call site.
+        var expects: IslandView? = nil
         var setup: (ActivityCenter) -> Void
     }
 
@@ -43,18 +46,15 @@ final class GalleryTests: XCTestCase {
         // feature the gallery shows is switched on explicitly.
         let prefs = Preferences.shared
         prefs.hapticsEnabled = false
+        // Every section, from the list of sections — not from a list of switches somebody has
+        // to remember to add to. Controls was missing from that list, and a section that is
+        // switched off is not drawn empty: `resolve` quietly lands on the nearest one that is
+        // on, so `panel-controls` was liable to be a picture of a different section altogether,
+        // under the Controls name, with a green build and not a yellow pixel in it.
+        HomeSection.allCases.forEach { $0.setEnabled(true, in: prefs) }
         prefs.weatherEnabled = true
-        prefs.statsEnabled = true
         prefs.mirrorEnabled = true
-        prefs.quickActionsEnabled = true
-        prefs.shelfEnabled = true
-        prefs.clipboardEnabled = true
-        prefs.notificationsEnabled = true
         prefs.lyricsEnabled = true
-        prefs.nowPlayingEnabled = true
-        prefs.notesEnabled = true
-        prefs.calendarEnabled = true
-        prefs.windowsEnabled = true
         prefs.hoverToExpand = true
         prefs.hoverDelay = 0.05
         RenderMode.isGallery = true
@@ -81,6 +81,14 @@ final class GalleryTests: XCTestCase {
                                                volume: nil, isMuted: false)
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
+            // What it asked for is what it got. A section switched off, a tab spelled wrong or
+            // an activity that never arrived all end in `resolve` picking something else and
+            // the picture being filed under the wrong name — which is a lie in the one place
+            // this project can see itself, and it costs nothing to check.
+            if let wanted = scene.expects {
+                XCTAssertEqual(center.currentView, wanted,
+                               "\(scene.name) rendered a different view from the one it asked for")
+            }
             let geometry = scene.floating ? Self.plain : Self.notch
             let shot = render(geometry: geometry, dark: scene.dark)
             try write(shot, name: scene.name, dir: dir)
@@ -485,7 +493,7 @@ final class GalleryTests: XCTestCase {
             // own to fall back on.
             Scene(name: "dark-notch-idle", dark: true) { _ in },
             Scene(name: "dark-compact-nowplaying", dark: true) { c in c.upsert(nowPlaying()) },
-            Scene(name: "dark-panel-music", dark: true, setup: panel("music") { c in c.upsert(nowPlaying()) }),
+            Scene(name: "dark-panel-music", dark: true, expects: .home(tab: "music"), setup: panel("music") { c in c.upsert(nowPlaying()) }),
             // The floating pill on a dark desktop: the one geometry whose outline is a closed
             // loop, with a real top edge of its own, and the only place the rim can be seen
             // all the way round.
@@ -540,43 +548,43 @@ final class GalleryTests: XCTestCase {
             Scene(name: "card-call") { c in c.upsert(call()); c.forceExpanded(id: "call", for: 60) },
 
             // The panel, pinned, on each view it can show.
-            Scene(name: "panel-home", setup: panel("home") { c in
+            Scene(name: "panel-home", expects: .home(tab: "home"), setup: panel("home") { c in
                 c.upsert(nowPlaying())
                 clipboard()
                 today()
                 favouriteApps()
                 NotesStore.shared.text = "Ring the dentist\nPick up the parcel"
             }),
-            Scene(name: "panel-home-quiet", setup: panel("home")),
-            Scene(name: "panel-music", setup: panel("music") { c in c.upsert(nowPlaying()) }),
-            Scene(name: "panel-music-empty", setup: panel("music")),
-            Scene(name: "panel-today", setup: panel("today") { _ in today(); weather() }),
-            Scene(name: "panel-today-empty", setup: panel("today")),
-            Scene(name: "panel-controls", setup: panel("controls") { _ in controls() }),
-            Scene(name: "panel-controls-off", setup: panel("controls")),
-            Scene(name: "panel-windows", setup: panel("windows")),
+            Scene(name: "panel-home-quiet", expects: .home(tab: "home"), setup: panel("home")),
+            Scene(name: "panel-music", expects: .home(tab: "music"), setup: panel("music") { c in c.upsert(nowPlaying()) }),
+            Scene(name: "panel-music-empty", expects: .home(tab: "music"), setup: panel("music")),
+            Scene(name: "panel-today", expects: .home(tab: "today"), setup: panel("today") { _ in today(); weather() }),
+            Scene(name: "panel-today-empty", expects: .home(tab: "today"), setup: panel("today")),
+            Scene(name: "panel-controls", expects: .home(tab: "controls"), setup: panel("controls") { _ in controls() }),
+            Scene(name: "panel-controls-off", expects: .home(tab: "controls"), setup: panel("controls")),
+            Scene(name: "panel-windows", expects: .home(tab: "windows"), setup: panel("windows")),
             // Type-to-find, narrowing a list of four to the one window that answers.
             Scene(name: "panel-windows-find") { c in
                 c.open(.home(tab: "windows"))
                 c.beginFind(with: "m")
                 c.updateFind("ma")
             },
-            Scene(name: "panel-shelf", setup: panel("shelf") { _ in ShelfStore.shared.add(files) }),
-            Scene(name: "panel-shelf-empty", setup: panel("shelf")),
-            Scene(name: "panel-clipboard", setup: panel("clipboard") { _ in clipboard() }),
-            Scene(name: "panel-clipboard-empty", setup: panel("clipboard")),
+            Scene(name: "panel-shelf", expects: .home(tab: "shelf"), setup: panel("shelf") { _ in ShelfStore.shared.add(files) }),
+            Scene(name: "panel-shelf-empty", expects: .home(tab: "shelf"), setup: panel("shelf")),
+            Scene(name: "panel-clipboard", expects: .home(tab: "clipboard"), setup: panel("clipboard") { _ in clipboard() }),
+            Scene(name: "panel-clipboard-empty", expects: .home(tab: "clipboard"), setup: panel("clipboard")),
             Scene(name: "panel-clipboard-find") { c in
                 clipboard()
                 c.open(.home(tab: "clipboard"))
                 c.beginFind(with: "a")
                 c.updateFind("app")
             },
-            Scene(name: "panel-notifications", setup: panel("notifications") { _ in notifications() }),
-            Scene(name: "panel-notifications-empty", setup: panel("notifications")),
-            Scene(name: "panel-actions", setup: panel("actions") { _ in favouriteApps() }),
-            Scene(name: "panel-actions-empty", setup: panel("actions")),
-            Scene(name: "panel-notes", setup: panel("notes")),
-            Scene(name: "panel-stats", setup: panel("stats") { _ in SystemStats.shared.seedForGallery() }),
+            Scene(name: "panel-notifications", expects: .home(tab: "notifications"), setup: panel("notifications") { _ in notifications() }),
+            Scene(name: "panel-notifications-empty", expects: .home(tab: "notifications"), setup: panel("notifications")),
+            Scene(name: "panel-actions", expects: .home(tab: "actions"), setup: panel("actions") { _ in favouriteApps() }),
+            Scene(name: "panel-actions-empty", expects: .home(tab: "actions"), setup: panel("actions")),
+            Scene(name: "panel-notes", expects: .home(tab: "notes"), setup: panel("notes")),
+            Scene(name: "panel-stats", expects: .home(tab: "stats"), setup: panel("stats") { _ in SystemStats.shared.seedForGallery() }),
             Scene(name: "panel-timer", setup: card(timer)),
             Scene(name: "panel-stopwatch", setup: card(stopwatch)),
             Scene(name: "panel-call", setup: card(call)),
@@ -633,7 +641,7 @@ final class GalleryTests: XCTestCase {
             Scene(name: "drag-shelf") { c in c.upsert(nowPlaying()); c.setDragTargeted(true) },
 
             Scene(name: "floating-compact-nowplaying", floating: true) { c in c.upsert(nowPlaying()) },
-            Scene(name: "floating-panel-music", floating: true, setup: panel("music") { c in c.upsert(nowPlaying()) }),
+            Scene(name: "floating-panel-music", floating: true, expects: .home(tab: "music"), setup: panel("music") { c in c.upsert(nowPlaying()) }),
             Scene(name: "floating-card-battery-low", floating: true) { c in c.showAlert(lowBattery(), duration: 60) },
         ]
     }

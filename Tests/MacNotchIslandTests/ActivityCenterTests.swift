@@ -16,6 +16,19 @@ final class ActivityCenterTests: XCTestCase {
         HomeSection.allCases.forEach { $0.setEnabled(true, in: p) }
     }
 
+    /// Puts the sections back, because `onlyMusicSection` switches every one of them off and
+    /// preferences are one shared object written straight through to the defaults domain.
+    ///
+    /// `setUp` heals it for the next test in this class, which is why nothing here ever
+    /// noticed — but the damage escapes the class. The gallery runs as its own `swift test`
+    /// invocation against the same domain, and a section it finds switched off is not drawn
+    /// empty: it quietly resolves to the nearest one that is on, and files the picture under
+    /// the wrong name.
+    override func tearDown() {
+        HomeSection.allCases.forEach { $0.setEnabled(true, in: Preferences.shared) }
+        super.tearDown()
+    }
+
     private func custom(_ id: String, priority: Int = 70, title: String = "X", kind: ActivityKind = .custom) -> IslandActivity {
         IslandActivity(id: id, kind: kind, content: .custom(CustomActivity(title: title)), priority: priority)
     }

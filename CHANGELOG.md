@@ -52,6 +52,16 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **The gallery cannot file a picture under the wrong name.** It is the only eye this project
+  has — nobody working on it can run the app — and it was switching sections on from a
+  hand-written list that had missed Controls. A section that is switched off is not drawn empty:
+  the panel quietly resolves to the nearest one that is on, so `panel-controls` was liable to be
+  a picture of a different section altogether, with a green build and not a yellow pixel in it.
+  The switches come from the list of sections now, so a new one cannot be forgotten, and every
+  scene that names a view is checked against the view actually on screen before the shutter goes.
+  The leak that made it possible is closed too: a test that switched every section off wrote
+  that straight through to the shared defaults domain and four of its five callers put nothing
+  back.
 - **Settings and Quick Look can be typed into again.** Making the pinned panel hold the keyboard
   — which is what stopped it taking keys out of other apps — had it taking the keyboard back off
   *its own* windows too: click the gear on the rail and Settings opened with a dead title bar

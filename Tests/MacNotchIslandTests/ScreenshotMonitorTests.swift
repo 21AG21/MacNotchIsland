@@ -168,24 +168,35 @@ final class ScreenshotMonitorTests: XCTestCase {
         XCTAssertFalse(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true, creation: nil, now: now))
     }
 
-    /// And it is exactly the rules it is made of, for every name they disagree about.
-    func testTheWholeRuleIsTheNameRuleAndTheAgeRuleAndNothingElse() {
+    /// What counts as a capture, written out rather than worked out.
+    ///
+    /// This used to compute what it expected by composing the same two rules the function
+    /// composes, which cannot disagree with it for any input: it asserted that the function is
+    /// itself, over six names and three ages, and would have passed with the name rule and the
+    /// age rule both deleted. The answers are literals now, so they can actually be wrong.
+    func testWhatCountsAsACaptureAndWhatDoesNot() {
         let now = Date()
-        let names = ["Screenshot 2026-09-07 at 10.15.30.png",
-                     "Screen Recording 2026-09-07 at 10.15.30.mov",
-                     "Screenshot 2026-09-07 at 10.15.30.pdf",
-                     "Screenshot 2026-09-07 at 10.15.30.png.crdownload",
-                     "IMG_0001.png",
-                     "invoice.pdf"]
-        for name in names {
-            for age in [0.0, 5.0, 30.0] {
-                let creation = now.addingTimeInterval(-age)
-                let expected = ScreenshotMonitor.isCandidate(name: name)
-                    && ScreenshotMonitor.isRecent(creation: creation, now: now)
-                XCTAssertEqual(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true,
-                                                             creation: creation, now: now),
-                               expected, "\(name), \(age)s old")
-            }
+        // name, seconds old, whether the island should raise a card for it.
+        let cases: [(String, Double, Bool)] = [
+            ("Screenshot 2026-09-07 at 10.15.30.png", 0, true),
+            ("Screenshot 2026-09-07 at 10.15.30.png", 5, true),
+            ("Screenshot 2026-09-07 at 10.15.30.png", 30, false),      // already there when the watch began
+            ("Screen Recording 2026-09-07 at 10.15.30.mov", 0, true),
+            ("Screenshot 2026-09-07 at 10.15.30.pdf", 0, false),       // a screenshot is not a PDF
+            ("Screenshot 2026-09-07 at 10.15.30.png.crdownload", 0, false),  // still being written
+            ("IMG_0001.png", 0, false),                                // somebody's photo, saved to the desktop
+            ("invoice.pdf", 0, false),
+        ]
+        for (name, age, expected) in cases {
+            XCTAssertEqual(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true,
+                                                          creation: now.addingTimeInterval(-age), now: now),
+                           expected, "\(name), \(age)s old")
         }
+    }
+
+    func testAFolderNamedLikeAScreenshotIsStillAFolder() {
+        let now = Date()
+        XCTAssertFalse(ScreenshotMonitor.isNewCapture(name: "Screenshot 2026-09-07 at 10.15.30.png",
+                                                      isRegularFile: false, creation: now, now: now))
     }
 }

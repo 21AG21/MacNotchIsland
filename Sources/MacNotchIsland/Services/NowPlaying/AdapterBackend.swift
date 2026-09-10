@@ -238,7 +238,11 @@ final class AdapterBackend {
 
         let now = Date()
         failures = BackendHealth.recentFailures(failures + [now], endingAt: now, window: Self.restartWindow)
-        let resting = failures.count > Self.restartBudget
+        // Asked of the rule rather than counted again here. The same comparison written twice
+        // is one that can be changed in one place and stay green in the other, and the test
+        // that pins this budget was asserting a rule with no caller.
+        let resting = BackendHealth.hasBlownBudget(failures, endingAt: now,
+                                                   window: Self.restartWindow, budget: Self.restartBudget)
         if resting {
             IslandLog.media.error("the adapter helper has died \(self.failures.count, privacy: .public) times in quick succession; resting before it is tried again")
         }
