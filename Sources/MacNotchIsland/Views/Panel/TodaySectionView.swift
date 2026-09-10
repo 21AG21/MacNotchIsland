@@ -9,15 +9,48 @@ struct TodaySectionView: View {
     @EnvironmentObject private var prefs: Preferences
 
     private static let eventRow: CGFloat = 36
-    private static let reminderRow: CGFloat = 28
+    static let reminderRow: CGFloat = 28
     /// The gutter every row's leading mark stands in — an event's colour bar and a reminder's
     /// tick box alike — so both kinds of title start on the same line down the section. They
     /// used to start 13 pt apart.
-    private static let rail: CGFloat = 16
+    static let rail: CGFloat = 16
+    /// The air between the parts of a row: the rail and the title, the title and the
+    /// countdown, the countdown and the button. Named because the tick box's rectangle spends
+    /// half of the first of them.
+    static let rowGap: CGFloat = 10
     /// The countdown's column. Without it "in 1 hr" on a row with no Join button landed 44 pt
     /// right of "in 7 min" on the row above.
     private static let countdown: CGFloat = 62
     private static var listHeight: CGFloat { SectionMetrics.bodyHeight }
+
+    // MARK: - What the tick box answers to
+
+    /// The smallest thing the pointer is asked to hit anywhere in the app, which is Apple's
+    /// floor for a control it drives and what the switcher's slots keep to: 28 pt. The tick
+    /// box kept to 16, a target under a third of the area — on the one control in this section
+    /// whose press cannot be taken back from here, since a reminder ticked off leaves the list
+    /// and putting it back means opening Reminders.
+    static let minHit: CGFloat = 28
+
+    /// The rectangle it takes that click in. As wide as the pointer needs, and as tall, but
+    /// never taller than the row it belongs to: a rectangle that reached past its own row
+    /// would be sitting over the row above or below, both of which open Calendar when they are
+    /// clicked, and a tick made in passing on the way to somewhere else is the one mistake
+    /// this section must not invite.
+    static var tickHit: CGSize {
+        CGSize(width: max(rail, minHit), height: min(max(rail, minHit), reminderRow))
+    }
+
+    /// How far that reaches past the 16 pt the circle is drawn in, on each side — and what is
+    /// taken straight off again, so none of it is laid out and not a pixel moves. Sideways it
+    /// spends the margin the section already keeps to its leading edge and half the gap before
+    /// the words, which leaves it stopping 4 pt short of them. Where anything in the row did
+    /// come to lie under it the tick would win, being the row's own control and in front of
+    /// everything else in it — which is exactly why it is given the empty air beside the rail
+    /// and nothing more.
+    static var tickInset: CGSize {
+        CGSize(width: (tickHit.width - rail) / 2, height: (tickHit.height - rail) / 2)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
@@ -209,47 +242,73 @@ struct TodaySectionView: View {
         }
     }
 
+    /// A row is a button, and was a tap gesture: a thing only a pointer can find. VoiceOver
+    /// read the appointment out and then offered nothing to be done with it, and Return did
+    /// nothing at all, because a rectangle with a gesture on it is not a control. Same style
+    /// the rest of the app puts on a row you can press, so nothing about it looks any
+    /// different until it is pressed.
     private func eventRow(_ event: AgendaStore.Event) -> some View {
         let tint = Color.named(event.tint)
-        return HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(tint)
-                .frame(width: 3, height: 24)
-                .frame(width: Self.rail, alignment: .leading)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(event.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(Self.timeRange(event))
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
+        return HStack(spacing: Self.rowGap) {
+            Button(action: { OpenAction.app(bundleID: "com.apple.iCal").perform() }) {
+                HStack(spacing: Self.rowGap) {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(tint)
+                        .frame(width: 3, height: 24)
+                        .frame(width: Self.rail, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(event.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(Self.timeRange(event))
+                            .font(.system(size: 11, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text(Self.countdown(event, at: context.date))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(tint)
+                            .lineLimit(1)
+                            .frame(minWidth: Self.countdown, alignment: .trailing)
+                    }
+                }
+                .frame(height: Self.eventRow)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 8)
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                Text(Self.countdown(event, at: context.date))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                    .frame(minWidth: Self.countdown, alignment: .trailing)
-            }
+            .buttonStyle(IslandButtonStyle())
+            // What is read out, rather than the four separate scraps the row is drawn from.
+            // The countdown is left out of it on purpose: it is written by a timeline that
+            // redraws every half minute, and a label that does not go with it would be
+            // announcing a number that stopped being true some minutes ago.
+            .accessibilityLabel(Text("\(event.title), \(Self.timeRange(event))"))
+            .accessibilityHint(Text("Opens Calendar"))
+            // Outside the button rather than in it: one control inside another is two answers
+            // to one click, and the wrong one of them opens Calendar over the meeting somebody
+            // was trying to join.
             joinColumn(event.joinURL)
         }
         .frame(height: Self.eventRow)
-        .contentShape(Rectangle())
-        .onTapGesture { OpenAction.app(bundleID: "com.apple.iCal").perform() }
-        .accessibilityElement(children: .combine)
     }
 
     private func reminderRow(_ reminder: AgendaStore.Reminder) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Self.rowGap) {
             Button(action: { agenda.setCompleted(true, reminderID: reminder.id) }) {
                 Circle()
                     .strokeBorder(Color.named(reminder.tint), lineWidth: 1.5)
                     .frame(width: 14, height: 14)
                     .frame(width: Self.rail, height: Self.rail, alignment: .leading)
+                    // Out to the size the pointer is owed and straight back in again. The
+                    // rectangle in the middle is what takes the click; the padding either side
+                    // of it cancels, so the circle is drawn where it always was and the title
+                    // beside it does not move a point.
+                    .padding(.horizontal, Self.tickInset.width)
+                    .padding(.vertical, Self.tickInset.height)
                     .contentShape(Rectangle())
+                    .padding(.horizontal, -Self.tickInset.width)
+                    .padding(.vertical, -Self.tickInset.height)
             }
             .buttonStyle(IslandButtonStyle())
             .accessibilityLabel("Complete \(reminder.title)")

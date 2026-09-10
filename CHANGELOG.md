@@ -52,6 +52,17 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **Today stops waiting on somebody's mail server.** EventKit was queried on the thread that
+  draws — from the section's `onAppear` and again every sixty seconds — and with a CalDAV or
+  Exchange account that is a network fetch on the main thread. Ticking a reminder saved and then
+  re-read the whole agenda, also on main, inside the button handler. All of it happens on a
+  queue now, and a tick shows at once and is put back only if the save fails.
+- **The reminder tick box can be hit.** A 14 pt circle in a 16 pt box, for an action that feels
+  irreversible — under a third of the area Apple gives a checkbox. The target is 28 pt now,
+  taken from the empty air beside it, and nothing drawn has moved.
+- **A calendar row answers the keyboard.** It was a bare tap gesture, so VoiceOver read the
+  event and then offered nothing to do about it, and Return did nothing. It is a real button.
+
 - **The clipboard stops asking the disk how it should look.** A row said whether its copied files
   were still there by going and finding out, from inside the code that draws it — a `stat` per
   file, per row, on every hover and every scroll of a fifty-entry history, on the thread doing
