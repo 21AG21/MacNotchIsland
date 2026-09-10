@@ -1,3 +1,4 @@
+import Combine
 import CoreAudio
 import CoreGraphics
 import XCTest
@@ -7,6 +8,27 @@ import XCTest
 /// keys over. Two heads-up displays for one keypress is worse than either alone, and it is
 /// the first thing anyone notices about an app that lives in the notch.
 final class SystemHUDTests: XCTestCase {
+    /// The takeover is one object the whole app shares, and the tests below switch it on. Each
+    /// of them is given back exactly what it found, whether it got to the end or not, so a
+    /// test that runs afterwards never reads a tap this file left standing.
+    private var savedActive = false
+    private var savedCapabilities = SystemHUDReplacement.Capabilities()
+
+    override func setUp() {
+        super.setUp()
+        let hud = SystemHUDReplacement.shared
+        savedActive = hud.isActive
+        savedCapabilities = SystemHUDReplacement.Capabilities(volume: hud.can(\.volume),
+                                                             mute: hud.can(\.mute),
+                                                             brightness: hud.can(\.brightness))
+    }
+
+    override func tearDown() {
+        let hud = SystemHUDReplacement.shared
+        hud.setCapabilities(savedCapabilities)
+        hud.set(savedActive)
+        super.tearDown()
+    }
 
     /// The volume display names where the sound is going, which the system's bezel never
     /// does — but only when that is worth saying.
@@ -60,15 +82,8 @@ final class SystemHUDTests: XCTestCase {
     /// whole arrangement exists to avoid. `answersVolume` already requires an active tap, so
     /// there is nothing for the answers underneath to say while it is down.
     func testATapGoingDownDoesNotThrowAwayWhatTheHardwareCanDo() {
+        // What this leaves behind is put back by `tearDown`, which does it for every test here.
         let hud = SystemHUDReplacement.shared
-        let saved = SystemHUDReplacement.Capabilities(volume: hud.can(\.volume), mute: hud.can(\.mute),
-                                                      brightness: hud.can(\.brightness))
-        let savedActive = hud.isActive
-        defer {
-            hud.setCapabilities(saved)
-            hud.set(savedActive)
-        }
-
         hud.set(true)
         hud.setCapabilities(SystemHUDReplacement.Capabilities(volume: true, mute: true, brightness: true))
         XCTAssertTrue(hud.answersVolume)
@@ -173,9 +188,28 @@ final class SystemHUDTests: XCTestCase {
                      "and neither has one with the lid shut and nothing plugged in")
     }
 
-    func testTheIslandStartsOutLeavingTheSystemBezelAlone() {
-        XCTAssertFalse(SystemHUDReplacement.shared.isActive,
-                       "nothing has installed an event tap in a test run, so the island must not "
-                       + "be claiming it has taken the media keys over")
+    /// The tap is probed over and over — every few seconds, and again after every wake — and
+    /// `set(_:)` is told the answer each time, whether it is the same answer or not. Every
+    /// view that draws a volume or a brightness display watches this, so an announcement for a
+    /// change that did not happen is the whole island laid out again for nothing.
+    func testTheTakeoverIsAnnouncedOnlyWhenItHasActuallyChanged() {
+        let hud = SystemHUDReplacement.shared
+        hud.set(false)
+        var announced = 0
+        let watching = hud.objectWillChange.sink { _ in announced += 1 }
+        defer { watching.cancel() }
+
+        hud.set(true)
+        XCTAssertTrue(hud.isActive, "the tap is up, so the island is standing in for the bezel")
+        XCTAssertEqual(announced, 1)
+        hud.set(true)
+        hud.set(true)
+        XCTAssertEqual(announced, 1, "a probe finding the tap still up is not news")
+
+        hud.set(false)
+        XCTAssertFalse(hud.isActive, "and with the tap gone the system's own bezel is back")
+        XCTAssertEqual(announced, 2)
+        hud.set(false)
+        XCTAssertEqual(announced, 2, "nor is finding it still down")
     }
 }

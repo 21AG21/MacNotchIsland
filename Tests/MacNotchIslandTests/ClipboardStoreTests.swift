@@ -283,8 +283,9 @@ final class ClipboardStoreTests: XCTestCase {
     // MARK: - Rows whose files have gone
 
     /// The question used to be put to the file system from inside the row's own body, which is
-    /// run again on every hover and every scroll of a fifty-row list.
-    func testARowDoesNotAskTheDiskEveryTimeItIsDrawn() {
+    /// run again on every hover and every scroll of a fifty-row list. A sweep asks it once per
+    /// file instead, and what a row reads is the answer the last sweep left behind.
+    func testASweepAsksTheDiskOncePerFileAndTheRowOnlyReadsTheAnswer() {
         var asked = 0
         let entry = item("/tmp/one.txt\n/tmp/two.txt", kind: .file)
         _ = ClipboardStore.filesAreGone(urls: entry.fileURLs, exists: { _ in
@@ -292,8 +293,80 @@ final class ClipboardStoreTests: XCTestCase {
             return false
         })
         XCTAssertEqual(asked, 2, "one question per file, and only while a sweep is running")
-        // What the row reads is whatever the last sweep left behind, and nothing more.
-        XCTAssertFalse(ClipboardStore.shared.filesAreGone(entry), "an entry nobody has swept is not called dead")
+
+        // And the answers themselves, put in front of the store the one way anything outside
+        // it can: a history handed in, and swept against the files really under it.
+        let there = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clipboard-sweep-\(UUID().uuidString).txt")
+        try? Data("still here".utf8).write(to: there)
+        defer { try? FileManager.default.removeItem(at: there) }
+        let alive = item(there.path, kind: .file, at: 1)
+        let gone = item("/tmp/no-such-file-\(UUID().uuidString).txt", kind: .file, at: 2)
+
+        let store = ClipboardStore.shared
+        let wasGallery = RenderMode.isGallery
+        RenderMode.isGallery = true
+        defer {
+            store.seedForGallery([])
+            RenderMode.isGallery = wasGallery
+        }
+        XCTAssertFalse(store.filesAreGone(gone), "an entry nobody has swept yet is not called dead")
+
+        store.seedForGallery([alive, gone])
+        let swept = expectation(description: "the sweep has asked the disk")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { swept.fulfill() }
+        wait(for: [swept], timeout: 2)
+        XCTAssertTrue(store.filesAreGone(gone), "the file it pointed at has gone, so the row says so")
+        XCTAssertFalse(store.filesAreGone(alive), "and the one that is still there is left alone")
+    }
+
+    /// `loadIfNeeded` is called by the delegate rather than from `init`, and reads once.
+    ///
+    /// A second launch asks the copy already running to quit, and that copy writes its history
+    /// — everything copied in its last few seconds — on the way out. The whole history is one
+    /// file, rewritten whole, so a new copy that read it again afterwards would hold the older
+    /// copy's version of it and put that back, with those seconds gone and both files
+    /// perfectly well-formed.
+    func testTheHistoryOnDiskIsNeverPutBackOnTopOfWhatTheStoreIsHolding() throws {
+        let previousOverride = IslandFiles.overrideFolder
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clipboard-tests-\(UUID().uuidString)", isDirectory: true)
+        let wasGallery = RenderMode.isGallery
+        let store = ClipboardStore.shared
+        IslandFiles.overrideFolder = folder
+        RenderMode.isGallery = true
+        defer {
+            store.seedForGallery([])
+            RenderMode.isGallery = wasGallery
+            IslandFiles.overrideFolder = previousOverride
+            try? FileManager.default.removeItem(at: folder)
+        }
+
+        // What the copy that is quitting left behind.
+        try IslandFiles.write(try JSONEncoder().encode([item("what the last launch kept", at: 1)]),
+                              to: "clipboard.json")
+        // Nothing has been copied, so there is nothing to write: the half of this that loses
+        // the last few seconds is the writing, not the reading.
+        store.flush()
+        XCTAssertEqual(try texts(inHistoryOf: folder), ["what the last launch kept"],
+                       "a history nobody has copied into writes nothing over the file")
+
+        // Once it is holding a history, the file is no longer its business.
+        store.seedForGallery([item("already in hand", at: 2)])
+        store.loadIfNeeded()
+        XCTAssertEqual(store.items.map { $0.text }, ["already in hand"],
+                       "a store that has its history does not read another one over it")
+
+        // And having been handed one is not a change either, so nothing goes back the other way.
+        store.flush()
+        XCTAssertEqual(try texts(inHistoryOf: folder), ["what the last launch kept"],
+                       "reading a history is not copying something, so the file is left as it was")
+    }
+
+    /// The history as it really is on disk, for the tests that keep an eye on the file itself.
+    private func texts(inHistoryOf folder: URL) throws -> [String] {
+        let data = try Data(contentsOf: folder.appendingPathComponent("clipboard.json"))
+        return try JSONDecoder().decode([ClipboardItem].self, from: data).map { $0.text }
     }
 
     func testOnlyEntriesThatPointAtFilesAreEverAskedAbout() {

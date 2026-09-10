@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import MacNotchIsland
 
@@ -147,9 +148,40 @@ final class PanelFindTests: XCTestCase {
     func testNotesStillOwnsEveryKeyItself() {
         center.open(.home(tab: HomeSection.notes.rawValue))
         XCTAssertTrue(center.wantsKeyboard)
-        XCTAssertFalse(center.panelKeysActive)
+        // Asked of the rule with the keyboard held. `panelKeysActive` is false on the
+        // scratchpad and false everywhere else in a test run, because nothing is ever the key
+        // window here, so asking it pins nothing about the scratchpad.
+        XCTAssertEqual(HotKeyService.claim(pinnedOpen: true,
+                                          holdsKeyboard: true,
+                                          textFieldUp: center.wantsKeyboard,
+                                          listSection: PanelFind.searches(center.openSection),
+                                          enabled: true),
+                       .nothing,
+                       "a key taken as a hot key never reaches the note it was typed into")
         center.beginFind(with: "m")
         XCTAssertNil(center.findQuery, "a letter typed in the scratchpad is part of the note")
+    }
+
+    // MARK: - When one of our own windows has the keyboard
+
+    /// The island wants the keyboard whenever the panel is pinned, and asks for it again on
+    /// every published change. Taking it back off Settings left a window with a dead title bar
+    /// that would not accept a keystroke and no way out of it, because none of the three
+    /// things that close the panel fire for our own windows; Space on the shelf did the same
+    /// to Quick Look. Wanting the keyboard is not being owed it by our own windows.
+    func testTheIslandLeavesTheKeyboardWithWhicheverOfOurOwnWindowsHasIt() {
+        XCTAssertFalse(NotchPanel.holdsKeyboardElsewhere([]),
+                       "no windows at all, so nobody is holding it")
+        XCTAssertFalse(NotchPanel.holdsKeyboardElsewhere([(isKey: true, isPanel: true)]),
+                       "an island panel holding the keyboard is the island holding it")
+        XCTAssertTrue(NotchPanel.holdsKeyboardElsewhere([(isKey: true, isPanel: false)]),
+                      "Settings, or a Quick Look panel: the island must not take it straight back")
+        XCTAssertTrue(NotchPanel.holdsKeyboardElsewhere([(isKey: true, isPanel: true),
+                                                         (isKey: true, isPanel: false)]),
+                      "and a panel of ours being key as well is no licence to take it")
+        XCTAssertFalse(NotchPanel.holdsKeyboardElsewhere([(isKey: false, isPanel: false),
+                                                          (isKey: false, isPanel: true)]),
+                       "a window that is not key is not holding the keyboard")
     }
 
     // MARK: - Walking the matches

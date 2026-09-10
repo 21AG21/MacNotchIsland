@@ -68,10 +68,23 @@ final class HotKeyServiceTests: XCTestCase {
         XCTAssertEqual(HotKeyService.displayString(keyCode: 0x0A, carbonModifiers: 0), "Key 0x0A")
     }
 
-    func testNoKeyNameIsEmpty() {
-        // Every mapped key must render as something the settings row can show.
-        for code in 0...126 {
-            XCTAssertFalse(HotKeyService.keyName(for: code).isEmpty, "key code \(code) rendered as nothing")
+    func testEveryKindOfKeyOnTheBoardRendersAsItsOwnLegend() {
+        // One from each part of the table, because the fallback below it answers for anything
+        // the table has lost: a settings row reading "Key 0x31" is a shortcut nobody can say
+        // out loud, and a name is the only thing that tells the two apart.
+        let legends: [Int: String] = [
+            0: "A", 8: "C", 17: "T", 46: "M",
+            18: "1", 22: "6", 23: "5", 29: "0",
+            24: "=", 33: "[", 41: ";", 50: "`",
+            36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Escape",
+            96: "F5", 111: "F12", 122: "F1",
+            115: "Home", 121: "Page Down",
+            123: "←", 126: "↑",
+        ]
+        for (code, legend) in legends {
+            XCTAssertEqual(HotKeyService.keyName(for: code), legend, "key code \(code)")
+            XCTAssertFalse(HotKeyService.keyName(for: code).hasPrefix("Key 0x"),
+                           "key code \(code) fell through to the hex form, which is the table having gone")
         }
     }
 

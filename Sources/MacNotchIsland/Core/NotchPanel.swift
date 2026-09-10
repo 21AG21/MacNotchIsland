@@ -255,7 +255,14 @@ final class NotchPanel: NSPanel {
     /// close the panel fire for our own windows. Space on the shelf did the same to Quick
     /// Look. Wanting the keyboard is not the same as being owed it by our own windows.
     private static var anotherOfOursHasIt: Bool {
-        NSApp.windows.contains { $0.isKeyWindow && !($0 is NotchPanel) }
+        holdsKeyboardElsewhere(NSApp.windows.map { (isKey: $0.isKeyWindow, isPanel: $0 is NotchPanel) })
+    }
+
+    /// The rule behind `anotherOfOursHasIt`, with the window list handed in so it can be asked
+    /// without an application around it: one of our windows that is not an island panel is the
+    /// key window. Nothing here decides anything the caller above does not.
+    static func holdsKeyboardElsewhere(_ windows: [(isKey: Bool, isPanel: Bool)]) -> Bool {
+        windows.contains { $0.isKey && !$0.isPanel }
     }
 
     /// With an island on several screens, the one under the pointer takes the keyboard;
