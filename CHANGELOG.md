@@ -17,6 +17,13 @@ the unreleased section is what the next tag will ship.
   asking the file system about each entry — hundreds of calls for something that is usually not a
   capture at all. All of it happens on the watcher's own queue now, and the main thread is asked
   only for the two things that need it: putting the file on the shelf and raising the card.
+- **A switch you have just thrown is answered at once.** Reading the radios on a queue meant a
+  second reading asked for while one was in the air stood down — right, because two sets of
+  round trips give one answer, but it stood down and forgot. The ask that matters most is the
+  one straight after a switch is thrown or a network joined, and dropping it left the tick
+  against the wrong row until the next poll came round, which on the network list is twelve
+  seconds. An ask that arrives during a reading is handed back when it finishes; however many
+  arrive, they are one ask between them.
 - **The panel stops waiting for the radios.** Opening it ran a burst of blocking system calls on
   the main thread during the very spring that opens it — CoreWLAN and IOBluetooth both answer
   over XPC, which is to say in their own time — and then kept polling both on a 1.5-second main

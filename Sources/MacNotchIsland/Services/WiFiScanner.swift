@@ -90,12 +90,15 @@ final class WiFiScanner: ObservableObject {
             let reading = Self.take(scan: scan)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.pass.finish()
+                let asked = self.pass.finish()
                 if self.isScanning { self.isScanning = false }
                 // A Mac with no Wi-Fi interface has no list, which is what an empty one says.
                 let fresh = reading?.networks ?? []
                 if self.networks != fresh { self.networks = fresh }
                 if self.current != reading?.current { self.current = reading?.current }
+                // Somebody joined a network, or the timer came round, while this was in the
+                // air. Their answer is the one they are waiting on.
+                if asked { self.refresh() }
             }
         }
     }
@@ -212,18 +215,33 @@ final class WiFiScanner: ObservableObject {
 /// Lives on the main queue with everything else that decides what is shown.
 struct RadioPass {
     private(set) var isRunning = false
+    /// Somebody asked while a pass was already in the air. Standing down is right — two sets
+    /// of round trips for one answer — but standing down and forgetting is not: the ask that
+    /// matters most is the one right after a switch has been thrown or a network joined, and
+    /// dropping it left the rail showing the old state until the next tick came round, which
+    /// on the network list is twelve seconds of a tick against the wrong row.
+    private(set) var isPending = false
 
     init() {}
 
     /// Whether the caller is the one that gets to go. Balanced by `finish()` when its answer
     /// has been shown.
     mutating func start() -> Bool {
-        guard !isRunning else { return false }
+        guard !isRunning else {
+            isPending = true
+            return false
+        }
         isRunning = true
         return true
     }
 
-    mutating func finish() {
+    /// Ends this pass, and says whether somebody asked for another while it was running. One
+    /// more at most: a second ask during *that* pass sets the flag again, so a caller in a
+    /// hurry gets an answer promptly without a queue of them piling up behind it.
+    mutating func finish() -> Bool {
         isRunning = false
+        guard isPending else { return false }
+        isPending = false
+        return true
     }
 }

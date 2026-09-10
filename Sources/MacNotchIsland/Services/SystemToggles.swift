@@ -87,11 +87,14 @@ final class SystemToggles: ObservableObject {
             let bluetooth = Self.bluetoothPower()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.pass.finish()
+                let asked = self.pass.finish()
                 if self.hasWiFi != (wifi != nil) { self.hasWiFi = wifi != nil }
                 self.read(.wifi, as: wifi ?? false)
                 if self.hasBluetooth != (bluetooth != nil) { self.hasBluetooth = bluetooth != nil }
                 if let bluetooth { self.read(.bluetooth, as: bluetooth) }
+                // A switch was thrown while this reading was in the air; the answer it is
+                // waiting for is the next one, not the one after the poll comes round again.
+                if asked { self.refresh() }
             }
         }
     }

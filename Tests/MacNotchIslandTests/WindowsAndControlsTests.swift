@@ -532,10 +532,35 @@ final class WindowsAndControlsTests: XCTestCase {
         let second = pass.start()
         XCTAssertFalse(second, "the second finds one in flight and asks for nothing")
         XCTAssertTrue(pass.isRunning)
-        pass.finish()
+        // The one that stood down is remembered, so finishing hands its ask back.
+        XCTAssertTrue(pass.finish())
         XCTAssertFalse(pass.isRunning)
         let next = pass.start()
         XCTAssertTrue(next, "once the answer is back the next pass is free to go")
+    }
+
+    func testTheAskThatCameWhileTheRadioWasBusyIsNotForgotten() {
+        // Standing down is right — two sets of round trips for one answer — but standing down
+        // and forgetting is not. The ask that matters most is the one straight after a switch
+        // is thrown or a network joined, and dropping it left the tick against the wrong row
+        // until the next tick came round, twelve seconds later.
+        var pass = RadioPass()
+        XCTAssertTrue(pass.start())
+        XCTAssertFalse(pass.start(), "the second one still stands down")
+        XCTAssertTrue(pass.finish(), "and is handed back when the first is done")
+        XCTAssertTrue(pass.start(), "so it can go")
+        XCTAssertFalse(pass.finish(), "with nobody waiting behind it")
+    }
+
+    func testAQueueOfAsksNeverPilesUpBehindOnePass() {
+        // However many arrive while a pass is in the air, they are one ask between them: the
+        // answer they are all waiting for is the same reading.
+        var pass = RadioPass()
+        XCTAssertTrue(pass.start())
+        for _ in 0..<5 { XCTAssertFalse(pass.start()) }
+        XCTAssertTrue(pass.finish())
+        XCTAssertTrue(pass.start())
+        XCTAssertFalse(pass.finish(), "five asks made one pass, not five")
     }
 
     func testAReadThatArrivesAfterYouChangedYourMindIsIgnored() {
