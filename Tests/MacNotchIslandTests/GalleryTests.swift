@@ -274,8 +274,10 @@ final class GalleryTests: XCTestCase {
 
     /// A scripted activity with the buttons a script can put on it.
     private static func customActions() -> IslandActivity {
+        // Not an xmark: in the switcher its slot is a filled disc, and a disc with a cross in
+        // it beside the close button reads as a second close button.
         var custom = CustomActivity(title: "Build failed", subtitle: "notch-island · main",
-                                    symbol: "xmark.octagon.fill", tint: "red")
+                                    symbol: "exclamationmark.triangle.fill", tint: "red")
         custom.actions = [
             CustomAction(title: "Retry", symbol: "arrow.clockwise",
                          url: URL(string: "https://example.com/retry")),
@@ -326,13 +328,20 @@ final class GalleryTests: XCTestCase {
     /// Two events and two reminders: the shape of an afternoon that is still ahead.
     private static func today() {
         let now = Date()
+        // The section shows *today's* events, so a sample an hour and a half out falls off
+        // the end of the day whenever the machine rendering the gallery happens to be running
+        // late in the evening — which is how the picture of Today lost its appointments. Both
+        // are pulled back inside the day, keeping their order and the gap between them.
+        let midnight = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 3600)
+        let second = min(now.addingTimeInterval(95 * 60), midnight.addingTimeInterval(-20 * 60))
+        let first = min(now.addingTimeInterval(7 * 60), second.addingTimeInterval(-60 * 60))
         AgendaStore.shared.seedForGallery(
             events: [
-                AgendaStore.Event(id: "e1", title: "Design review", start: now.addingTimeInterval(7 * 60),
-                                  end: now.addingTimeInterval(67 * 60), isAllDay: false, location: "Caffè Macs",
+                AgendaStore.Event(id: "e1", title: "Design review", start: first,
+                                  end: first.addingTimeInterval(60 * 60), isAllDay: false, location: "Caffè Macs",
                                   joinURL: URL(string: "https://zoom.us/j/123"), tint: "blue"),
-                AgendaStore.Event(id: "e2", title: "1:1 with Sam", start: now.addingTimeInterval(95 * 60),
-                                  end: now.addingTimeInterval(125 * 60), isAllDay: false, location: nil,
+                AgendaStore.Event(id: "e2", title: "1:1 with Sam", start: second,
+                                  end: second.addingTimeInterval(30 * 60), isAllDay: false, location: nil,
                                   joinURL: nil, tint: "purple"),
             ],
             reminders: [
