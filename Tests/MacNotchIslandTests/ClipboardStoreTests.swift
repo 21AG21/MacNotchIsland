@@ -249,4 +249,34 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(provider?.suggestedName, "Image.png")
         XCTAssertNil(ClipboardItem(kind: .image, text: "Image").dragProvider())
     }
+
+    // MARK: - Where it came from
+
+    func testACopyRemembersTheAppItCameFrom() {
+        let snapshot = ClipboardSnapshot(types: [], text: "hello")
+        let item = ClipboardStore.item(from: snapshot, app: "Safari")
+        XCTAssertEqual(item?.app, "Safari")
+    }
+
+    func testTheAppIsSearchedAlongsideTheWords() {
+        let now = Date()
+        let items = [
+            ClipboardItem(kind: .url, text: "https://example.com/a", date: now, app: "Safari"),
+            ClipboardItem(kind: .text, text: "let x = 1", date: now, app: "Xcode"),
+        ]
+        XCTAssertEqual(ClipboardView.ordered(items, query: "safari").map(\.kind), [.url])
+        XCTAssertEqual(ClipboardView.ordered(items, query: "xcode").map(\.kind), [.text])
+        XCTAssertEqual(ClipboardView.ordered(items, query: "example").map(\.kind), [.url],
+                       "and the words still work")
+    }
+
+    func testAnEntryWrittenBeforeThisExistedStillReadsBack() {
+        // The app was added to what is persisted; older files simply do not carry it.
+        let json = Data("""
+        [{"id":"\(UUID().uuidString)","kind":"text","text":"old","date":0,"pinned":false}]
+        """.utf8)
+        let decoded = try? JSONDecoder().decode([ClipboardItem].self, from: json)
+        XCTAssertEqual(decoded?.count, 1)
+        XCTAssertNil(decoded?.first?.app)
+    }
 }

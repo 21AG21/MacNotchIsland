@@ -6,6 +6,12 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **The clipboard remembers where a copy came from.** Whichever app was in front when the
+  pasteboard changed is written on the row, above the age, and searched along with the words —
+  because a list of fifty snippets is scanned by memory ("the link from Safari") far more often
+  than it is read line by line. Never this app's own name: reading the pasteboard does not
+  change it, but putting an entry back does, and the island must not sign its name to somebody
+  else's snippet.
 - **Tell me when it has had enough charge.** A laptop that lives on its charger sits at a
   hundred per cent, which is where a lithium battery ages fastest, and macOS will not say a
   word about it. Pick a mark in Activities — 70, 80, 85 or 90 — and the island says "Enough

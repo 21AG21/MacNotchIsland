@@ -33,8 +33,12 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
     var pinned: Bool = false
     /// PNG bytes for `.image` items. Excluded from `CodingKeys`: images stay in memory only.
     var imageData: Data? = nil
+    /// The app that was in front when this was copied — as good a guess at where it came from
+    /// as the pasteboard allows, and the thing that makes a list of fifty snippets searchable
+    /// by memory rather than by reading all of them.
+    var app: String? = nil
 
-    private enum CodingKeys: String, CodingKey { case id, kind, text, date, pinned }
+    private enum CodingKeys: String, CodingKey { case id, kind, text, date, pinned, app }
 
     /// Whether this entry is something a drag could carry. Cheap enough to ask on every pass
     /// of a fifty-row list: nothing here touches the disk.
@@ -220,7 +224,8 @@ final class ClipboardStore: ObservableObject {
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
-        guard let item = ClipboardStore.item(from: readSnapshot()) else { return }
+        guard let item = ClipboardStore.item(from: readSnapshot(),
+                                            app: Self.frontmostAppName()) else { return }
         append(item)
     }
 
@@ -270,21 +275,22 @@ final class ClipboardStore: ObservableObject {
     }
 
     /// Turns one pasteboard change into an item, or nothing when it should not be recorded.
-    static func item(from snapshot: ClipboardSnapshot, date: Date = Date()) -> ClipboardItem? {
+    static func item(from snapshot: ClipboardSnapshot, date: Date = Date(),
+                     app: String? = nil) -> ClipboardItem? {
         guard !isConcealed(types: snapshot.types) else { return nil }
 
         if !snapshot.fileURLs.isEmpty {
             let paths = snapshot.fileURLs.map { $0.path }.joined(separator: "\n")
-            return ClipboardItem(kind: .file, text: paths, date: date)
+            return ClipboardItem(kind: .file, text: paths, date: date, app: app)
         }
 
         let raw = snapshot.text ?? ""
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             if isURL(trimmed, types: snapshot.types) {
-                return ClipboardItem(kind: .url, text: trimmed, date: date)
+                return ClipboardItem(kind: .url, text: trimmed, date: date, app: app)
             }
-            return ClipboardItem(kind: .text, text: String(raw.prefix(maxTextLength)), date: date)
+            return ClipboardItem(kind: .text, text: String(raw.prefix(maxTextLength)), date: date, app: app)
         }
 
         if let data = snapshot.imageData {
@@ -292,9 +298,18 @@ final class ClipboardStore: ObservableObject {
             if let size = snapshot.imagePixelSize, size.width > 1, size.height > 1 {
                 label = "Image \(Int(size.width)) × \(Int(size.height))"
             }
-            return ClipboardItem(kind: .image, text: label, date: date, imageData: data)
+            return ClipboardItem(kind: .image, text: label, date: date, imageData: data, app: app)
         }
         return nil
+    }
+
+    /// The app the copy most likely came from: whichever was in front when the pasteboard
+    /// changed. Never this one — reading the pasteboard does not change it, but putting an
+    /// entry *back* does, and the island must not sign its own name to somebody's snippet.
+    static func frontmostAppName() -> String? {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+        return app.localizedName
     }
 
     /// Ring-buffer insert: collapses a repeat of the newest entry, then drops the oldest

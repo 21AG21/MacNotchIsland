@@ -55,7 +55,9 @@ struct ClipboardView: View {
     /// working the rule out a second time.
     static func ordered(_ items: [ClipboardItem], query: String?) -> [ClipboardItem] {
         let all = items.filter(\.pinned) + items.filter { !$0.pinned }
-        return all.filter { PanelFind.matches([$0.preview], query: query) }
+        // The app it came from is searched too: "the link from Safari" is how people
+        // remember a copy, far more often than by the words in it.
+        return all.filter { PanelFind.matches([$0.preview, $0.app ?? ""], query: query) }
     }
 
     private var emptyState: some View {
@@ -164,10 +166,21 @@ private struct ClipboardRowView: View {
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.4))
                 }
-                Text(item.age())
-                    .font(.system(size: 10))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.4))
+                // Where it came from over how long ago, both quiet: a list of fifty snippets
+                // is scanned by memory — "the link from Safari" — far more often than it is
+                // read word by word.
+                VStack(alignment: .trailing, spacing: 0) {
+                    if let app = item.app, !app.isEmpty {
+                        Text(app)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.white.opacity(0.32))
+                            .lineLimit(1)
+                    }
+                    Text(item.age())
+                        .font(.system(size: 10))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.4))
+                }
             }
         }
         .frame(width: 76, alignment: .trailing)
