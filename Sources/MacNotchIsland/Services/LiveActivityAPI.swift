@@ -42,15 +42,23 @@ final class LiveActivityAPI {
     /// a script pushes is: a button that opened `file:` or another app's scheme would be a way
     /// to make somebody click on something they were never shown.
     ///
-    /// Pure, so the rules can be tested without a URL to open.
-    static func actions(from q: [String: String]) -> [CustomAction] {
+    /// And a named Shortcut is held to more than that, because it is worse. The link rule was
+    /// written to stop a card reaching another app's scheme, and then the field right beside
+    /// it handed a name straight to `shortcuts run`, which is a shell script by another name.
+    /// Anything on this Mac can push a card; a card is drawn in the app's own hand, so its
+    /// button reads as the island asking, and "Update available / Install" is a sentence
+    /// anybody would click. So a pushed card may only name a Shortcut where the user has
+    /// said outside cards may — see `Preferences.apiShortcutsEnabled`, which is off.
+    ///
+    /// Pure, so the rules can be tested without a URL to open or a Shortcut to run.
+    static func actions(from q: [String: String], allowsShortcuts: Bool) -> [CustomAction] {
         (1...maxActions).compactMap { index in
             let key = index == 1 ? "action" : "action\(index)"
             guard let title = q[key]?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { return nil }
             let action = CustomAction(title: title,
                                       symbol: q[key + "_symbol"],
                                       url: safeLink(q[key + "_url"]),
-                                      shortcut: q[key + "_shortcut"])
+                                      shortcut: allowsShortcuts ? q[key + "_shortcut"] : nil)
             return action.isUsable ? action : nil
         }
     }
@@ -83,7 +91,7 @@ final class LiveActivityAPI {
             custom.body = q["body"]
             custom.url = Self.safeLink(q["url"])
             custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
-            custom.actions = Self.actions(from: q)
+            custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
             let priority = q["priority"].flatMap { Int($0) } ?? 70
             var activity = IslandActivity(id: "api-" + id, kind: .custom, content: .custom(custom), priority: priority)
             if let ttl = q["ttl"].flatMap({ Double($0) }), ttl > 0 { activity.expiresAt = Date().addingTimeInterval(ttl) }
@@ -104,7 +112,7 @@ final class LiveActivityAPI {
             custom.trailingText = q["trailing"] ?? q["title"]
             custom.body = q["body"]
             custom.url = Self.safeLink(q["url"])
-            custom.actions = Self.actions(from: q)
+            custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
             let expanded = ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased())
             var activity = IslandActivity(id: "api-alert", kind: .custom, content: .custom(custom), priority: 85,
                                           presentation: expanded ? .expanded : .compact)

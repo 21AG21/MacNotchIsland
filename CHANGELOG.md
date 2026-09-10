@@ -37,6 +37,20 @@ the unreleased section is what the next tag will ship.
   fade when it stops, so a strip with nothing hidden is no different for having them — and one
   with something hidden finally says so.
 
+### Security
+- **A card pushed in from outside can no longer run a Shortcut unless you have said it may.**
+  The rule for a pushed card's link was written carefully — web schemes only, because "a button
+  that opened `file:` or another app's scheme would be a way to make somebody click on something
+  they were never shown" — and then the field immediately beside it handed a name straight to
+  `shortcuts run`, which is a shell script by another name. Anything on this Mac can push a
+  card, and a card is drawn in the island's own hand, so its button reads as the island asking:
+  "Update available / Install" is a sentence anybody would click. The reasoning was right; it
+  just was not applied to the more dangerous half. Now it is, behind a switch that ships off.
+- **A release page that is not a web page is not a release.** The update check took the link out
+  of the response and opened it on a click without ever looking at its scheme, while the app's
+  own rule for a link it did not write sat two files away. Both the release page and the
+  download are held to it now.
+
 ### Fixed
 - **The clipboard stops asking the disk how it should look.** A row said whether its copied files
   were still there by going and finding out, from inside the code that draws it — a `stat` per

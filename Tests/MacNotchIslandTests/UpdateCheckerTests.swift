@@ -108,6 +108,29 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertNil(release.dmgURL)
     }
 
+    func testAReleasePageThatIsNotAWebPageIsNotARelease() {
+        // Whatever answered as api.github.com chose these strings, and the page ends up in
+        // NSWorkspace.open on a click. The same rule every link the app did not write is held
+        // to applies here: a release whose page is a file, or another app's scheme, is not one.
+        for bad in ["file:///Applications/Calculator.app", "notchisland://settings",
+                    "ftp://example.com/x", "javascript:alert(1)"] {
+            let json = "{\"tag_name\": \"v9.0.0\", \"html_url\": \"\(bad)\"}"
+            XCTAssertNil(UpdateChecker.parse(Data(json.utf8)), bad)
+        }
+    }
+
+    func testADownloadThatIsNotAWebLinkIsSimplyNotOffered() {
+        // The release itself is still good — it is the asset's link that is refused, and a
+        // release with no download is one you read the page of.
+        let json = "{\"tag_name\": \"v9.0.0\","
+            + " \"html_url\": \"https://github.com/21AG21/MacNotchIsland/releases/tag/v9.0.0\","
+            + " \"assets\": [{\"name\": \"MacNotchIsland.dmg\","
+            + " \"browser_download_url\": \"file:///tmp/evil.dmg\"}]}"
+        let release = UpdateChecker.parse(Data(json.utf8))
+        XCTAssertNotNil(release, "the release is still a release")
+        XCTAssertNil(release?.dmgURL, "it just has nothing safe to download")
+    }
+
     func testParseReturnsNilForGarbageData() {
         XCTAssertNil(UpdateChecker.parse(Data("not json".utf8)))
     }

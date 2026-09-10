@@ -54,6 +54,15 @@ final class Preferences: ObservableObject {
     /// like that is not the app's to assume anybody wants. Nothing about it runs — no watcher,
     /// no reading of another process's window tree, no file — until this is turned on.
     @Published var notificationsEnabled: Bool { didSet { d.set(notificationsEnabled, forKey: "notificationsEnabled") } }
+    /// Whether a card pushed in from outside may put a button on the island that runs one of
+    /// your Shortcuts.
+    ///
+    /// Off, and not lightly. Anything on this Mac can push a card — that is the point of the
+    /// API — and a Shortcut can run a shell script. A card is drawn in the app's own hand, so
+    /// a button on one reads as the island asking, and "Update available / Install" is a
+    /// sentence anybody would click. Links pushed from outside have always been held to the
+    /// web; this is the same rule finally applied to the more dangerous half.
+    @Published var apiShortcutsEnabled: Bool { didSet { d.set(apiShortcutsEnabled, forKey: "apiShortcutsEnabled") } }
     @Published var shelfExpiryHours: Double { didSet { d.set(shelfExpiryHours, forKey: "shelfExpiryHours") } }
     @Published var lyricsEnabled: Bool { didSet { d.set(lyricsEnabled, forKey: "lyricsEnabled") } }
     @Published var artworkLookupEnabled: Bool { didSet { d.set(artworkLookupEnabled, forKey: "artworkLookupEnabled") } }
@@ -148,6 +157,7 @@ final class Preferences: ObservableObject {
         clipboardLimit = double("clipboardLimit", 50)
         pasteOnPick = bool("pasteOnPick", true)
         notificationsEnabled = bool("notificationsEnabled", false)
+        apiShortcutsEnabled = bool("apiShortcutsEnabled", false)
         shelfExpiryHours = double("shelfExpiryHours", 24)
         lyricsEnabled = bool("lyricsEnabled", true)
         artworkLookupEnabled = bool("artworkLookupEnabled", true)

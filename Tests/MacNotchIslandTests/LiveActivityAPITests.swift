@@ -128,7 +128,7 @@ final class LiveActivityAPITests: XCTestCase {
         let actions = LiveActivityAPI.actions(from: [
             "action": "Retry", "action_url": "https://ci.example/retry",
             "action2": "Deploy", "action2_shortcut": "Ship it", "action2_symbol": "play.fill",
-        ])
+        ], allowsShortcuts: true)
         XCTAssertEqual(actions.count, 2)
         XCTAssertEqual(actions[0].title, "Retry")
         XCTAssertEqual(actions[0].url?.absoluteString, "https://ci.example/retry")
@@ -139,32 +139,51 @@ final class LiveActivityAPITests: XCTestCase {
 
     func testAButtonWithNowhereToGoIsNotDrawn() {
         // A button that does nothing is not a button.
-        XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "Retry"]).isEmpty)
-        XCTAssertTrue(LiveActivityAPI.actions(from: ["action_url": "https://example.com"]).isEmpty,
+        XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "Retry"], allowsShortcuts: true).isEmpty)
+        XCTAssertTrue(LiveActivityAPI.actions(from: ["action_url": "https://example.com"], allowsShortcuts: true).isEmpty,
                       "and one with no name is not one either")
-        XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "   ", "action_url": "https://example.com"]).isEmpty)
-        XCTAssertTrue(LiveActivityAPI.actions(from: [:]).isEmpty)
+        XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "   ", "action_url": "https://example.com"], allowsShortcuts: true).isEmpty)
+        XCTAssertTrue(LiveActivityAPI.actions(from: [:], allowsShortcuts: true).isEmpty)
     }
 
     func testAButtonIsHeldToTheSameLinksEverythingElseIs() {
         // A button that opened a file, or another app's scheme, would be a way to make
         // somebody click on something they were never shown.
         for bad in ["file:///etc/passwd", "notchisland://settings", "ftp://example.com", "javascript:alert(1)"] {
-            XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "Go", "action_url": bad]).isEmpty, bad)
+            XCTAssertTrue(LiveActivityAPI.actions(from: ["action": "Go", "action_url": bad], allowsShortcuts: true).isEmpty, bad)
         }
-        XCTAssertEqual(LiveActivityAPI.actions(from: ["action": "Mail", "action_url": "mailto:a@b.c"]).count, 1)
+        XCTAssertEqual(LiveActivityAPI.actions(from: ["action": "Mail", "action_url": "mailto:a@b.c"], allowsShortcuts: true).count, 1)
+    }
+
+    func testAPushedCardMayNotRunAShortcutUnlessItHasBeenAllowedTo() {
+        // Anything on this Mac can push a card, and a Shortcut is a shell script by another
+        // name. The link beside it was always held to the web; this half was not held at all.
+        let q = ["action": "Install", "action_shortcut": "Wipe the disk"]
+        XCTAssertTrue(LiveActivityAPI.actions(from: q, allowsShortcuts: false).isEmpty,
+                      "with nothing else to do, the button is not drawn at all")
+        XCTAssertEqual(LiveActivityAPI.actions(from: q, allowsShortcuts: true).first?.shortcut, "Wipe the disk")
+    }
+
+    func testABlockedShortcutDoesNotTakeItsButtonsLinkWithIt() {
+        // A button with a web link and a Shortcut keeps the link: what is refused is the
+        // running of somebody else's Shortcut, not the button.
+        let both = LiveActivityAPI.actions(from: ["action": "Open", "action_url": "https://example.com",
+                                                  "action_shortcut": "Ship it"], allowsShortcuts: false)
+        XCTAssertEqual(both.count, 1)
+        XCTAssertNil(both[0].shortcut, "the name is dropped")
+        XCTAssertEqual(both[0].url?.absoluteString, "https://example.com")
     }
 
     func testNoMoreThanTwo() {
         let q = ["action": "One", "action_url": "https://a.example",
                  "action2": "Two", "action2_url": "https://b.example",
                  "action3": "Three", "action3_url": "https://c.example"]
-        XCTAssertEqual(LiveActivityAPI.actions(from: q).count, LiveActivityAPI.maxActions)
+        XCTAssertEqual(LiveActivityAPI.actions(from: q, allowsShortcuts: true).count, LiveActivityAPI.maxActions)
     }
 
     func testTheSecondButtonCanStandAlone() {
         // Numbering is which slot it is in, not how many came before it.
-        let actions = LiveActivityAPI.actions(from: ["action2": "Only", "action2_url": "https://example.com"])
+        let actions = LiveActivityAPI.actions(from: ["action2": "Only", "action2_url": "https://example.com"], allowsShortcuts: true)
         XCTAssertEqual(actions.map(\.title), ["Only"])
     }
 }

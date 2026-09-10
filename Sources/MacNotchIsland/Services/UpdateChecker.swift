@@ -255,11 +255,16 @@ final class UpdateChecker: ObservableObject {
     /// fields we need.
     static func parse(_ data: Data) -> Release? {
         guard let decoded = try? JSONDecoder().decode(GitHubRelease.self, from: data),
-              let url = URL(string: decoded.htmlURL) else { return nil }
+              // Whatever answered as api.github.com chose these strings, and one of them ends
+              // up in `NSWorkspace.open` on a click. The app already has a rule for a link it
+              // did not write — the one every pushed card's button is held to — and this is a
+              // link it did not write. A release whose page is `file:///` or another app's
+              // scheme is not a release.
+              let url = LiveActivityAPI.safeLink(decoded.htmlURL) else { return nil }
         let version = normalize(tag: decoded.tagName)
         guard !version.isEmpty else { return nil }
         let dmgURL = decoded.assets?.first { $0.name.lowercased().hasSuffix(".dmg") }
-            .flatMap { URL(string: $0.browserDownloadURL) }
+            .flatMap { LiveActivityAPI.safeLink($0.browserDownloadURL) }
         return Release(version: version, releaseURL: url, dmgURL: dmgURL)
     }
 
