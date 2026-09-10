@@ -86,15 +86,41 @@ final class PanelFindTests: XCTestCase {
     }
 
     func testAFindAsksForTheKeyboardAndGivesItBack() {
+        // Asked of the rule rather than of `panelKeysActive`, which also asks whether the
+        // island is actually holding the keyboard — there is no key window in a test run, and
+        // that is a different question from the one this test is about.
+        func claimed() -> Bool {
+            ActivityCenter.ownsPanelKeys(open: center.openView != nil,
+                                         typing: center.wantsKeyboard, enabled: true)
+        }
         center.open(.home(tab: HomeSection.clipboard.rawValue))
         XCTAssertFalse(center.wantsKeyboard, "the clipboard is a list until somebody starts typing")
-        XCTAssertTrue(center.panelKeysActive, "so the arrows and the digits are the island's")
+        XCTAssertTrue(claimed(), "so the arrows and the digits are the island's")
         center.beginFind(with: "a")
         XCTAssertTrue(center.wantsKeyboard, "the field needs the keys the island was holding")
-        XCTAssertFalse(center.panelKeysActive)
+        XCTAssertFalse(claimed())
         XCTAssertTrue(center.endFind())
         XCTAssertFalse(center.wantsKeyboard)
-        XCTAssertTrue(center.panelKeysActive)
+        XCTAssertTrue(claimed())
+    }
+
+    func testTheIslandAdvertisesNoKeyItHasNotActuallyClaimed() {
+        // `panelKeysActive` is what puts a slot's number beside its name in the switcher. It
+        // now answers the whole question, key status included, so the digits are never offered
+        // while the keyboard still belongs to the app in front — an offer the island could not
+        // have honoured, made to somebody typing somewhere else.
+        center.open(.home(tab: HomeSection.clipboard.rawValue))
+        XCTAssertFalse(center.holdsKeyboard, "nothing is the key window in a test run")
+        XCTAssertFalse(center.panelKeysActive)
+    }
+
+    func testAPinnedPanelAsksForTheKeyboardAndAPeekDoesNot() {
+        // Holding the keyboard is what makes the claim honest, so a pinned panel asks for it.
+        // A peek follows the pointer and takes nothing.
+        center.open(.home(tab: HomeSection.clipboard.rawValue))
+        XCTAssertTrue(center.wantsPanelKeyboard)
+        center.collapse(reason: "test")
+        XCTAssertFalse(center.wantsPanelKeyboard)
     }
 
     func testEscapeLeavesTheFindBeforeItClosesThePanel() {
