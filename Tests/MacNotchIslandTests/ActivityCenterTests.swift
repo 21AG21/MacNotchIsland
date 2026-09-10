@@ -624,4 +624,27 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ServiceHub.wantsCalendar(prefs), "never when it is switched off")
     }
 
+    // MARK: - Leaving for another app
+
+    func testGoingToAnotherAppIsLeaving() {
+        // The panel claims the whole alphabet as global hot keys while it is open. A click
+        // outside used to be the only thing that closed it, and Command-Tab makes none — so a
+        // reply typed in Mail went into a find in the island instead.
+        XCTAssertTrue(ActivityCenter.isSomebodyElse("com.apple.mail", ours: "com.notchisland.app"))
+    }
+
+    func testTakingTheKeyboardForItsOwnFieldIsNotLeaving() {
+        XCTAssertFalse(ActivityCenter.isSomebodyElse("com.notchisland.app", ours: "com.notchisland.app"))
+    }
+
+    func testAnAppThatWillNotSayWhoItIsDoesNotCloseThePanel() {
+        XCTAssertFalse(ActivityCenter.isSomebodyElse(nil, ours: "com.notchisland.app"))
+        XCTAssertFalse(ActivityCenter.isSomebodyElse("", ours: "com.notchisland.app"))
+    }
+
+    func testAnIslandWithNoIdentityStillGetsOutOfTheWay() {
+        XCTAssertTrue(ActivityCenter.isSomebodyElse("com.apple.mail", ours: nil),
+                      "a build with no bundle identifier must not be the one app that never yields")
+    }
+
 }

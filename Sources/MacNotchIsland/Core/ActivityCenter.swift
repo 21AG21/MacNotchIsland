@@ -85,6 +85,9 @@ final class ActivityCenter: ObservableObject {
     private var forcedWork: DispatchWorkItem?
     /// Watches for clicks outside the island while it is open, the way a transient popover does.
     private var outsideClickMonitor: Any?
+    /// Watches for another app coming forward while it is open. A click outside is not the only
+    /// way to leave: Command-Tab never sends one.
+    private var activationObserver: Any?
     private var expiryTimer: Timer?
     private var lastSuppressed = false
     private var cancellables = Set<AnyCancellable>()
@@ -973,6 +976,7 @@ final class ActivityCenter: ObservableObject {
         keyboardControlChanged()
         if openView != nil {
             HotKeyService.shared.setEscapeArmed(true)
+            watchForAnotherApp()
             guard outsideClickMonitor == nil else { return }
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 let type = event.type.rawValue
@@ -983,7 +987,40 @@ final class ActivityCenter: ObservableObject {
             HotKeyService.shared.setEscapeArmed(false)
             if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor) }
             outsideClickMonitor = nil
+            if let activationObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
+                self.activationObserver = nil
+            }
         }
+    }
+
+    /// Closes the panel when the user goes somewhere else.
+    ///
+    /// A click outside was the only way out, and Command-Tab does not make one: the panel
+    /// stayed open over Mail with the whole alphabet still claimed as global hot keys, so
+    /// every letter typed into a reply was swallowed and opened a find in the island instead.
+    /// Leaving for another app is leaving.
+    private func watchForAnotherApp() {
+        guard activationObserver == nil else { return }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard Self.isSomebodyElse(app?.bundleIdentifier, ours: Bundle.main.bundleIdentifier) else { return }
+            DispatchQueue.main.async { self?.collapse(reason: "another app came forward") }
+        }
+    }
+
+    /// Whether an app coming forward is one the island should get out of the way of.
+    ///
+    /// Its own app is not: taking the keyboard for the notes field activates it, and treating
+    /// that as leaving would close the panel the moment it was typed into. Nor is an app that
+    /// will not say who it is — an agent with no bundle identifier can come forward for a
+    /// moment without anybody meaning to leave, and closing on that would be a panel that
+    /// shuts by itself.
+    static func isSomebodyElse(_ bundleID: String?, ours: String?) -> Bool {
+        guard let bundleID, !bundleID.isEmpty else { return false }
+        return bundleID != ours
     }
 }
 

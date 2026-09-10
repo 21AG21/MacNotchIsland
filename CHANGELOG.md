@@ -5,6 +5,13 @@ the unreleased section is what the next tag will ship.
 
 ## Unreleased
 
+### Fixed
+- **Going to another app closes the panel.** It claims the whole alphabet as global hot keys
+  while it is open — that is what makes type-to-find work — and a click outside was the only
+  thing that closed it. Command-Tab makes no click, so the panel stayed open over Mail with
+  every letter still claimed, and a reply typed there went into a find in the island instead
+  of into the reply. Leaving for another app is leaving.
+
 ### Added
 - **How much is left in the headphones.** Every connected Bluetooth device on the Controls list
   now carries its charge beside its glyph, and a pair of buds shows the ear that will run out
