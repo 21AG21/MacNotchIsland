@@ -325,7 +325,10 @@ final class ActivityCenterTests: XCTestCase {
         HomeSection.home.setEnabled(false, in: prefs)
         XCTAssertTrue(HomeSection.home.isEnabled(prefs), "there is no switch for it")
         XCTAssertFalse(HomeSection.tiles(prefs).contains(.home), "and it is not a tile on itself")
-        XCTAssertEqual(Set(HomeSection.tiles(prefs)), Set(HomeSection.allCases).subtracting([.home]))
+        // Nor is Now Playing: it has the wide tile at the head of the grid, and listing it
+        // again beside its own tile put it there twice.
+        XCTAssertFalse(HomeSection.tiles(prefs).contains(.music))
+        XCTAssertEqual(Set(HomeSection.tiles(prefs)), Set(HomeSection.allCases).subtracting([.home, .music]))
     }
 
     func testTheSectionsShipInTheOrderTheyAreWrittenIn() {
