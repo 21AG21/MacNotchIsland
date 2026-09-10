@@ -6,6 +6,12 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Sound, as a third list in Controls.** Where the sound goes *and* where it comes from, on
+  the panel: every output the Mac has, then every input, each headed and the live one ticked,
+  so switching to the AirPods or off the wrong microphone is one click rather than a trip to
+  System Settings. The header carries a mute — the thing Control Centre never gave anyone,
+  which is why muting a Mac has always meant dragging the slider to nothing and guessing
+  afterwards where it had been.
 - **The clipboard remembers where a copy came from.** Whichever app was in front when the
   pasteboard changed is written on the row, above the age, and searched along with the words —
   because a list of fifty snippets is scanned by memory ("the link from Safari") far more often

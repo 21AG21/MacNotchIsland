@@ -72,6 +72,9 @@ final class AudioOutputs: ObservableObject {
     /// 0...1, or nil when the device has no volume control (HDMI, some AirPlay targets).
     @Published private(set) var volume: Float?
     @Published private(set) var isMuted = false
+    /// Whether this output has a mute of its own. Some do not, and offering a switch that
+    /// cannot move is worse than offering none.
+    @Published private(set) var hasMute = false
 
     private var viewers = 0
     private var systemRegistrations: [Registration] = []
@@ -185,8 +188,23 @@ final class AudioOutputs: ObservableObject {
     private func reloadLevel() {
         let v = AudioMonitor.readOutputVolume()
         if v != volume { volume = v }
-        let m = AudioMonitor.readOutputMute() ?? false
-        if m != isMuted { isMuted = m }
+        let m = AudioMonitor.readOutputMute()
+        if (m != nil) != hasMute { hasMute = m != nil }
+        if (m ?? false) != isMuted { isMuted = m ?? false }
+    }
+
+    // MARK: - The gallery
+
+    /// Devices the drawing pass can show without a sound card. See `RenderMode.isGallery`.
+    func seedForGallery(outputs: [Device], current: Device?, inputs: [Device], currentInput: Device?,
+                        volume: Float?, isMuted: Bool) {
+        devices = outputs
+        self.current = current
+        self.inputs = inputs
+        self.currentInput = currentInput
+        self.volume = volume
+        self.isMuted = isMuted
+        hasMute = !outputs.isEmpty
     }
 
     // MARK: - Writing

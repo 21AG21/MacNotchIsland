@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import SwiftUI
 import XCTest
 @testable import MacNotchIsland
@@ -74,6 +75,8 @@ final class GalleryTests: XCTestCase {
             FavoriteApps.shared.seedForGallery([])
             BluetoothMonitor.galleryDevices = nil
             WiFiScanner.shared.seedForGallery([])
+            AudioOutputs.shared.seedForGallery(outputs: [], current: nil, inputs: [], currentInput: nil,
+                                               volume: nil, isMuted: false)
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
             let geometry = scene.floating ? Self.plain : Self.notch
@@ -398,6 +401,17 @@ final class GalleryTests: XCTestCase {
             BluetoothMonitor.Paired(name: "DualSense", address: "00-11-22-33-44-58",
                                     symbol: "gamecontroller.fill", isConnected: false),
         ]
+        let speakers = AudioOutputs.Device(id: 1, name: "MacBook Air Speakers",
+                                           transport: kAudioDeviceTransportTypeBuiltIn)
+        let airpods = AudioOutputs.Device(id: 2, name: "AirPods Pro",
+                                          transport: kAudioDeviceTransportTypeBluetooth)
+        let display = AudioOutputs.Device(id: 3, name: "Studio Display",
+                                          transport: kAudioDeviceTransportTypeDisplayPort)
+        let mic = AudioOutputs.Device(id: 4, name: "MacBook Air Microphone",
+                                      transport: kAudioDeviceTransportTypeBuiltIn)
+        AudioOutputs.shared.seedForGallery(outputs: [speakers, airpods, display], current: airpods,
+                                           inputs: [mic, airpods], currentInput: mic,
+                                           volume: 0.4, isMuted: false)
     }
 
     /// Apps every Mac has, so the row draws real icons.

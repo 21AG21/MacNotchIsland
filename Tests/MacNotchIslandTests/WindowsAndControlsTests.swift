@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import XCTest
 @testable import MacNotchIsland
 
@@ -431,5 +432,57 @@ final class WindowsAndControlsTests: XCTestCase {
         HomeSection.controls.setEnabled(false, in: prefs)
         XCTAssertFalse(HomeSection.controls.isEnabled(prefs))
         XCTAssertFalse(HomeSection.available(prefs).contains(.controls))
+    }
+
+    // MARK: - The sound column
+
+    private func device(_ id: UInt32, _ name: String,
+                        _ transport: UInt32 = kAudioDeviceTransportTypeBuiltIn) -> AudioOutputs.Device {
+        AudioOutputs.Device(id: AudioDeviceID(id), name: name, transport: transport)
+    }
+
+    func testWhereTheSoundGoesComesBeforeWhereItComesFrom() {
+        let speakers = device(1, "MacBook Air Speakers")
+        let airpods = device(2, "AirPods Pro", kAudioDeviceTransportTypeBluetooth)
+        let mic = device(3, "MacBook Air Microphone")
+        let entries = SoundList.entries(outputs: [speakers, airpods], current: airpods,
+                                        inputs: [mic], currentInput: mic)
+        XCTAssertEqual(entries.count, 5)
+        XCTAssertEqual(entries.first, .heading(SoundList.output))
+        XCTAssertEqual(entries[1], .device(speakers, isCurrent: false, isInput: false))
+        XCTAssertEqual(entries[2], .device(airpods, isCurrent: true, isInput: false), "the one playing is ticked")
+        XCTAssertEqual(entries[3], .heading(SoundList.input))
+        XCTAssertEqual(entries[4], .device(mic, isCurrent: true, isInput: true))
+    }
+
+    func testAHeadingIsOnlyThereWhenSomethingIsUnderIt() {
+        let speakers = device(1, "MacBook Air Speakers")
+        let outputsOnly = SoundList.entries(outputs: [speakers], current: speakers, inputs: [], currentInput: nil)
+        XCTAssertEqual(outputsOnly.count, 2)
+        XCTAssertFalse(outputsOnly.contains(.heading(SoundList.input)))
+        XCTAssertTrue(SoundList.entries(outputs: [], current: nil, inputs: [], currentInput: nil).isEmpty,
+                      "a Mac with no sound card draws no headings at all")
+    }
+
+    func testTheHeadphonesOnBothSidesAreTwoRowsNotOne() {
+        // AirPods record as well as play, and CoreAudio hands back one id for both. Keyed on
+        // that alone the list drew the pair once and SwiftUI complained about the duplicate.
+        let airpods = device(7, "AirPods Pro", kAudioDeviceTransportTypeBluetooth)
+        let entries = SoundList.entries(outputs: [airpods], current: airpods,
+                                        inputs: [airpods], currentInput: airpods)
+        XCTAssertEqual(Set(entries.map(\.id)).count, entries.count)
+    }
+
+    func testTheDeviceNamesItselfAfterTheMacRatherThanItsSpeakers() {
+        XCTAssertEqual(device(1, "MacBook Air Speakers").shortName, "MacBook Air")
+        XCTAssertEqual(device(2, "AirPods Pro", kAudioDeviceTransportTypeBluetooth).shortName, "AirPods Pro")
+    }
+
+    func testThreeColumnsAndTwoGuttersFillTheSection() {
+        let used = CGFloat(ControlsSectionView.columns) * ControlsSectionView.columnWidth
+            + CGFloat(ControlsSectionView.columns - 1) * ControlsSectionView.gutter
+        XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth)
+        XCTAssertGreaterThan(used, IslandLayout.panelContentWidth - CGFloat(ControlsSectionView.columns),
+                             "at most a point lost per column to rounding")
     }
 }
