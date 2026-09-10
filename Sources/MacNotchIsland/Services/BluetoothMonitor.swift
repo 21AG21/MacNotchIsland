@@ -77,7 +77,11 @@ final class BluetoothMonitor: NSObject {
     /// Everything this Mac has been paired with, connected first and then by name. The reason
     /// this exists: reconnecting a pair of AirPods is a trip to System Settings, and the
     /// island already knows they are there.
+    /// What the gallery is shown instead of asking the radio, which it has none of.
+    nonisolated(unsafe) static var galleryDevices: [Paired]?
+
     static func paired() -> [Paired] {
+        if let galleryDevices { return galleryDevices }
         let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
         return devices.compactMap { device -> Paired? in
             guard let address = device.addressString, !address.isEmpty else { return nil }

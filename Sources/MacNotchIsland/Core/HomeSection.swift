@@ -102,9 +102,11 @@ enum HomeSection: String, CaseIterable {
 
     static let fallback = HomeSection.home
 
-    /// The sections the Home grid shows as tiles: everything but itself.
+    /// The sections the Home grid shows as small tiles: everything but itself and Now
+    /// Playing, which has the wide tile at the head of the grid. Listing it again beside its
+    /// own tile put "Now Playing" on the grid twice and pushed Stats off the end of it.
     static func tiles(_ prefs: Preferences) -> [HomeSection] {
-        ordered(prefs).filter { $0 != .home && $0.isEnabled(prefs) }
+        ordered(prefs).filter { $0 != .home && $0 != .music && $0.isEnabled(prefs) }
     }
 
     /// The section a raw tab name maps to, or the nearest one that is switched on.

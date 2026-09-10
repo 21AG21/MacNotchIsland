@@ -43,6 +43,13 @@ final class WiFiScanner: ObservableObject {
 
     private init() {}
 
+    /// Fills in a list for the gallery, which has no radio and no location.
+    func seedForGallery(_ list: [Network]) {
+        networks = Self.ordered(list)
+        current = list.first { $0.isCurrent }?.ssid
+        isScanning = false
+    }
+
     // MARK: - Watching
 
     func viewerAppeared() {

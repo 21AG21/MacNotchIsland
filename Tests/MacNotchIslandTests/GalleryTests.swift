@@ -72,6 +72,8 @@ final class GalleryTests: XCTestCase {
             AgendaStore.shared.seedForGallery(events: [], reminders: [])
             ClipboardStore.shared.seedForGallery([])
             FavoriteApps.shared.seedForGallery([])
+            BluetoothMonitor.galleryDevices = nil
+            WiFiScanner.shared.seedForGallery([])
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
             scene.setup(center)
             let geometry = scene.floating ? Self.plain : Self.notch
@@ -368,6 +370,27 @@ final class GalleryTests: XCTestCase {
                                     highC: 19, lowC: 11, placeName: "London", hours: hours))
     }
 
+    /// A radio's worth of networks and devices, since the gallery has neither.
+    private static func controls() {
+        SystemToggles.shared.seedForGallery(wifi: true, bluetooth: true)
+        WiFiScanner.shared.seedForGallery([
+            WiFiScanner.Network(ssid: "Rosebery", strength: -44, isSecure: true, isCurrent: true, isKnown: true),
+            WiFiScanner.Network(ssid: "Rosebery Guest", strength: -47, isSecure: false, isCurrent: false, isKnown: false),
+            WiFiScanner.Network(ssid: "Caffè Macs", strength: -63, isSecure: true, isCurrent: false, isKnown: true),
+            WiFiScanner.Network(ssid: "BT-8Q4KMN", strength: -78, isSecure: true, isCurrent: false, isKnown: false),
+        ])
+        BluetoothMonitor.galleryDevices = [
+            BluetoothMonitor.Paired(name: "AirPods Pro", address: "00-11-22-33-44-55",
+                                    symbol: "airpodspro", isConnected: true),
+            BluetoothMonitor.Paired(name: "Magic Keyboard", address: "00-11-22-33-44-56",
+                                    symbol: "keyboard.fill", isConnected: true),
+            BluetoothMonitor.Paired(name: "Beats Studio", address: "00-11-22-33-44-57",
+                                    symbol: "beats.headphones", isConnected: false),
+            BluetoothMonitor.Paired(name: "DualSense", address: "00-11-22-33-44-58",
+                                    symbol: "gamecontroller.fill", isConnected: false),
+        ]
+    }
+
     /// Apps every Mac has, so the row draws real icons.
     private static func favouriteApps() {
         FavoriteApps.shared.seedForGallery([
@@ -474,7 +497,8 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-music-empty", setup: panel("music")),
             Scene(name: "panel-today", setup: panel("today") { _ in today(); weather() }),
             Scene(name: "panel-today-empty", setup: panel("today")),
-            Scene(name: "panel-controls", setup: panel("controls")),
+            Scene(name: "panel-controls", setup: panel("controls") { _ in controls() }),
+            Scene(name: "panel-controls-off", setup: panel("controls")),
             Scene(name: "panel-windows", setup: panel("windows")),
             // Type-to-find, narrowing a list of four to the one window that answers.
             Scene(name: "panel-windows-find") { c in

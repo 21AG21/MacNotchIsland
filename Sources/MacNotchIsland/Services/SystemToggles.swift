@@ -33,6 +33,14 @@ final class SystemToggles: ObservableObject {
 
     // MARK: - Lifetime
 
+    /// Fills in the switches for the gallery, which has neither radio.
+    func seedForGallery(wifi: Bool, bluetooth: Bool) {
+        hasWiFi = true
+        hasBluetooth = true
+        wifiOn = wifi
+        bluetoothOn = bluetooth
+    }
+
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }

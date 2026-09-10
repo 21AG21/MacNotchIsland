@@ -53,8 +53,17 @@ struct HomeGridView: View {
 
     /// Two tiles wide, because it is the one thing the island is for: the cover, what it is,
     /// and the one control anybody reaches for without thinking.
+    /// What the service reports, or what the island's Now Playing activity carries when the
+    /// service has nothing yet — a report still in flight, or a rendered gallery. The same
+    /// fallback the Now Playing section makes, for the same reason.
+    private var info: NowPlayingInfo? {
+        if let info = playing.info { return info }
+        if case .nowPlaying(let info)? = center.activity(id: "nowplaying")?.content { return info }
+        return nil
+    }
+
     private var nowPlayingTile: some View {
-        let info = playing.info
+        let info = self.info
         return Button(action: { open(.music) }) {
             HStack(spacing: 10) {
                 if let info {
@@ -83,7 +92,7 @@ struct HomeGridView: View {
                 if info != nil {
                     // The tile is a button; this one sits on top of it and does its own thing,
                     // the way the play button on a Music widget does.
-                    GlyphButton(symbol: playing.info?.isPlaying == true ? "pause.fill" : "play.fill",
+                    GlyphButton(symbol: info?.isPlaying == true ? "pause.fill" : "play.fill",
                                 size: 15, weight: .semibold) {
                         playing.togglePlayPause()
                     }

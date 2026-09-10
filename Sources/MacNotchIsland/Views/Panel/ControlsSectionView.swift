@@ -114,8 +114,15 @@ struct ControlsSectionView: View {
 
     // MARK: - The devices
 
+    /// The list, or what the gallery was handed: `onAppear` never runs when the view is being
+    /// drawn into an image rather than onto a screen, so the state it fills stays empty.
+    private var shownDevices: [BluetoothMonitor.Paired] {
+        devices.isEmpty && RenderMode.isGallery ? BluetoothMonitor.paired() : devices
+    }
+
     @ViewBuilder
     private var bluetoothList: some View {
+        let devices = shownDevices
         if devices.isEmpty {
             Text("Nothing paired")
                 .font(.system(size: 11.5))
@@ -134,7 +141,9 @@ struct ControlsSectionView: View {
                             isOn: device.isConnected) {
                             BluetoothMonitor.setConnected(!device.isConnected, address: device.address)
                             // The radio takes a moment; ask again once it has had one.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { devices = BluetoothMonitor.paired() }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                self.devices = BluetoothMonitor.paired()
+                            }
                         }
                     }
                 }
