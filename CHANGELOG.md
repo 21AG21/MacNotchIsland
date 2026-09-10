@@ -52,6 +52,20 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **A switch that governs nothing is a lie told to your face.** "Open from the empty notch too",
+  in the Island pane, has had no reader behind it since the line that consulted it was deleted:
+  it sat there saying "resting on the notch does nothing unless this is on" while resting on the
+  notch worked either way, switch on or off. It governs the thing it names again. The keyboard
+  shortcut deliberately ignores it — somebody who presses a key has said what they want; this is
+  only about what the pointer does when it happens to pass by.
+- **Settings no longer states a figure the app is not using.** The charge mark, how long a paused
+  track is kept and the shelf's expiry all snapped a stored value to the nearest offered choice
+  *for display only*. A number left behind by an older build, or edited into defaults by hand,
+  left the pane reading "70%" while the battery went on alerting at 50. The app is brought into
+  line with what it shows, the moment anybody looks at it.
+- **The Focus tooltip is on the Focus row.** Two `.help` modifiers had been stacked on the row
+  below it, so the outer one won: hovering "Quieten alerts during a Focus" explained a different
+  switch, and the Focus switch had no explanation at all.
 - **Today cannot freeze on yesterday.** The gate that stops two calendar reads overlapping was
   only ever released when the read answered, and EventKit's completion is not guaranteed to
   arrive — an account that never replies, or access revoked mid-flight, left it shut for the

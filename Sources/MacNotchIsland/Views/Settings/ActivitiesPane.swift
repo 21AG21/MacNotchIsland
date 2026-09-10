@@ -116,10 +116,10 @@ struct ActivitiesPane: View {
 
             Section {
                 Toggle("Focus", isOn: $prefs.focusEnabled)
+                    .help("Show the current Focus, including Do Not Disturb.")
                 Toggle("Quieten alerts during a Focus", isOn: $prefs.quietDuringFocus)
                     .disabled(!prefs.focusEnabled)
                     .help("While a Focus is on, the island holds back the alerts that arrive on their own.")
-                    .help("Show the current Focus, including Do Not Disturb.")
                 Toggle("Upcoming calendar events", isOn: $prefs.calendarEnabled)
                     .help("Your next event shortly before it starts, and the Today section of the panel.")
             } header: {
@@ -153,6 +153,10 @@ struct ActivitiesPane: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            SettingsFormat.snap(&prefs.chargeAlertPercent, to: Self.chargeOptions)
+            SettingsFormat.snap(&prefs.keepPausedMinutes, to: Self.keepPausedOptions)
+        }
     }
 
     /// The charge mark, snapped to one of the offered figures.

@@ -85,6 +85,18 @@ enum SettingsFormat {
     static func nearest(_ value: Double, in options: [Double]) -> Double {
         options.min(by: { abs($0 - value) < abs($1 - value) }) ?? value
     }
+
+    /// Makes the app agree with the figure the menu is showing.
+    ///
+    /// `nearest` snapped the value for display only, so a number left behind by an older build
+    /// — or edited into defaults by hand — could sit in the pane reading "70%" while the
+    /// battery went on alerting at 50. A pane that states a figure the app is not using is
+    /// worse than one that offers no figure at all, so the value is brought into line the
+    /// moment anybody looks at it.
+    static func snap(_ value: inout Double, to options: [Double]) {
+        let snapped = nearest(value, in: options)
+        if snapped != value { value = snapped }
+    }
 }
 
 // MARK: - System Settings deep links

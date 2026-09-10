@@ -235,7 +235,7 @@ final class ActivityCenter: ObservableObject {
         if let primary = live.first, forcedExpandedID == primary.id, primary.content.hasExpandedView {
             return .card(primary)
         }
-        if peeking { return .panel(validated(peekView ?? defaultPeek())) }
+        if peeking, hoverPeeks { return .panel(validated(peekView ?? defaultPeek())) }
         if let primary = live.first {
             return .compact(primary, bubble: live.dropFirst().first)
         }
@@ -275,6 +275,25 @@ final class ActivityCenter: ObservableObject {
             if primary.content.hasExpandedView { return .activity(id: primary.id) }
         }
         return .home(tab: Self.currentHomeTab)
+    }
+
+    /// Whether resting the pointer on the island should open anything.
+    ///
+    /// With something live there is always something to peek at. On the bare notch there is
+    /// not, and whether it opens the panel anyway is the user's to say — "Open from the empty
+    /// notch too", in the Island pane. That switch had been sitting there with its reader
+    /// deleted out from under it, promising to gate something that happened either way.
+    ///
+    /// The keyboard shortcut is deliberately not asked: somebody who presses it has said what
+    /// they want, and this is only about what the pointer does when it happens to pass by.
+    var hoverPeeks: Bool {
+        Self.peeksWhenIdle(hasLiveActivity: !sortedActivities.isEmpty,
+                           idleHover: Preferences.shared.expandOnIdleHover)
+    }
+
+    /// The rule on its own, so it can be read back without a pointer to rest on the notch.
+    static func peeksWhenIdle(hasLiveActivity: Bool, idleHover: Bool) -> Bool {
+        hasLiveActivity || idleHover
     }
 
     /// A view the panel can actually show: an activity that is still live and has a card, or
@@ -499,7 +518,7 @@ final class ActivityCenter: ObservableObject {
             if hovering {
                 deferredHoverExit = nil
                 guard self.hoverPanel != panel else { return }
-                if self.peekView == nil { self.peekView = self.defaultPeek() }
+                if self.peekView == nil, self.hoverPeeks { self.peekView = self.defaultPeek() }
                 self.hoverPanel = panel
             } else {
                 guard self.hoverPanel == panel else { return }
@@ -886,7 +905,7 @@ final class ActivityCenter: ObservableObject {
     /// The view the panel is on, pinned or peeking; nil when no panel is showing.
     var currentView: IslandView? {
         if let openView { return validated(openView) }
-        if hoverPanel != nil, Preferences.shared.hoverToExpand { return validated(peekView ?? defaultPeek()) }
+        if hoverPanel != nil, Preferences.shared.hoverToExpand, hoverPeeks { return validated(peekView ?? defaultPeek()) }
         return nil
     }
 

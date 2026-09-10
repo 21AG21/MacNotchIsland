@@ -105,6 +105,23 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertTrue(holds(.battery(plugged)), "the charger going in can wait")
     }
 
+    // MARK: - Whether the bare notch answers the pointer
+
+    func testTheSwitchForHoveringAnEmptyNotchActuallyGovernsIt() {
+        // It sat in Settings for some time with its reader deleted out from under it, saying
+        // "resting on the notch does nothing unless this is on" while resting on the notch
+        // worked either way. A switch wired to nothing is a lie told straight to the user.
+        XCTAssertFalse(ActivityCenter.peeksWhenIdle(hasLiveActivity: false, idleHover: false))
+        XCTAssertTrue(ActivityCenter.peeksWhenIdle(hasLiveActivity: false, idleHover: true))
+    }
+
+    func testSomethingLiveIsAlwaysWorthPeekingAtWhateverTheSwitchSays() {
+        // The switch is about the *empty* notch. With a track playing or a file landing there
+        // is something to see, and hovering shows it.
+        XCTAssertTrue(ActivityCenter.peeksWhenIdle(hasLiveActivity: true, idleHover: false))
+        XCTAssertTrue(ActivityCenter.peeksWhenIdle(hasLiveActivity: true, idleHover: true))
+    }
+
     // MARK: - The keys the panel answers
 
     /// The live rule, with the keyboard held — which is the state these three are about.

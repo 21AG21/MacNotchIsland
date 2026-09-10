@@ -20,4 +20,25 @@ final class WelcomeViewTests: XCTestCase {
             XCTAssertTrue(line.hasSuffix("."), "\"\(line)\" should read as a sentence")
         }
     }
+    // MARK: - A menu that states a figure the app is not using
+
+    func testAFigureLeftBehindByAnOlderBuildIsBroughtIntoLine() {
+        // The menus snapped a stored value to the nearest option for display only, so the pane
+        // could read "70%" while the battery went on alerting at 50 — a pane stating a number
+        // the app is not using is worse than one offering no number at all.
+        let options: [Double] = [0, 70, 80, 85, 90]
+        var stored = 50.0
+        SettingsFormat.snap(&stored, to: options)
+        XCTAssertEqual(stored, 70, "snapped in the store, not just on screen")
+    }
+
+    func testAFigureThatIsAlreadyOneOfTheChoicesIsLeftAlone() {
+        let options: [Double] = [0, 70, 80, 85, 90]
+        var stored = 85.0
+        SettingsFormat.snap(&stored, to: options)
+        XCTAssertEqual(stored, 85)
+        var off = 0.0
+        SettingsFormat.snap(&off, to: options)
+        XCTAssertEqual(off, 0, "and off is a choice like any other")
+    }
 }

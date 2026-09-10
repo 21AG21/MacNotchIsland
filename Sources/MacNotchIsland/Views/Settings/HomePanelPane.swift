@@ -215,6 +215,7 @@ struct HomePanelPane: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { SettingsFormat.snap(&prefs.shelfExpiryHours, to: Self.expiryOptions) }
     }
 
     /// How many notifications are being kept at this moment, for the row the Erase button is
