@@ -6,8 +6,10 @@ import IOBluetooth
 /// Bluetooth and the Mac's appearance. Control Centre's job, without leaving the notch.
 ///
 /// Each one is read from the system rather than remembered here, so the rail always shows the
-/// truth even when something else did the switching. Reads are cheap and only happen while the
-/// rail is on screen.
+/// truth even when something else did the switching. The rail is under every section, so this
+/// poll runs for as long as any panel is on screen — and both radios answer over XPC, which
+/// is to say in their own time. Nothing that waits on a radio happens on the main thread:
+/// the readings are taken on the queue below, and only what is shown is decided here.
 final class SystemToggles: ObservableObject {
     static let shared = SystemToggles()
 
@@ -22,7 +24,11 @@ final class SystemToggles: ObservableObject {
     private var timer: Timer?
     /// A switch the system has not caught up with yet: until then the rail shows what the user
     /// asked for, so a toggle never appears to bounce back.
-    private var pending: [String: (value: Bool, until: Date)] = [:]
+    private var pending: [String: Pending] = [:]
+    /// Where the waiting happens. Serial, so the switch a button asked for is thrown after any
+    /// reading already in the air and before the one that comes next.
+    private let queue = DispatchQueue(label: "com.macnotchisland.toggles", qos: .utility)
+    private var pass = RadioPass()
 
     static let pollInterval: TimeInterval = 1.5
     static let writeSettle: TimeInterval = 2.5
@@ -63,31 +69,54 @@ final class SystemToggles: ObservableObject {
     /// The three switches, as keys for the "waiting for the system" bookkeeping.
     enum Switch: String { case wifi, bluetooth, appearance }
 
+    /// What the user asked for, and the moment the rail stops holding it and believes the
+    /// system again.
+    struct Pending: Equatable {
+        var value: Bool
+        var until: Date
+    }
+
+    /// The appearance is AppKit's own answer about this process and costs nothing, so it is
+    /// read where it is shown. The two radios are asked on the queue, one pass at a time.
     func refresh() {
-        let interface = CWWiFiClient.shared().interface()
-        if hasWiFi != (interface != nil) { hasWiFi = interface != nil }
-        read(.wifi, as: interface?.powerOn() ?? false)
-
-        let bluetooth = Self.bluetoothPower()
-        if hasBluetooth != (bluetooth != nil) { hasBluetooth = bluetooth != nil }
-        if let bluetooth { read(.bluetooth, as: bluetooth) }
-
         read(.appearance, as: Self.systemIsDark())
+        guard pass.start() else { return }
+        queue.async { [weak self] in
+            let interface = CWWiFiClient.shared().interface()
+            let wifi = interface.map { $0.powerOn() }
+            let bluetooth = Self.bluetoothPower()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.pass.finish()
+                if self.hasWiFi != (wifi != nil) { self.hasWiFi = wifi != nil }
+                self.read(.wifi, as: wifi ?? false)
+                if self.hasBluetooth != (bluetooth != nil) { self.hasBluetooth = bluetooth != nil }
+                if let bluetooth { self.read(.bluetooth, as: bluetooth) }
+            }
+        }
     }
 
     /// Takes a fresh reading unless the user has just asked for the opposite and the system
     /// has not caught up.
     private func read(_ key: Switch, as value: Bool) {
-        if let waiting = pending[key.rawValue] {
-            guard Date() >= waiting.until || waiting.value == value else { return }
-            pending[key.rawValue] = nil
-        }
+        guard Self.accepts(value, waitingFor: pending[key.rawValue]) else { return }
+        pending[key.rawValue] = nil
         show(key, value)
+    }
+
+    /// Whether a reading is still worth showing, or is older than the user's own last word on
+    /// the matter. A reading now leaves the radio before the tap that makes it wrong and lands
+    /// after it, which is precisely the moment the rail must not flick back to what the system
+    /// was saying a second ago. A reading that agrees settles the wait early; one that is still
+    /// arguing when the settle window is up is believed, because by then the answer is no.
+    static func accepts(_ value: Bool, waitingFor waiting: Pending?, at now: Date = Date()) -> Bool {
+        guard let waiting else { return true }
+        return now >= waiting.until || waiting.value == value
     }
 
     /// What the user just asked for, shown at once and held until the system agrees.
     private func expect(_ key: Switch, _ value: Bool) {
-        pending[key.rawValue] = (value, Date().addingTimeInterval(Self.writeSettle))
+        pending[key.rawValue] = Pending(value: value, until: Date().addingTimeInterval(Self.writeSettle))
         show(key, value)
     }
 
@@ -115,21 +144,26 @@ final class SystemToggles: ObservableObject {
 
     // MARK: - Switching
 
+    /// What the switch is thrown from is what the rail is showing, not a fresh reading: asking
+    /// the interface would mean waiting on it with the pointer still down, and a switch that
+    /// does the opposite of the one on screen is not the one that was pressed.
     func toggleWiFi() {
-        guard let interface = CWWiFiClient.shared().interface() else { return }
-        let wanted = !interface.powerOn()
+        guard hasWiFi else { return }
+        let wanted = !wifiOn
         expect(.wifi, wanted)
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var refused = false
-            do {
-                try interface.setPower(wanted)
-            } catch {
-                // Wi-Fi held off by policy, or the interface busy. Without this the switch
-                // showed what was asked for, held it for the settle window, and then slid
-                // back on its own with nothing said — which reads as the app being broken
-                // rather than as the answer being no.
-                refused = true
-                IslandLog.network.error("wi-fi switch refused: \(error.localizedDescription, privacy: .public)")
+        queue.async { [weak self] in
+            // Wi-Fi held off by policy, or the interface busy, or gone since the rail last
+            // looked. Without this the switch showed what was asked for, held it for the
+            // settle window, and then slid back on its own with nothing said — which reads
+            // as the app being broken rather than as the answer being no.
+            var refused = true
+            if let interface = CWWiFiClient.shared().interface() {
+                do {
+                    try interface.setPower(wanted)
+                    refused = false
+                } catch {
+                    IslandLog.network.error("wi-fi switch refused: \(error.localizedDescription, privacy: .public)")
+                }
             }
             DispatchQueue.main.async {
                 if refused { self?.pending[Switch.wifi.rawValue] = nil }
@@ -138,12 +172,18 @@ final class SystemToggles: ObservableObject {
         }
     }
 
+    /// The Bluetooth write blocks until the controller answers, which on a cold radio is long
+    /// enough to be felt as the panel stopping under the pointer.
     func toggleBluetooth() {
-        guard let current = Self.bluetoothPower() else { return }
-        let wanted = !current
+        guard hasBluetooth else { return }
+        let wanted = !bluetoothOn
         expect(.bluetooth, wanted)
-        Self.setBluetoothPower(wanted)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.refresh() }
+        queue.async { [weak self] in
+            Self.setBluetoothPower(wanted)
+            // The controller answers the write before it has finished changing its mind, so
+            // let it settle rather than reading it straight back.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.refresh() }
+        }
     }
 
     /// Switches the Mac between light and dark. There is no API for this that does not go
@@ -154,6 +194,8 @@ final class SystemToggles: ObservableObject {
         let source = """
         tell application "System Events" to tell appearance preferences to set dark mode to \(wanted)
         """
+        // Its own queue rather than the radios': System Events can take seconds to answer the
+        // first time, and the rail's poll should not be waiting behind it.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var error: NSDictionary?
             _ = NSAppleScript(source: source)?.executeAndReturnError(&error)
@@ -188,6 +230,7 @@ final class SystemToggles: ObservableObject {
     private static let putPower: SetPower? = dlsym(rtldDefault, "IOBluetoothPreferenceSetControllerPowerState")
         .map { unsafeBitCast($0, to: SetPower.self) }
 
+    /// Both of these wait on the controller, so both belong on a queue.
     static func bluetoothPower() -> Bool? {
         guard let getPower else { return nil }
         return getPower() != 0

@@ -6,6 +6,21 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Fixed
+- **The panel stops waiting for the radios.** Opening it ran a burst of blocking system calls on
+  the main thread during the very spring that opens it — CoreWLAN and IOBluetooth both answer
+  over XPC, which is to say in their own time — and then kept polling both on a 1.5-second main
+  timer for as long as any panel was on screen, because the control rail is under every section.
+  Every reading now happens on a queue of its own, one pass at a time, and only what is shown is
+  decided on the main thread. Throwing a switch no longer waits on the radio with the pointer
+  still down.
+- **Keep Awake says when it cannot.** The rail's button lights from one flag and nothing else,
+  so an assertion macOS turned down left the press with no light, no words and no reason — the
+  same nothing as a button that was never pressed. A refusal is one of the ways a press can end,
+  so it is said aloud like the other two, in a sentence rather than an error code.
+- **The sliders can be moved without a pointer.** The volume and the brightness are drawn from
+  shapes and driven by a drag, so VoiceOver could read "Volume, 40 percent" and then offer no way
+  to change it. They are adjustable now, a notch at a time — the same sixteenth the volume keys
+  use, so one control does not answer to two ideas of a step.
 - **The island opens cleanly.** Five things were wrong with the growth out of the notch, and
   the worst of them meant a click-to-open never used the opening curve at all. Nested
   animations in SwiftUI are innermost-wins, and the press feedback sat *outside* the frame, so

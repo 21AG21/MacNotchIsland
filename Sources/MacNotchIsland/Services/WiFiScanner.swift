@@ -11,6 +11,11 @@ import CoreWLAN
 /// time somebody opens a panel — a scan costs power and a second of the interface's attention,
 /// and macOS is scanning anyway. A fresh sweep is asked for once when the section appears and
 /// then only on the refresh interval, and only while somebody is looking at it.
+///
+/// Every word CoreWLAN says here — the name of the network, the profiles this Mac keeps, the
+/// last scan the system took — is a round trip to the Wi-Fi daemon, and the panel doing the
+/// asking is the one being animated open at that moment. So none of it happens on the main
+/// thread: a pass runs on the queue below and hands its answer back to be shown.
 final class WiFiScanner: ObservableObject {
     static let shared = WiFiScanner()
 
@@ -37,6 +42,13 @@ final class WiFiScanner: ObservableObject {
 
     /// How often the list is refreshed while somebody is looking at it.
     static let refreshInterval: TimeInterval = 12
+
+    /// Where the waiting happens. Serial, so a sweep and the read that follows it cannot
+    /// overtake each other.
+    private let queue = DispatchQueue(label: "com.macnotchisland.wifi", qos: .utility)
+    /// Main queue only, like the three published properties and the viewer count — the queue
+    /// above touches nothing but the interface.
+    private var pass = RadioPass()
 
     private var viewers = 0
     private var timer: Timer?
@@ -68,30 +80,42 @@ final class WiFiScanner: ObservableObject {
         timer = nil
     }
 
-    /// Re-reads the list. With `scan`, asks the interface to sweep first — which blocks, so it
-    /// happens off the main thread and the answer is read back from the cache either way.
+    /// Re-reads the list, off the main thread, and shows the answer when it comes. With
+    /// `scan`, the interface is asked to sweep the band first — slower again, and the reason
+    /// the list says "Looking…" while it happens.
     func refresh(scan: Bool = false) {
-        guard let interface = CWWiFiClient.shared().interface() else {
-            networks = []
-            current = nil
-            return
-        }
-        current = interface.ssid()
-        guard scan else { return read(interface) }
-        guard !isScanning else { return }
-        isScanning = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            // A scan that fails — no permission, the radio busy, Wi-Fi off — is not an error
-            // worth a word on screen: the cached list is what everybody sees anyway.
-            _ = try? interface.scanForNetworks(withSSID: nil)
+        guard pass.start() else { return }
+        if scan, !isScanning { isScanning = true }
+        queue.async { [weak self] in
+            let reading = Self.take(scan: scan)
             DispatchQueue.main.async {
-                self?.isScanning = false
-                self?.read(interface)
+                guard let self else { return }
+                self.pass.finish()
+                if self.isScanning { self.isScanning = false }
+                // A Mac with no Wi-Fi interface has no list, which is what an empty one says.
+                let fresh = reading?.networks ?? []
+                if self.networks != fresh { self.networks = fresh }
+                if self.current != reading?.current { self.current = reading?.current }
             }
         }
     }
 
-    private func read(_ interface: CWInterface) {
+    /// What one look at the interface comes back with. The list and the name of the network
+    /// on it are read a few milliseconds apart, and a row ticked as joined that the name
+    /// disagrees with reads as a bug — so they travel together or not at all.
+    private struct Reading {
+        var networks: [Network]
+        var current: String?
+    }
+
+    /// The blocking half, and the only part that runs on the queue.
+    private static func take(scan: Bool) -> Reading? {
+        guard let interface = CWWiFiClient.shared().interface() else { return nil }
+        if scan {
+            // A scan that fails — no permission, the radio busy, Wi-Fi off — is not an error
+            // worth a word on screen: the cached list is what everybody sees anyway.
+            _ = try? interface.scanForNetworks(withSSID: nil)
+        }
         // The networks this Mac has joined before, which are the ones it can join again on
         // its own. `networkProfiles` is an ordered set of `CWNetworkProfile`.
         let profiles = interface.configuration()?.networkProfiles.array ?? []
@@ -110,7 +134,7 @@ final class WiFiScanner: ObservableObject {
             if let existing = best[ssid], existing.strength >= candidate.strength { continue }
             best[ssid] = candidate
         }
-        networks = Self.ordered(Array(best.values))
+        return Reading(networks: Self.ordered(Array(best.values)), current: live)
     }
 
     // MARK: - Joining
@@ -118,12 +142,17 @@ final class WiFiScanner: ObservableObject {
     /// Joins a network. One this Mac already knows needs nothing from anybody; one it does not
     /// needs a password, and there is no honest way to ask for one from a panel that closes
     /// when the pointer leaves — so that goes to the pane of System Settings that can.
+    ///
+    /// Finding the network to join means reading the system's last scan, which is a round trip
+    /// like any other, so the whole of this happens on the queue: the tap that starts it is on
+    /// a panel that is still animating.
     func join(_ network: Network) {
-        guard let interface = CWWiFiClient.shared().interface() else { return }
-        guard network.isKnown || !network.isSecure else { return Self.openSettings() }
-        let target = (interface.cachedScanResults() ?? []).first { $0.ssid == network.ssid }
-        guard let target else { return Self.openSettings() }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        queue.async { [weak self] in
+            guard let interface = CWWiFiClient.shared().interface() else { return }
+            let target = (interface.cachedScanResults() ?? []).first { $0.ssid == network.ssid }
+            guard network.isKnown || !network.isSecure, let target else {
+                return DispatchQueue.main.async { Self.openSettings() }
+            }
             var joined = false
             do {
                 try interface.associate(to: target, password: nil)
@@ -167,5 +196,31 @@ final class WiFiScanner: ObservableObject {
     /// Whether joining it would need a password: anything that is not an open network.
     static func isSecure(_ network: CWNetwork) -> Bool {
         !network.supportsSecurity(.none)
+    }
+}
+
+// MARK: - One pass at a time
+
+/// The bookkeeping that keeps a radio to one reader.
+///
+/// Both the network list and the rail's switches are read on a queue now, and both are driven
+/// by a timer that does not wait to be asked twice. Two passes in flight together are two sets
+/// of round trips for one answer, and the slower of them lands last carrying the older news —
+/// so a pass that finds one already running stands down instead.
+///
+/// Lives on the main queue with everything else that decides what is shown.
+struct RadioPass {
+    private(set) var isRunning = false
+
+    /// Whether the caller is the one that gets to go. Balanced by `finish()` when its answer
+    /// has been shown.
+    mutating func start() -> Bool {
+        guard !isRunning else { return false }
+        isRunning = true
+        return true
+    }
+
+    mutating func finish() {
+        isRunning = false
     }
 }

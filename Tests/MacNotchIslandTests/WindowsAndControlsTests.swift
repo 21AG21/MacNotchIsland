@@ -522,4 +522,40 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertNil(BluetoothBattery.summary(BluetoothBattery.Levels(caseLevel: 80)),
                      "a case on its own is not the level of the thing you are wearing")
     }
+
+    // MARK: - Asking the radios without stopping the panel
+
+    func testASecondPassOverTheRadioWhileOneIsRunningStandsDown() {
+        var pass = RadioPass()
+        let first = pass.start()
+        XCTAssertTrue(first, "the first caller goes")
+        let second = pass.start()
+        XCTAssertFalse(second, "the second finds one in flight and asks for nothing")
+        XCTAssertTrue(pass.isRunning)
+        pass.finish()
+        XCTAssertFalse(pass.isRunning)
+        let next = pass.start()
+        XCTAssertTrue(next, "once the answer is back the next pass is free to go")
+    }
+
+    func testAReadThatArrivesAfterYouChangedYourMindIsIgnored() {
+        let tapped = Date()
+        let asked = SystemToggles.Pending(value: true, until: tapped.addingTimeInterval(SystemToggles.writeSettle))
+        XCTAssertFalse(SystemToggles.accepts(false, waitingFor: asked, at: tapped),
+                       "a reading that left the radio before the tap does not undo it")
+        XCTAssertTrue(SystemToggles.accepts(true, waitingFor: asked, at: tapped),
+                      "the system agreeing settles the wait there and then")
+        XCTAssertTrue(SystemToggles.accepts(false, waitingFor: nil, at: tapped),
+                      "with nothing asked for, whatever comes back is the truth")
+    }
+
+    func testASwitchTheSystemNeverThrowsIsBelievedInTheEnd() {
+        let tapped = Date()
+        let asked = SystemToggles.Pending(value: true, until: tapped.addingTimeInterval(SystemToggles.writeSettle))
+        XCTAssertTrue(SystemToggles.accepts(false, waitingFor: asked,
+                                            at: tapped.addingTimeInterval(SystemToggles.writeSettle)),
+                      "past the settle window the answer is no, and the rail says so")
+        XCTAssertTrue(SystemToggles.accepts(false, waitingFor: asked,
+                                            at: tapped.addingTimeInterval(SystemToggles.writeSettle + 1)))
+    }
 }

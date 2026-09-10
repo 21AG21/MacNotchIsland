@@ -121,4 +121,30 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertEqual(label(.shelf(ShelfState(count: 1, latestName: "a.png"))), "Shelf, 1 item")
         XCTAssertEqual(label(.shelf(ShelfState(count: 3, latestName: "a.png"))), "Shelf, 3 items")
     }
+
+    // The rail's sliders are announced with a label and a percentage, which is only half of a
+    // control: a value that cannot be changed without a pointer is a value read out to
+    // somebody who cannot reach it. These are the arithmetic behind increment and decrement.
+
+    func testASliderTheVoiceOverUserCanActuallyMove() {
+        XCTAssertEqual(IslandSlider.stepped(from: 0.5, up: true), 0.5625, accuracy: 0.0001)
+        XCTAssertEqual(IslandSlider.stepped(from: 0.5, up: false), 0.4375, accuracy: 0.0001)
+        XCTAssertEqual(IslandSlider.adjustStep, GestureRouter.keyStep, accuracy: 0.0001,
+                       "one press is one notch of the volume keys, not a second idea of a step")
+    }
+
+    func testAStepAtEitherEndOfTheTrackStopsAtTheEnd() {
+        XCTAssertEqual(IslandSlider.stepped(from: 1, up: true), 1, accuracy: 0.0001)
+        XCTAssertEqual(IslandSlider.stepped(from: 0, up: false), 0, accuracy: 0.0001)
+        XCTAssertEqual(IslandSlider.stepped(from: 0.97, up: true), 1, accuracy: 0.0001,
+                       "a press near the top lands on the top rather than past it")
+        XCTAssertEqual(IslandSlider.stepped(from: 0.03, up: false), 0, accuracy: 0.0001)
+    }
+
+    func testAStepUpFromSilenceIsSomethingYouCanHear() {
+        let first = IslandSlider.stepped(from: 0, up: true)
+        XCTAssertEqual(first, GestureRouter.keyStep, accuracy: 0.0001)
+        XCTAssertGreaterThan(first, 0.03, "a first press that cannot be heard reads as a press that did nothing")
+        XCTAssertLessThan(first, 0.15, "and it is one notch, not a jump across the room")
+    }
 }

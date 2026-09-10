@@ -32,6 +32,10 @@ struct IslandSlider: View {
     static let settleWindow: TimeInterval = 0.7
     /// A report this close to what the user asked for is the same value: the feed has caught up.
     static let agreement: Double = 0.02
+    /// One press of VoiceOver's increment or decrement. The volume keys move the Mac in
+    /// sixteenths and a scroll on the island follows them, so a slider that moved by some
+    /// number of its own would leave the same control answering to two ideas of a notch.
+    static let adjustStep: Double = GestureRouter.keyStep
 
     private var shown: Double { min(1, max(0, held ?? value)) }
     private var active: Bool { hovering || dragging }
@@ -69,6 +73,17 @@ struct IslandSlider: View {
         }
         .frame(height: 20)
         .onHover { hovering = $0 }
+        // The track is drawn from shapes, which say nothing to a screen reader, and the rail
+        // hangs the label and the value on this view from outside; one element is what both
+        // of those need. The adjustable trait comes with the action below.
+        .accessibilityElement(children: .ignore)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: adjust(up: true)
+            case .decrement: adjust(up: false)
+            default: break
+            }
+        }
         .onDisappear {
             releaseWork?.cancel()
             releaseWork = nil
@@ -99,8 +114,35 @@ struct IslandSlider: View {
     private func end() {
         dragging = false
         ActivityCenter.shared.setControlDragging(false)
+        settle()
+    }
+
+    /// A pointer that has lifted and a key that has been pressed are both "the user has
+    /// finished asking for this value", and both have to hold it against the feed for the
+    /// same moment afterwards; see the note at the top.
+    private func settle() {
+        releaseWork?.cancel()
         let work = DispatchWorkItem { self.held = nil }
         releaseWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleWindow, execute: work)
+    }
+
+    /// A press of VoiceOver's increment or decrement, which is a drag by another name: the
+    /// same unmute at the start, the same value out through the same callback, and the same
+    /// moment of holding it afterwards. Without this the volume and the brightness can only
+    /// be set by somebody holding a pointer.
+    private func adjust(up: Bool) {
+        onBegin?()
+        // From what is on screen, not from the feed: two presses in quick succession must
+        // move twice, and the second one comes before the Mac has reported the first.
+        set(Self.stepped(from: shown, up: up))
+        settle()
+    }
+
+    /// Where a press lands. Kept pure so it can be checked without a screen: the ends are
+    /// where a slider goes wrong, and a press at either one has to stop there rather than
+    /// write a level that is off the track.
+    static func stepped(from value: Double, up: Bool) -> Double {
+        min(1, max(0, value + (up ? adjustStep : -adjustStep)))
     }
 }
