@@ -17,11 +17,13 @@ struct HomeGridView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
     @ObservedObject private var apps = FavoriteApps.shared
     @ObservedObject private var agenda = AgendaStore.shared
+    @ObservedObject private var inbox = NotificationInbox.shared
     @State private var hovered: HomeSection?
 
     /// Five columns and two rows fill the section exactly; Now Playing takes two of the five,
-    /// which leaves three beside it and up to five underneath — room for every section there
-    /// is with one to spare.
+    /// which leaves three beside it and up to five underneath — room for eight sections. A
+    /// ninth switched on is the one the grid has nowhere to put; the switcher, a swipe and the
+    /// digits all still reach it.
     static let columns = 5
     static let gap: CGFloat = 10
     static let radius: CGFloat = 12
@@ -173,6 +175,8 @@ struct HomeGridView: View {
             let first = notes.text.split(separator: "\n").first.map(String.init) ?? ""
             return first.isEmpty ? "Jot something down" : first
         case .stats: return "Processor and memory"
+        case .notifications:
+            return inbox.entries.isEmpty ? "Nothing yet" : count(inbox.entries.count, "notification")
         }
     }
 

@@ -200,7 +200,7 @@ final class NotificationWatcher {
             let entry = Self.entry(from: banner, at: now, apps: apps)
             // Debug only, and the words themselves private: an `IslandLog` notice is kept on
             // disk, and a notification is somebody's post, not the island's business.
-            IslandLog.island.debug("notification from \(entry.bundleID, privacy: .public): \(entry.title, privacy: .private)")
+            IslandLog.notifications.debug("notification from \(entry.bundleID, privacy: .public): \(entry.title, privacy: .private)")
             NotificationInbox.shared.record(entry)
         }
     }
@@ -426,7 +426,7 @@ final class NotificationWatcher {
             guard AXObserverCreate(pid, NotificationWatcher.axCallback, &created) == .success,
                   let created else {
                 failures += 1
-                IslandLog.island.debug("no notification observer, sweeping instead; attempt \(self.failures, privacy: .public)")
+                IslandLog.notifications.debug("no notification observer, sweeping instead; attempt \(self.failures, privacy: .public)")
                 return
             }
             let refcon = Unmanaged.passUnretained(self).toOpaque()
@@ -440,7 +440,7 @@ final class NotificationWatcher {
                 // The observer exists but is being told nothing, which is worse than no
                 // observer at all: it would sit in the run loop for ever, silent.
                 failures += 1
-                IslandLog.island.debug("notification observer accepted nothing to watch for; sweeping instead")
+                IslandLog.notifications.debug("notification observer accepted nothing to watch for; sweeping instead")
                 return
             }
             CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(created), .defaultMode)

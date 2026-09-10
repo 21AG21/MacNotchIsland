@@ -5,6 +5,9 @@ import SwiftUI
 struct HomePanelPane: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var windows = WindowsMonitor.shared
+    /// Watched so the count beside Erase is the count, rather than what it was when this
+    /// window was opened.
+    @ObservedObject private var inbox = NotificationInbox.shared
     @AppStorage("settingsSection") private var selectedSection = SettingsSection.general.rawValue
     /// Held rather than built inside `onReceive`, where it would be a new publisher on every
     /// pass of the body — and this body runs whenever a preference on it changes.
@@ -69,6 +72,7 @@ struct HomePanelPane: View {
         case .actions: return "Run your favourite shortcuts from the panel."
         case .notes: return "A scratchpad that keeps whatever you type."
         case .stats: return "Processor, memory, network and battery health."
+        case .notifications: return "What came past on a banner, kept for three days. Records the app, what the banner said and when, in Notch Island's own folder on this Mac. Needs Accessibility to read the banners."
         }
     }
 
@@ -141,6 +145,34 @@ struct HomePanelPane: View {
                 Text("Kept on this Mac, in Notch Island's own folder, where only your account can read it. Anything a password manager marks as concealed, or another tool marks as its own, is never recorded at all.")
             }
             .disabled(!prefs.clipboardEnabled)
+
+            // Deliberately not disabled with the switch for this section. Turning the history
+            // off is the most likely moment somebody wants what it already wrote gone, and a
+            // pane that greys out the only way to erase it is a pane that traps it here.
+            Section {
+                LabeledContent("Reading banners") {
+                    HStack(spacing: 8) {
+                        Text(MediaKeyInterceptor.isTrusted ? "Allowed" : "Not allowed")
+                            .foregroundStyle(.secondary)
+                        Button("Accessibility…") { SystemSettingsPane.accessibility.open() }
+                    }
+                }
+                LabeledContent("Kept") {
+                    HStack(spacing: 8) {
+                        Text(inbox.entries.isEmpty ? "Nothing" : "\(inbox.entries.count)")
+                            .foregroundStyle(.secondary)
+                        Button("Erase") { NotificationInbox.shared.clear() }
+                            .disabled(inbox.entries.isEmpty)
+                            .help("Forget every notification kept so far. What was written to disk goes with them.")
+                    }
+                }
+            } header: {
+                Text("Notifications")
+            } footer: {
+                // The cap and the expiry are read from the rules rather than written out here,
+                // so this cannot quietly become a promise the app has stopped keeping.
+                Text("Kept on this Mac, in Notch Island's own folder, where only your account can read it: the app that sent each banner, the words it showed, and the time. Nothing about a notification is ever sent anywhere. The last \(NotificationInbox.maxEntries) are kept, anything older than \(Int(NotificationInbox.maxAge / 86_400)) days goes on its own, and Erase takes the lot now.")
+            }
 
             Section {
                 LabeledContent("Pictures of windows") {

@@ -83,6 +83,7 @@ struct PanelView: View {
             case .actions: ActionsSectionView()
             case .notes: NotesSectionView()
             case .stats: StatsSectionView()
+            case .notifications: NotificationsSectionView()
             }
         }
     }

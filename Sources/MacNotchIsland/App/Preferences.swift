@@ -47,6 +47,13 @@ final class Preferences: ObservableObject {
     @Published var clipboardEnabled: Bool { didSet { d.set(clipboardEnabled, forKey: "clipboardEnabled") } }
     @Published var clipboardLimit: Double { didSet { d.set(clipboardLimit, forKey: "clipboardLimit") } }
     @Published var pasteOnPick: Bool { didSet { d.set(pasteOnPick, forKey: "pasteOnPick") } }
+    /// Keep a history of the banners that came past.
+    ///
+    /// The one activity that ships switched off. Everything else here watches the Mac; this
+    /// one writes down what somebody's messages said, to a file on their disk, and a feature
+    /// like that is not the app's to assume anybody wants. Nothing about it runs — no watcher,
+    /// no reading of another process's window tree, no file — until this is turned on.
+    @Published var notificationsEnabled: Bool { didSet { d.set(notificationsEnabled, forKey: "notificationsEnabled") } }
     @Published var shelfExpiryHours: Double { didSet { d.set(shelfExpiryHours, forKey: "shelfExpiryHours") } }
     @Published var lyricsEnabled: Bool { didSet { d.set(lyricsEnabled, forKey: "lyricsEnabled") } }
     @Published var artworkLookupEnabled: Bool { didSet { d.set(artworkLookupEnabled, forKey: "artworkLookupEnabled") } }
@@ -140,6 +147,7 @@ final class Preferences: ObservableObject {
         clipboardEnabled = bool("clipboardEnabled", true)
         clipboardLimit = double("clipboardLimit", 50)
         pasteOnPick = bool("pasteOnPick", true)
+        notificationsEnabled = bool("notificationsEnabled", false)
         shelfExpiryHours = double("shelfExpiryHours", 24)
         lyricsEnabled = bool("lyricsEnabled", true)
         artworkLookupEnabled = bool("artworkLookupEnabled", true)

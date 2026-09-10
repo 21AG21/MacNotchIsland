@@ -22,13 +22,33 @@ struct SwitcherBand: View {
     /// short enough that waiting on purpose is not waiting.
     static let springDelay: TimeInterval = 0.45
 
-    /// The size a slot likes to be, and the smallest it will accept before slots start being
-    /// dropped. Sections can be switched on and off, so the row has to hold anything from two
-    /// to every one of them without changing the panel's width.
+    /// The size a slot likes to be, and the air it likes beside it. Sections can be switched
+    /// on and off, so the row has to hold anything from two to every one of them without
+    /// changing the panel's width.
     static let slot: CGFloat = 26
-    static let minSlot: CGFloat = 21
     static let gap: CGFloat = 4
     static let minGap: CGFloat = 2
+
+    /// The smallest thing the pointer is ever asked to hit here, which is Apple's floor for a
+    /// control it drives: 28 pt. This row wants every point of it. It lies in the menu bar,
+    /// where the hand arrives at speed from somewhere else and the top of the screen is right
+    /// there to overshoot into, which makes it the least forgiving strip on the display. With
+    /// every section switched on the old floor came out at a couple of millimetres a slot,
+    /// which is a row you aim at twice.
+    ///
+    /// What is drawn may be smaller than this; what takes the click may not. A slot's
+    /// rectangle reaches out into the air beside its circle as far as the halfway line to the
+    /// next one, so a run of slots is one unbroken strip of targets: nothing dead between
+    /// them, and no two of them over each other, which would hand the pointer whichever
+    /// SwiftUI happened to draw last rather than the one under it.
+    static let minHit: CGFloat = 28
+
+    /// Which settles the smallest circle the row will draw before it starts dropping slots
+    /// instead: 26 and the 2 pt beside it are the 28 the pointer needs, and there is nothing
+    /// left to give. A section that loses its slot is still one step away on the ring, and one
+    /// step away beats ten you cannot hit.
+    static var minSlot: CGFloat { minHit - minGap }
+
     static let inset: CGFloat = 16
     /// Room kept clear either side of the physical cutout.
     static let cutoutMargin: CGFloat = 10
@@ -86,17 +106,12 @@ struct SwitcherBand: View {
         let left = Self.fit(cards, in: side - Self.closeRoom, slot: right.slot, gap: right.gap)
         return HStack(spacing: 0) {
             HStack(spacing: 0) {
-                closeButton(size: right.slot)
+                closeButton(size: right.slot, gap: right.gap)
                 // A step, not a gap: closing the panel is not the next thing along the row
                 // from the things that navigate it, and at four points it read as the first
                 // of them.
                 Color.clear.frame(width: Self.groupGap)
-                // Identified by the view, not by where it sits: a slot arriving pushes the
-                // others across and fades in beside them, where by position every glyph after
-                // it would swap symbol in place and nothing would appear to have moved.
-                HStack(spacing: left.gap) {
-                    ForEach(left.views, id: \.self) { view in slotView(view, size: left.slot) }
-                }
+                slots(left.views, slot: left.slot, gap: left.gap)
                 Spacer(minLength: 0)
                 // The left of the band is empty unless something is live, and a row of small
                 // round glyphs says nothing about itself. So the name of whatever the pointer
@@ -105,8 +120,8 @@ struct SwitcherBand: View {
             }
             .frame(width: side, alignment: .leading)
             Color.clear.frame(width: middle)
-            HStack(spacing: right.gap) {
-                ForEach(right.views, id: \.self) { view in slotView(view, size: right.slot) }
+            HStack(spacing: 0) {
+                slots(right.views, slot: right.slot, gap: right.gap)
                 Spacer(minLength: 0)
             }
             .frame(width: side, alignment: .leading)
@@ -126,15 +141,11 @@ struct SwitcherBand: View {
         // step and not the step plus a gap either side of it — which is what the row was
         // measured for.
         return HStack(spacing: 0) {
-            closeButton(size: row.slot)
+            closeButton(size: row.slot, gap: row.gap)
             Color.clear.frame(width: Self.groupGap)
-            HStack(spacing: row.gap) {
-                ForEach(shownCards, id: \.self) { view in slotView(view, size: row.slot) }
-            }
+            slots(shownCards, slot: row.slot, gap: row.gap)
             if !shownCards.isEmpty { Color.clear.frame(width: step) }
-            HStack(spacing: row.gap) {
-                ForEach(shownSections, id: \.self) { view in slotView(view, size: row.slot) }
-            }
+            slots(shownSections, slot: row.slot, gap: row.gap)
             if let name = label { hoverName(name).padding(.leading, 8) }
             Spacer(minLength: 0)
         }
@@ -222,14 +233,17 @@ struct SwitcherBand: View {
     /// How to lay a row of slots out in the room there is: at the size they like where they
     /// all fit, tighter where they do not, and only then fewer of them. Every section the user
     /// switched on should be one click away, so the row gives up its spacing before it gives
-    /// up a slot.
+    /// up a slot — but never the click itself. A slot and the air beside it always come to
+    /// `minHit`, and once that no longer goes into the room as many times as there are
+    /// sections, the ones at the end lose their place rather than everyone losing the aim.
     static func fit(_ views: [IslandView], in room: CGFloat) -> (views: [IslandView], slot: CGFloat, gap: CGFloat) {
         guard !views.isEmpty, room > 0 else { return ([], slot, gap) }
         let count = CGFloat(views.count)
         if count * slot + (count - 1) * gap <= room { return (views, slot, gap) }
         let tight = (room - (count - 1) * minGap) / count
         if tight >= minSlot { return (views, min(slot, tight.rounded(.down)), minGap) }
-        // Even at the smallest size they do not all fit: drop the ones at the end.
+        // Even at the smallest size they do not all fit: drop the ones at the end. Every one
+        // that stays is a whole target wide, `minSlot + minGap` being exactly one of those.
         let fits = max(0, Int((room + minGap) / (minSlot + minGap)))
         return (Array(views.prefix(fits)), minSlot, minGap)
     }
@@ -243,10 +257,36 @@ struct SwitcherBand: View {
         return (Array(views.prefix(fits)), slot, gap)
     }
 
-    private func slotView(_ view: IslandView, size: CGFloat) -> some View {
+    /// The rectangle a slot takes its click in, given the size it is drawn at and the air
+    /// beside it: as big as the pointer needs, and never so big that it crosses the halfway
+    /// line to the slot next door. `fit` hands out nothing that cannot pay for both.
+    static func hit(slot: CGFloat, gap: CGFloat) -> CGSize {
+        CGSize(width: min(max(slot, minHit), slot + gap), height: max(slot, minHit))
+    }
+
+    /// What is left of the gap once the two rectangles either side of it have taken their
+    /// half. The circles still sit `gap` apart; the space between them simply belongs to one
+    /// or other of them now.
+    static func spacing(slot: CGFloat, gap: CGFloat) -> CGFloat {
+        max(0, gap - (hit(slot: slot, gap: gap).width - slot))
+    }
+
+    /// A run of slots at the one size, each in the rectangle it answers to.
+    ///
+    /// Identified by the view, not by where it sits: a slot arriving pushes the others across
+    /// and fades in beside them, where by position every glyph after it would swap symbol in
+    /// place and nothing would appear to have moved.
+    private func slots(_ views: [IslandView], slot: CGFloat, gap: CGFloat) -> some View {
+        HStack(spacing: Self.spacing(slot: slot, gap: gap)) {
+            ForEach(views, id: \.self) { view in slotView(view, size: slot, gap: gap) }
+        }
+    }
+
+    private func slotView(_ view: IslandView, size: CGFloat, gap: CGFloat) -> some View {
         let entry = Self.entry(for: view, center: center)
         let selected = current == view
         let springing = springTarget == view
+        let hit = Self.hit(slot: size, gap: gap)
         return Button(action: { center.select(view, direction: direction(to: view)) }) {
             ZStack {
                 // One disc, moved from slot to slot, rather than one fading out where it was
@@ -266,7 +306,12 @@ struct SwitcherBand: View {
             }
             .frame(width: size, height: size)
             .scaleEffect(springing ? 1.12 : 1)
-            .contentShape(Circle())
+            // The circle is what you see, this is what you hit, and the difference between
+            // them costs the row nothing: the rectangle only claims the air the slot was
+            // already keeping beside itself. A drag looking for somewhere to rest finds the
+            // same rectangle, which is the point of it.
+            .frame(width: hit.width, height: hit.height)
+            .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
         .animation(IslandMotion.hover, value: springing)
@@ -288,11 +333,11 @@ struct SwitcherBand: View {
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// Room the close button keeps at the leading edge whether or not it is showing: the
-    /// button and the step that separates it from the row it is not part of. Kept whether or
-    /// not it is showing, or the slots would resize and shuffle along the moment a peeked
-    /// panel is pinned.
-    static var closeRoom: CGFloat { slot + groupGap }
+    /// Room the close button keeps at the leading edge whether or not it is showing: what it
+    /// takes clicks in — which is the target, not the glyph — and the step that separates it
+    /// from the row it is not part of. Kept whether or not it is showing, or the slots would
+    /// resize and shuffle along the moment a peeked panel is pinned.
+    static var closeRoom: CGFloat { max(slot, minHit) + groupGap }
 
     /// The same circle as a slot, so the row is one size across.
     ///
@@ -300,8 +345,9 @@ struct SwitcherBand: View {
     /// and where it gives the band something at both ends. Sitting last, it left the whole
     /// left of a band with nothing live on it empty and every glyph in the panel crowded into
     /// the right third.
-    private func closeButton(size: CGFloat) -> some View {
-        Button(action: { center.collapse(reason: "close button") }) {
+    private func closeButton(size: CGFloat, gap: CGFloat) -> some View {
+        let hit = Self.hit(slot: size, gap: gap)
+        return Button(action: { center.collapse(reason: "close button") }) {
             // Drawn like every other slot on the band: a glyph, no disc. With a filled disc it
             // was the only thing on that line with a background, which made the one control
             // there that does not navigate the loudest thing in the panel. The disc that marks
@@ -309,8 +355,10 @@ struct SwitcherBand: View {
             Image(systemName: "xmark")
                 .font(.system(size: size * 0.44, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.55))
-                .frame(width: size, height: size)
-                .contentShape(Circle())
+                // The same rectangle every slot gets: the one control here that cannot be
+                // reached by any other route is not the one to make small.
+                .frame(width: hit.width, height: hit.height)
+                .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
         .opacity(center.isOpen ? 1 : 0)

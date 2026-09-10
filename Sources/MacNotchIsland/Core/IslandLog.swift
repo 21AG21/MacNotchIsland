@@ -29,6 +29,11 @@ enum IslandLog {
     static let display = Logger(subsystem: subsystem, category: "display")
     /// What the shelf and the clipboard keep on disk.
     static let store = Logger(subsystem: subsystem, category: "store")
+    /// The notification history: the watcher reading a piece of system UI that Apple owes
+    /// nobody a stable shape for, and the history it fills. Its own category because it is
+    /// the part of the app most likely to be the thing that stopped working after a point
+    /// release, and a support report has to be able to ask for exactly that.
+    static let notifications = Logger(subsystem: subsystem, category: "notifications")
     /// Weather and the update check — anything that leaves the Mac.
     static let network = Logger(subsystem: subsystem, category: "network")
 }

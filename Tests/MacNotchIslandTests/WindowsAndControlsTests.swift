@@ -72,12 +72,23 @@ final class WindowsAndControlsTests: XCTestCase {
         return (IslandLayout.panelWidth - middle) / 2 - SwitcherBand.inset
     }
 
-    func testEverySectionKeepsASlotInTheRoomThePanelHas() {
+    /// The band gives up its spacing before it gives up a slot, and gives up a slot before it
+    /// draws one nobody can hit — so with more sections switched on than the panel's width can
+    /// hold at that size, what has to be true is this: every section the row has room for
+    /// keeps its place, in order, from the head of the row. A slot that will not fit must
+    /// never shuffle the ones that do, and none that had room to stand in may be dropped.
+    func testTheBandKeepsEverySectionItHasRoomForAndDropsFromTheEnd() {
         let fitted = SwitcherBand.fit(views, in: bandSide)
-        XCTAssertEqual(fitted.views.count, HomeSection.allCases.count, "no section may be dropped from the switcher")
         XCTAssertGreaterThanOrEqual(fitted.slot, SwitcherBand.minSlot)
-        let used = CGFloat(fitted.views.count) * fitted.slot + CGFloat(fitted.views.count - 1) * fitted.gap
+        XCTAssertEqual(fitted.views, Array(views.prefix(fitted.views.count)),
+                       "what is shown is the head of the row, in the order it is written in")
+        let used = CGFloat(fitted.views.count) * fitted.slot
+            + CGFloat(max(0, fitted.views.count - 1)) * fitted.gap
         XCTAssertLessThanOrEqual(used, bandSide)
+        guard fitted.views.count < views.count else { return }
+        let another = CGFloat(fitted.views.count + 1) * fitted.slot
+            + CGFloat(fitted.views.count) * fitted.gap
+        XCTAssertGreaterThan(another, bandSide, "a slot was dropped that had room to stand in")
     }
 
     /// The close button sits at the leading edge, so its room comes out of the side the live

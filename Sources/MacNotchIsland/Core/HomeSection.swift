@@ -8,6 +8,10 @@ enum HomeSection: String, CaseIterable {
     /// finds out that any of the rest of it exists.
     case home
     case music, today, windows, shelf, controls, clipboard, actions, notes, stats
+    /// What came past on a banner, kept. Last in the list because it is last to arrive:
+    /// the digits count the sections from the left, and a section wedged into the middle
+    /// would move every one of them under somebody's fingers.
+    case notifications
 
     var title: String {
         switch self {
@@ -21,6 +25,7 @@ enum HomeSection: String, CaseIterable {
         case .actions: return "Actions"
         case .notes: return "Notes"
         case .stats: return "Stats"
+        case .notifications: return "Notifications"
         }
     }
 
@@ -36,6 +41,7 @@ enum HomeSection: String, CaseIterable {
         case .actions: return "bolt"
         case .notes: return "note.text"
         case .stats: return "gauge.with.dots.needle.bottom.50percent"
+        case .notifications: return "bell"
         }
     }
 
@@ -55,6 +61,7 @@ enum HomeSection: String, CaseIterable {
         case .actions: return prefs.quickActionsEnabled
         case .notes: return prefs.notesEnabled
         case .stats: return prefs.statsEnabled
+        case .notifications: return prefs.notificationsEnabled
         }
     }
 
@@ -70,6 +77,7 @@ enum HomeSection: String, CaseIterable {
         case .actions: prefs.quickActionsEnabled = enabled
         case .notes: prefs.notesEnabled = enabled
         case .stats: prefs.statsEnabled = enabled
+        case .notifications: prefs.notificationsEnabled = enabled
         }
     }
 

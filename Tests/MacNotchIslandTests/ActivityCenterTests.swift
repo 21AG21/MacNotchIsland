@@ -672,4 +672,41 @@ final class ActivityCenterTests: XCTestCase {
                       "a build with no bundle identifier must not be the one app that never yields")
     }
 
+    // MARK: - The notification history
+
+    func testNotificationsIsASectionWithASwitchOfItsOwn() {
+        let prefs = Preferences.shared
+        let saved = prefs.notificationsEnabled
+        // Back to what it ships as rather than to what this suite left it on: every other
+        // class here starts by switching the lot on, and this is the one that must not be.
+        defer { prefs.notificationsEnabled = saved }
+        prefs.notificationsEnabled = true
+        XCTAssertTrue(HomeSection.notifications.isEnabled(prefs))
+        XCTAssertTrue(HomeSection.available(prefs).contains(.notifications))
+        XCTAssertTrue(HomeSection.tiles(prefs).contains(.notifications), "and a tile on the front door")
+        HomeSection.notifications.setEnabled(false, in: prefs)
+        XCTAssertFalse(HomeSection.notifications.isEnabled(prefs))
+        XCTAssertFalse(HomeSection.available(prefs).contains(.notifications))
+        XCTAssertFalse(HomeSection.tiles(prefs).contains(.notifications))
+    }
+
+    /// The one feature here that writes down what somebody's messages said. Nothing about it
+    /// may start on any ground but the switch: not a section being opened, not the permission
+    /// happening to be granted, not another switch implying it.
+    func testNothingReadsABannerUntilTheSwitchSaysSo() {
+        let prefs = Preferences.shared
+        let saved = prefs.notificationsEnabled
+        defer { prefs.notificationsEnabled = saved }
+
+        prefs.notificationsEnabled = false
+        XCTAssertFalse(ServiceHub.wantsNotifications(prefs), "off is off, whatever else is on")
+        prefs.notificationsEnabled = true
+        XCTAssertTrue(ServiceHub.wantsNotifications(prefs), "and on when it has been asked for")
+    }
+
+    func testTheNotificationHistoryIsAListYouCanTypeAt() {
+        XCTAssertTrue(PanelFind.searches(.notifications),
+                      "a history worth keeping is a history worth looking through")
+    }
+
 }

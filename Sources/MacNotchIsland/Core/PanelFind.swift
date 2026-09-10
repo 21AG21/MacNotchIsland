@@ -2,19 +2,19 @@ import Foundation
 
 /// Type-to-find: the rule for which sections can be searched, and what counts as a match.
 ///
-/// Three of the panel's sections are lists of many things — every open window, every recent
-/// copy, everything on the shelf — and a list of many things is something you look through.
-/// The Mac's answer to that has always been to start typing: Finder, Mail, the Font panel and
-/// every table in the system narrow to what you typed. The island does the same, and because
-/// it must never sit between somebody and their own text it claims the letters only while the
-/// panel is pinned open on one of those three.
+/// Four of the panel's sections are lists of many things — every open window, every recent
+/// copy, everything on the shelf, everything that came past on a banner — and a list of many
+/// things is something you look through. The Mac's answer to that has always been to start
+/// typing: Finder, Mail, the Font panel and every table in the system narrow to what you
+/// typed. The island does the same, and because it must never sit between somebody and their
+/// own text it claims the letters only while the panel is pinned open on one of those four.
 ///
 /// Pure, so the rules can be tested without a window server.
 enum PanelFind {
     /// The sections a find applies to. Now Playing is one thing, Stats is a dashboard, Notes
     /// and the Today card are read rather than searched — none of them is a list to look
     /// through, so none of them takes the letters.
-    static let sections: Set<HomeSection> = [.windows, .clipboard, .shelf]
+    static let sections: Set<HomeSection> = [.windows, .clipboard, .shelf, .notifications]
 
     /// Whether a section answers the letters.
     static func searches(_ section: HomeSection?) -> Bool {

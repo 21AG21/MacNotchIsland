@@ -360,7 +360,7 @@ final class NotificationInbox: ObservableObject {
         do {
             try IslandFiles.write(try JSONEncoder().encode(entries), to: fileName)
         } catch {
-            IslandLog.store.error("notification history save failed: \(String(describing: error), privacy: .public)")
+            IslandLog.notifications.error("notification history save failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

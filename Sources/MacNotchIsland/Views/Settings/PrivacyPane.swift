@@ -27,7 +27,7 @@ struct PrivacyPane: View {
             Section {
                 permission(
                     "Accessibility",
-                    detail: "Moves windows from the Windows section, and replaces the system volume and brightness bezel.",
+                    detail: "Moves windows from the Windows section, replaces the system volume and brightness bezel, and is what lets the Notifications section read the banners it keeps — without it that section stays empty.",
                     status: MediaKeyInterceptor.isTrusted ? "Granted" : "Not granted",
                     pane: .accessibility
                 )
@@ -104,7 +104,7 @@ struct PrivacyPane: View {
             } header: {
                 Text("What leaves this Mac")
             } footer: {
-                Text("Nothing else does, and each of these stops the moment its switch goes off. There is no account, no analytics, and nothing is ever sent about what you copy, type, open or look at.")
+                Text("Nothing else does, and each of these stops the moment its switch goes off. There is no account, no analytics, and nothing is ever sent about what you copy, type, open, look at, or are notified about.")
             }
 
             Section {

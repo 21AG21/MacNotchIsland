@@ -66,12 +66,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
-    /// The scratchpad and the clipboard history are both written a moment after they change,
-    /// and quitting is quicker than that moment. Nothing waits for a debounce on the way out.
-    /// Called for a menu-bar quit, a SIGTERM, and a log out or restart.
+    /// The scratchpad, the clipboard history and the notification history are all written a
+    /// moment after they change, and quitting is quicker than that moment. Nothing waits for a
+    /// debounce on the way out. Called for a menu-bar quit, a SIGTERM, and a log out or restart.
     private static func saveEverythingNow() {
         NotesStore.shared.flush()
         ClipboardStore.shared.flush()
+        // What arrived in the last minute before a quit is exactly what somebody comes back
+        // looking for.
+        NotificationInbox.shared.flush()
     }
 
     @objc private func saveEverything() { Self.saveEverythingNow() }

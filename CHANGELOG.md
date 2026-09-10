@@ -6,15 +6,31 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
-- **Groundwork: the island remembers what came past.** The Mac has never had a notification
-  history — a banner you did not look up in time is gone, and Notification Centre only holds
-  what each app chose to leave behind. Every competing notch app mirrors the banner as it
-  arrives; none of them remembers it. The store and the reader are in, with the rules for what
-  counts as the same notification twice, what is kept and what is let go of, all pure and under
-  test. Not yet wired to a section, and the reader is built on the assumption that it will one
-  day stop working: reading the Notification Centre process's accessibility tree is the only
-  route there is, it is private system UI, and so the degraded path — the app and the time,
-  with the words as a bonus — is the design rather than the fallback.
+- **The island remembers what came past.** A notification history, in the panel: what arrived,
+  from which app, when, still there an hour later, grouped by app and searchable by typing.
+  The Mac has never had one — a banner you did not look up in time is gone, and Notification
+  Centre only holds what each app chose to leave behind. **It ships switched off.** Everything
+  else in this app watches the Mac; this one writes down what somebody's messages said, to a
+  file on their disk, and that is not the app's to assume anybody wants. Nothing runs until it
+  is turned on — no watcher, no reading of another process's window tree, no file — and
+  Settings says plainly what is kept and gives you a button to erase it. It reads the
+  Notification Centre process's accessibility tree, which is private system UI and will one day
+  change shape; a banner it cannot read the words of still becomes a row with the app and the
+  moment on it, because that failure was designed for rather than hoped against.
+
+### Changed
+- **The switcher's slots are big enough to hit.** With every section switched on they came out
+  at 21 pt — a couple of millimetres apiece, seven under Apple's floor for a control a pointer
+  drives, in the menu bar, which is the least forgiving strip on the screen: the hand arrives
+  at speed and the top of the display is right there to overshoot into. The row now keeps every
+  target at 28 pt and drops a slot from the end rather than shrinking past it, because a
+  section one step away on the ring beats ten you have to aim at twice. What is drawn can be
+  smaller than what takes the click.
+- **Lists say when there is more to see.** Every scrolling strip in the panel hid its scroller,
+  so the Wi-Fi column showed four of the twenty networks in range and nothing said the other
+  sixteen were there. The Mac's own scrollers are overlay ones that arrive under the hand and
+  fade when it stops, so a strip with nothing hidden is no different for having them — and one
+  with something hidden finally says so.
 
 ### Fixed
 - **The clipboard stops asking the disk how it should look.** A row said whether its copied files

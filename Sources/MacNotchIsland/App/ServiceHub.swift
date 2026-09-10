@@ -18,6 +18,7 @@ final class ServiceHub {
     let lowPower = LowPowerMonitor()
     let hotkey = HotKeyService.shared
     let clipboard = ClipboardStore.shared
+    let notifications = NotificationWatcher()
     let lyrics = LyricsService.shared
     let mediaKeys = MediaKeyInterceptor()
     let capsLock = CapsLockMonitor()
@@ -57,6 +58,17 @@ final class ServiceHub {
         p.calendarEnabled && p.hasSeenWelcome
     }
 
+    /// Whether the banners on screen may be read, which is the same as whether anything at all
+    /// about the notification history happens.
+    ///
+    /// The switch is the whole rule, and it is here rather than inline so that there is one
+    /// place that decides it and one place to read to be sure. This is the feature that writes
+    /// down what somebody's messages said: nothing may start it because a section was opened,
+    /// because a permission happens to be granted, or because some other switch implies it.
+    static func wantsNotifications(_ p: Preferences) -> Bool {
+        p.notificationsEnabled
+    }
+
     private func apply() {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
@@ -90,6 +102,9 @@ final class ServiceHub {
         // on the island at launch, and drops the activity when the shelf is switched off.
         ShelfStore.shared.refreshActivity()
         p.clipboardEnabled ? clipboard.start() : clipboard.stop()
+        // Switched off, the watcher's thread is not merely idle: it is not there at all, and
+        // nothing has looked at Notification Centre.
+        Self.wantsNotifications(p) ? notifications.start() : notifications.stop()
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
         // With both displays switched off there is no key left for the island to take, and
         // an event tap that swallows nothing is not worth asking anyone for Accessibility.

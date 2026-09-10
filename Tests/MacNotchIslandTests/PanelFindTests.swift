@@ -22,7 +22,7 @@ final class PanelFindTests: XCTestCase {
     // MARK: - The rule
 
     func testOnlyTheSectionsThatAreListsTakeTheLetters() {
-        for section in [HomeSection.windows, .clipboard, .shelf] {
+        for section in [HomeSection.windows, .clipboard, .shelf, .notifications] {
             XCTAssertTrue(PanelFind.searches(section), "\(section) is a list of things")
         }
         for section in [HomeSection.music, .today, .actions, .notes, .stats] {

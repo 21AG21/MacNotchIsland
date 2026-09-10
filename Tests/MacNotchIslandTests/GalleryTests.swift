@@ -49,6 +49,7 @@ final class GalleryTests: XCTestCase {
         prefs.quickActionsEnabled = true
         prefs.shelfEnabled = true
         prefs.clipboardEnabled = true
+        prefs.notificationsEnabled = true
         prefs.lyricsEnabled = true
         prefs.nowPlayingEnabled = true
         prefs.notesEnabled = true
@@ -72,6 +73,7 @@ final class GalleryTests: XCTestCase {
             // the pasteboard and the user's apps could only ever be reviewed empty.
             AgendaStore.shared.seedForGallery(events: [], reminders: [])
             ClipboardStore.shared.seedForGallery([])
+            NotificationInbox.shared.seedForGallery([])
             FavoriteApps.shared.seedForGallery([])
             BluetoothMonitor.galleryDevices = nil
             WiFiScanner.shared.seedForGallery([])
@@ -367,6 +369,35 @@ final class GalleryTests: XCTestCase {
         ])
     }
 
+    /// A morning's banners, across the apps that actually send them, with one that could not
+    /// be read at all — the row that exists because the tree these are read from belongs to
+    /// somebody else and is not promised to stay the shape it is.
+    private static func notifications() {
+        let now = Date()
+        NotificationInbox.shared.seedForGallery([
+            NotificationInbox.Entry(bundleID: "com.apple.MobileSMS", appName: "Messages", title: "Sam",
+                                    body: "Are we still on for lunch? I can do half twelve.",
+                                    date: now.addingTimeInterval(-3 * 60)),
+            NotificationInbox.Entry(bundleID: "com.apple.mail", appName: "Mail", title: "Rosebery Property",
+                                    subtitle: "Re: the heating",
+                                    body: "The engineer can come Thursday morning.",
+                                    date: now.addingTimeInterval(-11 * 60)),
+            NotificationInbox.Entry(bundleID: "com.apple.MobileSMS", appName: "Messages", title: "Mum",
+                                    body: "Ring me when you get a minute.",
+                                    date: now.addingTimeInterval(-26 * 60)),
+            NotificationInbox.Entry(bundleID: "com.apple.iCal", appName: "Calendar", title: "Design review",
+                                    body: "In 10 minutes · Caffè Macs",
+                                    date: now.addingTimeInterval(-95 * 60)),
+            // Read off a banner that gave up nothing: the app and the moment, and an honest
+            // line where the words would be.
+            NotificationInbox.Entry(bundleID: NotificationInbox.Entry.unknownBundleID,
+                                    date: now.addingTimeInterval(-140 * 60)),
+            NotificationInbox.Entry(bundleID: "com.tinyspeck.slackmacgap", appName: "Slack", title: "#design",
+                                    body: "Ana: the new notch mock is up, have a look when you can.",
+                                    date: now.addingTimeInterval(-3 * 3600)),
+        ])
+    }
+
     /// A reading and the next few hours, since the gallery has neither a network nor a
     /// location to ask for one.
     private static func weather() {
@@ -540,6 +571,8 @@ final class GalleryTests: XCTestCase {
                 c.beginFind(with: "a")
                 c.updateFind("app")
             },
+            Scene(name: "panel-notifications", setup: panel("notifications") { _ in notifications() }),
+            Scene(name: "panel-notifications-empty", setup: panel("notifications")),
             Scene(name: "panel-actions", setup: panel("actions") { _ in favouriteApps() }),
             Scene(name: "panel-actions-empty", setup: panel("actions")),
             Scene(name: "panel-notes", setup: panel("notes")),

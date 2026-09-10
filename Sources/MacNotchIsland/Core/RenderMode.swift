@@ -39,7 +39,15 @@ extension View {
 /// A scroll view, except in the gallery, where the content is laid out in place and clipped.
 struct IslandScrollStrip<Content: View>: View {
     var axis: Axis.Set = .horizontal
-    var showsIndicators = false
+    /// Shown, because a column holding four of the twenty networks in range and saying nothing
+    /// about the other sixteen is a list of four networks as far as anybody can tell: content
+    /// nobody can see is content nobody knows to look for. The Mac's own scrollers are overlay
+    /// ones — they arrive under the hand and fade when it stops — so a strip with nothing
+    /// hidden is no different for having them, and one with something hidden finally says so.
+    ///
+    /// The gallery is untouched by this either way: it builds no scroll view at all, which is
+    /// the whole reason this type exists.
+    var showsIndicators = true
     @ViewBuilder let content: () -> Content
 
     var body: some View {

@@ -231,4 +231,103 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertLessThan(layout.hitLeading, layout.frameWidth / 2 + NotchPanel.restSlack)
         XCTAssertEqual(layout.hitHeight, layout.bodyHeight + layout.topInset + 6)
     }
+
+    // MARK: - What the switcher band asks the pointer to hit
+
+    /// As many slots as asked for; the fitting does not care what is in them.
+    private func bandSlots(_ count: Int) -> [IslandView] {
+        (0..<count).map { IslandView.home(tab: "slot\($0)") }
+    }
+
+    /// The room the sections are actually left with beside a cutout of a given width.
+    private func bandSide(notch: CGFloat) -> CGFloat {
+        (IslandLayout.panelWidth - (notch + SwitcherBand.cutoutMargin * 2)) / 2 - SwitcherBand.inset
+    }
+
+    /// The band is the least forgiving strip on the screen: it lies in the menu bar, the hand
+    /// arrives at it from somewhere else at speed, and the top of the screen is right there to
+    /// overshoot into. Every one of these numbers is a size somebody has to land on with a
+    /// pointer that is already moving, so none of them may fall under the floor, whatever mix
+    /// of sections and live activities the row is asked to hold.
+    func testNoSlotIsEverSmallerThanThePointerNeedsItToBe() {
+        let notches: [CGFloat] = [160, 180, 185, 200, 220]
+        var rooms: [CGFloat] = notches.map { bandSide(notch: $0) }
+        // And the screen with no cutout, where the whole row runs from the leading edge.
+        rooms.append(IslandLayout.panelWidth - SwitcherBand.inset * 2 - SwitcherBand.closeRoom
+                     - SwitcherBand.groupGap)
+        for room in rooms {
+            for count in 1...(HomeSection.allCases.count + 4) {
+                let fitted = SwitcherBand.fit(bandSlots(count), in: room)
+                let note = "\(count) slots in \(room) pt"
+                let hit = SwitcherBand.hit(slot: fitted.slot, gap: fitted.gap)
+                XCTAssertFalse(fitted.views.isEmpty, note)
+                XCTAssertGreaterThanOrEqual(hit.width, SwitcherBand.minHit, note)
+                XCTAssertGreaterThanOrEqual(hit.height, SwitcherBand.minHit, note)
+                XCTAssertLessThanOrEqual(hit.width, fitted.slot + fitted.gap,
+                                         "two targets lying over each other: \(note)")
+                let drawn = CGFloat(fitted.views.count) * fitted.slot
+                    + CGFloat(fitted.views.count - 1) * fitted.gap
+                XCTAssertLessThanOrEqual(drawn, room, note)
+                // The targets are wider than the circles and the row is no wider for it: what
+                // they claim is the air the slots were keeping beside themselves anyway.
+                let targets = CGFloat(fitted.views.count) * hit.width
+                    + CGFloat(fitted.views.count - 1) * SwitcherBand.spacing(slot: fitted.slot, gap: fitted.gap)
+                XCTAssertLessThanOrEqual(targets, room + fitted.gap, note)
+            }
+        }
+    }
+
+    /// Every section switched on at once is more than the panel has room for beside a 14-inch
+    /// cutout at a size anybody can hit, so something has to give — and what gives is the slot
+    /// at the end of the row, not the aim. A section without a slot is still one step along
+    /// the ring; a row of slots nobody can land on cannot be reached at all.
+    func testTheBandDropsASlotRatherThanShrinkPastThatFloor() {
+        let room = bandSide(notch: 200)
+        let all = bandSlots(HomeSection.allCases.count)
+        let fitted = SwitcherBand.fit(all, in: room)
+        XCTAssertEqual(fitted.slot, SwitcherBand.minSlot, "the circle stops at the floor")
+        XCTAssertEqual(fitted.gap, SwitcherBand.minGap, "and the spacing was given up first")
+        XCTAssertLessThan(fitted.views.count, all.count)
+        // Dropping as few as it can get away with: one more slot and the row would be a
+        // target short.
+        let kept = CGFloat(fitted.views.count)
+        XCTAssertLessThanOrEqual(kept * SwitcherBand.minHit - SwitcherBand.minGap, room)
+        XCTAssertGreaterThan((kept + 1) * SwitcherBand.minHit - SwitcherBand.minGap, room)
+        // At every count on the way there it keeps everything the room can hold.
+        let most = Int((room + SwitcherBand.minGap) / SwitcherBand.minHit)
+        for count in 1...all.count {
+            XCTAssertEqual(SwitcherBand.fit(bandSlots(count), in: room).views.count,
+                           min(count, most), "\(count) sections")
+        }
+    }
+
+    /// The circle a slot is drawn as and the rectangle it takes its click in are two different
+    /// sizes on purpose: a band wide enough to draw a full row of 28 pt circles would cost the
+    /// panel room it has not got, while letting each slot take its click in the air it was
+    /// already keeping beside itself costs nothing at all.
+    func testTheTargetIsBiggerThanTheCircleAndTheRowIsNoWiderForIt() {
+        XCTAssertEqual(SwitcherBand.minSlot + SwitcherBand.minGap, SwitcherBand.minHit,
+                       "the floor on the circle is the floor on the target, less the air beside it")
+        let tight = SwitcherBand.hit(slot: SwitcherBand.minSlot, gap: SwitcherBand.minGap)
+        XCTAssertEqual(tight.width, SwitcherBand.minHit)
+        XCTAssertGreaterThan(tight.width, SwitcherBand.minSlot,
+                             "the click lands in the air beside the circle as well as on it")
+        XCTAssertEqual(SwitcherBand.spacing(slot: SwitcherBand.minSlot, gap: SwitcherBand.minGap), 0,
+                       "at the floor the targets meet edge to edge, with nothing dead between them")
+        // Whatever the size, the step from one circle to the next is the circle and its gap:
+        // the rectangle takes its half out of the stack's spacing, not out of the band.
+        let sizes: [(CGFloat, CGFloat)] = [(SwitcherBand.slot, SwitcherBand.gap),
+                                           (SwitcherBand.minSlot, SwitcherBand.minGap),
+                                           (40, 4)]
+        for (slot, gap) in sizes {
+            let hit = SwitcherBand.hit(slot: slot, gap: gap)
+            XCTAssertEqual(hit.width + SwitcherBand.spacing(slot: slot, gap: gap), slot + gap,
+                           accuracy: 0.001, "a slot of \(slot)")
+            XCTAssertEqual(hit.height, max(slot, SwitcherBand.minHit), "a slot of \(slot)")
+        }
+        XCTAssertGreaterThanOrEqual(SwitcherBand.closeRoom,
+                                    SwitcherBand.hit(slot: SwitcherBand.slot,
+                                                     gap: SwitcherBand.gap).width + SwitcherBand.groupGap,
+                                    "the close button's reservation covers what it takes clicks in")
+    }
 }
