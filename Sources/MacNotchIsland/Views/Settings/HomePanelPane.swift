@@ -159,7 +159,7 @@ struct HomePanelPane: View {
                 }
                 LabeledContent("Kept") {
                     HStack(spacing: 8) {
-                        Text(inbox.entries.isEmpty ? "Nothing" : "\(inbox.entries.count)")
+                        Text(keptCount)
                             .foregroundStyle(.secondary)
                         Button("Erase") { NotificationInbox.shared.clear() }
                             .disabled(inbox.entries.isEmpty)
@@ -215,6 +215,12 @@ struct HomePanelPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// How many notifications are being kept at this moment, for the row the Erase button is
+    /// on. "Nothing" rather than a nought: a nought reads as a tally that has gone wrong.
+    private var keptCount: String {
+        inbox.entries.isEmpty ? "Nothing" : String(inbox.entries.count)
     }
 
     /// Menus store discrete choices; a value set by an older build is shown as its nearest match.
