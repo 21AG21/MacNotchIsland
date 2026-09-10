@@ -458,3 +458,52 @@ final class SystemStats: ObservableObject {
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
     }
 }
+
+// MARK: - Where a reading lives
+
+/// Where macOS keeps the thing each Stats cell is reading.
+///
+/// A number you cannot act on is a decoration: the section says the disk is 84% full and then
+/// leaves you to go and find the window that does something about it. Every reading here is
+/// about something the Mac already has a proper place for — the processor and the memory are
+/// two columns of Activity Monitor, the rest are settings panes — so each cell can be the door
+/// to it rather than a caption.
+///
+/// The mapping lives beside the readings and knows nothing of AppKit, so it can be checked
+/// without a screen; opening the door is the view layer's business.
+enum StatsDestination: CaseIterable {
+    case cpu
+    case memory
+    case disk
+    case network
+    case battery
+
+    /// Where the cell goes, or nil for a reading with nowhere to send anybody. Nil is not a
+    /// failure: a cell without a destination stays a reading, because a button that goes
+    /// nowhere is worse than no button at all.
+    var url: URL? {
+        switch self {
+        // Activity Monitor is an app, not a pane, and has no URL scheme of its own, so it is
+        // opened by the path the system apps have had since Catalina moved them off the disk.
+        case .cpu, .memory:
+            return URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
+        case .disk:
+            return URL(string: "x-apple.systempreferences:com.apple.settings.Storage")
+        case .network:
+            return URL(string: "x-apple.systempreferences:com.apple.Network-Settings.extension")
+        case .battery:
+            return URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension")
+        }
+    }
+
+    /// What that place is called, for the tooltip and for VoiceOver. Nil exactly where `url`
+    /// is: there is nothing to name when there is nowhere to go.
+    var placeName: String? {
+        switch self {
+        case .cpu, .memory: return "Activity Monitor"
+        case .disk: return "Storage settings"
+        case .network: return "Network settings"
+        case .battery: return "Battery settings"
+        }
+    }
+}

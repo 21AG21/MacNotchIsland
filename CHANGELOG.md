@@ -13,6 +13,12 @@ the unreleased section is what the next tag will ship.
   of into the reply. Leaving for another app is leaving.
 
 ### Added
+- **Every reading in Stats is a door.** The processor and the memory open Activity Monitor, the
+  disk opens Storage, the network opens Network — the whole column is the target, the way a
+  Control Centre module is, not a small chevron in the corner of it. A number you can only look
+  at is a decoration: the section said the disk was 84% full and then left you to go and find
+  the window that does something about it. A Mac with no battery keeps its em dash and stays a
+  reading, because a button that goes nowhere is worse than no button.
 - **How much is left in the headphones.** Every connected Bluetooth device on the Controls list
   now carries its charge beside its glyph, and a pair of buds shows the ear that will run out
   first, because that is the one that ends the listening. Under ten per cent it turns red — the

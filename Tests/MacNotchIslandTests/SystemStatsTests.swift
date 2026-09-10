@@ -158,4 +158,58 @@ final class SystemStatsTests: XCTestCase {
         XCTAssertEqual(SystemStats.historyLength, 40)
         XCTAssertTrue(SystemStats.shared.cpuHistory.count <= SystemStats.historyLength)
     }
+
+    // MARK: - StatsDestination
+
+    /// The app is compared as a URL rather than as a string: a bundle is a directory, and a
+    /// file URL to one can carry a trailing slash that the path it was built from never had.
+    private let activityMonitor = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
+
+    func testEveryReadingIsADoorToWhereMacOSKeepsIt() {
+        // Exhaustive on purpose: a cell added to the section without somewhere to send people
+        // fails to compile here rather than quietly going back to being a decoration.
+        for destination in StatsDestination.allCases {
+            switch destination {
+            case .cpu, .memory:
+                XCTAssertEqual(destination.url, activityMonitor)
+                XCTAssertEqual(destination.placeName, "Activity Monitor")
+            case .disk:
+                XCTAssertEqual(destination.url?.absoluteString, "x-apple.systempreferences:com.apple.settings.Storage")
+                XCTAssertEqual(destination.placeName, "Storage settings")
+            case .network:
+                XCTAssertEqual(destination.url?.absoluteString, "x-apple.systempreferences:com.apple.Network-Settings.extension")
+                XCTAssertEqual(destination.placeName, "Network settings")
+            case .battery:
+                XCTAssertEqual(destination.url?.absoluteString, "x-apple.systempreferences:com.apple.Battery-Settings.extension")
+                XCTAssertEqual(destination.placeName, "Battery settings")
+            }
+        }
+        XCTAssertEqual(StatsDestination.allCases.count, 5, "five readings in the row, five doors")
+    }
+
+    func testTheProcessorAndTheMemoryOpenTheOneWindow() {
+        // They are two columns of Activity Monitor, not two different places.
+        XCTAssertEqual(StatsDestination.cpu.url, StatsDestination.memory.url)
+        XCTAssertEqual(StatsDestination.cpu.url?.isFileURL, true, "an app is opened by its path, not by a scheme")
+    }
+
+    func testASettingsPaneIsAskedForByItsExactExtension() {
+        // System Settings finds nothing at all if the extension's identifier is off by a
+        // character, so these strings are the test.
+        for destination in [StatsDestination.disk, .network, .battery] {
+            let link = destination.url?.absoluteString ?? ""
+            XCTAssertTrue(link.hasPrefix("x-apple.systempreferences:"), link)
+            XCTAssertFalse(link.hasSuffix(":"), "a scheme with nothing after it opens the last pane you looked at")
+        }
+    }
+
+    func testAReadingWithNowhereToGoNamesNoPlace() {
+        // The two halves have to agree: a place with no link would put a dead button on
+        // screen, and a link with no name would leave its tooltip with nothing to say.
+        for destination in StatsDestination.allCases {
+            XCTAssertEqual(destination.url == nil, destination.placeName == nil,
+                           "\(destination) only half-answers where it goes")
+            XCTAssertNotEqual(destination.placeName, "", "a named place is named something")
+        }
+    }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The panel's Stats section: processor, memory, disk, network and battery health across one
@@ -30,127 +31,133 @@ struct StatsView: View {
     // MARK: - Cells
 
     private var cpuCell: some View {
-        cell(label: "CPU") {
-            Text(Self.percentText(stats.sample.cpuPercent))
-                .font(Self.valueFont)
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-                .animation(IslandMotion.digits, value: stats.sample.cpuPercent)
-        } footer: {
-            Sparkline(values: stats.cpuHistory, ceiling: 20)
-                .frame(height: Self.footerHeight)
-                .accessibilityHidden(true)
+        door(.cpu, label: "CPU", value: "\(Int(stats.sample.cpuPercent.rounded())) percent") {
+            cell(label: "CPU") {
+                Text(Self.percentText(stats.sample.cpuPercent))
+                    .font(Self.valueFont)
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.digits, value: stats.sample.cpuPercent)
+            } footer: {
+                Sparkline(values: stats.cpuHistory, ceiling: 20)
+                    .frame(height: Self.footerHeight)
+                    .accessibilityHidden(true)
+            }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("CPU")
-        .accessibilityValue("\(Int(stats.sample.cpuPercent.rounded())) percent")
     }
 
     /// The headline is the share in use, so the row reads as one scale across five columns
     /// rather than one column of gigabytes among four percentages; the gigabytes are the
     /// small print under the bar, where the disk's free space is.
     private var memoryCell: some View {
-        cell(label: "Memory") {
-            Text(memoryValue)
-                .font(Self.valueFont)
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-                .animation(IslandMotion.digits, value: memoryValue)
-        } footer: {
-            MeterBar(fraction: fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes))
-                .accessibilityHidden(true)
-            Text(memoryDetail)
-                .font(Self.detailFont)
-                .foregroundStyle(.white.opacity(0.4))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Memory")
-        .accessibilityValue("\(memoryValue), \(memoryDetail)")
-    }
-
-    private var diskCell: some View {
-        cell(label: "Disk") {
-            Text(diskValue)
-                .font(Self.valueFont)
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-                .animation(IslandMotion.digits, value: diskValue)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        } footer: {
-            // A volume that will not say how full it is gets the em dash and nothing else,
-            // rather than an empty bar and a line explaining itself.
-            if let detail = diskDetail {
-                MeterBar(fraction: fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes))
-                    .accessibilityHidden(true)
-                Text(detail)
-                    .font(Self.detailFont)
-                    .foregroundStyle(.white.opacity(0.4))
-                    .lineLimit(1)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Disk")
-        .accessibilityValue(diskDetail ?? "Not available")
-    }
-
-    private var networkCell: some View {
-        cell(label: "Network") {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("↓ " + SystemStats.rateText(stats.sample.networkDownBytesPerSec))
-                    .font(Self.smallValueFont)
+        door(.memory, label: "Memory", value: "\(memoryValue), \(memoryDetail)") {
+            cell(label: "Memory") {
+                Text(memoryValue)
+                    .font(Self.valueFont)
                     .foregroundStyle(.white)
-                Text("↑ " + SystemStats.rateText(stats.sample.networkUpBytesPerSec))
-                    .font(Self.smallValueFont)
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-            .lineLimit(1)
-            .padding(.top, 1)
-            .contentTransition(.numericText())
-            .animation(IslandMotion.digits, value: stats.sample.networkDownBytesPerSec)
-        } footer: {
-            Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
-                .frame(height: Self.footerHeight)
-                .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Network")
-        .accessibilityValue("Download \(SystemStats.rateText(stats.sample.networkDownBytesPerSec)), upload \(SystemStats.rateText(stats.sample.networkUpBytesPerSec))")
-    }
-
-    /// The laptop question, in the order it is asked: how much is left, then for how long,
-    /// then how the battery is ageing.
-    private var batteryCell: some View {
-        cell(label: "Battery") {
-            Text(batteryValue)
-                .font(Self.valueFont)
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-                .animation(IslandMotion.digits, value: batteryValue)
-        } footer: {
-            if let percent = stats.sample.batteryPercent {
-                MeterBar(fraction: Double(percent) / 100)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.digits, value: memoryValue)
+            } footer: {
+                MeterBar(fraction: fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes))
                     .accessibilityHidden(true)
-                if let time = batteryTime {
-                    Text(time)
-                        .font(Self.detailFont)
-                        .foregroundStyle(.white.opacity(0.4))
-                        .lineLimit(1)
-                }
-            }
-            if let detail = batteryDetail {
-                Text(detail)
+                Text(memoryDetail)
                     .font(Self.detailFont)
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Battery")
-        .accessibilityValue(batteryAccessibilityValue)
+    }
+
+    private var diskCell: some View {
+        door(.disk, label: "Disk", value: diskDetail ?? "Not available") {
+            cell(label: "Disk") {
+                Text(diskValue)
+                    .font(Self.valueFont)
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.digits, value: diskValue)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            } footer: {
+                // A volume that will not say how full it is gets the em dash and nothing else,
+                // rather than an empty bar and a line explaining itself.
+                if let detail = diskDetail {
+                    MeterBar(fraction: fraction(stats.sample.diskUsedBytes, of: stats.sample.diskTotalBytes))
+                        .accessibilityHidden(true)
+                    Text(detail)
+                        .font(Self.detailFont)
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var networkCell: some View {
+        door(.network, label: "Network", value: networkAccessibilityValue) {
+            cell(label: "Network") {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("↓ " + SystemStats.rateText(stats.sample.networkDownBytesPerSec))
+                        .font(Self.smallValueFont)
+                        .foregroundStyle(.white)
+                    Text("↑ " + SystemStats.rateText(stats.sample.networkUpBytesPerSec))
+                        .font(Self.smallValueFont)
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .lineLimit(1)
+                .padding(.top, 1)
+                .contentTransition(.numericText())
+                .animation(IslandMotion.digits, value: stats.sample.networkDownBytesPerSec)
+            } footer: {
+                Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
+                    .frame(height: Self.footerHeight)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// "Download 1.2 MB/s, upload 96 KB/s".
+    private var networkAccessibilityValue: String {
+        "Download \(SystemStats.rateText(stats.sample.networkDownBytesPerSec)), upload \(SystemStats.rateText(stats.sample.networkUpBytesPerSec))"
+    }
+
+    /// The laptop question, in the order it is asked: how much is left, then for how long,
+    /// then how the battery is ageing.
+    private var batteryCell: some View {
+        door(batteryDestination, label: "Battery", value: batteryAccessibilityValue) {
+            cell(label: "Battery") {
+                Text(batteryValue)
+                    .font(Self.valueFont)
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .animation(IslandMotion.digits, value: batteryValue)
+            } footer: {
+                if let percent = stats.sample.batteryPercent {
+                    MeterBar(fraction: Double(percent) / 100)
+                        .accessibilityHidden(true)
+                    if let time = batteryTime {
+                        Text(time)
+                            .font(Self.detailFont)
+                            .foregroundStyle(.white.opacity(0.4))
+                            .lineLimit(1)
+                    }
+                }
+                if let detail = batteryDetail {
+                    Text(detail)
+                        .font(Self.detailFont)
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+        }
+    }
+
+    /// A Mac with no battery has no Battery pane either, so its em dash is left as a reading:
+    /// the one cell in the row that can have nothing behind it.
+    private var batteryDestination: StatsDestination? {
+        stats.sample.batteryPercent == nil ? nil : StatsDestination.battery
     }
 
     /// "3 h 40 min left", "48 min to full", or "Plugged in" when there is no estimate.
@@ -219,6 +226,36 @@ struct StatsView: View {
     }
 
     // MARK: - Furniture
+
+    /// One cell, wrapped in the button that opens the place its number is about — or left
+    /// exactly as it is, when there is no such place. Every reading here is about something
+    /// the Mac keeps somewhere: the processor and the memory in Activity Monitor, the disk,
+    /// the network and the battery each in their own settings pane. A number you can only
+    /// look at is a decoration, so the whole column is the target — the name, the number and
+    /// the trace are one thing to point at, the way a Control Centre module is.
+    ///
+    /// A cell with nowhere to go keeps its plain element and stays inert: a button that goes
+    /// nowhere is worse than no button at all.
+    @ViewBuilder
+    private func door<Content: View>(_ destination: StatsDestination?,
+                                     label: String,
+                                     value: String,
+                                     @ViewBuilder content: () -> Content) -> some View {
+        if let destination, let place = destination.placeName, destination.url != nil {
+            Button { destination.open() } label: { content() }
+                .buttonStyle(IslandButtonStyle())
+                .contentShape(Rectangle())
+                .help("Open \(place)")
+                .accessibilityLabel(label)
+                .accessibilityValue(value)
+                .accessibilityHint("Click to open \(place)")
+        } else {
+            content()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+                .accessibilityValue(value)
+        }
+    }
 
     /// One column of the row: the name at the top, the number under it, and whatever draws
     /// the shape of that number — a trace, a bar, a line of detail — in a slot of one size
@@ -311,6 +348,21 @@ private struct Sparkline: View {
             }
             .stroke(Color.white.opacity(0.7),
                     style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+/// Opening the door a Stats cell is. The mapping itself is pure and lives with the readings in
+/// `SystemStats`; only this half needs AppKit, and it is the half nothing has to test.
+extension StatsDestination {
+    func open() {
+        guard let url else { return }
+        // An app is opened as an app: handed to `open(_:)` instead, Launch Services is being
+        // asked to open a folder, and a bundle would come up in the Finder.
+        if url.isFileURL {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            NSWorkspace.shared.open(url)
         }
     }
 }
