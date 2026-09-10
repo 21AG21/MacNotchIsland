@@ -786,19 +786,6 @@ final class ActivityCenter: ObservableObject {
         return true
     }
 
-    /// Whether the island owns the bare arrow keys, the digits and Space at this moment.
-    ///
-    /// Only while the panel is pinned open: a peek follows the pointer and takes nothing from
-    /// the keyboard. And never while a section that is typed into is showing — nothing the
-    /// island claims may sit between somebody and their own text.
-    ///
-    /// Necessary but no longer sufficient: see `HotKeyService.claim`, which also asks whether
-    /// the island is actually holding the keyboard. Being open was never a licence to take a
-    /// key out of somebody else's text field.
-    static func ownsPanelKeys(open: Bool, typing: Bool, enabled: Bool) -> Bool {
-        enabled && open && !typing
-    }
-
     /// Whether one of the island's own windows is the key window right now.
     ///
     /// The panel's keys are global hot keys — Carbon hands them here instead of to whoever was

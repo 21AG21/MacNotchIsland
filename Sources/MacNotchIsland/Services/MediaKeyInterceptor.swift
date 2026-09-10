@@ -183,6 +183,12 @@ final class MediaKeyInterceptor {
     /// a line to the system log every few seconds for the life of the process.
     static let maxTapAttempts = 5
 
+    /// How many times a tap that has been found switched off is switched back on before we
+    /// stop asking. The watch timer comes round for as long as the feature is on, so a tap the
+    /// window server will not have back would otherwise be enabled, found off and enabled
+    /// again every few seconds for the life of the process, with a line in the log each time.
+    static let maxTapRevivals = 3
+
     /// One notch of the macOS volume / brightness bar.
     static let coarseStep: Float = 1.0 / 16.0
     /// The Shift+Option quarter notch.
@@ -202,6 +208,21 @@ final class MediaKeyInterceptor {
     private var trustTimer: Timer?
     private var tapThread: Thread?
     private var tapFailures = 0
+    /// How many times the tap has been switched back on since it was last found carrying the
+    /// keys. A tap that comes back has cost nothing; one that will not is what this counts.
+    private var tapRevivals = 0
+    /// Whether the user has already been told the tap is not coming back. Once is the whole
+    /// point of it: the watch timer would otherwise say it again every few seconds.
+    private var reportedTapLoss = false
+    /// Whether the tap being off would be news.
+    ///
+    /// A tap is created enabled and switched straight off again, and stays off until the
+    /// island knows which keys it can answer. A tap that is off because we put it off is not a
+    /// tap to be put back: switching it on there would hand it the media keys before there was
+    /// an answer for any of them, and possibly before its own run loop was reading it — which
+    /// is how a tap gets itself disabled for timing out, holding up every media key on the Mac
+    /// while it does.
+    private var tapArmed = false
     private var lastVolume: Float?
     private var lastMuted: Bool?
     private var lastBrightness: Float?
@@ -247,6 +268,9 @@ final class MediaKeyInterceptor {
         // it has to actually try: without this a run of failures would be permanent for the
         // life of the process, with nothing but a relaunch to clear it.
         tapFailures = 0
+        tapRevivals = 0
+        reportedTapLoss = false
+        tapArmed = false
         lock.lock()
         stopRequested = false
         lock.unlock()
@@ -339,6 +363,9 @@ final class MediaKeyInterceptor {
         tapPort = nil
         lock.unlock()
         tapFailures = 0
+        tapRevivals = 0
+        reportedTapLoss = false
+        tapArmed = false
         guard let port else { return }
         CGEvent.tapEnable(tap: port, enable: false)
         CFMachPortInvalidate(port)
@@ -346,13 +373,81 @@ final class MediaKeyInterceptor {
         tapThread = nil
     }
 
-    /// The tap can be turned off under us; say so if it has been.
+    /// What has become of a tap that has just been asked whether it is still carrying the keys.
+    enum TapHealth: Equatable {
+        /// It is, and whatever it did before is forgotten.
+        case carrying
+        /// It is not, and it is still worth switching back on.
+        case revivable
+        /// It has been switched back on as often as it is going to be and would not stay on.
+        case lost
+    }
+
+    /// Whether a tap that has come back disabled is worth switching on again.
+    ///
+    /// The window server turns a tap off without telling anyone who is listening: the callback
+    /// hears about a timeout, but a tap dropped while the process was suspended across sleep
+    /// leaves nothing behind except a port that answers no. Left at that, the island stops
+    /// answering the media keys for the rest of the run and looks exactly as it does when the
+    /// feature was never switched on — macOS quietly draws its own bezel again and the keys go
+    /// on working, so there is nothing to notice. Bounded because the watch timer comes round
+    /// every few seconds for as long as the feature is on, and a tap that will not be had must
+    /// not be asked for forever.
+    static func tapHealth(isEnabled: Bool,
+                          revivalsSoFar: Int,
+                          budget: Int = MediaKeyInterceptor.maxTapRevivals) -> TapHealth {
+        if isEnabled { return .carrying }
+        return revivalsSoFar < budget ? .revivable : .lost
+    }
+
+    /// The tap can be turned off under us; put it back, and say so when it will not go back.
     private func verifyTap() {
         lock.lock()
         let port = tapPort
         lock.unlock()
         guard let port else { return SystemHUDReplacement.shared.set(false) }
-        SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
+        // Off because it has not been armed yet is not off behind our back.
+        guard tapArmed else { return SystemHUDReplacement.shared.set(false) }
+        switch Self.tapHealth(isEnabled: CGEvent.tapIsEnabled(tap: port), revivalsSoFar: tapRevivals) {
+        case .carrying:
+            tapRevivals = 0
+            SystemHUDReplacement.shared.set(true)
+        case .revivable:
+            let attempt = tapRevivals + 1
+            tapRevivals = attempt
+            CGEvent.tapEnable(tap: port, enable: true)
+            // Asked again rather than assumed: `tapEnable` on a port the window server has
+            // finished with says nothing at all, and a tap we merely hoped was back would have
+            // the island drawing its display beside the system's with nothing behind it.
+            let live = CGEvent.tapIsEnabled(tap: port)
+            if live { tapRevivals = 0 }
+            SystemHUDReplacement.shared.set(live)
+            IslandLog.keys.error("the event tap had been disabled behind our back; re-enabled: \(live, privacy: .public); attempt \(attempt, privacy: .public) of \(Self.maxTapRevivals, privacy: .public)")
+        case .lost:
+            SystemHUDReplacement.shared.set(false)
+            reportTapLost()
+        }
+    }
+
+    /// Said out loud, once, because this is the one failure here that hides itself.
+    ///
+    /// Everything else in this file fails soft into the system bezel, which is a fine outcome
+    /// precisely because it is the one the user had before. This is not that: the user asked
+    /// for the island to answer the keys, it has stopped, the keys still work, and nothing on
+    /// screen is different. Without a word, the only cure anybody could find by accident is a
+    /// relaunch — so the message names the one that does not need one.
+    private func reportTapLost() {
+        guard !reportedTapLoss else { return }
+        reportedTapLoss = true
+        IslandLog.keys.error("the event tap would not come back after \(Self.maxTapRevivals, privacy: .public) attempts; the media keys are macOS's again")
+        let custom = CustomActivity(title: "The media keys have gone back to macOS",
+                                    subtitle: "The key tap was switched off and would not come back. Turn \u{201C}Answer the volume and brightness keys\u{201D} off and on again in Settings.",
+                                    symbol: "exclamationmark.triangle.fill",
+                                    tint: "orange")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "mediakeys-lost", kind: .custom,
+                                                       content: .custom(custom), priority: 90,
+                                                       presentation: .expanded),
+                                        duration: 5)
     }
 
     // MARK: - Event tap
@@ -391,6 +486,11 @@ final class MediaKeyInterceptor {
             return
         }
         tapFailures = 0
+        // A tap nobody has asked anything of yet deserves the whole budget, and a user who was
+        // told the last one had gone deserves to be told again if this one does.
+        tapRevivals = 0
+        reportedTapLoss = false
+        tapArmed = false
 
         lock.lock()
         tapPort = port
@@ -416,6 +516,7 @@ final class MediaKeyInterceptor {
         // down and rebuilt would otherwise enable the dead one and leave the live one unread.
         refreshCapabilities { [weak self] in
             guard let self, self.running, self.isCurrent(generation) else { return }
+            self.tapArmed = true
             CGEvent.tapEnable(tap: port, enable: true)
             SystemHUDReplacement.shared.set(CGEvent.tapIsEnabled(tap: port))
         }

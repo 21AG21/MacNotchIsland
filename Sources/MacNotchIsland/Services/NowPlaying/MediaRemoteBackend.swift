@@ -29,7 +29,16 @@ final class MediaRemoteBackend {
     /// exactly the moment the card goes blank, and a flag that could never fall kept the
     /// AppleScript fallback shut behind it, with nothing said to the user and nothing to be done
     /// short of quitting the app.
+    /// Whether a track is coming through. What ranks this above AppleScript.
     var isHealthy: Bool { BackendHealth.isFresh(lastPayload, now: Date(), within: Self.staleAfter) }
+
+    /// Whether MediaRemote is answering at all, which is a different question and the one the
+    /// fallback turns on. A payload with nothing playing in it is an answer: it says the Mac is
+    /// silent, and there is nothing AppleScript can add to that. Reading "not delivering a
+    /// track" as "not answering" had a Mac with the music stopped firing a round trip at Music
+    /// and at Spotify every two seconds for as long as it was switched on, each one able to
+    /// raise an Automation prompt.
+    var isAnswering: Bool { BackendHealth.isFresh(lastHeard, now: Date(), within: Self.staleAfter) }
 
     /// Whether we are registered for notifications *right now* — not whether the framework has
     /// ever been loaded. Those two used to be the same flag, so switching Now Playing off and on
@@ -38,6 +47,8 @@ final class MediaRemoteBackend {
     private var started = false
     /// When MediaRemote last handed over a payload with a track in it.
     private var lastPayload: Date?
+    /// The last payload of any kind, empty ones included. See `isAnswering`.
+    private var lastHeard: Date?
 
     private var handle: UnsafeMutableRawPointer?
     private var getInfo: GetNowPlayingInfoFn?
@@ -101,6 +112,7 @@ final class MediaRemoteBackend {
         // Health cannot outlive being switched off, or the AppleScript poller would stay gated
         // behind a backend that is no longer listening to anything.
         lastPayload = nil
+        lastHeard = nil
         lastRefresh = .distantPast
     }
 
@@ -155,6 +167,9 @@ final class MediaRemoteBackend {
                                   isPlaying: rate > 0, bundleID: nil,
                                   artwork: lastArtwork, artworkID: lastArtworkHash, accent: lastAccent)
 
+        // Heard from, whatever it said. An empty payload is not a track and must not rank this
+        // above AppleScript, but it is still MediaRemote answering.
+        lastHeard = Date()
         if title.isEmpty && artist.isEmpty {
             // macOS 15.4+ hands unentitled apps a payload with no usable fields; don't count that as healthy.
             if isHealthy { onUpdate?(nil) }

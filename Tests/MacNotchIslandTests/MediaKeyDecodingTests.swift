@@ -98,4 +98,54 @@ final class MediaKeyDecodingTests: XCTestCase {
         // Just exercising the accessor: the CI machine grants nothing, but it must not trap.
         _ = MediaKeyInterceptor.isTrusted
     }
+
+    // MARK: A tap switched off behind our back
+
+    func testATapThatIsCarryingTheKeysIsLeftAlone() {
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: true, revivalsSoFar: 0), .carrying)
+        // Even with every attempt spent: a tap that answers is a tap that answers.
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: true,
+                                                     revivalsSoFar: MediaKeyInterceptor.maxTapRevivals),
+                       .carrying)
+    }
+
+    func testATapFoundSwitchedOffIsSwitchedBackOn() {
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: 0), .revivable)
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: 1), .revivable)
+    }
+
+    func testATapThatWillNotComeBackIsNotRetriedForever() {
+        let budget = MediaKeyInterceptor.maxTapRevivals
+        XCTAssertGreaterThan(budget, 0)
+        for spent in 0..<budget {
+            XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: spent), .revivable)
+        }
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: budget), .lost)
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: budget + 7), .lost)
+    }
+
+    func testTheRevivalBudgetIsSpentOneAttemptAtATime() {
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: 0, budget: 1), .revivable)
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: 1, budget: 1), .lost)
+        // No budget at all is a tap nobody asks about twice.
+        XCTAssertEqual(MediaKeyInterceptor.tapHealth(isEnabled: false, revivalsSoFar: 0, budget: 0), .lost)
+    }
+
+    // MARK: An older copy on its way out
+
+    func testACopyThatHasAlreadyGoneIsNotWaitedFor() {
+        XCTAssertEqual(CopyRetirement.next(stillRunning: 0, secondsLeft: 2), .done)
+        // Gone is gone, deadline or no deadline: there is nothing left to force.
+        XCTAssertEqual(CopyRetirement.next(stillRunning: 0, secondsLeft: -1), .done)
+    }
+
+    func testACopyStillOnItsWayOutIsWaitedFor() {
+        XCTAssertEqual(CopyRetirement.next(stillRunning: 1, secondsLeft: 1.5), .waitAgain)
+        XCTAssertEqual(CopyRetirement.next(stillRunning: 3, secondsLeft: 0.01), .waitAgain)
+    }
+
+    func testACopyThatWillNotQuitIsNotWaitedForForever() {
+        XCTAssertEqual(CopyRetirement.next(stillRunning: 1, secondsLeft: 0), .force)
+        XCTAssertEqual(CopyRetirement.next(stillRunning: 2, secondsLeft: -0.3), .force)
+    }
 }

@@ -171,7 +171,21 @@ final class NotificationInbox: ObservableObject {
 
     private var persistWork: DispatchWorkItem?
 
-    private init() {
+    /// Whether the history on disk has been read yet. See `loadIfNeeded`.
+    private var loaded = false
+
+    private init() {}
+
+    /// Reads the history, once.
+    ///
+    /// Not from `init`, because a singleton is built the first time anything touches it — a
+    /// view body, a log line — and on a second launch that can happen while the copy being
+    /// replaced is still writing its own last seconds out. Both copies rewrite the whole file,
+    /// so whoever read first and wrote last wins, and what the old copy caught on its way out
+    /// is gone. The delegate calls this once the older copy has actually retired.
+    func loadIfNeeded() {
+        guard !loaded else { return }
+        loaded = true
         entries = NotificationInbox.trimmed(NotificationInbox.loadPersisted())
     }
 
@@ -326,6 +340,7 @@ final class NotificationInbox: ObservableObject {
     /// Fills the history for the rendered gallery, which starts with nothing to show. Does
     /// nothing outside the gallery.
     func seedForGallery(_ entries: [Entry]) {
+        loaded = true
         guard RenderMode.isGallery else { return }
         self.entries = entries
     }

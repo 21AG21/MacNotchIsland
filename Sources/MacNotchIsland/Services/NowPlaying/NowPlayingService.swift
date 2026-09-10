@@ -111,7 +111,7 @@ final class NowPlayingService: ObservableObject {
         // working Mac with the music stopped fired a round trip at Music and at Spotify every
         // two seconds for as long as it was switched on, each one able to raise an Automation
         // prompt. The fallback is for a backend that has gone quiet, which is a different thing.
-        if !energy.isAsleep, !adapter.isAnswering, !mediaRemote.isHealthy, ticks % pollEvery == 0 {
+        if !energy.isAsleep, !adapter.isAnswering, !mediaRemote.isAnswering, ticks % pollEvery == 0 {
             appleScript.poll { [weak self] info in self?.handle(info, from: .appleScript) }
         } else if activeBackend == .mediaRemote {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
@@ -128,7 +128,7 @@ final class NowPlayingService: ObservableObject {
     private func handle(_ new: NowPlayingInfo?, from backend: Backend) {
         guard running else { return }   // a late poll must not bring the pill back after stop()
         // Lower-ranked backends stay quiet once a better one is delivering.
-        if backend == .appleScript && (adapter.isAnswering || mediaRemote.isHealthy) { return }
+        if backend == .appleScript && (adapter.isAnswering || mediaRemote.isAnswering) { return }
         if backend == .mediaRemote && adapter.isAnswering { return }
 
         guard let new = new.map(Self.sanitized) else {

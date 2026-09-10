@@ -161,17 +161,35 @@ final class ClipboardStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var persistWork: DispatchWorkItem?
     private var pendingThumbnails: Set<UUID> = []
+    /// Whether what is on disk has been read back yet.
+    private var hasLoaded = false
 
     /// Fills the history for the rendered gallery, which starts with an empty pasteboard.
     /// Does nothing outside the gallery.
     func seedForGallery(_ items: [ClipboardItem]) {
         guard RenderMode.isGallery else { return }
         self.items = items
+        // The gallery's history is the whole of its history; nothing on disk may land on top
+        // of it later.
+        hasLoaded = true
         refreshMissingFiles()
     }
 
     private init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
+    }
+
+    /// Reads the history back from disk, once. Harmless to ask twice.
+    ///
+    /// Kept out of `init` on purpose, because the two happen at different moments for a
+    /// reason. A second launch asks the copy already running to quit, and that copy writes its
+    /// history — everything copied in its last few seconds — on the way out. The whole history
+    /// is one file, rewritten whole, so a new copy that had read it before that write landed
+    /// would put it back afterwards with those seconds missing, and both files would look
+    /// perfectly well-formed. The delegate says when the older copy has gone.
+    func loadIfNeeded() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
         items = ClipboardStore.loadPersisted()
     }
 
@@ -180,6 +198,9 @@ final class ClipboardStore: ObservableObject {
     func start() {
         guard !running else { return }
         running = true
+        // Before the first `changeCount` is read, and so before anything can be captured: a
+        // capture into an empty history would be saved as the whole of it.
+        loadIfNeeded()
         // Whatever is already on the pasteboard at launch is not a new copy.
         lastChangeCount = pasteboard.changeCount
         EnergyPolicy.shared.objectWillChange

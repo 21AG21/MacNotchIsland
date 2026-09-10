@@ -86,12 +86,15 @@ final class PanelFindTests: XCTestCase {
     }
 
     func testAFindAsksForTheKeyboardAndGivesItBack() {
-        // Asked of the rule rather than of `panelKeysActive`, which also asks whether the
-        // island is actually holding the keyboard — there is no key window in a test run, and
-        // that is a different question from the one this test is about.
+        // The live rule, asked with the keyboard held. `panelKeysActive` would answer for the
+        // real app, but a test run has no key window, so it is false throughout and would pin
+        // nothing about the find. Everything else here is the island's actual state.
         func claimed() -> Bool {
-            ActivityCenter.ownsPanelKeys(open: center.openView != nil,
-                                         typing: center.wantsKeyboard, enabled: true)
+            HotKeyService.claim(pinnedOpen: center.openView != nil,
+                                holdsKeyboard: true,
+                                textFieldUp: center.wantsKeyboard,
+                                listSection: PanelFind.searches(center.openSection),
+                                enabled: true).bareKeys
         }
         center.open(.home(tab: HomeSection.clipboard.rawValue))
         XCTAssertFalse(center.wantsKeyboard, "the clipboard is a list until somebody starts typing")

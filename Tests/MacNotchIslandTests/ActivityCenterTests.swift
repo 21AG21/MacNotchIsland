@@ -94,18 +94,24 @@ final class ActivityCenterTests: XCTestCase {
 
     // MARK: - The keys the panel answers
 
+    /// The live rule, with the keyboard held — which is the state these three are about.
+    private func claimed(open: Bool, typing: Bool, enabled: Bool) -> Bool {
+        HotKeyService.claim(pinnedOpen: open, holdsKeyboard: true, textFieldUp: typing,
+                            listSection: false, enabled: enabled).bareKeys
+    }
+
     func testThePanelOwnsItsKeysOnlyWhileItIsPinnedOpen() {
         // A peek follows the pointer and takes nothing from the keyboard.
-        XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: false, typing: false, enabled: true))
-        XCTAssertTrue(ActivityCenter.ownsPanelKeys(open: true, typing: false, enabled: true))
+        XCTAssertFalse(claimed(open: false, typing: false, enabled: true))
+        XCTAssertTrue(claimed(open: true, typing: false, enabled: true))
     }
 
     func testNothingTheIslandClaimsSitsBetweenSomebodyAndTheirText() {
-        XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: true, typing: true, enabled: true))
+        XCTAssertFalse(claimed(open: true, typing: true, enabled: true))
     }
 
     func testTheKeysCanBeSwitchedOff() {
-        XCTAssertFalse(ActivityCenter.ownsPanelKeys(open: true, typing: false, enabled: false))
+        XCTAssertFalse(claimed(open: true, typing: false, enabled: false))
     }
 
     func testSpaceIsQuickLookOnlyWhileTheShelfIsTheSectionOnScreen() {

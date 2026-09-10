@@ -52,6 +52,26 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **Settings and Quick Look can be typed into again.** Making the pinned panel hold the keyboard
+  — which is what stopped it taking keys out of other apps — had it taking the keyboard back off
+  *its own* windows too: click the gear on the rail and Settings opened with a dead title bar
+  that would not accept a keystroke, with no way out, because none of the three things that
+  close the panel fire for our own windows. Wanting the keyboard is not the same as being owed
+  it by Settings.
+- **A silent Mac no longer wakes Music and Spotify every two seconds.** Half of the health
+  rewrite reached MediaRemote and half did not: it counted itself as answering only when a real
+  track came through, so with nothing playing the app fell back to AppleScript for as long as it
+  was switched on. An empty payload is an answer — it says the Mac is silent, and there is
+  nothing AppleScript can add to that.
+- **Notes and the notification history stop being eaten by a second launch.** The fix that
+  stopped this happening to the clipboard was not applied to the other two whole-file stores.
+  All three are read once the older copy has actually gone now, rather than whenever something
+  first touches the singleton.
+- **The media keys come back when macOS takes the tap away.** A tap disabled behind the app's
+  back was noticed every five seconds and then left disabled: the island quietly stopped
+  answering the volume and brightness keys for the rest of the run, and because macOS draws its
+  own bezel there was nothing to see. It is revived now, a bounded number of times, and if it
+  truly cannot come back the island says so instead of failing silently.
 - **The island cannot take a key that was meant for somebody else.** Its panel keys — the
   arrows, the digits, Space and, on a list, the whole alphabet — are registered with Carbon,
   which takes them from every application at once. They were claimed on the strength of the

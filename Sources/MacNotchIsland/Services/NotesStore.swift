@@ -16,7 +16,18 @@ final class NotesStore: ObservableObject {
     private var unsaved = false
     private static let fileName = "notes.txt"
 
-    private init() {
+    /// Whether the scratchpad on disk has been read yet. See `loadIfNeeded`.
+    private var loaded = false
+
+    private init() {}
+
+    /// Reads the scratchpad, once, and never from `init` — see the note on
+    /// `NotificationInbox.loadIfNeeded`. A singleton built while the copy being replaced is
+    /// still writing its last save out reads the old text and then writes it back over the new
+    /// one, and a week of somebody's notes goes with it.
+    func loadIfNeeded() {
+        guard !loaded else { return }
+        loaded = true
         text = IslandFiles.read(Self.fileName).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 

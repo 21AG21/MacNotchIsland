@@ -227,14 +227,27 @@ final class NotchPanel: NSPanel {
     /// to sit on the screen's top edge, so it keeps the frame it asks for.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
-    /// Follows what the panel needs: key status while a section that is typed into is open,
-    /// handed straight back when that section goes.
+    /// Follows what the panel needs: key status while the panel is pinned or a section that is
+    /// typed into is open, handed straight back when that goes.
     private func syncKeyboard() {
         guard ActivityCenter.shared.wantsPanelKeyboard else { return scheduleKeyRelease() }
         keyReleaseWork?.cancel()
         keyReleaseWork = nil
-        guard !isKeyWindow, isVisible, ownsKeyboard else { return }
+        guard !isKeyWindow, isVisible, ownsKeyboard, !Self.anotherOfOursHasIt else { return }
         makeKey()
+    }
+
+    /// Whether another window of this app — Settings, a Quick Look panel — is holding the
+    /// keyboard.
+    ///
+    /// The island wants it whenever the panel is pinned, and this runs on every refit, which
+    /// is every published change. Without this the gear on the rail opened Settings and the
+    /// island took the keyboard straight back off it: a window with a dead title bar that
+    /// would not accept a keystroke, and no way out, because none of the three things that
+    /// close the panel fire for our own windows. Space on the shelf did the same to Quick
+    /// Look. Wanting the keyboard is not the same as being owed it by our own windows.
+    private static var anotherOfOursHasIt: Bool {
+        NSApp.windows.contains { $0.isKeyWindow && !($0 is NotchPanel) }
     }
 
     /// With an island on several screens, the one under the pointer takes the keyboard;
