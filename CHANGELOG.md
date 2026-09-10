@@ -6,6 +6,25 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Fixed
+- **The island opens cleanly.** Five things were wrong with the growth out of the notch, and
+  the worst of them meant a click-to-open never used the opening curve at all. Nested
+  animations in SwiftUI are innermost-wins, and the press feedback sat *outside* the frame, so
+  it governed the frame too — and because the press always ends in the very same instant the
+  panel opens, every click morphed the whole island on the press release's spring, 0.3 s at
+  bounce 0.3, with the scale springing over the top of it. Two overshoots at once, and an open
+  that looked nothing like the one hovering gives you. The rest: the window was still
+  notch-sized when the first frames of the growth were drawn, so the panel was guillotined by a
+  hard rectangle and then the crop snapped away; the content was cut to a square while the body
+  is a 36 pt continuous curve, so slivers of the switcher and the section escaped at both
+  bottom corners and sat on the wallpaper; the shadow was handed the final height on frame one
+  and bloomed to full window size under a notch that was still a notch; and the rim's fade was
+  measured as a fraction of a height it had not reached, putting a bright hairline along the
+  top row of the display for the first half of the move.
+- **Opening the same panel twice looks the same both times.** Which way the last step went is
+  what picks the spring and the transition, and only opening and collapsing cleared it. A
+  hover exit goes through neither, so once you had stepped sideways in a peeked panel, every
+  hover-open after that grew on the flat navigate spring and pushed its content in from the
+  side instead of crossing over. It healed only when something was clicked.
 - **Going to another app closes the panel.** It claims the whole alphabet as global hot keys
   while it is open — that is what makes type-to-find work — and a click outside was the only
   thing that closed it. Command-Tab makes no click, so the panel stayed open over Mail with

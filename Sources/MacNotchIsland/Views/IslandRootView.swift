@@ -19,7 +19,8 @@ struct IslandRootView: View {
             Color.clear
             if !center.isSuppressed {
                 HStack(alignment: .top, spacing: layout.bubbleGap) {
-                    IslandBodyView(geometry: geometry, presentation: presentation, layout: layout, panelID: panelID)
+                    IslandBodyView(geometry: geometry, presentation: presentation, layout: layout,
+                                   panelID: panelID, shapeAnimation: animation)
                     // The bubble pops with its own, bouncier spring. The animation is scoped to
                     // this group alone: on the row it would also govern the outline whenever a
                     // second activity appears or leaves in the same update.

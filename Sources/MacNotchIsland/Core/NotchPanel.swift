@@ -105,9 +105,17 @@ final class NotchPanel: NSPanel {
         hosting = view
         place(frame)
 
+        // Straight into `scheduleRefit`, with no scheduler in between.
+        //
+        // A `RunLoop.main` hop costs a whole extra turn of the run loop, and `scheduleRefit`
+        // already takes the one hop it needs to read values the change has actually been
+        // applied to. With both, the window was still notch-sized when SwiftUI composited the
+        // first frames of the growth, so the opening panel was guillotined by a hard rectangle
+        // at the notch's own footprint and then the crop snapped away. The `RunLoop.main`
+        // scheduler also runs only in the default mode, which meant no refit at all while a
+        // menu was tracking.
         Publishers.Merge3(ActivityCenter.shared.objectWillChange, Preferences.shared.objectWillChange,
                           MenuBarClearance.shared.objectWillChange)
-            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.scheduleRefit() }
             .store(in: &cancellables)
         watchForReordering()
@@ -327,6 +335,13 @@ final class NotchPanel: NSPanel {
     /// Several published changes land in one runloop turn; one refit covers them all, after the
     /// changes have been applied (objectWillChange fires before them).
     private func scheduleRefit() {
+        // Nothing in AppKit may be touched from anywhere but the main thread, and this is now
+        // called straight from whatever wrote the value — including, one day, a service that
+        // publishes from a background queue.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.scheduleRefit() }
+            return
+        }
         guard !refitScheduled else { return }
         refitScheduled = true
         DispatchQueue.main.async { [weak self] in

@@ -202,6 +202,27 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertEqual(IslandShadow.ambient(height: 0).radius, IslandShadow.smallestRadius, accuracy: 0.001)
     }
 
+    /// And it grows *with* it, rather than arriving at full size and waiting.
+    ///
+    /// `shadow(radius:y:)` takes plain numbers and plain numbers do not interpolate, so handed
+    /// the panel's final height on frame one the halo bloomed under a notch that was still a
+    /// notch. Being `Animatable` is what puts the height on the spring; this pins that the
+    /// height and the strength both survive the round trip through `animatableData`, because
+    /// a modifier that quietly loses half of it fails silently and looks almost right.
+    func testTheShadowIsCarriedByTheSpringRatherThanSwitchedOn() {
+        var modifier = IslandShadowModifier(strength: 1, height: IslandLayout.panelContentHeight)
+        XCTAssertEqual(modifier.animatableData.first, 1, accuracy: 0.001)
+        XCTAssertEqual(modifier.animatableData.second, IslandLayout.panelContentHeight, accuracy: 0.001)
+
+        // Mid-flight: a third of the way in, on a shape a third of the way out of the notch.
+        modifier.animatableData = AnimatablePair(0.33, 90)
+        XCTAssertEqual(modifier.strength, 0.33, accuracy: 0.001)
+        XCTAssertEqual(modifier.height, 90, accuracy: 0.001)
+        let midway = IslandShadow.ambient(height: modifier.height)
+        XCTAssertLessThan(midway.radius, IslandShadow.ambientRadius, "not the full halo yet")
+        XCTAssertGreaterThan(midway.radius, IslandShadow.smallestRadius, "and no longer the pill's")
+    }
+
     /// Growing the margin must not grow what takes the clicks: everything outside the island's
     /// own footprint falls through to the menu bar and the windows under it.
     func testTheMarginIsNotPartOfWhatTheIslandCatches() {

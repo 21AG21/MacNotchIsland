@@ -512,6 +512,13 @@ final class ActivityCenter: ObservableObject {
                 }
                 self.hoverPanel = nil
                 if self.openView == nil { self.peekView = nil }
+                // Forget which way the last step went. Only `open` and `collapse` used to
+                // clear this, and a hover exit goes through neither — so after ever stepping
+                // sideways in a peeked panel, every hover-open afterwards grew on the flat
+                // navigate spring instead of the open one, and its content slid in from the
+                // side instead of crossing over. It healed only when something was clicked,
+                // which is why opening the same panel twice could look like two apps.
+                self.navigationDirection = 0
             }
         }
         hoverWork = work

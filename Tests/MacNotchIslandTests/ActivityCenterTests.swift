@@ -624,6 +624,31 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ServiceHub.wantsCalendar(prefs), "never when it is switched off")
     }
 
+    // MARK: - What the outline is told about the last step
+
+    func testAHoverExitForgetsWhichWayTheLastStepWent() {
+        // `navigationDirection` picks the spring the outline grows on and the transition the
+        // content arrives with. Only opening and collapsing used to clear it, and a hover exit
+        // goes through neither — so once you had stepped sideways in a peeked panel, every
+        // hover-open afterwards grew on the flat navigate spring and pushed its content in
+        // from the side instead of crossing over. Opening the same panel twice looked like
+        // two different apps.
+        onlyMusicSection()
+        center.setHovering(true)
+        let shown = expectation(description: "hover applied")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { shown.fulfill() }
+        wait(for: [shown], timeout: 2)
+
+        center.select(.home(tab: "music"), direction: 1)
+        XCTAssertEqual(center.navigationDirection, 1, "a step sideways is a direction")
+
+        center.setHovering(false)
+        let left = expectation(description: "hover cleared")
+        DispatchQueue.main.asyncAfter(deadline: .now() + ActivityCenter.hoverExitGrace + 0.3) { left.fulfill() }
+        wait(for: [left], timeout: 3)
+        XCTAssertEqual(center.navigationDirection, 0, "and leaving is not one")
+    }
+
     // MARK: - Leaving for another app
 
     func testGoingToAnotherAppIsLeaving() {

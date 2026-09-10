@@ -6,6 +6,9 @@ struct IslandBodyView: View {
     let presentation: IslandPresentation
     let layout: IslandLayout
     var panelID: String = "main"
+    /// The curve the outline is morphing on, handed down from the root so it can be re-asserted
+    /// *under* the press feedback. See where it is applied.
+    var shapeAnimation: Animation = IslandMotion.open
 
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
@@ -36,13 +39,31 @@ struct IslandBodyView: View {
 
             content
                 .frame(width: layout.bodyWidth, height: layout.bodyHeight, alignment: .top)
-                .clipped()
+                // Cut to the outline, not to its bounding box. `.clipped()` is a square clip,
+                // and the body's bottom corners are a 36 pt continuous curve that pulls the
+                // black some fifty points inward along the bottom edge. At rest nothing is
+                // drawn down there, so it never showed — but all the way through the growth
+                // the clip's bottom edge sweeps up through the switcher, the section and the
+                // divider, and a tapering sliver of each escaped at both corners and sat on
+                // the wallpaper outside the island.
+                .clipShape(NotchShape(topRadius: 0, bottomRadius: layout.bottomRadius,
+                                      floating: layout.floating, isPill: layout.isPillBottom))
                 .padding(.horizontal, layout.floating ? 0 : layout.topRadius)
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
         .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom))
+        // The outline's own curve, said again here — and this is load-bearing.
+        //
+        // Nested `.animation(_:value:)` is innermost-wins, so the press feedback below governed
+        // everything above it, the frame and the shape included. `pressed` always falls to
+        // false in the very transaction that opens the panel, so every click-to-open morphed
+        // the whole island on the press release's spring — 0.3 s at bounce 0.3 — instead of the
+        // open spring, with the scale springing over the top of it. Two overshoots at once, and
+        // an open that looked nothing like the one hovering gives you.
+        .animation(shapeAnimation, value: layout)
         // Press-in feedback while the whole island is the button (compact and idle); the
-        // expanded panels have controls of their own that give their own feedback.
+        // expanded panels have controls of their own that give their own feedback. Applied
+        // outside the line above, so it governs the scale and nothing else.
         .scaleEffect(pressed ? 0.97 : 1, anchor: .top)
         .animation(IslandMotion.press(down: pressed), value: pressed)
         // A floating pill hangs below the top edge instead of fusing into it; zero otherwise.
@@ -107,9 +128,17 @@ struct IslandBodyView: View {
             shape
                 .stroke(IslandRim.color, lineWidth: IslandRim.width)
                 .accessibilityHidden(true)
+                // Measured from the height on screen rather than the one being arrived at.
+                // A `UnitPoint` is a fraction of whatever it is drawn into, and taking that
+                // fraction from the final height while the mask was still the notch's own
+                // scaled the fade with the growth: the lit rim reached full strength a point
+                // below the top of the screen instead of ten, which is the bright hairline
+                // along the top row of the display that `IslandRim.fade` exists to prevent.
                 .mask {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top,
-                                   endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, layout.bodyHeight)))
+                    GeometryReader { proxy in
+                        LinearGradient(colors: [.clear, .black], startPoint: .top,
+                                       endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, proxy.size.height)))
+                    }
                 }
                 // Faded rather than taken away: the island is already growing out of the
                 // notch when this changes, and an edge that snaps into existence on frame one

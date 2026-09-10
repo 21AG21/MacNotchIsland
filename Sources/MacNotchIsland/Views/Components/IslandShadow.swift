@@ -41,14 +41,41 @@ enum IslandShadow {
     }
 }
 
+/// The shadow as something that grows, rather than something that is swapped.
+///
+/// `shadow(radius:y:)` takes plain numbers, and plain numbers do not interpolate: handed the
+/// panel's final height on frame one, the halo bloomed to its full window-sized self under a
+/// notch that was still a notch, and then sat there while the shape grew into it. Being
+/// `Animatable` is what makes the height a thing the spring carries, so the shadow arrives
+/// with the edge that casts it.
+struct IslandShadowModifier: ViewModifier, Animatable {
+    var strength: Double
+    var height: CGFloat
+
+    var animatableData: AnimatablePair<Double, CGFloat> {
+        get { AnimatablePair(strength, height) }
+        set {
+            strength = newValue.first
+            height = newValue.second
+        }
+    }
+
+    func body(content: Content) -> some View {
+        // A spring overshoots, and an overshot strength is an opacity outside 0...1.
+        let lit = min(1, max(0, strength))
+        let ambient = IslandShadow.ambient(height: height)
+        return content
+            .shadow(color: .black.opacity(IslandShadow.contactOpacity * lit),
+                    radius: IslandShadow.contactRadius, y: IslandShadow.contactOffset)
+            .shadow(color: .black.opacity(ambient.opacity * lit),
+                    radius: ambient.radius, y: ambient.offset)
+    }
+}
+
 extension View {
     /// `strength` fades the whole thing rather than switching it off, so it can arrive on the
     /// same curve as the shape it belongs to.
     func islandShadow(_ strength: Double, height: CGFloat) -> some View {
-        let ambient = IslandShadow.ambient(height: height)
-        return shadow(color: .black.opacity(IslandShadow.contactOpacity * strength),
-                      radius: IslandShadow.contactRadius, y: IslandShadow.contactOffset)
-            .shadow(color: .black.opacity(ambient.opacity * strength),
-                    radius: ambient.radius, y: ambient.offset)
+        modifier(IslandShadowModifier(strength: strength, height: height))
     }
 }
