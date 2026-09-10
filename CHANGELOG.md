@@ -6,6 +6,17 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Fixed
+- **The clipboard stops asking the disk how it should look.** A row said whether its copied files
+  were still there by going and finding out, from inside the code that draws it — a `stat` per
+  file, per row, on every hover and every scroll of a fifty-entry history, on the thread doing
+  the drawing. The question is put once now, off that thread, when the history changes and when
+  the section opens. A file that vanishes while the panel is already open goes unnoticed until
+  the next sweep, which is a fair trade: the row is honest again a moment later.
+- **The screenshot watcher stops walking the Desktop on the main thread.** Every app that saves a
+  file to the folder being watched wakes it, and answering meant reading the whole directory and
+  asking the file system about each entry — hundreds of calls for something that is usually not a
+  capture at all. All of it happens on the watcher's own queue now, and the main thread is asked
+  only for the two things that need it: putting the file on the shelf and raising the card.
 - **The panel stops waiting for the radios.** Opening it ran a burst of blocking system calls on
   the main thread during the very spring that opens it — CoreWLAN and IOBluetooth both answer
   over XPC, which is to say in their own time — and then kept polling both on a 1.5-second main

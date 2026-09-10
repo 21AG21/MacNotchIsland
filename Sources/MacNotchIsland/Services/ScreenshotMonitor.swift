@@ -7,6 +7,13 @@ import ImageIO
 ///
 /// Event-driven only: a DispatchSource on the directory fires when macOS adds a capture.
 /// The only timers are the short one-shots that confirm a new file has finished writing.
+///
+/// None of that happens on the main thread. The folder being watched is usually the Desktop,
+/// every app that saves a file there wakes the source, and answering each wake means reading
+/// the whole directory and asking the file system about the entries in it — which on a busy
+/// Desktop is hundreds of calls for something that is, nine times out of ten, not a capture
+/// at all. The main thread is asked for only the two things that need it: putting the file on
+/// the shelf and raising the card.
 final class ScreenshotMonitor {
     /// A file counts as new when its creation date is within this many seconds of the event.
     static let recencyWindow: TimeInterval = 10
@@ -34,6 +41,11 @@ final class ScreenshotMonitor {
         "屏幕快照", "截屏",                        // Chinese
     ]
 
+    /// Where the watching is done. Everything the monitor remembers — the directory, what has
+    /// been seen, what is still settling, the descriptor — is touched on this queue and
+    /// nowhere else, so a serial queue is all the confinement it needs.
+    private let queue = DispatchQueue(label: "com.macnotchisland.screenshots", qos: .utility)
+
     private var source: DispatchSourceFileSystemObject?
     private var fd: Int32 = -1
     private var directory: URL?
@@ -46,6 +58,14 @@ final class ScreenshotMonitor {
     private var generation = 0
 
     func start() {
+        queue.async { [weak self] in self?.beginWatching() }
+    }
+
+    func stop() {
+        queue.async { [weak self] in self?.endWatching() }
+    }
+
+    private func beginWatching() {
         guard !running else { return }
         running = true
         generation += 1
@@ -59,7 +79,7 @@ final class ScreenshotMonitor {
         let fd = open(dir.path, O_EVTONLY)
         guard fd >= 0 else { return }
         self.fd = fd
-        let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write], queue: .main)
+        let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write], queue: queue)
         src.setEventHandler { [weak self] in self?.scan() }
         src.setCancelHandler { [weak self] in
             close(fd)
@@ -69,7 +89,7 @@ final class ScreenshotMonitor {
         source = src
     }
 
-    func stop() {
+    private func endWatching() {
         guard running else { return }
         running = false
         generation += 1
@@ -96,9 +116,16 @@ final class ScreenshotMonitor {
         for url in items {
             let path = url.path
             guard !seen.contains(path), !settling.contains(path) else { continue }
-            guard Self.isCandidate(name: url.lastPathComponent) else { continue }
-            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
-            guard Self.isRecent(creation: values.creationDate ?? values.contentModificationDate, now: now) else { continue }
+            let name = url.lastPathComponent
+            // The name is read first and then again inside the whole rule: a name costs
+            // nothing to look at, and it spares the entries that are plainly not captures —
+            // most of a Desktop — the trip to the file system below.
+            guard Self.isCandidate(name: name) else { continue }
+            guard let values = try? url.resourceValues(forKeys: keys) else { continue }
+            guard Self.isNewCapture(name: name,
+                                    isRegularFile: values.isRegularFile == true,
+                                    creation: values.creationDate ?? values.contentModificationDate,
+                                    now: now) else { continue }
             found.append(url)
         }
         return found
@@ -112,7 +139,7 @@ final class ScreenshotMonitor {
         settling.insert(path)
         let before = Self.fileSize(at: url)
         let gen = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) { [weak self] in
+        queue.asyncAfter(deadline: .now() + Self.settleDelay) { [weak self] in
             guard let self, self.running, self.generation == gen else { return }
             self.settling.remove(path)
             // Gone again (moved or deleted before it settled): nothing to announce.
@@ -128,17 +155,28 @@ final class ScreenshotMonitor {
         }
     }
 
+    /// Reads the capture, then hands it over. Opening the file to make the small copy is the
+    /// expensive half and it belongs here, on the watcher's own queue; only the announcement
+    /// itself has to be on the main thread.
     private func publish(_ url: URL) {
-        let prefs = Preferences.shared
-        let onShelf = prefs.shelfEnabled && prefs.screenshotsToShelfEnabled
-        if onShelf { ShelfStore.shared.add([url]) }
-        let name = url.lastPathComponent
         let isRecording = url.pathExtension.lowercased() == "mov"
         // The picture itself, not a camera glyph: it is the one thing that says which capture
         // this is, and it is what you pick up to drag somewhere.
         // Labelled on both sides, or the ternary settles on a plain pair and the names go.
         let picture: (thumbnail: NSImage?, pixels: CGSize?) =
             isRecording ? (thumbnail: nil, pixels: nil) : Self.picture(of: url)
+        DispatchQueue.main.async { [weak self] in
+            self?.announce(url, isRecording: isRecording, picture: picture)
+        }
+    }
+
+    /// The shelf, the preferences behind it and the island itself: all main-thread things, and
+    /// the only part of a capture that has to wait for that thread.
+    private func announce(_ url: URL, isRecording: Bool, picture: (thumbnail: NSImage?, pixels: CGSize?)) {
+        let prefs = Preferences.shared
+        let onShelf = prefs.shelfEnabled && prefs.screenshotsToShelfEnabled
+        if onShelf { ShelfStore.shared.add([url]) }
+        let name = url.lastPathComponent
         let state = CaptureState(path: url.path,
                                  isRecording: isRecording,
                                  thumbnail: picture.thumbnail,
@@ -222,6 +260,14 @@ final class ScreenshotMonitor {
         guard let creation else { return false }
         let age = now.timeIntervalSince(creation)
         return age <= window && age >= -1
+    }
+
+    /// Everything the walk decides about one directory entry, in one piece: a regular file,
+    /// named the way a capture is named, and written just now. Kept whole and kept pure so
+    /// that moving the walk off the main thread could not quietly change what it announces.
+    static func isNewCapture(name: String, isRegularFile: Bool, creation: Date?, now: Date) -> Bool {
+        guard isRegularFile, isCandidate(name: name) else { return false }
+        return isRecent(creation: creation, now: now)
     }
 
     /// Full filter for a directory entry: not hidden, a capture-like name and an image or

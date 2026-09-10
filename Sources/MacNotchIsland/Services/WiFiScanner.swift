@@ -151,7 +151,8 @@ final class WiFiScanner: ObservableObject {
             guard let interface = CWWiFiClient.shared().interface() else { return }
             let target = (interface.cachedScanResults() ?? []).first { $0.ssid == network.ssid }
             guard network.isKnown || !network.isSecure, let target else {
-                return DispatchQueue.main.async { Self.openSettings() }
+                DispatchQueue.main.async { Self.openSettings() }
+                return
             }
             var joined = false
             do {

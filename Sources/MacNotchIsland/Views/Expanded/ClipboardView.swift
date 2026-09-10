@@ -22,6 +22,9 @@ struct ClipboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Files can be moved or deleted while the panel is shut and nothing says so, so the
+        // question is put to the disk once, here, rather than by every row as it draws.
+        .onAppear { store.refreshMissingFiles() }
     }
 
     private var list: some View {
@@ -93,9 +96,11 @@ private struct ClipboardRowView: View {
     /// Where a row's text starts, and so where the hairline between two rows starts.
     static var textInset: CGFloat { glyphBox + glyphGap }
 
-    /// A copied file that has since been moved or deleted. Checked as the row is drawn — a
-    /// handful of rows, one `stat` each — so the list never offers a dead reference silently.
-    private var missing: Bool { item.filesAreGone }
+    /// A copied file that has since been moved or deleted, so the list never offers a dead
+    /// reference silently. Read from the store's last sweep rather than from the disk: a row
+    /// is redrawn on every hover and every scroll, and asking here meant a `stat` per file
+    /// per redraw on the thread that draws.
+    private var missing: Bool { store.filesAreGone(item) }
 
     var body: some View {
         HStack(spacing: 10) {

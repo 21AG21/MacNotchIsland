@@ -150,4 +150,42 @@ final class ScreenshotMonitorTests: XCTestCase {
         XCTAssertTrue(ScreenshotMonitor.screenshotDirectory(defaultsLocation: "~/Pictures/Shots", home: home).isFileURL)
         XCTAssertTrue(ScreenshotMonitor.screenshotDirectory(defaultsLocation: nil, home: home).isFileURL)
     }
+
+    // MARK: - The whole rule for one directory entry
+
+    /// The walk that applies this moved off the main thread; what it decides did not.
+    func testAnEntryIsACaptureByItsKindItsNameAndItsAge() {
+        let now = Date()
+        let name = "Screenshot 2026-09-07 at 10.15.30.png"
+        XCTAssertTrue(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true, creation: now, now: now))
+        XCTAssertFalse(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: false, creation: now, now: now),
+                       "a folder named like a capture is not one")
+        XCTAssertFalse(ScreenshotMonitor.isNewCapture(name: "invoice.pdf", isRegularFile: true,
+                                                      creation: now, now: now))
+        XCTAssertFalse(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true,
+                                                      creation: now.addingTimeInterval(-60), now: now),
+                       "one that was already there when the watch began is old news")
+        XCTAssertFalse(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true, creation: nil, now: now))
+    }
+
+    /// And it is exactly the rules it is made of, for every name they disagree about.
+    func testTheWholeRuleIsTheNameRuleAndTheAgeRuleAndNothingElse() {
+        let now = Date()
+        let names = ["Screenshot 2026-09-07 at 10.15.30.png",
+                     "Screen Recording 2026-09-07 at 10.15.30.mov",
+                     "Screenshot 2026-09-07 at 10.15.30.pdf",
+                     "Screenshot 2026-09-07 at 10.15.30.png.crdownload",
+                     "IMG_0001.png",
+                     "invoice.pdf"]
+        for name in names {
+            for age in [0.0, 5.0, 30.0] {
+                let creation = now.addingTimeInterval(-age)
+                let expected = ScreenshotMonitor.isCandidate(name: name)
+                    && ScreenshotMonitor.isRecent(creation: creation, now: now)
+                XCTAssertEqual(ScreenshotMonitor.isNewCapture(name: name, isRegularFile: true,
+                                                             creation: creation, now: now),
+                               expected, "\(name), \(age)s old")
+            }
+        }
+    }
 }

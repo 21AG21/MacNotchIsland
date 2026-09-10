@@ -279,4 +279,55 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(decoded?.count, 1)
         XCTAssertNil(decoded?.first?.app)
     }
+
+    // MARK: - Rows whose files have gone
+
+    /// The question used to be put to the file system from inside the row's own body, which is
+    /// run again on every hover and every scroll of a fifty-row list.
+    func testARowDoesNotAskTheDiskEveryTimeItIsDrawn() {
+        var asked = 0
+        let entry = item("/tmp/one.txt\n/tmp/two.txt", kind: .file)
+        _ = ClipboardStore.filesAreGone(urls: entry.fileURLs, exists: { _ in
+            asked += 1
+            return false
+        })
+        XCTAssertEqual(asked, 2, "one question per file, and only while a sweep is running")
+        // What the row reads is whatever the last sweep left behind, and nothing more.
+        XCTAssertFalse(ClipboardStore.shared.filesAreGone(entry), "an entry nobody has swept is not called dead")
+    }
+
+    func testOnlyEntriesThatPointAtFilesAreEverAskedAbout() {
+        var picture = ClipboardItem(kind: .image, text: "Image")
+        picture.imageData = Data([0x89, 0x50, 0x4E, 0x47])
+        let files = item("/tmp/one.txt\n/tmp/two.txt", kind: .file)
+        let entries = ClipboardStore.fileEntries(in: [item("hello"),
+                                                      item("https://example.com", kind: .url),
+                                                      picture,
+                                                      files])
+        XCTAssertEqual(entries.map { $0.id }, [files.id], "text, links and pictures are answered from memory")
+        XCTAssertEqual(entries.first?.urls.count, 2)
+    }
+
+    func testASetOfCopiedFilesIsGoneOnlyWhenEveryOneOfThemIs() {
+        let one = URL(fileURLWithPath: "/tmp/one.txt")
+        let two = URL(fileURLWithPath: "/tmp/two.txt")
+        XCTAssertTrue(ClipboardStore.filesAreGone(urls: [one, two], exists: { _ in false }))
+        XCTAssertFalse(ClipboardStore.filesAreGone(urls: [one, two], exists: { $0 == two }),
+                       "one survivor is still worth putting back on the pasteboard")
+        XCTAssertFalse(ClipboardStore.filesAreGone(urls: [], exists: { _ in false }),
+                       "a copy that is not files at all is never dead")
+    }
+
+    func testTheAnswerIsKeptByEntryAndSurvivesTheHistoryBeingReadBack() throws {
+        let gone = item("/tmp/gone.txt", kind: .file, at: 10)
+        let there = item("/tmp/there.txt", kind: .file, at: 20)
+        let answers: Set<UUID> = [gone.id]
+
+        let reloaded = try JSONDecoder().decode([ClipboardItem].self,
+                                                from: JSONEncoder().encode([gone, there]))
+        XCTAssertEqual(ClipboardStore.pruned(answers, to: reloaded), answers,
+                       "an entry's id goes to disk with it, so the answer still points at the same row")
+        XCTAssertEqual(ClipboardStore.pruned(answers, to: [there]), Set<UUID>(),
+                       "and an answer for an entry that has been deleted goes with it")
+    }
 }

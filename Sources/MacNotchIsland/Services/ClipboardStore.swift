@@ -82,14 +82,6 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
         return text.split(separator: "\n").map { URL(fileURLWithPath: String($0)) }
     }
 
-    /// True when this entry points at files and none of them are there any more. Copying one
-    /// back would put a dead reference on the pasteboard, so the row says so instead.
-    var filesAreGone: Bool {
-        let urls = fileURLs
-        guard !urls.isEmpty else { return false }
-        return !urls.contains { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
     /// Single-line summary for a row.
     var preview: String {
         switch kind {
@@ -137,6 +129,10 @@ final class ClipboardStore: ObservableObject {
 
     @Published private(set) var items: [ClipboardItem] = []
     @Published private var thumbnails: [UUID: NSImage] = [:]
+    /// The entries whose files have all gone, as of the last sweep. Kept here, keyed by the
+    /// entry's own id, because the row that shows it is redrawn far more often than the answer
+    /// can possibly change.
+    @Published private var missingFileIDs: Set<UUID> = []
 
     /// The stamps a copy can carry that say a history must not keep it.
     ///
@@ -171,6 +167,7 @@ final class ClipboardStore: ObservableObject {
     func seedForGallery(_ items: [ClipboardItem]) {
         guard RenderMode.isGallery else { return }
         self.items = items
+        refreshMissingFiles()
     }
 
     private init(pasteboard: NSPasteboard = .general) {
@@ -190,6 +187,9 @@ final class ClipboardStore: ObservableObject {
             .sink { [weak self] _ in self?.rescheduleTimer() }
             .store(in: &cancellables)
         rescheduleTimer()
+        // The history was read back from disk before any of it was drawn, and the files it
+        // points at may not have survived the time the app was shut.
+        refreshMissingFiles()
     }
 
     func stop() {
@@ -340,6 +340,7 @@ final class ClipboardStore: ObservableObject {
         guard updated != items else { return }
         items = updated
         pruneThumbnails()
+        refreshMissingFiles()
         schedulePersist()
     }
 
@@ -438,6 +439,7 @@ final class ClipboardStore: ObservableObject {
         items.removeAll { $0.id == item.id }
         thumbnails[item.id] = nil
         pendingThumbnails.remove(item.id)
+        missingFileIDs.remove(item.id)
         schedulePersist()
     }
 
@@ -452,7 +454,74 @@ final class ClipboardStore: ObservableObject {
         items.removeAll()
         thumbnails.removeAll()
         pendingThumbnails.removeAll()
+        missingFileIDs.removeAll()
         schedulePersist()
+    }
+
+    // MARK: - Which entries have lost their files
+
+    /// Whether this entry pointed at files and not one of them is there any more, as of the
+    /// last sweep. A row asks this as it draws itself, which is on every hover and every
+    /// scroll of a fifty-row list, so the answer is a lookup and nothing else.
+    func filesAreGone(_ item: ClipboardItem) -> Bool { missingFileIDs.contains(item.id) }
+
+    /// Works the answers out again, away from the thread that draws.
+    ///
+    /// Nothing tells us when somebody moves or deletes a copied file behind our back, so the
+    /// only way to know is to ask the disk; asking from inside a row's body meant a `stat` per
+    /// file per redraw. Once when the history changes and once when the section is opened is
+    /// enough. A file that vanishes while the panel is already open therefore goes unnoticed
+    /// until the next sweep, which is a fair trade: the row is honest again a moment later,
+    /// and picking a dead one still hands over its paths as text rather than nothing.
+    ///
+    /// Call this from the main thread; the sweep itself is not done there.
+    func refreshMissingFiles() {
+        let entries = ClipboardStore.fileEntries(in: items)
+        guard !entries.isEmpty else {
+            if !missingFileIDs.isEmpty { missingFileIDs = [] }
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var gone = Set<UUID>()
+            for entry in entries {
+                let isGone = ClipboardStore.filesAreGone(urls: entry.urls,
+                                                         exists: { FileManager.default.fileExists(atPath: $0.path) })
+                if isGone { gone.insert(entry.id) }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // The history can have moved on while the disk was being asked.
+                let answers = ClipboardStore.pruned(gone, to: self.items)
+                if answers != self.missingFileIDs { self.missingFileIDs = answers }
+            }
+        }
+    }
+
+    /// The entries a sweep has to ask the disk about at all: the ones that point at files.
+    /// Text, links and pictures are answered from memory, which is nearly all of a history.
+    static func fileEntries(in items: [ClipboardItem]) -> [(id: UUID, urls: [URL])] {
+        var entries: [(id: UUID, urls: [URL])] = []
+        for item in items {
+            let urls = item.fileURLs
+            guard !urls.isEmpty else { continue }
+            entries.append((id: item.id, urls: urls))
+        }
+        return entries
+    }
+
+    /// A copied set of files has gone once not one of them is there any more: copying it back
+    /// would put a dead reference on the pasteboard, so the row says so instead. The existence
+    /// check is handed in, so the rule can be exercised without a disk under it.
+    static func filesAreGone(urls: [URL], exists: (URL) -> Bool) -> Bool {
+        guard !urls.isEmpty else { return false }
+        return !urls.contains(where: exists)
+    }
+
+    /// Drops answers for entries the history no longer holds. Everything here is keyed by the
+    /// entry's id, which is what goes to disk with it, so an answer still points at the row it
+    /// was worked out for after the history has been read back.
+    static func pruned(_ ids: Set<UUID>, to items: [ClipboardItem]) -> Set<UUID> {
+        ids.intersection(items.map { $0.id })
     }
 
     // MARK: - Thumbnails (lazy, images only)
