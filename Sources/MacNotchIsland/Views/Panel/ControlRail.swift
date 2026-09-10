@@ -20,12 +20,28 @@ struct ControlRail: View {
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var toggles = SystemToggles.shared
     @EnvironmentObject private var prefs: Preferences
+    /// When the rail went on screen, and nothing until it has. Everything the rail shows is read
+    /// just after that moment, over the top of the panel's opening spring. See `RailAssembly`.
+    @State private var mountedAt: TimeInterval?
+    /// The rail is on screen. The three services under it are told a turn later than that — see
+    /// `onAppear` — and a panel can be shut again inside that turn.
+    @State private var onScreen = false
+    /// The three services have been told, and are owed the other half of the pair. Each of them
+    /// starts reading the system on its first viewer and stops on its last, so a count that is
+    /// given back without ever having been taken leaves a Mac polling for nobody, or a rail that
+    /// is still on screen holding readings that have stopped arriving.
+    @State private var counted = false
 
     var body: some View {
-        // Read once, not once per mention: `isAvailable` is a DisplayServices round trip, and
-        // the rail is rebuilt on every volume change and every hover.
+        // A reading the brightness service already has, rather than a fresh walk of the display
+        // list: the rail is rebuilt on every volume change and every hover.
         let hasBrightness = brightness.isAvailable
         let showsAirDrop = prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf
+        // The row is not a fixed set: Wi-Fi and Bluetooth appear with the hardware, the
+        // brightness slider with a display that has one, AirDrop with something on the shelf.
+        let shape = [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled,
+                     showsAirDrop, outputs.devices.count > 1]
+        let motion: Animation? = RailAssembly.slides(mountedAt: mountedAt) ? IslandMotion.content : nil
         // Budget at 672 pt with everything showing: two sliders (178 and 140), up to seven
         // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
         return HStack(spacing: RailMetrics.gap) {
@@ -71,18 +87,30 @@ struct ControlRail: View {
             railButton(symbol: "gearshape", label: "Settings") { SettingsWindow.open() }
         }
         .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.railHeight)
-        // The row is not a fixed set: Wi-Fi and Bluetooth appear with the hardware, the
-        // brightness slider with a display that has one, AirDrop with something on the shelf.
-        // Whatever changes, the buttons beside it slide over rather than jumping.
-        .animation(IslandMotion.content,
-                   value: [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled,
-                           showsAirDrop, outputs.devices.count > 1])
+        // Whatever changes, the buttons beside it slide over rather than jumping — everything
+        // except the readings the rail is assembled from. See `RailAssembly`.
+        .animation(motion, value: shape)
         .onAppear {
-            outputs.viewerAppeared()
-            brightness.viewerAppeared()
-            toggles.viewerAppeared()
+            onScreen = true
+            mountedAt = LocalWrite.now()
+            // Each of the three reads the system the moment it is told it has a viewer: a whole
+            // CoreAudio enumeration, a DisplayServices call, and both radios over XPC. Done on
+            // the turn the rail is mounted, that burst goes in front of the panel's opening
+            // spring rather than behind it, and the first frames of the growth are spent on it.
+            // A turn later is still at once to anyone watching, and by then the panel is already
+            // moving.
+            DispatchQueue.main.async {
+                guard onScreen, !counted else { return }
+                counted = true
+                outputs.viewerAppeared()
+                brightness.viewerAppeared()
+                toggles.viewerAppeared()
+            }
         }
         .onDisappear {
+            onScreen = false
+            guard counted else { return }
+            counted = false
             outputs.viewerDisappeared()
             brightness.viewerDisappeared()
             toggles.viewerDisappeared()
@@ -231,6 +259,35 @@ struct ControlRail: View {
     }
 }
 
+/// Whether a change to what the rail is holding slides the buttons over, or is simply there when
+/// the rail arrives.
+///
+/// The rail is mounted before it knows what it holds: the audio devices, the brightness and both
+/// radios are read a turn after the panel has started growing, and every one of them adds or
+/// takes away a control. Sliding the whole row sideways to make room for those, on top of the
+/// opening spring, reads as the panel stumbling rather than as the rail filling itself in — so
+/// for as long as the panel is still opening the rail assembles in silence. After that it is a
+/// thing that is already there, and a pair of headphones plugged into it is a change like any
+/// other: it slides.
+///
+/// A window rather than a count of arrivals, because on every open but the first the readings
+/// are already in hand and nothing arrives at all — and a rail that is still waiting for its
+/// first arrival is a rail that would take the next real change in silence, weeks later.
+enum RailAssembly {
+    /// The panel's opening spring is 0.44s, and a radio asked at the start of it can take most of
+    /// that again to answer. Nothing a hand can do to the rail changes its shape, so there is no
+    /// real change to lose inside the window.
+    static let window: TimeInterval = 0.6
+
+    /// `mountedAt` is nothing until the rail is on screen, which is where the first pass stands:
+    /// nothing has been read yet, so there is nothing yet that could be worth animating. Held on
+    /// the clock that only counts forwards, for the reason `LocalWrite` gives.
+    static func slides(mountedAt: TimeInterval?, now: TimeInterval = LocalWrite.now()) -> Bool {
+        guard let mountedAt else { return false }
+        return !LocalWrite.isRecent(mountedAt, within: window, now: now)
+    }
+}
+
 /// Every measure the rail is built from, in one place, because they add up to something that
 /// has to fit: the panel's content width. `RailMetricsTests` adds them up.
 enum RailMetrics {
@@ -274,18 +331,36 @@ final class BrightnessControl: ObservableObject {
     private let monitor = BrightnessMonitor()
     private var timer: Timer?
     private var viewers = 0
+    /// Held for as long as the app runs, because a display can be plugged in at any point in it.
+    private var screenObserver: NSObjectProtocol?
     /// A write the display has not reported back yet. Until it does, the slider keeps showing
     /// what the user set instead of flickering back for one poll. Held on the clock that only
     /// counts forwards: on the wall clock a backwards step would freeze the slider for as long
     /// as the offset lasted, and a forwards one would clear it at once.
     private var pending: (value: Double, until: TimeInterval)?
 
-    @Published private(set) var level: Double = BrightnessControl.read() ?? 0.5
+    @Published private(set) var level: Double = 0.5
+    /// Whether there is a brightness to set at all: a Mac driving nothing but an external display
+    /// has none, and the rail leaves the slider out rather than showing one that does nothing.
+    /// Kept rather than asked, because the rail's body wants it on every volume change, every
+    /// hover and every pass of the poll below, and the answer costs a walk of the display list
+    /// and a DisplayServices call. A display cannot arrive without the screen arrangement
+    /// changing, and the screen arrangement changing is announced.
+    @Published private(set) var isAvailable = false
 
     static let pollInterval: TimeInterval = 0.5
     static let writeSettle: TimeInterval = 1.0
 
-    var isAvailable: Bool { monitor.currentBrightness() != nil }
+    private init() {
+        let reading = monitor.currentBrightness().map { Double($0) }
+        level = reading ?? 0.5
+        isAvailable = reading != nil
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
     func current() -> Double? { monitor.currentBrightness().map { Double($0) } }
 
     /// What the display says it is set to, straight from DisplayServices. Internal because
@@ -328,7 +403,11 @@ final class BrightnessControl: ObservableObject {
     }
 
     private func refresh() {
-        guard let value = current() else { return }
+        // Every reading is also an answer about whether there is anything to read, which is the
+        // only thing that keeps `isAvailable` honest between one screen arrangement and the next.
+        let reading = current()
+        if isAvailable != (reading != nil) { isAvailable = reading != nil }
+        guard let value = reading else { return }
         if let pending {
             guard LocalWrite.now() >= pending.until || abs(pending.value - value) < 0.02 else { return }
             self.pending = nil

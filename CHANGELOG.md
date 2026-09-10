@@ -52,6 +52,13 @@ the unreleased section is what the next tag will ship.
   download are held to it now.
 
 ### Fixed
+- **The rail stops standing in front of the opening spring.** Mounting it ran a CoreAudio device
+  enumeration, a DisplayServices read and both radios synchronously, at the exact moment the
+  island began to grow — so the first hundred milliseconds of every open dropped frames and the
+  spring looked like it started late. That work now lands after the first frames rather than in
+  front of them, the display check is a stored answer instead of a fresh enumeration on every
+  redraw of the rail, and the rail assembles itself silently instead of sliding sideways on top
+  of the growth when its readings arrive.
 - **Today stops waiting on somebody's mail server.** EventKit was queried on the thread that
   draws — from the section's `onAppear` and again every sixty seconds — and with a CalDAV or
   Exchange account that is a network fetch on the main thread. Ticking a reminder saved and then

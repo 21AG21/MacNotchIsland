@@ -146,6 +146,33 @@ final class SystemHUDTests: XCTestCase {
         XCTAssertTrue(BrightnessControl.wroteRecently(now: now))
     }
 
+    /// The rail is mounted before it knows what it holds, and everything it holds lands a turn
+    /// or two later. Sliding the whole row sideways to make room for those first readings, while
+    /// the panel is still growing, is the panel appearing to stumble — but a device plugged in a
+    /// minute afterwards is a change like any other, and a change slides.
+    func testTheRailAssemblesItselfWithoutAnimatingIntoPlace() {
+        let mounted: TimeInterval = 0
+        XCTAssertFalse(RailAssembly.slides(mountedAt: nil, now: mounted),
+                       "a rail that is not on screen yet has read nothing, so it has nothing to slide")
+        XCTAssertFalse(RailAssembly.slides(mountedAt: mounted, now: mounted + RailAssembly.window / 2),
+                       "the readings landing while the panel is still opening is the rail filling in")
+        XCTAssertTrue(RailAssembly.slides(mountedAt: mounted, now: mounted + RailAssembly.window + 1),
+                      "and headphones plugged into a rail that is already there still slide it over")
+    }
+
+    /// Which screen the brightness means, and so whether this Mac has a brightness to show a
+    /// slider for at all. The window server's list is in no order worth relying on, and an
+    /// external-only desk is not a dim built-in display.
+    func testTheBrightnessMeansTheBuiltInScreenRatherThanWhicheverIsListedFirst() {
+        let ids: [CGDirectDisplayID] = [4, 7, 2]
+        XCTAssertEqual(BrightnessMonitor.builtInDisplay(in: ids, isBuiltIn: { $0 == 7 }), 7,
+                       "the built-in panel, wherever in the list it turned up")
+        XCTAssertNil(BrightnessMonitor.builtInDisplay(in: ids, isBuiltIn: { _ in false }),
+                     "a desk with nothing built into it has no brightness of its own to set")
+        XCTAssertNil(BrightnessMonitor.builtInDisplay(in: [], isBuiltIn: { _ in true }),
+                     "and neither has one with the lid shut and nothing plugged in")
+    }
+
     func testTheIslandStartsOutLeavingTheSystemBezelAlone() {
         XCTAssertFalse(SystemHUDReplacement.shared.isActive,
                        "nothing has installed an event tap in a test run, so the island must not "

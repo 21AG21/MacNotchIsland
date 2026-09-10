@@ -93,11 +93,25 @@ final class BrightnessMonitor {
     // MARK: Internals
 
     private var builtInDisplay: CGDirectDisplayID {
+        Self.builtInDisplay(in: Self.onlineDisplays(), isBuiltIn: { CGDisplayIsBuiltin($0) != 0 }) ?? CGMainDisplayID()
+    }
+
+    /// The built-in panel, whichever of the screens on the desk it is: the window server hands
+    /// its list back in no order worth relying on. Nothing when there is none, which is a Mac
+    /// with only an external display attached and no brightness of its own to set — the callers
+    /// fall back to the main display, where the write is free to fail.
+    ///
+    /// Kept apart from the window server's own answer so the rule can be checked without a Mac
+    /// to check it on.
+    static func builtInDisplay(in ids: [CGDirectDisplayID], isBuiltIn: (CGDirectDisplayID) -> Bool) -> CGDirectDisplayID? {
+        ids.first(where: isBuiltIn)
+    }
+
+    private static func onlineDisplays() -> [CGDirectDisplayID] {
         var ids = [CGDirectDisplayID](repeating: 0, count: 8)
         var count: UInt32 = 0
         _ = CGGetOnlineDisplayList(8, &ids, &count)
-        for i in 0..<Int(count) where CGDisplayIsBuiltin(ids[i]) != 0 { return ids[i] }
-        return CGMainDisplayID()
+        return Array(ids.prefix(Int(count)))
     }
 
     private func read() -> Float? {
