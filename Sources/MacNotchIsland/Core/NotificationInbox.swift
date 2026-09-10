@@ -106,13 +106,15 @@ final class NotificationInbox: ObservableObject {
         }
 
         /// A readable name for an app that would not give one. The last part of a bundle
-        /// identifier is the app in nearly every case ("com.apple.mail" → "mail"), and it
-        /// beats showing somebody a reverse-DNS string.
+        /// identifier is the app in nearly every case ("com.apple.mail" → "Mail"), and it
+        /// beats showing somebody a reverse-DNS string. Only the first letter is touched:
+        /// "MobileSMS" is how its own developer spelled it, and `capitalized` would make it
+        /// "Mobilesms".
         private static func name(_ appName: String, bundleID: String) -> String {
             if let given = tidied(appName) { return given }
             if bundleID == unknownBundleID { return unknownAppName }
             guard let last = bundleID.split(separator: ".").last, !last.isEmpty else { return bundleID }
-            return String(last).capitalized
+            return last.prefix(1).uppercased() + last.dropFirst()
         }
     }
 
@@ -170,7 +172,7 @@ final class NotificationInbox: ObservableObject {
     private var persistWork: DispatchWorkItem?
 
     private init() {
-        entries = Self.trimmed(Self.loadPersisted())
+        entries = NotificationInbox.trimmed(NotificationInbox.loadPersisted())
     }
 
     // MARK: - Pure rules (unit-tested)

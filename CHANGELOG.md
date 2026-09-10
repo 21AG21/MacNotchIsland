@@ -5,6 +5,17 @@ the unreleased section is what the next tag will ship.
 
 ## Unreleased
 
+### Added
+- **Groundwork: the island remembers what came past.** The Mac has never had a notification
+  history — a banner you did not look up in time is gone, and Notification Centre only holds
+  what each app chose to leave behind. Every competing notch app mirrors the banner as it
+  arrives; none of them remembers it. The store and the reader are in, with the rules for what
+  counts as the same notification twice, what is kept and what is let go of, all pure and under
+  test. Not yet wired to a section, and the reader is built on the assumption that it will one
+  day stop working: reading the Notification Centre process's accessibility tree is the only
+  route there is, it is private system UI, and so the degraded path — the app and the time,
+  with the words as a bonus — is the design rather than the fallback.
+
 ### Fixed
 - **The clipboard stops asking the disk how it should look.** A row said whether its copied files
   were still there by going and finding out, from inside the code that draws it — a `stat` per
