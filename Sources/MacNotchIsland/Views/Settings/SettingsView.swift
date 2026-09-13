@@ -84,6 +84,7 @@ private final class SettingsWindowHost {
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case general
     case island
+    case motion
     case activities
     case home
     case media
@@ -108,6 +109,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general: return "General"
         case .island: return "Island"
+        case .motion: return "Motion"
         case .activities: return "Activities"
         case .home: return "Home Panel"
         case .media: return "Media"
@@ -121,6 +123,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general: return "gearshape.fill"
         case .island: return "capsule.fill"
+        case .motion: return "waveform.path"
         case .activities: return "bell.fill"
         case .home: return "square.grid.2x2.fill"
         case .media: return "play.fill"
@@ -172,6 +175,7 @@ struct SettingsView: View {
         switch current {
         case .general: GeneralPane()
         case .island: IslandPane()
+        case .motion: MotionPane()
         case .activities: ActivitiesPane()
         case .home: HomePanelPane()
         case .media: MediaPane()

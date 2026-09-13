@@ -99,6 +99,15 @@ final class Preferences: ObservableObject {
     @Published var notchWidthOverride: Double { didSet { d.set(notchWidthOverride, forKey: "notchWidthOverride") } }
     @Published var notchHeightOverride: Double { didSet { d.set(notchHeightOverride, forKey: "notchHeightOverride") } }
 
+    // MARK: Motion (1 = the phone's own timing)
+    /// A multiplier on every spring's duration.
+    @Published var motionDuration: Double { didSet { d.set(motionDuration, forKey: "motionDuration") } }
+    /// A multiplier on every spring's bounce. 0 never overshoots.
+    @Published var motionBounce: Double { didSet { d.set(motionBounce, forKey: "motionBounce") } }
+    /// The preset last picked, by name, or "custom" once a slider has moved off it. The two
+    /// numbers above are the truth; this is the record of how they were arrived at.
+    @Published var motionPreset: String { didSet { d.set(motionPreset, forKey: "motionPreset") } }
+
     // MARK: Launch at login (SMAppService)
     /// SMAppService only makes sense for a real .app bundle (not `swift run` or the test host).
     private static var isBundledApp: Bool { Bundle.main.bundleURL.pathExtension == "app" }
@@ -185,6 +194,13 @@ final class Preferences: ObservableObject {
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)
+
+        // Held within range here as well as where the springs read them, so a number edited
+        // into defaults by hand shows on the pane's slider at the figure the island is using.
+        let motion = IslandMotion.Tuning(duration: double("motionDuration", 1), bounce: double("motionBounce", 1)).clamped
+        motionDuration = motion.duration
+        motionBounce = motion.bounce
+        motionPreset = UserDefaults.standard.string(forKey: "motionPreset") ?? IslandMotion.Preset.faithful.rawValue
 
         launchAtLogin = Self.isBundledApp && SMAppService.mainApp.status == .enabled
     }

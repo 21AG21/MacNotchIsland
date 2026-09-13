@@ -13,7 +13,35 @@ final class NowPlayingService: ObservableObject {
 
     enum Backend { case inactive, adapter, mediaRemote, appleScript }
 
+    /// What a backend can be said to be doing, in the terms the Settings pane puts to the user.
+    ///
+    /// Four words — live, answering with nothing, given up, unavailable — were not enough. Two
+    /// of the three backends are deliberately not asked while a better one is answering:
+    /// MediaRemote's reports are dropped behind the helper, AppleScript's behind both. A
+    /// backend that is not being asked is neither broken nor idle, and calling it "not
+    /// answering" would send people to restart a thing that is fine, on every healthy Mac.
+    enum Health: Equatable {
+        /// Answering, and the last answer was a track. This is where the card comes from.
+        case live
+        /// Answering, and the last answer was that there is no track. A healthy Mac with the
+        /// music off looks like this — and on macOS 15.4 and later so does MediaRemote itself
+        /// whatever is playing, which is the whole reason the helper exists.
+        case idle
+        /// Held back, because a better backend is answering.
+        case standingBy
+        /// Switched on and not heard from: a helper that has died and is waiting to be tried
+        /// again, or a framework that has stopped answering.
+        case givenUp
+        /// Cannot run on this Mac.
+        case unavailable
+    }
+
     @Published private(set) var info: NowPlayingInfo?
+
+    /// The word for each backend, see `Health`. Refreshed on every tick, and empty while Now
+    /// Playing is switched off: nothing honest can be said about backends that have not been
+    /// asked. Written on the main queue only, like everything else this class publishes.
+    @Published private(set) var health: [Backend: Health] = [:]
 
     private let adapter = AdapterBackend()
     private let mediaRemote = MediaRemoteBackend()
@@ -87,6 +115,7 @@ final class NowPlayingService: ObservableObject {
         mediaRemote.start()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.tick() }
         pollTimer?.tolerance = 0.2
+        refreshHealth()
     }
 
     func stop() {
@@ -98,6 +127,59 @@ final class NowPlayingService: ObservableObject {
         adapter.stop()
         mediaRemote.stop()
         clear()
+        refreshHealth()
+    }
+
+    /// Quits the helper and starts it again, now, at the user's request.
+    ///
+    /// `AdapterBackend` restarts a dead helper on its own, but after a run of crashes it rests
+    /// for five minutes first, and somebody looking at a blank card in Settings should not have
+    /// to sit that out. Starting the backend afresh wipes its count of deaths, which is what
+    /// makes this the way past a rest rather than one more turn of it. The card is left as it
+    /// is: the new helper says what is playing within its first beat, and that replaces it.
+    func restartHelper() {
+        guard running, !Self.fakesTrack else { return }
+        IslandLog.media.notice("restarting the adapter helper at the user's request")
+        adapter.stop()
+        adapter.start()
+        refreshHealth()
+    }
+
+    /// Read afresh from the backends' own flags rather than kept up as they change. Health is
+    /// a fact about the last few seconds, and the only way for the pane to lag behind it is to
+    /// be told by something that forgot to say.
+    private func refreshHealth() {
+        let fresh: [Backend: Health] = running ? [
+            .adapter: Self.backendHealth(available: adapter.isAvailable, answering: adapter.isAnswering,
+                                         deliveringTrack: adapter.isDeliveringTrack, outranked: false),
+            // MediaRemote ships with every macOS; a copy that would not load is one that never
+            // answers, and that is what the pane will say of it. It is asked only while the
+            // helper is not answering, which is exactly what outranks it in `handle`.
+            .mediaRemote: Self.backendHealth(available: true, answering: mediaRemote.isAnswering,
+                                             deliveringTrack: mediaRemote.isHealthy, outranked: adapter.isAnswering),
+            // AppleScript has no health of its own: a poll always comes back, with a track or
+            // with nothing, so it is answering whenever it is asked — and it is asked only
+            // while neither of the others answers, the same gate `tick` polls it behind.
+            .appleScript: Self.backendHealth(available: true, answering: true,
+                                             deliveringTrack: activeBackend == .appleScript,
+                                             outranked: adapter.isAnswering || mediaRemote.isAnswering),
+        ] : [:]
+        if health != fresh { health = fresh }
+    }
+
+    /// The one rule that turns a backend's flags into a word, see `Health`.
+    ///
+    /// Unavailable comes first because it is permanent: a helper this Mac cannot run is not
+    /// standing by for anything. Outranked comes before the flags because a backend that is
+    /// not being asked has flags that mean nothing — MediaRemote's freshness lapses fifteen
+    /// seconds after the last track change while the helper is doing all the work, and read on
+    /// its own it would say "not answering" on every Mac where the helper works. A track from a
+    /// backend that is no longer answering is old news, not a live one.
+    static func backendHealth(available: Bool, answering: Bool, deliveringTrack: Bool, outranked: Bool) -> Health {
+        guard available else { return .unavailable }
+        guard !outranked else { return .standingBy }
+        guard answering else { return .givenUp }
+        return deliveringTrack ? .live : .idle
     }
 
     private func tick() {
@@ -123,6 +205,7 @@ final class NowPlayingService: ObservableObject {
             let limit = Preferences.shared.keepPausedMinutes * 60
             if limit <= 0 || Date().timeIntervalSince(since) > limit { clear() }
         }
+        refreshHealth()
     }
 
     private func handle(_ new: NowPlayingInfo?, from backend: Backend) {

@@ -24,12 +24,27 @@ enum CopyRetirement: Equatable {
     }
 }
 
+/// How many times the island has been built, when it last was, and what for.
+///
+/// "The notch disappeared after my Mac slept" is the complaint every app in this category
+/// has open, and the answer to it is a rebuild — which then has to be accounted for, or the
+/// next question is whether it came back on its own or was reloaded by hand, and nobody can
+/// say. Every path that builds the panels writes here, so a diagnostics report can.
+struct PanelHealth: Equatable {
+    var lastRebuiltAt: Date?
+    var rebuildCount = 0
+    var lastRebuildReason = ""
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panels: [NotchPanel] = []
     private var statusItem: StatusItemController?
     private var hub: ServiceHub?
     private var cancellables = Set<AnyCancellable>()
     private var screenRebuildWork: DispatchWorkItem?
+    private var wakeCheckWork: DispatchWorkItem?
+    /// Read-only from outside: only the rebuild paths may say a rebuild happened.
+    private(set) var panelHealth = PanelHealth()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RunRecord.begin()
@@ -39,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // to go in; nothing it left behind is read until it has.
         let retiring = Self.retireOtherCopies()
         NSApp.setActivationPolicy(.accessory)
-        rebuildPanels()
+        rebuildPanels(reason: "launch")
         statusItem = StatusItemController()
         // The history on disk stays the older copy's to write until it has gone. It saves the
         // clipboard on its way out, that file is rewritten whole, and a new copy that had
@@ -77,6 +92,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               name: NSWorkspace.willSleepNotification, object: nil)
         workspace.addObserver(self, selector: #selector(saveEverything),
                               name: NSWorkspace.willPowerOffNotification, object: nil)
+        // Coming back is where every app of this kind loses its island: the window is still
+        // there as far as the app knows, and it is not on the screen. The screen-parameters
+        // path above only hears about a display that changed; a display that came back the
+        // same size, with the panel ordered out from under it, says nothing to anybody. So
+        // each way the Mac can come back is heard as well — the whole machine waking, the
+        // displays alone (they sleep on their own, and wake first), and this login session
+        // coming back to the front after another user's — and each is followed by a look,
+        // not by a rebuild.
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.sessionDidBecomeActiveNotification] {
+            workspace.addObserver(self, selector: #selector(wokeUp(_:)), name: name, object: nil)
+        }
 
         let prefs = Preferences.shared
         Publishers.Merge3(
@@ -85,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             prefs.$notchHeightOverride.dropFirst().map { _ in () }
         )
         .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
-        .sink { [weak self] _ in self?.rebuildPanels() }
+        .sink { [weak self] _ in self?.rebuildPanels(reason: "settings changed") }
         .store(in: &cancellables)
     }
 
@@ -233,6 +260,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
+    /// How long after the Mac says it is back before the island is looked at. Long enough for
+    /// the displays to be up and for the screen-parameters path to have had its say first, so
+    /// that on an ordinary wake this finds everything in order and does nothing — one look,
+    /// no rebuild, no flicker. It is the safety net under that path, not a second copy of it.
+    static let wakeCheckDelay: TimeInterval = 2
+
+    @objc private func wokeUp(_ note: Notification) {
+        let reason = Self.wakeReason(note.name)
+        IslandLog.panel.notice("\(reason, privacy: .public); checking the island shortly")
+        // The three wakes arrive in a burst: one look covers them all, named for the last.
+        wakeCheckWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.recoverAfterWake(reason) }
+        wakeCheckWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeCheckDelay, execute: work)
+    }
+
+    private static func wakeReason(_ name: Notification.Name) -> String {
+        switch name {
+        case NSWorkspace.didWakeNotification: return "woke from sleep"
+        case NSWorkspace.screensDidWakeNotification: return "displays woke"
+        case NSWorkspace.sessionDidBecomeActiveNotification: return "session came to the front"
+        default: return name.rawValue
+        }
+    }
+
+    /// A look at the island after a wake, and a rebuild only if the look finds something
+    /// wrong. The judgement is `wakeNeedsRebuild`; this only gathers what it is asked about.
+    private func recoverAfterWake(_ reason: String) {
+        let (built, wanted) = displayKeys()
+        // On a screen, and ordered in. Nothing in this app ever orders a panel out and leaves
+        // it so — a pause is a preference the panel draws nothing for, with the window still
+        // there — so a panel that is not visible now is one AppKit took away.
+        let onScreen = panels.filter { $0.isVisible && $0.screen != nil }.count
+        guard Self.wakeNeedsRebuild(screensNow: wanted, screensBefore: built, panelsOnScreen: onScreen) else {
+            IslandLog.panel.notice("\(reason, privacy: .public): the island is where it belongs")
+            for panel in panels {
+                panel.orderFrontRegardless()
+                panel.refit()
+            }
+            return
+        }
+        IslandLog.panel.error("\(reason, privacy: .public): \(onScreen, privacy: .public) of \(self.panels.count, privacy: .public) panels on screen for \(wanted.count, privacy: .public) displays; rebuilding")
+        rebuildPanels(reason: reason)
+    }
+
+    /// Whether the displays the panels were built for are still the displays that should
+    /// carry one. The one comparison behind both the screen-parameters path and the wake
+    /// path: written once, so it cannot be changed in one and stay green in the other.
+    static func displaysChanged(now: Set<String>, before: Set<String>) -> Bool {
+        now != before
+    }
+
+    /// Whether a wake has to rebuild the island: the displays changed while the Mac slept,
+    /// which the screen-parameters path would answer the same way, or they did not and a
+    /// panel is nonetheless gone from its screen, which nothing else would ever notice.
+    ///
+    /// No displays at all is a display that has not come back yet, not one that has gone.
+    /// The screen-parameters notification that follows will judge that; tearing the panels
+    /// down ahead of it would cost a flicker on every lid-open, which is the one thing a
+    /// check that runs on every wake must never do.
+    static func wakeNeedsRebuild(screensNow: Set<String>, screensBefore: Set<String>, panelsOnScreen: Int) -> Bool {
+        guard !screensNow.isEmpty else { return false }
+        if displaysChanged(now: screensNow, before: screensBefore) { return true }
+        return panelsOnScreen < screensNow.count
+    }
+
     /// The screens that should carry an island right now.
     private static func targetScreens() -> [NSScreen] {
         let screens = NSScreen.screens
@@ -242,19 +335,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return notched
     }
 
+    /// The displays the panels were built for, and the ones that should carry a panel now.
+    private func displayKeys() -> (built: Set<String>, wanted: Set<String>) {
+        let built = Set(panels.map(\.displayKey))
+        let wanted = Set(Self.targetScreens().map { NotchPanel.displayKey(for: $0) })
+        return (built, wanted)
+    }
+
     /// Rebuilds the panels when the set of displays that should carry one differs from what
     /// is on screen (a display added or removed, or resized). Returns whether it did.
     @discardableResult
     private func rebuildPanelsIfGeometryChanged() -> Bool {
-        let current = Set(panels.map(\.displayKey))
-        let fresh = Set(Self.targetScreens().map { NotchPanel.displayKey(for: $0) })
-        guard current != fresh else { return false }
-        IslandLog.panel.notice("displays changed; rebuilding panels")
-        rebuildPanels()
+        let (built, wanted) = displayKeys()
+        guard Self.displaysChanged(now: wanted, before: built) else { return false }
+        rebuildPanels(reason: "displays changed")
         return true
     }
 
-    private func rebuildPanels() {
+    /// Tears every panel down and builds them again for the screens as they are now. Open
+    /// to the menu bar as "Reload Island": every competing app's users end up force-quitting
+    /// to get their island back, and this is that, without the quit. `reason` is kept, see
+    /// `PanelHealth`.
+    func rebuildPanels(reason: String) {
+        panelHealth.rebuildCount += 1
+        panelHealth.lastRebuiltAt = Date()
+        panelHealth.lastRebuildReason = reason
+        IslandLog.panel.notice("building panels (\(reason, privacy: .public)), build \(self.panelHealth.rebuildCount, privacy: .public) of this run")
         for panel in panels {
             panel.orderOut(nil)
             panel.close()

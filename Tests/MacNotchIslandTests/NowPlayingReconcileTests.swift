@@ -133,4 +133,76 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertFalse(AdapterBackend.isTheHelperWeHold(nil, held: held))
         XCTAssertFalse(AdapterBackend.isTheHelperWeHold(held, held: nil))
     }
+
+    // MARK: - What the Settings pane says about each backend
+
+    func testABackendIsLiveOnlyWhileItAnswersWithATrack() {
+        XCTAssertEqual(NowPlayingService.backendHealth(available: true, answering: true, deliveringTrack: true, outranked: false), .live)
+        XCTAssertEqual(NowPlayingService.backendHealth(available: true, answering: true, deliveringTrack: false, outranked: false), .idle,
+                       "answering with no track is a quiet Mac, not a fault")
+        XCTAssertEqual(NowPlayingService.backendHealth(available: true, answering: false, deliveringTrack: false, outranked: false), .givenUp)
+    }
+
+    func testATrackFromABackendThatHasGoneQuietIsOldNews() {
+        // The pair cannot arise from the backends as written, and the rule must still read it
+        // the safe way round: "not answering" is the fact the pane exists to show.
+        XCTAssertEqual(NowPlayingService.backendHealth(available: true, answering: false, deliveringTrack: true, outranked: false), .givenUp)
+    }
+
+    func testAnOutrankedBackendIsStandingByRatherThanBroken() {
+        // MediaRemote's freshness lapses fifteen seconds after the last track change while the
+        // helper does all the work. Read on its own it would say "not answering" on every Mac
+        // where the helper works, which is every Mac this pane was written for.
+        XCTAssertEqual(NowPlayingService.backendHealth(available: true, answering: false, deliveringTrack: false, outranked: true), .standingBy)
+        XCTAssertEqual(NowPlayingService.backendHealth(available: true, answering: true, deliveringTrack: true, outranked: true), .standingBy,
+                       "even one that would otherwise be live: only one source feeds the card")
+    }
+
+    func testAHelperThisMacCannotRunIsNeverAnythingElse() {
+        XCTAssertEqual(NowPlayingService.backendHealth(available: false, answering: true, deliveringTrack: true, outranked: false), .unavailable)
+        XCTAssertEqual(NowPlayingService.backendHealth(available: false, answering: false, deliveringTrack: false, outranked: true), .unavailable,
+                       "not standing by either: there is nothing to stand by for")
+    }
+
+    // MARK: - Whether a wake has to rebuild the island
+    //
+    // Not a Now Playing rule. It lives here because the complaint it answers is the one the
+    // backend-health rule above answers: an island, or a card, that goes blank after a sleep
+    // and says nothing about why. The two rules went in together, both as pure functions so
+    // a build machine with no notch and nothing playing can still pin them, and the tests
+    // that pin them belong side by side for the same reason the rules do.
+
+    private let builtIn: Set<String> = ["1|3024x1964|37"]
+    private let builtInAndExternal: Set<String> = ["1|3024x1964|37", "2|2560x1440|0"]
+
+    func testAWakeThatChangedNothingDoesNotRebuild() {
+        // A rebuild nobody needed is a flicker on every lid-open, and a check that runs on
+        // every wake earns its keep by finding nothing wrong nearly every time.
+        XCTAssertFalse(AppDelegate.wakeNeedsRebuild(screensNow: builtIn, screensBefore: builtIn, panelsOnScreen: 1))
+        XCTAssertFalse(AppDelegate.wakeNeedsRebuild(screensNow: builtInAndExternal, screensBefore: builtInAndExternal, panelsOnScreen: 2))
+    }
+
+    func testADisplayThatCameOrWentWhileAsleepRebuilds() {
+        // The same judgement the screen-parameters path makes, asked by the wake path too:
+        // a display plugged in or pulled out while the lid was closed has no other announcer.
+        XCTAssertTrue(AppDelegate.wakeNeedsRebuild(screensNow: builtInAndExternal, screensBefore: builtIn, panelsOnScreen: 1))
+        XCTAssertTrue(AppDelegate.wakeNeedsRebuild(screensNow: builtIn, screensBefore: builtInAndExternal, panelsOnScreen: 2))
+        XCTAssertTrue(AppDelegate.displaysChanged(now: builtIn, before: builtInAndExternal))
+        XCTAssertFalse(AppDelegate.displaysChanged(now: builtIn, before: builtIn))
+    }
+
+    func testAPanelGoneFromItsScreenRebuildsEvenWithTheDisplaysUnchanged() {
+        // The case nothing else catches: the same display, back at the same size, with the
+        // panel ordered out from under it. As far as the app knew it was still there.
+        XCTAssertTrue(AppDelegate.wakeNeedsRebuild(screensNow: builtIn, screensBefore: builtIn, panelsOnScreen: 0))
+        XCTAssertTrue(AppDelegate.wakeNeedsRebuild(screensNow: builtInAndExternal, screensBefore: builtInAndExternal, panelsOnScreen: 1),
+                      "one of two is one short")
+    }
+
+    func testNoDisplaysAtAllIsADisplayNotBackYet() {
+        // Tearing the panels down for a screen that is still waking would cost a flicker on
+        // every wake; the screen-parameters notification that follows judges that case.
+        XCTAssertFalse(AppDelegate.wakeNeedsRebuild(screensNow: [], screensBefore: builtIn, panelsOnScreen: 0))
+        XCTAssertFalse(AppDelegate.wakeNeedsRebuild(screensNow: [], screensBefore: [], panelsOnScreen: 0))
+    }
 }

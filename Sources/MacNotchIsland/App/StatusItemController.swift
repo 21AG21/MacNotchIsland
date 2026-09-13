@@ -67,6 +67,11 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         menu.addItem(.separator())
 
         menu.addItem(action("Check for Updates…", #selector(checkForUpdates)))
+        // The way out that costs nothing. An island that has gone after a sleep or a display
+        // change is the complaint every app of this kind has open, and the answer users find
+        // on their own is to force-quit and relaunch; this is the same repair, in one click,
+        // with the shelf, the timer and the clipboard history all left as they were.
+        menu.addItem(action("Reload Island", #selector(reloadIsland)))
         menu.addItem(action("Copy Diagnostics", #selector(copyDiagnostics)))
 
         // Hold Option to swap the tour for the demo menu, the way Apple hides advanced options.
@@ -182,6 +187,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func copyDiagnostics() { Diagnostics.copyToPasteboard() }
+
+    @objc private func reloadIsland() {
+        (NSApp.delegate as? AppDelegate)?.rebuildPanels(reason: "Reload Island from the menu bar")
+    }
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
