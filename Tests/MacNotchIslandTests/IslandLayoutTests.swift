@@ -282,27 +282,31 @@ final class IslandLayoutTests: XCTestCase {
     /// at the end of the row, not the aim. A section without a slot is still one step along
     /// the ring; a row of slots nobody can land on cannot be reached at all.
     func testTheBandDropsASlotRatherThanShrinkPastThatFloor() {
+        // A 720 pt panel, a 200 pt cutout with 10 pt kept clear either side of it, and 16 pt
+        // of inset: (720 − 220) / 2 − 16 = 234 pt for the sections to lie in.
         let room = bandSide(notch: 200)
+        XCTAssertEqual(room, 234, "the room a 14-inch panel actually has beside its cutout")
         let all = bandSlots(HomeSection.allCases.count)
         let fitted = SwitcherBand.fit(all, in: room)
         XCTAssertEqual(fitted.slot, SwitcherBand.minSlot, "the circle stops at the floor")
         XCTAssertEqual(fitted.gap, SwitcherBand.minGap, "and the spacing was given up first")
         XCTAssertLessThan(fitted.views.count, all.count)
-        // Dropping as few as it can get away with: one more slot and the row would be a
-        // target short.
-        let kept = CGFloat(fitted.views.count)
-        XCTAssertLessThanOrEqual(kept * SwitcherBand.minHit - SwitcherBand.minGap, room)
-        XCTAssertGreaterThan((kept + 1) * SwitcherBand.minHit - SwitcherBand.minGap, room)
-        // One slot more than the room can hold, whatever that number turns out to be: the
-        // slot goes and the size stays, never the other way about.
-        let most = Int((room + SwitcherBand.minGap) / SwitcherBand.minHit)
-        let crowded = SwitcherBand.fit(bandSlots(most + 1), in: room)
-        XCTAssertEqual(crowded.views.count, most)
-        XCTAssertEqual(crowded.slot, SwitcherBand.minSlot)
+        // At the floor a 26 pt circle and the 2 pt beside it are one 28 pt target, and the
+        // targets meet edge to edge, so a row of n is 28n: 8 × 28 = 224 goes into 234 and
+        // 9 × 28 = 252 does not. Eight, worked out here by hand — not read back off the
+        // rounding being tested, which would follow that rounding wherever it went.
+        XCTAssertEqual(fitted.views.count, 8, "as many as the room holds, and not one fewer")
+        // One slot more than the room can hold, and a good many more: the slot goes and the
+        // size stays, never the other way about.
+        for crowd in [9, 12] {
+            let crowded = SwitcherBand.fit(bandSlots(crowd), in: room)
+            XCTAssertEqual(crowded.views.count, 8, "\(crowd) sections")
+            XCTAssertEqual(crowded.slot, SwitcherBand.minSlot, "\(crowd) sections")
+        }
         // And at every count on the way there it keeps everything the room can hold.
         for count in 1...all.count {
             XCTAssertEqual(SwitcherBand.fit(bandSlots(count), in: room).views.count,
-                           min(count, most), "\(count) sections")
+                           min(count, 8), "\(count) sections")
         }
     }
 

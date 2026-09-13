@@ -168,19 +168,25 @@ final class AgendaStoreTests: XCTestCase {
 
     func testTheTickBoxTakesItsClickInTheRoomAPointerIsOwed() {
         // It was a 14 pt circle in a 16 pt box: under a third of Apple's floor by area, on the
-        // one control here whose press cannot be taken back from the panel.
+        // one control here whose press cannot be taken back from the panel. The numbers are
+        // written out rather than read back off the view: `tickHit` is built from `rail` and
+        // `minHit`, so asking whether it clears `minHit` asks nothing.
         XCTAssertEqual(TodaySectionView.minHit, 28)
-        XCTAssertGreaterThanOrEqual(TodaySectionView.tickHit.width, TodaySectionView.minHit)
-        XCTAssertGreaterThanOrEqual(TodaySectionView.tickHit.height, TodaySectionView.minHit)
-        let before = TodaySectionView.rail * TodaySectionView.rail
+        XCTAssertEqual(TodaySectionView.rail, 16, "the circle is still drawn in the 16 pt gutter")
+        // max(16, 28) wide, and min(max(16, 28), 28) tall: the floor, on both sides.
+        XCTAssertEqual(TodaySectionView.tickHit, CGSize(width: 28, height: 28))
+        // 28 × 28 = 784 against the 16 × 16 = 256 it was: three times the target, and then some.
         XCTAssertGreaterThan(TodaySectionView.tickHit.width * TodaySectionView.tickHit.height,
-                             before * 3, "three times the target it was, and then some")
+                             TodaySectionView.rail * TodaySectionView.rail * 3)
     }
 
     func testTheTickBoxNeverReachesIntoTheRowAboveOrBelow() {
         // Those rows open Calendar when they are clicked. A tick made in passing on the way to
-        // one of them is the mistake this section must not invite.
-        XCTAssertLessThanOrEqual(TodaySectionView.tickHit.height, TodaySectionView.reminderRow)
+        // one of them is the mistake this section must not invite. The rectangle is capped at
+        // the row, and the row is exactly as tall as the floor, so the cap costs nothing:
+        // min(28, 28) = 28, the whole row and not a point of the next.
+        XCTAssertEqual(TodaySectionView.reminderRow, 28)
+        XCTAssertEqual(TodaySectionView.tickHit.height, 28)
     }
 
     func testTheTickBoxStopsShortOfTheWordsBesideIt() {
@@ -191,11 +197,12 @@ final class AgendaStoreTests: XCTestCase {
 
     func testNoneOfWhatTheTickBoxTakesItsClickInIsLaidOut() {
         // What is padded out is taken straight back off again, so the circle is drawn where it
-        // always was and no title down the section moves a point. The two have to cancel
-        // exactly, and this is the arithmetic that says they do.
-        XCTAssertEqual(TodaySectionView.rail + 2 * TodaySectionView.tickInset.width,
-                       TodaySectionView.tickHit.width)
-        XCTAssertEqual(TodaySectionView.rail + 2 * TodaySectionView.tickInset.height,
-                       TodaySectionView.tickHit.height)
+        // always was and no title down the section moves a point. The two cancel only if what
+        // is padded on is exactly half of what the rectangle adds to the circle: (28 − 16) / 2
+        // is 6 a side, and 16 + 6 + 6 is the 28 the pointer was promised. Six, by hand — the
+        // inset is defined as that difference halved, so asking the view to add it back up
+        // would be true of any rail and any floor whatever.
+        XCTAssertEqual(TodaySectionView.tickInset, CGSize(width: 6, height: 6))
+        XCTAssertEqual(TodaySectionView.tickHit, CGSize(width: 16 + 2 * 6, height: 16 + 2 * 6))
     }
 }

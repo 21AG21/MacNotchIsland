@@ -1,3 +1,4 @@
+import ApplicationServices
 import SwiftUI
 
 /// The Home panel's "Notifications" tab: what came past on a banner while you were not
@@ -47,10 +48,24 @@ struct NotificationsSectionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if inbox.entries.isEmpty {
+        if inbox.entries.isEmpty, !AXIsProcessTrusted() {
+            // The one permission nothing asks for on this section's behalf: the watcher checks
+            // on every sweep and goes quiet without it, and never prompts. The section used to
+            // say the permission was "granted in Settings" and offer no way there — for ever,
+            // and in the same words to somebody who had granted it and was simply waiting for
+            // a banner. The offer every other section makes for what it cannot do without.
+            // Asked as the list is drawn rather than watched, since nothing publishes the
+            // trust state; the panel is rebuilt each time it opens, which is when somebody
+            // back from System Settings would look.
+            SectionEmptyState(symbol: "bell.slash", title: "Accessibility is off",
+                              subtitle: "Allow it for Notch Island to keep the banners that come past.") {
+                PillButton(title: "Open Settings", symbol: "gearshape.fill") {
+                    SystemSettingsPane.accessibility.open()
+                }
+            }
+        } else if inbox.entries.isEmpty {
             SectionEmptyState(symbol: "bell", title: "Nothing yet",
-                              subtitle: "Whatever comes past on a banner is kept here for three days. "
-                                      + "Reading them needs Accessibility, which is granted in Settings.")
+                              subtitle: "Whatever comes past on a banner is kept here for three days.")
         } else if matches.isEmpty {
             SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
         } else {

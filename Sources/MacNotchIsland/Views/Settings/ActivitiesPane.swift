@@ -79,16 +79,19 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Answer the volume and brightness keys", isOn: $prefs.hudReplacementEnabled)
                     .help("The island takes the media keys over and becomes the only heads-up display for volume, mute and brightness.")
-                // Not disabled with the master switch: it also owns the display a scroll on
-                // the island puts up, which works either way, and a display with no way to
-                // turn it off is worse than one setting that does two things.
+                // Neither is disabled with the master switch: each also owns the display a
+                // scroll on the island puts up, which works either way, and a display with no
+                // way to turn it off is worse than one setting that does two things. The
+                // brightness one used to be greyed out behind a line saying the island had no
+                // way to change the brightness — while an Option-scroll on it did exactly that,
+                // and the rail carried a slider for it. The master switch ships off, so out of
+                // the box the only control over that display was one nobody could reach.
                 Toggle("Volume and silent mode", isOn: $prefs.volumeHUDEnabled)
                     .help("With the switch above on, this is every volume and mute change. With "
                           + "it off, it is only the one a scroll on the island makes itself.")
                 Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
-                    .disabled(!prefs.hudReplacementEnabled)
-                    .help("There is no way to change the brightness from the island itself, so this "
-                          + "has nothing to show unless the island is answering the keys.")
+                    .help("With the switch above on, this is every brightness change. With it off, "
+                          + "it is only the one an Option-scroll on the island makes itself.")
                 // With both displays off there is no key left to take, so the island is not
                 // asking for Accessibility and must not offer to send anyone looking for it.
                 if prefs.hudReplacementEnabled, prefs.volumeHUDEnabled || prefs.brightnessHUDEnabled,

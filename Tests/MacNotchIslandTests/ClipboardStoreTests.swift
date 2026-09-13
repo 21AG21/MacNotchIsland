@@ -313,9 +313,12 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertFalse(store.filesAreGone(gone), "an entry nobody has swept yet is not called dead")
 
         store.seedForGallery([alive, gone])
-        let swept = expectation(description: "the sweep has asked the disk")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { swept.fulfill() }
-        wait(for: [swept], timeout: 2)
+        // The sweep runs off the main thread and posts its answers back, so the run loop is
+        // pumped until they land rather than for a guessed number of milliseconds: a slow disk
+        // is a slower test, not a failed one, and a sweep that never lands is a failure here.
+        let swept = XCTNSPredicateExpectation(predicate: NSPredicate(block: { _, _ in store.filesAreGone(gone) }),
+                                              object: nil)
+        wait(for: [swept], timeout: 5)
         XCTAssertTrue(store.filesAreGone(gone), "the file it pointed at has gone, so the row says so")
         XCTAssertFalse(store.filesAreGone(alive), "and the one that is still there is left alone")
     }

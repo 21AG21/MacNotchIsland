@@ -67,7 +67,14 @@ struct IslandPane: View {
             }
 
             Section {
-                SettingsSlider("Alert duration", value: $prefs.alertDuration, range: 1...6, unit: "s")
+                // The figure is a scale, not a length every alert is held to: each kind of alert
+                // has a length of its own — a copied line a second, a HUD a moment and a half, a
+                // finished download four — and the slider moves all of them together. It used
+                // to be only the fallback for the few that named none, and read "Alert
+                // duration" while a download banner stayed exactly as long wherever it was put.
+                // See `ActivityCenter.alertDuration(requested:preference:)`.
+                SettingsSlider("Alerts stay for about", value: $prefs.alertDuration, range: 1...6, unit: "s")
+                    .help("How long an ordinary alert stays — a Focus changing, Low Power Mode. Every other alert keeps its own proportion to that: a copied line stays about half as long, a finished download about twice, and all of them move together as this moves.")
                 Toggle("Trackpad haptics", isOn: $prefs.hapticsEnabled)
                     .help("A light tap when an alert arrives, a timer rings, or a file is dragged onto the island. Never for a click: the trackpad has already clicked.")
                 Toggle("Trackpad gestures", isOn: $prefs.gesturesEnabled)
@@ -77,7 +84,7 @@ struct IslandPane: View {
             } header: {
                 Text("Alerts and gestures")
             } footer: {
-                Text("Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for the volume, and hold Option while you scroll for the brightness — the rail's two sliders, without opening the panel. A section that scrolls by itself, like the clipboard, keeps its own scroll.")
+                Text("The seconds are an ordinary alert's, such as a Focus changing, and they set the pace for all of them: a copied line stays about half as long, a finished download or a screenshot about twice, a volume or brightness change a little less, and moving the slider moves every one of them in step — at six seconds everything stays more than three times as long as it ships. Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for the volume, and hold Option while you scroll for the brightness — the rail's two sliders, without opening the panel. A section that scrolls by itself, like the clipboard, keeps its own scroll.")
             }
         }
         .formStyle(.grouped)

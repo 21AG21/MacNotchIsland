@@ -11,7 +11,32 @@ struct WelcomeView: View {
 
     @EnvironmentObject private var prefs: Preferences
     var dismiss: () -> Void
+    /// The last switch's answer, held back until the window closes — see `Draft`.
+    @ObservedObject var draft: Draft
     @State private var page = 0
+
+    /// The tour's last switch, held back until the tour is done.
+    ///
+    /// The other six write straight to Preferences, and may: nothing runs off them that asks
+    /// macOS for anything. This one starts the media-key interceptor, which asks for
+    /// Accessibility with a modal sheet — and did so over the tour, within a moment of the
+    /// switch being flipped, before Done had been pressed. The calendar keeps the right order
+    /// by having `ServiceHub.wantsCalendar` hold it until `hasSeenWelcome`; the hub reads this
+    /// preference directly, so the holding is done a step earlier, by not writing the
+    /// preference until the window closes. Done and the close button both go through
+    /// `windowWillClose`, so neither loses the choice.
+    final class Draft: ObservableObject {
+        @Published var answersKeys: Bool
+
+        init(answersKeys: Bool) { self.answersKeys = answersKeys }
+
+        /// Writes the choice through, which is the moment the interceptor starts and macOS
+        /// asks. Main thread only: the window delegate's, and Preferences publishes on it.
+        func commit() {
+            guard Preferences.shared.hudReplacementEnabled != answersKeys else { return }
+            Preferences.shared.hudReplacementEnabled = answersKeys
+        }
+    }
 
     private var shortcut: String {
         HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
@@ -107,15 +132,15 @@ struct WelcomeView: View {
     /// They live here rather than inline so a test can hold them to their one line. The
     /// fuller explanation of each is in Settings, which is where there is room for it.
     enum ChoiceLine {
-        // The one that asks macOS for something the moment the tour is finished, so the tour
-        // is where it says so.
+        // The two that ask macOS for something the moment the tour is finished — this one
+        // for the calendar, the last one for Accessibility — so the tour is where they say so.
         static let today = "Your events and reminders. Asks for access."
         static let windows = "Every open window as a tile you can snap."
         static let shelf = "Files you drop on the island wait here."
         static let clipboard = "Recent copies, pinned ones first."
         static let notes = "A scratchpad that keeps what you type."
         static let stats = "Processor, memory, network and battery."
-        static let keys = "Answered in the island, not by macOS."
+        static let keys = "Answered in the island. Asks for access."
         static let all = [today, windows, shelf, clipboard, notes, stats, keys]
         /// About as much as fits on one line at the width the tour gives these.
         static let limit = 44
@@ -157,7 +182,7 @@ struct WelcomeView: View {
                     choice("doc.on.clipboard", "Clipboard", ChoiceLine.clipboard, $prefs.clipboardEnabled)
                     choice("note.text", "Notes", ChoiceLine.notes, $prefs.notesEnabled)
                     choice("gauge.with.dots.needle.bottom.50percent", "Stats", ChoiceLine.stats, $prefs.statsEnabled)
-                    choice("speaker.wave.2", "Volume and brightness", ChoiceLine.keys, $prefs.hudReplacementEnabled)
+                    choice("speaker.wave.2", "Volume and brightness", ChoiceLine.keys, $draft.answersKeys)
                 }
                 .frame(maxWidth: 420, alignment: .leading)
                 .padding(.vertical, 2)
@@ -235,6 +260,9 @@ struct WelcomeView: View {
 final class WelcomeWindowController: NSObject, NSWindowDelegate {
     static let shared = WelcomeWindowController()
     private var window: NSWindow?
+    /// The last switch's answer, kept beside the window so that closing it — by Done or by
+    /// the close button — is what writes the answer through.
+    private var draft: WelcomeView.Draft?
 
     func showIfFirstLaunch() {
         guard !Preferences.shared.hasSeenWelcome else {
@@ -246,11 +274,15 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         if let window {
+            // The switch is read afresh: Settings may have changed it since the tour was last up.
+            draft?.answersKeys = Preferences.shared.hudReplacementEnabled
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let view = WelcomeView(dismiss: { [weak self] in self?.close() })
+        let answers = WelcomeView.Draft(answersKeys: Preferences.shared.hudReplacementEnabled)
+        draft = answers
+        let view = WelcomeView(dismiss: { [weak self] in self?.close() }, draft: answers)
             .environmentObject(Preferences.shared)
         let host = NSHostingController(rootView: view)
         let w = NSWindow(contentViewController: host)
@@ -283,5 +315,9 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         Preferences.shared.hasSeenWelcome = true
+        // After the tour is marked seen, and in the same turn of the run loop: the hub
+        // re-applies once for both, with the window already on its way out from under the
+        // sheet that this may raise.
+        draft?.commit()
     }
 }

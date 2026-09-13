@@ -83,8 +83,8 @@ struct ShortcutRecorderView: View {
             return nil
         }
         let modifiers = HotKeyService.carbonModifiers(from: event.modifierFlags)
-        guard modifiers != 0 else {
-            self.hint = "Add Control, Option, Shift or Command."
+        if let refusal = Self.rejection(keyCode: Int(event.keyCode), modifiers: modifiers) {
+            self.hint = refusal.message
             return nil
         }
         Preferences.shared.hotkeyKeyCode = Double(event.keyCode)
@@ -100,4 +100,62 @@ struct ShortcutRecorderView: View {
         Preferences.shared.hotkeyKeyCode = Double(HotKeyService.defaultKeyCode)
         Preferences.shared.hotkeyModifiers = Double(HotKeyService.defaultModifiers)
     }
+
+    // MARK: The rule
+
+    /// Why a combination that was pressed is not taken, and the line under the row that says so.
+    ///
+    /// A recorded combination is claimed from every app on the Mac, and `HotKeyService`
+    /// registers whatever it is handed, so this row is the last place a bad one can be stopped.
+    /// The only rule used to be "hold something down", which let ⇧A through — and Carbon then
+    /// took the capital A from every application there is.
+    enum Rejection: Equatable {
+        /// Nothing held down: the island would take the bare key from everything.
+        case bareKey
+        /// Shift alone with anything but a function key. Every app uses that already — for a
+        /// capital, the upper legend on a key, a longer selection — and it would be taken from
+        /// all of them.
+        case shiftAlone
+        /// Tab or a sideways arrow, whatever is held with it. The island's own steps are
+        /// registered on those keys with the recorded combination's modifiers, so any such
+        /// combination is the shortcut and the step at once, and the second of the two to be
+        /// registered loses in silence.
+        case ownStep
+
+        var message: String {
+            switch self {
+            case .bareKey:
+                return "Add Control, Option, Shift or Command."
+            case .shiftAlone:
+                return "Shift alone types a capital or extends a selection in every app. Add Control, Option or Command."
+            case .ownStep:
+                return "Tab, ← and → are the island's own steps, with whatever this shortcut holds. Choose another key."
+            }
+        }
+    }
+
+    /// Whether a pressed combination may be the shortcut, and if not, why not. `modifiers`
+    /// are the Carbon masks `HotKeyService.carbonModifiers(from:)` makes of an event's flags.
+    static func rejection(keyCode: Int, modifiers: Int) -> Rejection? {
+        if modifiers == 0 { return .bareKey }
+        // Before the Shift rule: ⇧Tab is a step as much as ⌃⌥Tab is, and that is the truer
+        // thing to say about it.
+        if ownStepKeys.contains(keyCode) { return .ownStep }
+        if modifiers == shiftKey, !functionKeys.contains(keyCode) { return .shiftAlone }
+        return nil
+    }
+
+    /// The keys the island's other shortcuts sit on. `HotKeyService.register()` puts the next
+    /// section on Tab and `registerWhileOpen()` the sideways steps on the arrows, each with
+    /// `currentModifiers` — the modifiers of whatever was recorded here — which is why no set
+    /// of modifiers makes these safe. Listed here rather than read from there because the
+    /// service is not this view's to change; the pane's "Next section" and "Step sideways"
+    /// rows show the same three keys.
+    static let ownStepKeys: Set<Int> = [kVK_Tab, kVK_LeftArrow, kVK_RightArrow]
+
+    /// F1 to F20: the keys that type nothing, and so the only ones Shift alone is a shortcut with.
+    static let functionKeys: Set<Int> = [
+        kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+        kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20,
+    ]
 }

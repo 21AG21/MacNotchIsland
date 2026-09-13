@@ -160,7 +160,13 @@ struct TodaySectionView: View {
                 }
             }
         } else if rows.isEmpty {
-            SectionEmptyState(symbol: "calendar", title: "Nothing left today", subtitle: tomorrowHint)
+            // "Nothing left" is only true of what can be read: with the reminders refused it
+            // is the events that are done, and the title says which.
+            SectionEmptyState(symbol: "calendar",
+                              title: remindersRefused ? "No events left today" : "Nothing left today",
+                              subtitle: tomorrowHint) {
+                if remindersRefused { remindersPill }
+            }
         } else {
             VStack(spacing: 0) {
                 ForEach(rows) { row in
@@ -169,9 +175,60 @@ struct TodaySectionView: View {
                     case .reminder(let reminder): reminderRow(reminder)
                     }
                 }
+                if remindersRefused, remindersNoteFits { remindersNote }
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
+    }
+
+    // MARK: - Reminders that cannot be read
+
+    /// Whether Reminders has been refused while Calendars was allowed.
+    ///
+    /// Only that case: a Mac that has not been asked yet is about to be, and one that refused
+    /// the calendar too is shown the calendar's own empty state above, which covers both. The
+    /// pane promises "events and reminders", and a list of events with "nothing left" under
+    /// it was what a refused permission looked like from the outside — nothing to say the
+    /// reminders were missing, and nowhere to go to put it right.
+    private var remindersRefused: Bool {
+        agenda.canReadEvents && !agenda.canReadReminders && agenda.remindersAccess != .notDetermined
+    }
+
+    /// Whether there is a reminder's row of room under the events. The rule the reminders
+    /// themselves keep: three events fill the section, and where no reminder would have
+    /// fitted, neither does a line about them.
+    private var remindersNoteFits: Bool {
+        rows.reduce(0) { $0 + $1.height } + Self.reminderRow <= Self.listHeight
+    }
+
+    /// The same offer the weather makes for its location, to the pane that decides it.
+    private var remindersPill: some View {
+        PillButton(title: "Allow Reminders", tint: .white.opacity(0.85)) {
+            SystemSettingsPane.reminders.open()
+        }
+        .accessibilityLabel(Text("Reminders access is off. Open Reminders privacy settings."))
+    }
+
+    /// The line the first reminder would have stood on, saying why none does. Laid out the
+    /// way a reminder is — the rail, the title, the trailing column — so it reads as the row
+    /// it stands in for rather than as a banner over the list.
+    private var remindersNote: some View {
+        HStack(spacing: Self.rowGap) {
+            Image(systemName: "checklist")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.45))
+                .frame(width: Self.rail, alignment: .leading)
+                .accessibilityHidden(true)
+            Text("Reminders access is off")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            remindersPill
+                .environment(\.islandCompactControls, true)
+        }
+        .frame(height: Self.reminderRow)
+        .accessibilityElement(children: .contain)
     }
 
     private enum Row: Identifiable {

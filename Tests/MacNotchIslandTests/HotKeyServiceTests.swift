@@ -79,13 +79,15 @@ final class HotKeyServiceTests: XCTestCase {
             36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Escape",
             96: "F5", 111: "F12", 122: "F1",
             115: "Home", 121: "Page Down",
-            123: "←", 126: "↑",
+            123: "←", 124: "→", 125: "↓", 126: "↑",
         ]
         for (code, legend) in legends {
             XCTAssertEqual(HotKeyService.keyName(for: code), legend, "key code \(code)")
-            XCTAssertFalse(HotKeyService.keyName(for: code).hasPrefix("Key 0x"),
-                           "key code \(code) fell through to the hex form, which is the table having gone")
         }
+        // And the hex form is kept for a code the table really has no legend for: 0x7F is one
+        // past the last key on the board, and 200 is 0xC8, two digits with nothing to pad.
+        XCTAssertEqual(HotKeyService.keyName(for: 0x7F), "Key 0x7F")
+        XCTAssertEqual(HotKeyService.keyName(for: 200), "Key 0xC8")
     }
 
     // MARK: carbonModifiers(from:)

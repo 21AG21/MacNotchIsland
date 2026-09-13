@@ -427,6 +427,32 @@ final class ActivityCenter: ObservableObject {
         return p.quietDuringFocus && p.focusEnabled && FocusMonitor.isOn
     }
 
+    /// The figure the "Alert duration" slider ships at, which is the length an alert with no
+    /// length of its own is shown for. It has to agree with the default in `Preferences`;
+    /// it is the one point on the slider where every alert is exactly as long as its caller
+    /// asked for.
+    static let standardAlertDuration: TimeInterval = 1.8
+
+    /// How long an alert stays up, from what its caller asked for and where the slider is.
+    ///
+    /// The slider used to be nothing more than the fallback for a caller that named no
+    /// length, and nearly every caller names one — a copied line a second, a HUD a moment
+    /// and a half, a finished download four — so dragging it to six changed nothing anybody
+    /// could see. It is a scale now: the figure on it is what an alert with no length of its
+    /// own gets, and every other alert keeps its own proportion to that, so twice the
+    /// shipping figure is twice as long for all of them and half is half. A scale rather than
+    /// a floor because the callers' figures are the only thing that says a copied line is
+    /// briefer than a download, and a floor would flatten that the moment it was raised — and
+    /// would lengthen the shipping app's own alerts before the slider had been touched.
+    static func alertDuration(requested: TimeInterval?, preference: TimeInterval) -> TimeInterval {
+        // A hand-edited defaults entry of nought or less would dismiss everything on arrival.
+        guard preference.isFinite, preference > 0 else { return requested ?? standardAlertDuration }
+        guard let requested else { return preference }
+        // The ratio first, so that at the shipping figure it is exactly one and every caller
+        // gets exactly what it asked for, to the last bit.
+        return requested * (preference / standardAlertDuration)
+    }
+
     func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
         if focusIsQuiet, Self.focusHolds(activity) {
             IslandLog.island.notice("focus holds \(activity.id, privacy: .public)")
@@ -456,7 +482,8 @@ final class ActivityCenter: ObservableObject {
         }
         alert = activity
         if haptic { Haptics.tap() }
-        scheduleAlertDismiss(id: activity.id, after: duration ?? Preferences.shared.alertDuration)
+        scheduleAlertDismiss(id: activity.id,
+                             after: Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration))
     }
 
     private func enqueue(_ activity: IslandActivity, duration: TimeInterval?) {
