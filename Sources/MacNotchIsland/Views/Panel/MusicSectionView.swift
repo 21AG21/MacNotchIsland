@@ -114,38 +114,10 @@ struct MusicSectionView: View {
             .frame(height: Self.transportRow)
             .padding(.top, 4)
         }
-        .background(alignment: .top) { backdrop(info) }
-    }
-
-    /// The cover, blurred out into the black behind the section — the wash of colour the phone
-    /// puts behind what is playing. It fades away to the right so nothing sits behind the
-    /// title, and it is only ever as strong as a hint: the island is black first.
-    @ViewBuilder
-    private func backdrop(_ info: NowPlayingInfo) -> some View {
-        if let artwork = info.artwork {
-            Image(nsImage: artwork)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.sectionHeight)
-                .blur(radius: 40)
-                .opacity(0.26)
-                // Across the whole width, not a band down the left. Masked to a third of its
-                // strength by the halfway mark, the wash ended in a visible edge under the
-                // title — a rendering seam rather than a colour. The phone tints the whole
-                // card and trusts white text to carry over it, which at this blur and this
-                // opacity it does.
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0),
-                                           .init(color: .black, location: 0.55),
-                                           .init(color: .clear, location: 1)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
-                .offset(y: -6)
-                .id(info.artworkID)
-                .transition(.opacity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        // No wash of the cover's colour behind the row. There was one — the cover blurred out
+        // into the black and masked off towards the bottom, the way the phone tints its card —
+        // and on the island it read as a smear beside the artwork rather than as a colour.
+        // The island is black; the cover is the only colour in it, and it is enough.
     }
 
     private var lyricLine: String? {

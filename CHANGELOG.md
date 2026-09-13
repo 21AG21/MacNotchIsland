@@ -51,7 +51,67 @@ the unreleased section is what the next tag will ship.
   own rule for a link it did not write sat two files away. Both the release page and the
   download are held to it now.
 
+### Added
+- **A Motion pane, with a live island in it.** A real island, drawn with the app's own shape,
+  opening and closing on a loop in the Settings window while you drag duration and bounce — the
+  actual curves, read live, so a change is on the next cycle. Three presets: Faithful, which is
+  the phone's own timing and what ships; Calm, with no bounce at all, which is the thing users
+  of every competing app keep asking for; and Instant. The defaults reproduce the previous motion
+  exactly, so nothing changes unless a slider is moved. No other notch app lets you watch the
+  curve while you set it.
+- **Reload Island, in the menu bar.** The most-repeated complaint about every app in this
+  category is the island freezing or vanishing after sleep, with a force-quit as the only cure.
+  The island now checks itself on wake, on the screens waking and on the session coming back,
+  and rebuilds only when a display has actually changed or a panel has actually gone — never
+  blindly, because an unneeded rebuild is a flicker. And there is a menu item for the case
+  nobody predicted.
+- **Now Playing says where its answer comes from.** The Media pane shows each of the three
+  sources — the MediaRemote helper, MediaRemote itself, and AppleScript — with a plain status:
+  live, answering with nothing playing, standing by, or not available on this Mac, and a
+  Restart Helper button. This app is the only one in its category with a real answer to media
+  detection breaking on a macOS point release, and until now it got no credit for it.
+
+### Changed
+- **No colour wash behind the Now Playing row.** The cover used to be blurred out into the
+  black behind the section and masked off towards the bottom, the way the phone tints its card.
+  On the island it read as a smear beside the artwork rather than as a colour. The island is
+  black; the cover is the only colour in it, and it is enough.
+- **Alerts stay for about the time the slider says.** The alert-duration preference was only the
+  fallback for an alert that named no duration, and nearly every alert named one: the slider
+  governed the Focus banner and almost nothing else. It is a scale now — the seconds are an
+  ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
+
 ### Fixed
+- **The island opens from the notch.** It had been opening from a hundred points below it: the
+  compact island appeared in mid-air, detached from the top of the screen, and grew about its
+  own middle until its top edge caught up with the notch. The window's height used to follow
+  the island, growing in the same turn of the run loop as the state that opens the panel, and
+  SwiftUI, handed a root that had already changed size, committed the island's box at its final
+  height and animated the contents inside it. The close never had the fault — its shrink was
+  always deferred until the spring had settled, so its container was still — which is what gave
+  it away. The window is now always as tall as the tallest thing it can show and only ever
+  changes width, and a click in the clear part falls through exactly as it always did.
+- **The onboarding tour no longer fires a system dialog on top of itself.** Switching on the
+  volume-and-brightness keys started the media-key interceptor inside 150 ms, which asked macOS
+  for Accessibility with a modal sheet — before Done had been pressed, and with no warning,
+  unlike the calendar line right above it. The choice is held until the tour closes, and its
+  line says "Asks for access" like the other one.
+- **The Brightness switch is reachable and truthfully explained.** It was greyed out unless the
+  key takeover was on, behind help text saying there is no way to change brightness from the
+  island — while an Option-scroll on the island changed it and this switch was the only thing
+  governing that HUD. Since the takeover ships off, the switch was unreachable out of the box.
+- **Notifications offers the button it needs.** The section's empty state said Accessibility was
+  required and offered no way to grant it, forever — and said the same thing when it was already
+  granted and nothing had simply arrived. It now offers Open Settings when access is missing and
+  says "Nothing yet" when it is not.
+- **Refusing Reminders is no longer invisible.** Calendars and Reminders are separate grants, and
+  the section only ever checked the first: grant one and refuse the other and it showed your
+  events with "Nothing left today" underneath, as if there were none. It says so now, with a
+  button to the right pane.
+- **The shortcut recorder refuses a key it would take from every app on the Mac.** It accepted
+  Shift alone with a letter, which claims that capital letter system-wide, and Tab or a sideways
+  arrow with any modifiers, which collide with the island's own next-section shortcut. Both are
+  refused with a sentence saying why.
 - **A switch that governs nothing is a lie told to your face.** "Open from the empty notch too",
   in the Island pane, has had no reader behind it since the line that consulted it was deleted:
   it sat there saying "resting on the notch does nothing unless this is on" while resting on the

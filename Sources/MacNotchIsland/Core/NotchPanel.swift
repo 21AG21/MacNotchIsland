@@ -5,18 +5,29 @@ import SwiftUI
 /// A transparent panel that floats above the menu bar and full-screen apps, positioned over the
 /// notch of its screen.
 ///
-/// The window is never larger than the island it shows. Its frame follows the island's footprint:
-/// it grows the instant something opens (so the spring has room to overshoot) and shrinks back a
-/// moment after something closes. At rest it hugs the notch, so the menu bar and the windows
-/// beside it stay clickable; there is no invisible canvas to bump into.
+/// The window is as tall as the tallest thing the island can show, always, and only its width
+/// follows the island's footprint: it widens the instant something opens (so the spring has room
+/// to overshoot) and narrows back a moment after something closes. A click that lands in the
+/// clear part falls straight through to whatever is under it, see `NotchHostingView`, so the
+/// menu bar and the windows beside the island stay clickable whatever size the window is.
+///
+/// The height used to follow the island too, and that is what broke the opening animation. A
+/// window that grows in the same turn of the run loop as the state that opens the panel hands
+/// SwiftUI a root that has already changed size when it lays the new state out; it committed
+/// the island's box at its final height and then animated the contents inside it, so the
+/// island appeared a hundred points below the notch and grew about its own middle. The close
+/// never had the fault, because the shrink was always deferred until the spring had settled —
+/// the container was still. Now the container is still on the way out as well.
 final class NotchPanel: NSPanel {
+    /// The height the window always has. Tall enough for the tallest card with its shadow, and
+    /// never changed, for the reason above.
     static let canvasHeight: CGFloat = 340
     /// Room around the island at rest: enough for its anti-aliased edge and for the shadow it
     /// casts past it, and no more. The margin costs nothing next to the notch — a click that
     /// lands in it falls straight through to whatever is under it, see `NotchHostingView` —
     /// but a shadow with no room to fall in is sliced off square at the window's own edge.
     static let restSlack: CGFloat = IslandShadow.reach + 6
-    /// Extra room on the sides and below while a spring is in flight, since springs overshoot.
+    /// Extra room on the sides while a spring is in flight, since springs overshoot.
     /// `IslandMotion.open` carries a bounce of 0.28, which puts the shape about 4 % past its
     /// step at the peak, so the slack scales with the step and this is only the floor.
     static let motionSlack: CGFloat = 14
@@ -323,10 +334,11 @@ final class NotchPanel: NSPanel {
     /// A top-anchored rect reaching `leading` left and `trailing` right of the notch centre,
     /// plus slack, kept inside the screen. Asymmetric on purpose: the bubble hangs off the
     /// right, and the window must not cover anything on the left that has nothing under it.
+    /// The height is the canvas, whatever `height` is asked for — see the note on the class.
     private static func frame(leading: CGFloat, trailing: CGFloat, height: CGFloat, slack: CGFloat, in screen: CGRect) -> NSRect {
         let minX = max(screen.minX, (screen.midX - leading - slack).rounded())
         let maxX = min(screen.maxX, (screen.midX + trailing + slack).rounded())
-        let h = min(canvasHeight, screen.height, height + slack)
+        let h = min(canvasHeight, screen.height)
         return NSRect(x: minX, y: screen.maxY - h, width: max(1, maxX - minX), height: h)
     }
 
@@ -405,16 +417,16 @@ final class NotchPanel: NSPanel {
         settleWork?.cancel()
         let target = restFrame()
         let current = frame
+        // Width and top edge only. The height is the canvas and is never touched here: a window
+        // that changes height in the turn that opens the panel is the whole reason the island
+        // used to grow from a hundred points below the notch.
         let needsRoom = target.minX < current.minX - 0.5 || target.maxX > current.maxX + 0.5
-            || target.height > current.height + 0.5 || abs(target.maxY - current.maxY) > 0.5
+            || abs(target.maxY - current.maxY) > 0.5 || abs(target.height - current.height) > 0.5
         if needsRoom {
-            // Both rects hang from the top edge, so growing the union sideways and downward
-            // keeps the top where it is.
             let union = current.union(target)
             let slackX = max(Self.motionSlack, abs(target.width - current.width) * Self.overshootFraction)
-            let slackY = max(Self.motionSlack, abs(target.height - current.height) * Self.overshootFraction)
-            let grown = NSRect(x: union.minX - slackX, y: union.minY - slackY,
-                               width: union.width + slackX * 2, height: union.height + slackY)
+            let grown = NSRect(x: union.minX - slackX, y: target.minY,
+                               width: union.width + slackX * 2, height: target.height)
             place(grown.intersection(screenFrame))
         }
 
