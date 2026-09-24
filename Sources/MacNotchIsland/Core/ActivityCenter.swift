@@ -43,6 +43,11 @@ final class ActivityCenter: ObservableObject {
             if (openView == nil) != (oldValue == nil) { openStateChanged() }
         }
     }
+    /// The island the open view was opened on, when it was opened from one — a click or a
+    /// press on that island. Nil when it was opened from everywhere at once (the shortcut,
+    /// the menu bar, a URL), and then every island shows it. With an island on every
+    /// display, a click on one used to expand all of them.
+    @Published private(set) var openPanel: String? = nil
     /// The view the panel shows while it is only under the pointer. Seeded from what the
     /// island was showing when the pointer arrived; the switcher, a swipe or Tab move it. A
     /// click promotes it to `openView` as is.
@@ -57,14 +62,27 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var pinnedID: String? = nil
     @Published var micInUse = false
     @Published var cameraInUse = false
-    /// True while a full-screen app is frontmost and the user asked to hide there.
-    @Published var fullscreenSuppressed = false
+    /// The islands whose display a full-screen app covers, while the user asked to hide
+    /// there. Per display: a film on the external display hides that display's island and
+    /// leaves the MacBook's alone, and the other way about.
+    @Published var fullscreenPanels: Set<String> = []
+    /// True while any island is hidden under a full-screen app.
+    var fullscreenSuppressed: Bool { !fullscreenPanels.isEmpty }
     /// True while an app the user listed under "hide for these apps" is frontmost.
     @Published var appSuppressed = false
 
-    /// Nothing is drawn while suppressed (user pause or full-screen app).
-    var isSuppressed: Bool {
-        if fullscreenSuppressed || appSuppressed { return true }
+    /// Nothing is drawn while suppressed: a pause, a hidden app, or a full-screen app on any
+    /// display. What is asked without naming a panel answers for all of them; a panel asks
+    /// `isSuppressed(panel:)` about its own display.
+    var isSuppressed: Bool { isSuppressed(panel: nil) }
+
+    func isSuppressed(panel: String?) -> Bool {
+        if appSuppressed { return true }
+        if let panel {
+            if fullscreenPanels.contains(panel) { return true }
+        } else if !fullscreenPanels.isEmpty {
+            return true
+        }
         let until = Preferences.shared.pausedUntil
         return until > 0 && Date().timeIntervalSince1970 < until
     }
@@ -117,7 +135,10 @@ final class ActivityCenter: ObservableObject {
         dragExitWork?.cancel()
         dragExitWork = nil
         openView = nil
+        openPanel = nil
         peekView = nil
+        fullscreenPanels = []
+        lastSpaceChange = .distantPast
         findQuery = nil
         findIndex = 0
         forcedExpandedID = nil
@@ -180,14 +201,30 @@ final class ActivityCenter: ObservableObject {
     /// Forget hover / drag / manual expansion, e.g. when the island is hidden under the pointer
     /// so it doesn't reappear expanded later with no pointer near it.
     func clearInteraction() {
-        hoverWork?.cancel()
-        hoverPanel = nil
-        dragPanel = nil
-        pressedPanel = nil
-        controlDragging = false
-        deferredHoverExit = nil
+        forgetPointer()
         if openView != nil { IslandLog.island.notice("closing: island hidden") }
         openView = nil
+        openPanel = nil
+    }
+
+    /// Nothing the pointer was doing on an island is true any longer — the panels are being
+    /// torn down and built again. SwiftUI never reports a hover ending on a window that
+    /// closed, so without this the island stayed "hovered" by a window that no longer
+    /// existed: the shortcut found a panel showing and closed nothing, the keys stepped an
+    /// invisible peek, the sneak peeks kept quiet — until the pointer happened to cross the
+    /// new island. What was opened by a click stays open; only the pointer is forgotten.
+    func forgetPointer() {
+        hoverWork?.cancel()
+        hoverWork = nil
+        dragExitWork?.cancel()
+        dragExitWork = nil
+        deferredHoverExit = nil
+        controlDragging = false
+        if hoverPanel != nil { hoverPanel = nil }
+        if dragPanel != nil { dragPanel = nil }
+        if pressedPanel != nil { pressedPanel = nil }
+        if openView == nil, peekView != nil { peekView = nil }
+        navigationDirection = 0
     }
 
     /// True while something the user opened is on screen.
@@ -229,7 +266,7 @@ final class ActivityCenter: ObservableObject {
             return .compact(alert, bubble: nil)
         }
 
-        if let view = openView { return .panel(validated(view)) }
+        if let view = openView, Self.shows(openPanel: openPanel, on: panel) { return .panel(validated(view)) }
 
         let live = sortedActivities
         if let primary = live.first, forcedExpandedID == primary.id, primary.content.hasExpandedView {
@@ -240,6 +277,14 @@ final class ActivityCenter: ObservableObject {
             return .compact(primary, bubble: live.dropFirst().first)
         }
         return .idle
+    }
+
+    /// Whether the open view belongs on `panel`: everywhere when it was opened from
+    /// everywhere, else only on the island it was opened on. Asked without a panel, it is
+    /// open.
+    static func shows(openPanel: String?, on panel: String?) -> Bool {
+        guard let openPanel, let panel else { return true }
+        return openPanel == panel
     }
 
     func activity(id: String) -> IslandActivity? { activities.first { $0.id == id } }
@@ -606,7 +651,7 @@ final class ActivityCenter: ObservableObject {
     private func pinPeekedPanel(panel: String) {
         guard openView == nil, hoverPanel == panel, Preferences.shared.hoverToExpand,
               case .panel(let view) = presentation(for: panel) else { return }
-        open(view)
+        open(view, panel: panel)
     }
 
     /// How long the island goes on counting as a drop target after the drag appears to leave
@@ -663,20 +708,20 @@ final class ActivityCenter: ObservableObject {
         case .compact(let a, _):
             guard !Self.isTransientHUD(a, alert: alert) else { return }
             if a.content.hasExpandedView {
-                open(Self.view(for: a))
+                open(Self.view(for: a), panel: panel)
             } else if let action = a.openAction {
                 action.perform()
             }
         case .card(let a):
             // A click on a system card keeps it: it becomes the panel's current view.
-            if !Self.isTransientHUD(a, alert: alert) { open(Self.view(for: a)) }
+            if !Self.isTransientHUD(a, alert: alert) { open(Self.view(for: a), panel: panel) }
         case .idle:
-            open(.home(tab: Self.currentHomeTab))
+            open(.home(tab: Self.currentHomeTab), panel: panel)
         case .panel(let view):
             // Shown because the pointer rests here: a click keeps it after the pointer leaves.
             // Once pinned, clicks on the panel belong to its controls; it closes from outside,
             // the way a popover does: a click anywhere else, Escape, or the shortcut.
-            if openView == nil { open(view) }
+            if openView == nil { open(view, panel: panel) }
         case .shelf:
             break
         }
@@ -691,16 +736,26 @@ final class ActivityCenter: ObservableObject {
     /// (a click, a hotkey) carry no animation of their own, so the ones that move the island
     /// are wrapped here. No haptic: the trackpad has already clicked under the finger, and a
     /// second click from the app right after reads as a double click.
-    func open(_ view: IslandView, direction: Int = 0) {
+    ///
+    /// `panel` is the island it was opened on, for a click or a press; a step from the
+    /// keyboard names none and stays wherever the panel already is, and an open from the
+    /// shortcut or the menu bar, with nothing open, is for every island.
+    func open(_ view: IslandView, direction: Int = 0, panel: String? = nil) {
         homeWork?.cancel()
         lastInteraction = Date()
         navigationDirection = direction
         if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
         let target = validated(view)
-        guard openView != target else { return }
+        let island = panel ?? (openView != nil ? openPanel : nil)
+        guard openView != target else {
+            // The same view, asked for from a second island: it shows on both.
+            if openPanel != island { openPanel = nil }
+            return
+        }
         withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
             if case .home(let tab) = target { Self.selectHomeTab(tab) }
             peekView = nil
+            openPanel = island
             openView = target
         }
     }
@@ -1001,6 +1056,7 @@ final class ActivityCenter: ObservableObject {
         heldAlertIDs.removeAll()
         withAnimation(IslandMotion.close) {
             openView = nil
+            openPanel = nil
             peekView = nil
             forcedExpandedID = nil
             for id in held { end(id: id) }
@@ -1029,6 +1085,7 @@ final class ActivityCenter: ObservableObject {
             guard let self, case .home = self.openView, !self.isHovering,
                   self.lastInteraction <= opened else { return }
             self.openView = nil
+            self.openPanel = nil
         }
         homeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -1090,8 +1147,33 @@ final class ActivityCenter: ObservableObject {
         ) { [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             guard Self.isSomebodyElse(app?.bundleIdentifier, ours: Bundle.main.bundleIdentifier) else { return }
-            DispatchQueue.main.async { self?.collapse(reason: "another app came forward") }
+            // Not straight away. A swipe to another Space activates whatever is in front
+            // there, and the activation arrives before the Space says it changed; the panel
+            // is meant to stay open across a swipe (`AppDelegate.spaceChanged`), and it
+            // closed on every swipe that landed on a different app and stayed on one that
+            // landed on the same — which looked like chance. So the check waits for the
+            // Space's own notification to have had its say.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.activationSettle) { [weak self] in
+                guard let self, Self.leftForAnotherApp(now: Date(), lastSpaceChange: self.lastSpaceChange) else { return }
+                self.collapse(reason: "another app came forward")
+            }
         }
+    }
+
+    /// How long an activation waits for a Space change that may have caused it.
+    static let activationSettle: TimeInterval = 0.3
+    /// How recent a Space change has to be to account for an activation.
+    static let spaceChangeGrace: TimeInterval = 0.8
+    /// When the active Space last changed, see `noteSpaceChanged`.
+    private var lastSpaceChange = Date.distantPast
+
+    /// The active Space changed. Told by the app delegate, which hears it.
+    func noteSpaceChanged() { lastSpaceChange = Date() }
+
+    /// Whether an app coming forward is the user leaving for it, rather than the Space
+    /// under the island having changed and brought it forward.
+    static func leftForAnotherApp(now: Date, lastSpaceChange: Date) -> Bool {
+        now.timeIntervalSince(lastSpaceChange) > spaceChangeGrace
     }
 
     /// Whether an app coming forward is one the island should get out of the way of.

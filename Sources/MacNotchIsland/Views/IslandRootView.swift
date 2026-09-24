@@ -17,7 +17,7 @@ struct IslandRootView: View {
 
         ZStack(alignment: .top) {
             Color.clear
-            if !center.isSuppressed {
+            if !center.isSuppressed(panel: panelID) {
                 HStack(alignment: .top, spacing: layout.bubbleGap) {
                     IslandBodyView(geometry: geometry, presentation: presentation, layout: layout,
                                    panelID: panelID, shapeAnimation: animation)
@@ -39,7 +39,7 @@ struct IslandRootView: View {
                 .transition(.opacity)
             }
         }
-        .animation(IslandMotion.fade, value: center.isSuppressed)
+        .animation(IslandMotion.fade, value: center.isSuppressed(panel: panelID))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(animation, value: layout)
         .onChange(of: layout, initial: true) { _, new in previousLayout = new }

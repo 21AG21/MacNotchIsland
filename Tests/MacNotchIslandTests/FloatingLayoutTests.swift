@@ -53,14 +53,18 @@ final class FloatingLayoutTests: XCTestCase {
         XCTAssertEqual(layout.topInset, external.menuBarHeight + 4, "hangs below the menu bar, never on it")
     }
 
-    func testHitAreaCoversTheHangingPill() {
+    func testHitAreaCoversTheHangingPillAndNotTheMenuBarAboveIt() {
         let layout = IslandLayout.make(presentation: .idle, geometry: external)
-        // The hit rect is measured from the top of the screen, so it has to include the gap the
-        // pill hangs below it.
+        // The hit height is measured from the top of the screen, so it reaches past the gap the
+        // pill hangs below it — and `hitTop` cuts that gap back out: the strip above the pill
+        // is the menu bar's, and a click there belongs to the menu bar.
         XCTAssertEqual(layout.hitSize.height, layout.bodyHeight + layout.topInset + 6)
         XCTAssertEqual(layout.hitSize.width, layout.bodyWidth + 8)
+        XCTAssertEqual(layout.hitTop, layout.topInset - 4, "a few points above the pill for its edge, no more")
+        XCTAssertGreaterThan(layout.hitTop, 0)
         let onNotch = IslandLayout.make(presentation: .idle, geometry: notched)
         XCTAssertEqual(onNotch.hitSize.height, onNotch.bodyHeight + 6, "nothing extra against a real notch")
+        XCTAssertEqual(onNotch.hitTop, 0, "fused to the top edge")
     }
 
     // MARK: - the other presentations

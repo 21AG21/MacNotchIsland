@@ -82,6 +82,58 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Clicks beside and under the island reach what they were aimed at.** The window behind the
+  island is a canvas as tall as the tallest card and as wide as the island plus its slack, and
+  AppKit hands every click inside a window's frame to that window, drawn on or not — the
+  island's own hit test dropped the ones that missed it rather than passing them on. So a strip
+  three hundred points deep under the notch swallowed clicks and scrolls: Safari's tabs did
+  nothing, the page under them would not scroll, and a click there could not close the panel
+  either, because the click-outside monitor only hears what other apps receive. The window is
+  now transparent to the mouse whenever the pointer is off the island and solid the moment it
+  arrives, and a slider dragged past the edge or a file dragged over the shelf keeps it solid
+  until the button comes up.
+- **The island stays put across a swipe.** A Space transition — between desktops, into or out
+  of a full-screen app — slid the island sideways with the desktop and snapped it back after,
+  and nothing in AppKit's collection behaviour keeps a window out of that slide. The island's
+  windows now live in a window space of their own at the top of the stack, where the menu bar's
+  do, and the swipe goes on underneath them. The space is hidden while the screen is locked, so
+  nothing draws over the login window. It can be turned off under Displays, should a display
+  arrangement turn out not to suit it.
+- **A swipe no longer closes the panel.** Switching Space activates whatever is in front on the
+  new desktop, and the panel took that for the user leaving for another app: a swipe onto a
+  Space with a different app in front closed it, one with the same app left it open, and the
+  difference looked like chance. An activation now waits for the Space's own word, and one that
+  came with a Space change is not leaving.
+- **Full screen hides the island on the display it happens on, and only there.** One flag stood
+  for every island, so a film full screen on the external display hid the MacBook's island and
+  closed the panel that was open on it. And a full-screen app on the MacBook's own display was
+  never noticed at all: its window stops below the camera housing, and the check wanted the
+  whole screen. Each display is now judged on its own, and on a notched display a window the app
+  itself reports as full screen counts when it fills everything below the housing (an ordinary
+  window zoomed under the menu bar has the same frame, so the app's word is required, which is
+  what the Accessibility permission supplies).
+- **A click opens the island it was clicked on.** With an island on every display, opening one
+  expanded all of them. What is opened by a click or a press now belongs to that island; the
+  shortcut, the menu bar and a URL still open every island at once, and stepping with the
+  keyboard stays wherever the panel already is.
+- **A pointer resting on the island when the panels were rebuilt was never forgotten.** The
+  windows went, the hover did not, and the island counted as under a pointer that was nowhere
+  near it: the shortcut closed nothing, Tab stepped an invisible peek, the sneak peeks stayed
+  quiet — until the pointer happened to cross the new island. A rebuild now forgets the pointer.
+- **A Mac with no notch anywhere keeps its island on the primary display.** It went on whichever
+  display had keyboard focus, and the panels are checked against that on every screen change and
+  wake, so clicking into the other display moved the island there a few seconds later.
+- **A display that is briefly gone no longer tears every island down.** A screen-parameters
+  change with no displays listed yet — the moment an external display takes to return from sleep
+  — built zero panels and then built them all again when it was back, which is the flicker the
+  wake path was written to avoid.
+- **On a display with no menu bar, the floating pill sits at the top.** It hung a menu bar's
+  height below the edge of a secondary display that, with "Displays have separate Spaces" off,
+  has no menu bar to hang below.
+- **The menu bar above a floating pill takes clicks again.** The pill's hit area was measured
+  from the top of the screen and took the strip it hangs below along with it, a pill's width of
+  the menu bar (the whole panel's width, open) that did nothing when clicked and showed press
+  feedback on the pill instead.
 - **The island opens from the notch.** It had been opening from a hundred points below it: the
   compact island appeared in mid-air, detached from the top of the screen, and grew about its
   own middle until its top edge caught up with the notch. The window's height used to follow

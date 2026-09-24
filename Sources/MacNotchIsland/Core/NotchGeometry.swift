@@ -26,6 +26,11 @@ struct NotchGeometry: Equatable {
         var width: CGFloat = 200
         var height: CGFloat = 32
         let menuBar = max(NSStatusBar.system.thickness, 24)
+        // Which displays carry a menu bar is a system setting: every one of them with
+        // "Displays have separate Spaces", the primary alone without it. A pill that hung
+        // a menu bar's height below the top of a display that has no menu bar floated
+        // twenty-eight points down with nothing above it.
+        let hasMenuBar = NSScreen.screensHaveSeparateSpaces || isPrimary(screen)
 
         if hasNotch {
             height = top
@@ -53,6 +58,15 @@ struct NotchGeometry: Equatable {
         if prefs.notchHeightOverride > 0 { height = max(height, prefs.notchHeightOverride) }
 
         return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch,
-                             menuBarHeight: hasNotch ? top : menuBar)
+                             menuBarHeight: hasNotch ? top : (hasMenuBar ? menuBar : 0))
+    }
+
+    /// Whether `screen` is the primary display — the one the Displays arrangement puts the
+    /// menu bar on. By display number, not by object: AppKit hands out fresh `NSScreen`
+    /// objects, so two of them for one display need not be the same instance.
+    static func isPrimary(_ screen: NSScreen) -> Bool {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let first = NSScreen.screens.first else { return true }
+        return (screen.deviceDescription[key] as? NSNumber) == (first.deviceDescription[key] as? NSNumber)
     }
 }

@@ -7,9 +7,9 @@ import SwiftUI
 ///
 /// The window is as tall as the tallest thing the island can show, always, and only its width
 /// follows the island's footprint: it widens the instant something opens (so the spring has room
-/// to overshoot) and narrows back a moment after something closes. A click that lands in the
-/// clear part falls straight through to whatever is under it, see `NotchHostingView`, so the
-/// menu bar and the windows beside the island stay clickable whatever size the window is.
+/// to overshoot) and narrows back a moment after something closes. The window is transparent
+/// to the mouse whenever the pointer is off the island (see `passesThrough`), so the menu bar
+/// and the windows under the clear part stay clickable whatever size the window is.
 ///
 /// The height used to follow the island too, and that is what broke the opening animation. A
 /// window that grows in the same turn of the run loop as the state that opens the panel hands
@@ -52,12 +52,21 @@ final class NotchPanel: NSPanel {
     /// Notification observers that keep the island on top, see `assertOnTop`.
     private var orderObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var orderWork: DispatchWorkItem?
+    /// The event monitors that follow the pointer, see `watchPointer`.
+    private var pointerMonitors: [Any] = []
+
+    /// The panel identifier a screen's island answers to. One place, so everything that
+    /// speaks about a display's island — a full-screen check, a hover — spells it the same.
+    static func panelID(for screen: NSScreen) -> String {
+        let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        return "screen-" + (number?.stringValue ?? UUID().uuidString)
+    }
 
     init(screen: NSScreen, geometry: NotchGeometry) {
         self.geometry = geometry
         let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         self.screenNumber = number
-        self.panelID = "screen-" + (number?.stringValue ?? UUID().uuidString)
+        self.panelID = NotchPanel.panelID(for: screen)
         self.displayKey = NotchPanel.displayKey(for: screen)
         let frame = NotchPanel.frame(for: screen)
         super.init(contentRect: frame,
@@ -79,7 +88,8 @@ final class NotchPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         acceptsMouseMovedEvents = true
-        ignoresMouseEvents = false
+        // Transparent to the mouse until the pointer reaches the island; see `passesThrough`.
+        ignoresMouseEvents = true
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         animationBehavior = .none
@@ -94,9 +104,9 @@ final class NotchPanel: NSPanel {
         let geo = geometry
         let pid = panelID
         view.hitExtentsProvider = {
-            if ActivityCenter.shared.isSuppressed { return (0, 0, 0) }
+            if ActivityCenter.shared.isSuppressed(panel: pid) { return (0, 0, 0, 0) }
             let layout = IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo)
-            return (layout.hitLeading, layout.hitTrailing, layout.hitHeight)
+            return (layout.hitLeading, layout.hitTrailing, layout.hitTop, layout.hitHeight)
         }
         // The window decides its own size; SwiftUI must not resize it to the content's ideal.
         // A hosting view used directly as the content view still does (its intrinsic size
@@ -130,11 +140,82 @@ final class NotchPanel: NSPanel {
             .sink { [weak self] _ in self?.scheduleRefit() }
             .store(in: &cancellables)
         watchForReordering()
+        watchPointer()
         refit()
     }
 
     deinit {
         orderObservers.forEach { $0.center.removeObserver($0.token) }
+        pointerMonitors.forEach { NSEvent.removeMonitor($0) }
+    }
+
+    // MARK: - Letting the mouse through
+
+    /// Whether the window should let mouse events through to whatever is under it.
+    ///
+    /// AppKit sends every mouse event inside a window's frame to that window, drawn on or
+    /// not: `NotchHostingView.hitTest` answering nil *drops* the click, it does not hand it
+    /// on. And this window is the whole canvas — as tall as the tallest card, as wide as the
+    /// island plus its slack. Left receiving, it swallowed every click and scroll in a strip
+    /// under the notch three hundred points deep: Safari's tabs and the page under them did
+    /// nothing, and a click there could not close the panel either, since the click-outside
+    /// monitor only hears the clicks other apps receive. So the window is transparent to the
+    /// mouse whenever the pointer is off the island, and solid the moment it arrives.
+    ///
+    /// `engaged` keeps it solid regardless: a slider being dragged past the island's edge, a
+    /// file being dragged over the shelf, the island's own button still held down. An event
+    /// stream that began on the island finishes on it.
+    static func passesThrough(onIsland: Bool, engaged: Bool, suppressed: Bool) -> Bool {
+        if suppressed { return true }
+        return !onIsland && !engaged
+    }
+
+    /// A ring past the island's own hit rect that still counts as on it, so the pointer's
+    /// first moves *off* the island are still delivered to the window: those are the events
+    /// that carry the hover exit to the view. A click in the ring hits nothing and is
+    /// dropped, which is what the slack around the island always did.
+    static let passThroughMargin: CGFloat = 8
+
+    /// Follows the pointer wherever it goes. A window that ignores the mouse hears nothing
+    /// from it, so the arrival has to be seen from outside: the global monitor reports the
+    /// pointer while other apps have it, the local one while this app does. Each report is
+    /// one rectangle test until the pointer is in the window's own frame.
+    private func watchPointer() {
+        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+                                            .leftMouseUp, .rightMouseUp, .otherMouseUp]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
+            self?.updatePassThrough()
+        }) {
+            pointerMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
+            self?.updatePassThrough()
+            return event
+        }) {
+            pointerMonitors.append(local)
+        }
+    }
+
+    private func updatePassThrough() {
+        let center = ActivityCenter.shared
+        let pointer = NSEvent.mouseLocation
+        let onIsland = islandContains(screenPoint: pointer, margin: Self.passThroughMargin)
+        // A button held down while the window is solid is a press or a drag that began here.
+        let holding = NSEvent.pressedMouseButtons != 0 && !ignoresMouseEvents
+        let engaged = holding || center.controlDragging || center.dragPanel == panelID || center.pressedPanel == panelID
+        let pass = Self.passesThrough(onIsland: onIsland, engaged: engaged, suppressed: center.isSuppressed(panel: panelID))
+        if ignoresMouseEvents != pass {
+            ignoresMouseEvents = pass
+            IslandLog.panel.debug("panel \(self.panelID, privacy: .public) \(pass ? "lets the mouse through" : "takes the mouse", privacy: .public)")
+        }
+        // The view's own hover tracking rides on the events the window receives, and the
+        // window stops receiving them the moment it goes transparent — so the arrival and
+        // the departure are told to the centre from here as well. Both are idempotent.
+        if pass {
+            if center.hoverPanel == panelID { center.setHovering(false, panel: panelID) }
+        } else if !engaged, islandContains(screenPoint: pointer), center.hoverPanel != panelID {
+            center.setHovering(true, panel: panelID)
+        }
     }
 
     /// Above the menu bar, above other floating panels, above anything an ordinary app can
@@ -246,6 +327,20 @@ final class NotchPanel: NSPanel {
     /// to sit on the screen's top edge, so it keeps the frame it asks for.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
+    /// Every way the window comes on screen puts it in the island's own space, and every way
+    /// it leaves takes it out; see `IslandSpace`. Ordering out and back in is how key status
+    /// is handed back (`scheduleKeyRelease`), and a window ordered back in by AppKit is back
+    /// in AppKit's spaces alone.
+    override func orderWindow(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        super.orderWindow(place, relativeTo: otherWin)
+        if place == .out { IslandSpace.shared.release(self) } else { IslandSpace.shared.adopt(self) }
+    }
+
+    override func orderFrontRegardless() {
+        super.orderFrontRegardless()
+        IslandSpace.shared.adopt(self)
+    }
+
     /// Follows what the panel needs: key status while the panel is pinned or a section that is
     /// typed into is open, handed straight back when that goes.
     private func syncKeyboard() {
@@ -277,6 +372,8 @@ final class NotchPanel: NSPanel {
     /// With an island on several screens, the one under the pointer takes the keyboard;
     /// failing that, the main screen's.
     private var ownsKeyboard: Bool {
+        // The panel was opened on one island: that island types.
+        if let open = ActivityCenter.shared.openPanel { return open == panelID }
         let mouse = NSEvent.mouseLocation
         if screen?.frame.contains(mouse) == true { return true }
         let panels = NSApp.windows.compactMap { $0 as? NotchPanel }.filter { $0.isVisible }
@@ -310,9 +407,9 @@ final class NotchPanel: NSPanel {
     /// Whether a point in screen coordinates lies on this panel's island (not merely inside
     /// the window, whose slack around the island is click-through). Geometry only; it never
     /// runs a view hit test, so it costs nothing and touches no view state.
-    func islandContains(screenPoint: NSPoint) -> Bool {
+    func islandContains(screenPoint: NSPoint, margin: CGFloat = 0) -> Bool {
         guard frame.contains(screenPoint), let hosting else { return false }
-        return hosting.islandContains(windowPoint: convertPoint(fromScreen: screenPoint))
+        return hosting.islandContains(windowPoint: convertPoint(fromScreen: screenPoint), margin: margin)
     }
 
     /// The resting frame for a screen before any state exists: the bare notch plus slack.
@@ -345,7 +442,7 @@ final class NotchPanel: NSPanel {
     /// The island's reach from the notch centre right now, before slack.
     private func extents() -> (leading: CGFloat, trailing: CGFloat, height: CGFloat) {
         let center = ActivityCenter.shared
-        if center.isSuppressed {
+        if center.isSuppressed(panel: panelID) {
             return (geometry.notchWidth / 2, geometry.notchWidth / 2, geometry.notchHeight)
         }
         let layout = IslandLayout.make(presentation: center.presentation(for: panelID), geometry: geometry, center: center)
@@ -410,8 +507,7 @@ final class NotchPanel: NSPanel {
     /// Bring the frame in line with the island. Growth is immediate, with room for the spring;
     /// shrinking waits until the closing animation has finished.
     func refit() {
-        let suppressed = ActivityCenter.shared.isSuppressed
-        if ignoresMouseEvents != suppressed { ignoresMouseEvents = suppressed }
+        updatePassThrough()
         syncKeyboard()
 
         settleWork?.cancel()

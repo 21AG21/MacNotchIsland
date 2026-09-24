@@ -25,10 +25,12 @@ struct GeneralPane: View {
             Section {
                 Toggle("Show on all displays", isOn: $prefs.showOnAllDisplays)
                     .help("Displays without a notch get a simulated island along the top edge.")
+                Toggle("Stay put across Spaces", isOn: $prefs.staysPutAcrossSpaces)
+                    .help("Keep the island still while a swipe slides the desktop underneath it.")
             } header: {
                 Text("Displays")
             } footer: {
-                Text("A display without a notch gets an island of its own along the top edge, with the same morphs. Left off, only the built-in display has one.")
+                Text("A display without a notch gets an island of its own along the top edge, with the same morphs. Left off, only the built-in display has one. Staying put keeps the island where it is while a swipe between desktops or full-screen apps slides everything else, the way the menu bar stays; turn it off if the island ever fails to appear on one of your displays.")
             }
 
             // The two ways the island gets out of the way, one after the other.

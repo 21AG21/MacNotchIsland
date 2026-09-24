@@ -11,6 +11,8 @@ final class Preferences: ObservableObject {
 
     // MARK: General
     @Published var showOnAllDisplays: Bool { didSet { d.set(showOnAllDisplays, forKey: "showOnAllDisplays") } }
+    /// Keep the island still through a Space transition, in a window space of its own.
+    @Published var staysPutAcrossSpaces: Bool { didSet { d.set(staysPutAcrossSpaces, forKey: "staysPutAcrossSpaces") } }
     @Published var hoverToExpand: Bool { didSet { d.set(hoverToExpand, forKey: "hoverToExpand") } }
     @Published var expandOnIdleHover: Bool { didSet { d.set(expandOnIdleHover, forKey: "expandOnIdleHover") } }
     @Published var hapticsEnabled: Bool { didSet { d.set(hapticsEnabled, forKey: "hapticsEnabled") } }
@@ -132,6 +134,7 @@ final class Preferences: ObservableObject {
             UserDefaults.standard.object(forKey: key) == nil ? def : UserDefaults.standard.double(forKey: key)
         }
         showOnAllDisplays = bool("showOnAllDisplays", false)
+        staysPutAcrossSpaces = bool("staysPutAcrossSpaces", true)
         hoverToExpand = bool("hoverToExpand", true)
         expandOnIdleHover = bool("expandOnIdleHover", true)
         hapticsEnabled = bool("hapticsEnabled", true)

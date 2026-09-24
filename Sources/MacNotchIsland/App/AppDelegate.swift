@@ -241,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the windows underneath can change.
     @objc private func spaceChanged() {
         IslandLog.panel.notice("space changed")
+        ActivityCenter.shared.noteSpaceChanged()
         for panel in panels { panel.refit() }
     }
 
@@ -331,7 +332,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screens = NSScreen.screens
         if Preferences.shared.showOnAllDisplays { return screens }
         let notched = screens.filter { $0.safeAreaInsets.top > 0 }
-        if notched.isEmpty, let main = NSScreen.main { return [main] }
+        // With no notch anywhere, the primary display — the one the arrangement puts the
+        // menu bar on. Not `NSScreen.main`: that is the display with keyboard focus, and
+        // the panels are compared against this on every screen change and wake, so the
+        // island hopped to whichever display was last clicked in.
+        if notched.isEmpty, let primary = screens.first { return [primary] }
         return notched
     }
 
@@ -347,7 +352,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @discardableResult
     private func rebuildPanelsIfGeometryChanged() -> Bool {
         let (built, wanted) = displayKeys()
-        guard Self.displaysChanged(now: wanted, before: built) else { return false }
+        // No displays at all is a display that has not come back yet, not one that has
+        // gone — the same rule `wakeNeedsRebuild` keeps. Building zero panels here tore
+        // every island down for the moment a display took to return, and built them again.
+        guard !wanted.isEmpty, Self.displaysChanged(now: wanted, before: built) else { return false }
         rebuildPanels(reason: "displays changed")
         return true
     }
@@ -361,6 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelHealth.lastRebuiltAt = Date()
         panelHealth.lastRebuildReason = reason
         IslandLog.panel.notice("building panels (\(reason, privacy: .public)), build \(self.panelHealth.rebuildCount, privacy: .public) of this run")
+        // Whatever the pointer was doing on the old windows, it is not doing on the new.
+        ActivityCenter.shared.forgetPointer()
         for panel in panels {
             panel.orderOut(nil)
             panel.close()

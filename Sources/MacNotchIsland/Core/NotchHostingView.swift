@@ -18,8 +18,11 @@ final class NotchContainerView: NSView {
 /// Hosting view that only accepts mouse events inside the island's current footprint so the
 /// transparent canvas around it stays click-through (menu bar, windows below keep working).
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
-    /// The island's reach from the notch centre: left, right, and down from the top edge.
-    var hitExtentsProvider: (() -> (leading: CGFloat, trailing: CGFloat, height: CGFloat))?
+    /// The island's reach from the notch centre: left, right, and down from the top edge —
+    /// and `top`, how far below that edge it begins. Zero against a physical notch. On a
+    /// screen with none the pill hangs below the menu bar, and the strip above it is the
+    /// menu bar's: a click there is a click on the menu bar, not on the island.
+    var hitExtentsProvider: (() -> (leading: CGFloat, trailing: CGFloat, top: CGFloat, height: CGFloat))?
     /// Which panel (screen) this view belongs to; gestures are routed per panel.
     var panelID: String = "main"
 
@@ -55,17 +58,19 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         guard let provider = hitExtentsProvider else { return nil }
         let e = provider()
         let width = e.leading + e.trailing
+        let height = max(0, e.height - e.top)
         if isFlipped {
-            return CGRect(x: bounds.midX - e.leading, y: 0, width: width, height: e.height)
+            return CGRect(x: bounds.midX - e.leading, y: e.top, width: width, height: height)
         }
-        return CGRect(x: bounds.midX - e.leading, y: bounds.maxY - e.height, width: width, height: e.height)
+        return CGRect(x: bounds.midX - e.leading, y: bounds.maxY - e.height, width: width, height: height)
     }
 
-    /// Whether a point in window coordinates lies on the island. Pure geometry: nothing here
-    /// asks SwiftUI anything, so it is safe to call from any callback at any moment.
-    func islandContains(windowPoint: NSPoint) -> Bool {
+    /// Whether a point in window coordinates lies on the island, or within `margin` of it.
+    /// Pure geometry: nothing here asks SwiftUI anything, so it is safe to call from any
+    /// callback at any moment.
+    func islandContains(windowPoint: NSPoint, margin: CGFloat = 0) -> Bool {
         guard let rect = islandRect() else { return bounds.contains(convert(windowPoint, from: nil)) }
-        return rect.contains(convert(windowPoint, from: nil))
+        return rect.insetBy(dx: -margin, dy: -margin).contains(convert(windowPoint, from: nil))
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

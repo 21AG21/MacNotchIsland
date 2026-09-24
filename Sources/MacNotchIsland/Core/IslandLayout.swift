@@ -146,6 +146,12 @@ struct IslandLayout: Equatable {
     /// How far it reaches right of the notch centre: the bubble hangs off this side only.
     var hitTrailing: CGFloat { frameWidth / 2 + bodyShift + (hasBubble ? bubbleGap + bubbleDiameter : 0) + 4 }
     var hitHeight: CGFloat { bodyHeight + topInset + 6 }
+    /// How far below the top of the screen the island begins. Against a physical notch it is
+    /// fused to the edge. A floating pill hangs `topInset` below it, and the strip above the
+    /// pill is the menu bar's — a click there is a click on the menu bar, not on the island,
+    /// and it used to be swallowed along a width of the menu bar as wide as the pill. A few
+    /// points above the pill for its anti-aliased edge, as at the sides.
+    var hitTop: CGFloat { max(0, topInset - 4) }
 
     /// Rect (centred on the notch, top-anchored) that should receive mouse events. It is
     /// symmetric so a hosting view centred on the notch can use it; the window itself is cut
