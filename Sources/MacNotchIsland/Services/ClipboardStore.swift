@@ -220,7 +220,7 @@ final class ClipboardStore: ObservableObject {
     /// off, anything on its way to the disk is stopped and the file goes.
     private func persistenceChanged(_ keeps: Bool) {
         if keeps {
-            schedulePersist()
+            if !items.isEmpty { schedulePersist() }
         } else {
             persistWork?.cancel()
             persistWork = nil
@@ -693,7 +693,7 @@ final class ClipboardStore: ObservableObject {
     /// Takes the history off the disk, behind anything already on its way there.
     private static func erasePersisted() {
         io.async {
-            guard let url = IslandFiles.folder?.appendingPathComponent(fileName),
+            guard let url = IslandFiles.folder?.appendingPathComponent(Self.fileName),
                   FileManager.default.fileExists(atPath: url.path) else { return }
             do {
                 try FileManager.default.removeItem(at: url)

@@ -84,7 +84,8 @@ Everything the app keeps between launches goes through `Core/IslandFiles.swift`:
 in Application Support, made and kept readable by its owner alone — 0700 on the folder, 0600
 on every file, set after the atomic write rather than before it, since an atomic write puts a
 new file in place of the old one. What is in there is as personal as anything on the Mac (the
-clipboard history, the scratchpad, a lyrics cache), and on a shared Mac the umask would
+clipboard history, when it is kept across relaunches, which it is not by default; the
+scratchpad; a lyrics cache), and on a shared Mac the umask would
 otherwise have handed it to every other account. The two stores that debounce their writes,
 `NotesStore` and `ClipboardStore`, are flushed by `AppDelegate` on quit, log out and sleep:
 the debounce is most of a second and quitting is quicker than that.

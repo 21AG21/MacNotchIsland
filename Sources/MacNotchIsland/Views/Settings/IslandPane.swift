@@ -55,9 +55,11 @@ struct IslandPane: View {
                 // Reads as what it is: a modifier of the switch above it. The two used to be
                 // near enough the same sentence — one of them in the passive — and nothing
                 // said which of them governed which island.
-                // Both only mean anything while the pointer opens the panel at all, and both were
-                // left live with that switched off — one of them showing on the strength of the
-                // other alone — saying something about a behaviour that was not happening.
+                //
+                // It and the delay only mean anything while the pointer opens the panel at all,
+                // and both were left live with that switched off — the delay showing on the
+                // strength of this switch alone — saying something about a behaviour that was
+                // not happening.
                 Toggle("Open from the empty notch too", isOn: $prefs.expandOnIdleHover)
                     .help("With nothing playing or running there is nothing to peek at, so resting on the notch does nothing unless this is on.")
                     .disabled(!prefs.hoverToExpand)

@@ -65,7 +65,7 @@ struct HomePanelPane: View {
         case .home: return "Every section as a tile, with a glimpse of what is in it."
         case .music: return "What is playing, wherever it is playing."
         case .controls: return "The networks in range and the devices you are paired with, each with its own switch."
-        case .today: return "Your next events and reminders. Asks for calendar and reminders access when first opened."
+        case .today: return "Your next events and reminders, and the card that appears on the island before a meeting with its Join button — switching this off turns that card off too. Asks for calendar and reminders access when first opened."
         case .windows: return "Every open window as a live tile: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows."
         case .shelf: return "Drag files onto the island to keep them within reach."
         case .clipboard: return "Recent copies, pinned ones first."
@@ -137,14 +137,20 @@ struct HomePanelPane: View {
                 Stepper(value: $prefs.clipboardLimit, in: 10...200, step: 10) {
                     Text("Items kept: \(Int(prefs.clipboardLimit))")
                 }
+                .disabled(!prefs.clipboardEnabled)
                 Toggle("Paste after picking an item", isOn: $prefs.pasteOnPick)
                     .help("Clicking an item closes the panel and pastes it where you were typing. Needs Accessibility; without it the item is only put on the pasteboard.")
+                    .disabled(!prefs.clipboardEnabled)
+                // Not greyed out with the section's switch, for the notifications' reason:
+                // turning this off is how what was written down is erased, and a history that
+                // has been switched off is exactly the moment somebody wants that.
+                Toggle("Keep history across relaunches", isOn: $prefs.clipboardPersists)
+                    .help("Writes the history to disk so it is still there after Notch Island quits. Off, it is held in memory only, and turning this off erases what was written.")
             } header: {
                 Text("Clipboard")
             } footer: {
-                Text("Kept on this Mac, in Notch Island's own folder, where only your account can read it. Anything a password manager marks as concealed, or another tool marks as its own, is never recorded at all.")
+                Text("Held in memory, and gone when Notch Island quits, unless you keep it across relaunches — then it is written to Notch Island's own folder on this Mac, where only your account can read it, and turning that off erases it. Anything a password manager marks as concealed, or another tool marks as its own, is never recorded at all.")
             }
-            .disabled(!prefs.clipboardEnabled)
 
             // Deliberately not disabled with the switch for this section. Turning the history
             // off is the most likely moment somebody wants what it already wrote gone, and a

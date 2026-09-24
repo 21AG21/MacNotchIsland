@@ -19,6 +19,13 @@ the unreleased section is what the next tag will ship.
   moment on it, because that failure was designed for rather than hoped against.
 
 ### Changed
+- **The clipboard history lasts until Notch Island quits, unless you keep it.** It is still on
+  out of the box, with the same limit and pins; what changed is that it is held in memory. A new
+  switch under Home Panel, "Keep history across relaunches", writes it to disk for anybody who
+  wants it back after a restart, and turning it off erases what was written. See Security for
+  why.
+- **The weather no longer asks for the wind.** It was requested, decoded and cached with every
+  reading, and shown nowhere. What is not drawn is not fetched.
 - **The front door widens rather than leave a section off it.** The grid held eight tiles, and
   switching everything on now makes nine. That mattered more than it looks: the band beside the
   notch cannot hold every section at a size anybody can hit either, so a section with no tile
@@ -38,6 +45,13 @@ the unreleased section is what the next tag will ship.
   with something hidden finally says so.
 
 ### Security
+- **What you copy is no longer written to disk unless you ask.** The clipboard history ships
+  switched on, and it was saved to a file after every copy — every password, address and
+  message that a password manager had not marked, kept across relaunches by default, in a file
+  that outlived the moment it was copied for. That is not the app's to assume. The history is
+  held in memory now and goes when the app quits; "Keep history across relaunches" writes it
+  down for anybody who wants that, and turning it off erases the file. So does the first launch
+  of this build, for the history an earlier one left behind.
 - **A card pushed in from outside can no longer run a Shortcut unless you have said it may.**
   The rule for a pushed card's link was written carefully — web schemes only, because "a button
   that opened `file:` or another app's scheme would be a way to make somebody click on something
@@ -82,6 +96,87 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **The Wi-Fi list names the networks in range.** macOS 14 only tells an app the names of the
+  networks around it once Location allows it, and nothing asked, so every network in the scan
+  came back nameless and Controls said "Nothing in range" on a Mac sitting on a working
+  network. The list asks the first time it is opened, and where Location has been refused it
+  says so, with a button to the pane that allows it. Privacy lists Wi-Fi under Location too.
+- **"Keep paused music for" keeps its word.** The helper repeats a paused track every five
+  seconds, and each repeat was taken for news: the card came back five seconds after the limit
+  took it away, with its clock started again, so it never really went — and with "Not at all"
+  the pill blinked every five seconds. The paused track the limit removed stays removed until
+  it plays again or something else does.
+- **A failed lyrics lookup is not a track with no lyrics.** No network, a server error, or the
+  cancel a track change sends to the request in flight were all filed as "no lyrics", in memory
+  and on disk, for good. Only an answer with no match in it is filed now; a failure files
+  nothing, and the track is asked about again the next time it plays.
+- **"Download complete" means a file arrived.** Every partial download that disappeared was
+  announced as finished, a cancelled one included, and so was Chrome's own rename of
+  "Unconfirmed 123.crdownload" halfway through. Only a file that is actually in Downloads is
+  announced now, and it goes onto the shelf only while the shelf is switched on, as a
+  screenshot does.
+- **A call card belongs to the app that has the microphone.** It went to the first call app
+  running whenever the microphone came on, so an idle Slack in the background turned Dictation,
+  a voice memo or a call in a browser tab into a "Slack" call at the island's highest priority.
+  On macOS 14.2 and later the card goes to the call app actually recording — or its helper, or
+  the system daemon recording for FaceTime; on 14.0 and 14.1, which cannot say who is
+  recording, the call app has to be the one in front.
+- **A new Mac's first sight of the app is the tour, not two folder prompts.** Downloads and
+  screenshots started at launch, ahead of the welcome window, and both folders are guarded, so
+  a new user was asked for them before being told what the app was — and a refusal left both
+  cards dead. Both wait for the tour now, as the calendar already did.
+- **Allowing the calendar later takes effect without a relaunch.** Access was read once, so
+  granting it in System Settings after launch left Today saying "Calendar access is off", and
+  the card before a meeting never started, its timer having only ever been started on a yes.
+  Both read the permission again as they go and pick a grant up within the minute.
+- **A script's card is held to what the island can draw.** "duration=inf" kept an alert up for
+  good and "-1" took it down on arrival; a priority over 100 sat on top of a call; a title of
+  spaces drew an empty card, and a misspelt symbol a hole in one. A length is now seconds, up to
+  a minute; a card ranks below a call; a blank title is the default one; and a symbol SF Symbols
+  does not have is the card's own. An alert's own length is taken as it stands, too, rather than
+  stretched by the alert slider: with the slider at six seconds, "three seconds" came out at ten.
+- **A timer only posts a banner when the island cannot be seen.** Every timer that rang also
+  sent a macOS notification — and asked for Notifications the first time one did — although
+  Privacy says the banner is for when the island is hidden or an app is full screen. That is
+  when it comes now.
+- **Turning Weather off with Today open stops the weather.** The section gave back its claim on
+  the weather only if the switch was still on as it closed, so switching it off with Today on
+  screen left the forecast being fetched for the rest of the session. And the next few hours are
+  the ones still to come: the strip is cached as it was fetched, and a morning relaunch with no
+  network showed last night's evening as the next six hours.
+- **The Today tile says what is next.** It read the agenda without asking it to read the day,
+  so it said "Nothing today" after every launch until Today itself had been opened, and later
+  on named a meeting that had ended hours before.
+- **Three days means three days on disk too.** Notifications older than that were dropped from
+  the list at launch but left in the file until something new arrived to rewrite it, and nothing
+  expired at all while nothing arrived. What has expired is written away at launch, and the
+  expiry comes round every hour.
+- **Stop stops the stopwatch.** The button in the Actions section said "Stop" and reset it, laps
+  and all. It stops it now, and says "Reset" once it has.
+- **A misspelt symbol no longer blanks a Quick Action tile.** The field saved on every keystroke
+  with nothing to say whether the name was a symbol, so a half-typed or misspelt one drew
+  nothing on the tile for good. It saves on Return, keeps only a name SF Symbols has, and goes
+  back to the automatic symbol otherwise.
+- **Auto-brightness no longer raises the brightness overlay.** Any change over 0.2% that the
+  island had not made itself was announced, and the light sensor moves the panel by more than
+  that all day. A reading has to move by a quarter notch — the smallest step anybody takes by
+  hand — to count, and a slow drift is absorbed as it goes rather than adding up to one.
+- **"Focus database: Readable" is found out by reading it.** The check asked about the file's
+  permissions, which say yes while macOS refuses the read, so Privacy said Readable on the very
+  Macs where no Focus was ever seen. It reads the file now, and offers Full Disk Access when it
+  cannot.
+- **Escape closes the panel with both keyboard switches off.** The key handler was only
+  installed while the shortcut or the panel's own keys were on, so with both off Escape did
+  nothing, while the Island pane said it closes whatever is open. The handler is always there
+  now; the shortcut and the panel's keys are still only claimed while their switches are on.
+- **Five settings that described something the app does not do.** The notch Width slider went
+  down to nothing though an override can only widen the island; it starts at the width the
+  island already has, and that end is Automatic. "Open from the empty notch too" and the hover
+  delay stayed live with "Open when the pointer rests" off; they are greyed out with it. The
+  shortcut was said to open Now Playing when nothing is playing; it opens the section last used,
+  and now says so. Lowering "Items kept" changed nothing until the next copy; the history is
+  trimmed the moment it is lowered. And the Today switch also turns off the card before a
+  meeting and its Join button, which its help now says.
 - **Today shows the next few hours again.** With the weather on, the rows were still counted
   against the whole section, so two events and a reminder pushed the hourly forecast off the
   bottom of it. They are counted against the room above the forecast now, and a row that does

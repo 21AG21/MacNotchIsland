@@ -64,7 +64,7 @@ struct GeneralPane: View {
             } header: {
                 Text("Notch size")
             } footer: {
-                Text("Leave both automatic unless the island sits slightly off your notch. Either can only make the island bigger than the notch it measured.")
+                Text("Leave both automatic unless the island sits slightly off your notch. Either can only make the island bigger than it measures on its own.")
             }
 
             Section {

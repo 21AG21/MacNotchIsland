@@ -96,7 +96,7 @@ final class ActivityCenter: ObservableObject {
     }
 
     private var alertWork: DispatchWorkItem?
-    private var pendingAlerts: [(activity: IslandActivity, queuedAt: Date, duration: TimeInterval?)] = []
+    private var pendingAlerts: [(activity: IslandActivity, queuedAt: Date, duration: TimeInterval?, exact: Bool)] = []
     /// Alerts the user clicked open. They live on as activities until closed, so their own
     /// timers cannot pull the panel away.
     private var heldAlertIDs: Set<String> = []
@@ -548,7 +548,8 @@ final class ActivityCenter: ObservableObject {
         let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
         if outranked {
             // Behind the more important alert: a volume tick must not hide a low-battery warning.
-            enqueue(activity, duration: duration)
+            // It keeps its exact duration for when its turn comes.
+            enqueue(activity, duration: duration, exact: exact)
             return
         }
         alertWork?.cancel()
@@ -574,9 +575,9 @@ final class ActivityCenter: ObservableObject {
         scheduleAlertDismiss(id: activity.id, after: seconds)
     }
 
-    private func enqueue(_ activity: IslandActivity, duration: TimeInterval?) {
+    private func enqueue(_ activity: IslandActivity, duration: TimeInterval?, exact: Bool = false) {
         pendingAlerts.removeAll { $0.activity.id == activity.id }
-        if pendingAlerts.count < 3 { pendingAlerts.append((activity, Date(), duration)) }
+        if pendingAlerts.count < 3 { pendingAlerts.append((activity, Date(), duration, exact)) }
     }
 
     private func scheduleAlertDismiss(id: String, after seconds: TimeInterval) {
@@ -608,7 +609,7 @@ final class ActivityCenter: ObservableObject {
         pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
         guard !pendingAlerts.isEmpty else { return }
         let next = pendingAlerts.removeFirst()
-        showAlert(next.activity, duration: next.duration, haptic: false)
+        showAlert(next.activity, duration: next.duration, exact: next.exact, haptic: false)
     }
 
     func dismissAlert() {

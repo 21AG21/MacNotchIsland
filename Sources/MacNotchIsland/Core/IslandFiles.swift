@@ -3,8 +3,9 @@ import Foundation
 /// Where Notch Island keeps what it has to remember between launches, and the one place that
 /// decides who is allowed to read it.
 ///
-/// Three things live in that folder: everything you have copied, the notes you have jotted
-/// down, and a cache of lyrics. Two of them are as personal as anything on the Mac, and all
+/// Three things live in that folder: everything you have copied, where the history is kept
+/// across relaunches, the notes you have jotted down, and a cache of lyrics. Two of them are
+/// as personal as anything on the Mac, and all
 /// three were being written with whatever permissions the process umask happened to hand out
 /// — 644 on a stock Mac, which is every other account on a shared one. They belong to the
 /// account that wrote them now, and so does the folder around them.
