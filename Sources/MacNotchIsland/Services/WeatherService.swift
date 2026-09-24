@@ -7,7 +7,7 @@ import Foundation
 /// No account, no API key and no third-party SDK: CoreLocation gives us an approximate
 /// coordinate (kilometre accuracy is plenty for a weather panel), CLGeocoder turns it into
 /// a town name, and Open-Meteo — free and keyless for non-commercial use — answers with the
-/// current temperature, WMO condition code, wind and today's high/low.
+/// current temperature, WMO condition code, today's high/low and the next few hours.
 ///
 /// Everything here runs on the main thread: the location manager is created there so its
 /// delegate callbacks arrive there, and both the network and geocoder completions hop back
@@ -37,9 +37,6 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         case failed
     }
 
-    /// One reading, in the units Open-Meteo answers in (Celsius, km/h). This is also the
-    /// shape cached in UserDefaults, so a relaunch starts with the last known weather
-    /// instead of an empty panel.
     /// One hour of the forecast: when, how warm, and what it is doing.
     struct Hour: Codable, Equatable, Identifiable {
         var date: Date
@@ -49,11 +46,14 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         var id: Date { date }
     }
 
+    /// One reading, in the units Open-Meteo answers in (Celsius). This is also the shape
+    /// cached in UserDefaults, so a relaunch starts with the last known weather instead of an
+    /// empty panel. A reading cached by a build that still asked for the wind carries it too,
+    /// and the decoder passes over it.
     struct Snapshot: Codable, Equatable {
         var temperatureC: Double
         /// WMO weather interpretation code — see `condition(code:isDay:)`.
         var weatherCode: Int
-        var windKmh: Double
         var isDay: Bool
         var highC: Double?
         var lowC: Double?
@@ -64,7 +64,6 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
         init(temperatureC: Double,
              weatherCode: Int,
-             windKmh: Double,
              isDay: Bool,
              highC: Double? = nil,
              lowC: Double? = nil,
@@ -73,7 +72,6 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
              hours: [Hour] = []) {
             self.temperatureC = temperatureC
             self.weatherCode = weatherCode
-            self.windKmh = windKmh
             self.isDay = isDay
             self.highC = highC
             self.lowC = lowC
@@ -89,7 +87,6 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     @Published private(set) var temperatureC: Double? = nil
     @Published private(set) var highC: Double? = nil
     @Published private(set) var lowC: Double? = nil
-    @Published private(set) var windKmh: Double? = nil
     @Published private(set) var isDay: Bool = true
     @Published private(set) var conditionSymbol: String = "cloud"
     @Published private(set) var conditionText: String = ""
@@ -97,6 +94,15 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     @Published private(set) var updatedAt: Date? = nil
     /// The next few hours, for the strip in Today. Empty until a forecast carrying them lands.
     @Published private(set) var hours: [Hour] = []
+
+    /// The hours still to come, which is what the strip shows. `hours` is kept as it was
+    /// fetched — and as it was cached, which is how a morning relaunch with no network put
+    /// last night's evening up as the next six hours.
+    var upcomingHours: [Hour] { Self.upcoming(hours) }
+
+    static func upcoming(_ hours: [Hour], after now: Date = Date()) -> [Hour] {
+        hours.filter { $0.date > now }
+    }
 
     // MARK: - Configuration
 
@@ -328,7 +334,9 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         components?.queryItems = [
             URLQueryItem(name: "latitude", value: "\(lat)"),
             URLQueryItem(name: "longitude", value: "\(lon)"),
-            URLQueryItem(name: "current", value: "temperature_2m,weather_code,wind_speed_10m,is_day"),
+            // Only what is drawn. The wind was asked for, decoded and cached, and shown
+            // nowhere at all.
+            URLQueryItem(name: "current", value: "temperature_2m,weather_code,is_day"),
             URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min"),
             URLQueryItem(name: "hourly", value: "temperature_2m,weather_code,is_day"),
             URLQueryItem(name: "timezone", value: "auto"),
@@ -381,7 +389,6 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         let current = decoded.current
         return Snapshot(temperatureC: current.temperature,
                         weatherCode: current.weatherCode,
-                        windKmh: current.windSpeed ?? 0,
                         isDay: (current.isDay ?? 1) != 0,
                         highC: decoded.daily?.maxTemperature?.first,
                         lowC: decoded.daily?.minTemperature?.first,
@@ -429,13 +436,11 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         struct Current: Decodable {
             let temperature: Double
             let weatherCode: Int
-            let windSpeed: Double?
             let isDay: Int?
 
             enum CodingKeys: String, CodingKey {
                 case temperature = "temperature_2m"
                 case weatherCode = "weather_code"
-                case windSpeed = "wind_speed_10m"
                 case isDay = "is_day"
             }
         }
@@ -481,7 +486,6 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         temperatureC = fresh.temperatureC
         highC = fresh.highC
         lowC = fresh.lowC
-        windKmh = fresh.windKmh
         isDay = fresh.isDay
         let condition = Self.condition(code: fresh.weatherCode, isDay: fresh.isDay)
         conditionSymbol = condition.symbol
@@ -507,14 +511,12 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     // MARK: - Formatting (pure, unit-tested)
 
-    /// Which units this Mac's reader wants. Two questions, not one.
+    /// Whether this Mac's reader wants Fahrenheit.
     ///
     /// `Locale.MeasurementSystem` has three cases and only one of them is `.metric`: the
-    /// United Kingdom is its own, and it takes its temperature in Celsius and its speed in
-    /// miles per hour. Asking `== .metric` for both — which is what this did — put Fahrenheit
-    /// in front of every reader in Britain.
+    /// United Kingdom is its own, and it takes its temperature in Celsius. Asking `!= .metric`
+    /// would put Fahrenheit in front of every reader in Britain.
     static var usesFahrenheit: Bool { Locale.current.measurementSystem == .us }
-    static var usesMilesPerHour: Bool { Locale.current.measurementSystem != .metric }
 
     /// WMO weather interpretation code → an SF Symbol and a short label. Night codes get
     /// the moon variants where one exists. Anything unrecognised falls back to plain cloud.
@@ -547,13 +549,5 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         let value = fahrenheit ? celsius * 9 / 5 + 32 : celsius
         let rounded = Int(value.rounded())
         return "\(rounded)°"
-    }
-
-    /// "12 km/h" or "8 mph", whole units.
-    static func formatWind(_ kmh: Double, milesPerHour: Bool) -> String {
-        if milesPerHour {
-            return "\(Int((kmh * 0.621371).rounded())) mph"
-        }
-        return "\(Int(kmh.rounded())) km/h"
     }
 }

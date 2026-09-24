@@ -75,8 +75,10 @@ final class IslandTimer: ObservableObject {
     /// iOS keeps the island readable by showing a couple of timers; four is our ceiling.
     static let maxTimers = 4
     private static let basePriority = 90
-    /// Height of one row in the expanded view's list of the other timers.
-    static let rowHeight: CGFloat = 22
+    /// Height of one row in the expanded view's list of the other timers. As tall as the
+    /// target of the button that cancels it: at 22 the 18 pt cross took its click in its own
+    /// 18, and a 24 pt target in a 22 pt row would have lain over the next row's.
+    static let rowHeight: CGFloat = 24
 
     private var ticker: Timer?
     private var lastDuration: TimeInterval = 300
@@ -422,7 +424,10 @@ final class IslandTimer: ObservableObject {
         // The finished timer's own expanded view is the alert, the way the Clock app's Live
         // Activity takes over the island when it goes off.
         ActivityCenter.shared.forceExpanded(id: entry.id, for: 8)
-        notify(entry)
+        // The banner is for when that cannot be seen: the island hidden, or an app full screen
+        // over it — which is what Privacy says it is for. Posted every time, it doubled every
+        // timer with a banner, and asked for Notifications the first time any timer rang.
+        if ActivityCenter.shared.isSuppressed { notify(entry) }
 
         if entry.id == pomodoroTimerID, let phase = pomodoro, let next = Self.nextPhase(after: phase) {
             // Let the finished phase sit on screen for a beat, then roll into the next one.

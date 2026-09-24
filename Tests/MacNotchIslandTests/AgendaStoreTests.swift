@@ -1,4 +1,5 @@
 import AppKit
+import EventKit
 import XCTest
 @testable import MacNotchIsland
 
@@ -204,5 +205,22 @@ final class AgendaStoreTests: XCTestCase {
         // would be true of any rail and any floor whatever.
         XCTAssertEqual(TodaySectionView.tickInset, CGSize(width: 6, height: 6))
         XCTAssertEqual(TodaySectionView.tickHit, CGSize(width: 16 + 2 * 6, height: 16 + 2 * 6))
+    }
+
+    // MARK: - A permission granted after launch
+
+    func testAGrantMadeInSystemSettingsIsNoticed() {
+        // Read once, a permission granted later left Today saying "Calendar access is off"
+        // until a relaunch. A grant is what starts the store afresh.
+        XCTAssertTrue(AgendaStore.newlyGranted(was: .denied, now: .fullAccess))
+        XCTAssertTrue(AgendaStore.newlyGranted(was: .notDetermined, now: .fullAccess))
+        XCTAssertTrue(AgendaStore.newlyGranted(was: .writeOnly, now: .fullAccess))
+    }
+
+    func testOnlyAGrantStartsTheStoreAfresh() {
+        XCTAssertFalse(AgendaStore.newlyGranted(was: .fullAccess, now: .fullAccess), "nothing changed")
+        XCTAssertFalse(AgendaStore.newlyGranted(was: .fullAccess, now: .denied), "taken away")
+        XCTAssertFalse(AgendaStore.newlyGranted(was: .notDetermined, now: .writeOnly),
+                       "write-only access still cannot read the day")
     }
 }

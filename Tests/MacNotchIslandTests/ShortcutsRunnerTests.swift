@@ -18,6 +18,21 @@ final class ShortcutsRunnerTests: XCTestCase {
         XCTAssertEqual(ShortcutsRunner.defaultSymbol(for: "SCREENSHOT area"), "camera.viewfinder")
     }
 
+    func testOnlyASymbolThatExistsIsKept() {
+        // A misspelt name drew a blank tile for good; anything that is not a symbol goes back
+        // to the automatic one instead.
+        let known: (String) -> Bool = { $0 == "bolt.fill" }
+        XCTAssertEqual(ShortcutsRunner.acceptedSymbol("bolt.fill", exists: known), "bolt.fill")
+        XCTAssertEqual(ShortcutsRunner.acceptedSymbol("  bolt.fill\n", exists: known), "bolt.fill")
+        XCTAssertNil(ShortcutsRunner.acceptedSymbol("bolt.fil", exists: known), "half-typed")
+        XCTAssertNil(ShortcutsRunner.acceptedSymbol("   ", exists: known), "empty is the automatic symbol")
+    }
+
+    func testTheRealCatalogueIsWhatIsAsked() {
+        XCTAssertEqual(ShortcutsRunner.acceptedSymbol("bolt.fill"), "bolt.fill")
+        XCTAssertNil(ShortcutsRunner.acceptedSymbol("not.a.symbol.at.all"))
+    }
+
     func testParseListTrimsAndDropsEmpties() {
         let output = "Morning Routine\n  Focus On  \n\nScreenshot\n   \nDark Mode\n"
         XCTAssertEqual(ShortcutsRunner.parseList(output), ["Morning Routine", "Focus On", "Screenshot", "Dark Mode"])

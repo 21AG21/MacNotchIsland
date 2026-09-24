@@ -1,5 +1,6 @@
 import AppKit
 import CoreAudio
+import CoreLocation
 import XCTest
 @testable import MacNotchIsland
 
@@ -163,6 +164,49 @@ final class WindowsAndControlsTests: XCTestCase {
                                  "the two rows and the rule between them must fit with their gaps")
     }
 
+    /// The Actions rule is half a point tall, and it draws as one crisp pixel on a Retina
+    /// display only if it starts on a whole one. With 64 pt of buttons the two spacers shared
+    /// 17.5 pt and the rule fell at 102.75, between two pixels.
+    func testTheActionsRuleLandsOnAWholePixel() {
+        let fixed = ActionsSectionView.actionsRow + ActionsSectionView.timerRowHeight + 0.5
+        XCTAssertEqual(SectionMetrics.bodyHeight - fixed, ActionsSectionView.ruleGap * 2,
+                       "the spacers come out at exactly the gap they are named for")
+        let rule = SectionMetrics.headerHeight + SectionMetrics.gapBelowHeader
+            + ActionsSectionView.actionsRow + ActionsSectionView.ruleGap
+        XCTAssertEqual(rule, 103.5)
+        XCTAssertEqual((rule * 2).rounded(), rule * 2, "a whole pixel at 2×")
+    }
+
+    /// Today with the weather on: the hours along the floor take their strip and the gap above
+    /// it out of the room the rows are counted against. The list went on counting the whole
+    /// body, so the gallery's day — two events and a reminder, 100 pt — was laid out in 62 and
+    /// pushed the hours off the bottom of the section.
+    func testTodaysRowsAreCountedAgainstTheRoomTheHoursLeave() {
+        XCTAssertEqual(TodaySectionView.listHeight(showingHours: false), SectionMetrics.bodyHeight)
+        let withHours = TodaySectionView.listHeight(showingHours: true)
+        XCTAssertEqual(SectionMetrics.headerHeight + SectionMetrics.gapBelowHeader + withHours
+                       + SectionMetrics.gapBelowHeader + TodaySectionView.hourlyHeight,
+                       IslandLayout.sectionHeight, "the header, the rows, a gap and the hours fill the section")
+        let plain = TodaySectionView.fit(events: 2, reminders: 2, in: SectionMetrics.bodyHeight)
+        XCTAssertEqual(plain.events, 2)
+        XCTAssertEqual(plain.reminders, 1, "36 + 36 + 28 = 100 of 110; a second reminder is 128")
+        let hours = TodaySectionView.fit(events: 2, reminders: 2, in: withHours)
+        XCTAssertEqual(hours.events, 1, "36 of 60; a second event is 72")
+        XCTAssertEqual(hours.reminders, 0, "and a reminder after it is 64")
+        XCTAssertEqual(TodaySectionView.fit(events: 5, reminders: 0, in: 1000).events, 3, "never more than three events")
+    }
+
+    /// The transport row takes what the rows above it leave, and the buttons take their clicks
+    /// in that row rather than in 42 pt frames that reached over the scrubber's times.
+    func testTheTransportRowFillsTheNowPlayingSection() {
+        // The artwork row, a gap, the scrubber and its times, and the gap above the transport.
+        let above: CGFloat = 60 + 8 + (14 + 4 + 14) + 4
+        XCTAssertEqual(above + MusicSectionView.transportRow, IslandLayout.sectionHeight)
+        XCTAssertEqual(MusicSectionView.transportRow, MusicSectionView.transportGlyph + 12)
+        XCTAssertEqual(MusicSectionView.transportRow + MusicSectionView.transportSpacing, 72,
+                       "the glyphs' centres stay where they were")
+    }
+
     func testFourWindowTilesFillTheRowTheHeaderIsMeasuredAgainst() {
         let used = 4 * WindowsSectionView.tileWidth + 3 * WindowsSectionView.tileGap
         XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth,
@@ -171,6 +215,19 @@ final class WindowsAndControlsTests: XCTestCase {
         // short of it reads as a mistake rather than as a strip with more to come.
         XCTAssertGreaterThan(used, IslandLayout.panelContentWidth - 6,
                              "the strip stops \(IslandLayout.panelContentWidth - used) pt short of the right edge")
+        // Exactly, now: three gaps of 10 left 160.5 a tile, rounded down to 2 pt short.
+        XCTAssertEqual(used, IslandLayout.panelContentWidth, "four tiles of 162 and three gaps of 8")
+    }
+
+    /// The three discs under a hovered shelf tile are drawn at 18 pt and take their clicks in
+    /// 24, and the gap between them is what keeps two of those targets from lying over each
+    /// other: the three of them come to the tile's width exactly.
+    func testTheShelfTilesButtonsAreBigEnoughToHitAndDoNotOverlap() {
+        let reach = IslandHit.outset(drawn: ShelfItemView.buttonSize)
+        XCTAssertEqual(ShelfItemView.buttonSize + 2 * reach, IslandHit.minimum)
+        XCTAssertGreaterThanOrEqual(ShelfItemView.buttonGap, 2 * reach, "two targets never lie over each other")
+        let row = 3 * ShelfItemView.buttonSize + 2 * ShelfItemView.buttonGap + 2 * reach
+        XCTAssertLessThanOrEqual(row, ShelfItemView.column, "and the outer two stay inside the tile")
     }
 
     func testEveryControlTheRailCanShowFitsTheRailAtOnce() {
@@ -434,6 +491,15 @@ final class WindowsAndControlsTests: XCTestCase {
         for rssi in stride(from: -100, through: 0, by: 5) {
             XCTAssertTrue((1...4).contains(WiFiScanner.bars(forRSSI: rssi)), "\(rssi)")
         }
+    }
+
+    func testOnlyARefusedLocationIsBlamedForAnEmptyList() {
+        // macOS keeps the network names from an app Location has refused, and the column
+        // said "Nothing in range" on a Mac sitting on a working network.
+        XCTAssertTrue(WiFiScanner.namesWithheld(.denied))
+        XCTAssertTrue(WiFiScanner.namesWithheld(.restricted))
+        XCTAssertFalse(WiFiScanner.namesWithheld(.notDetermined), "the question is still on screen")
+        XCTAssertFalse(WiFiScanner.namesWithheld(.authorizedAlways))
     }
 
     func testControlsIsASectionWithASwitchOfItsOwn() {

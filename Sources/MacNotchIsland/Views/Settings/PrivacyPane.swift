@@ -51,7 +51,7 @@ struct PrivacyPane: View {
                 )
                 permission(
                     "Location",
-                    detail: "Used by the weather line in Today for your approximate location.",
+                    detail: "Used by the weather line in Today for your approximate location, and by the Wi-Fi list in Controls, since macOS only tells an app the names of the networks around it once Location allows it.",
                     status: locationStatus,
                     pane: .location
                 )
@@ -108,11 +108,24 @@ struct PrivacyPane: View {
             }
 
             Section {
-                LabeledContent("Focus database", value: FocusMonitor.isReadable ? "Readable" : "Not readable")
+                // Read once per pass of the body, which the ticker below asks for every few
+                // seconds, so a grant made in System Settings shows up here on its own.
+                let focusReadable = FocusMonitor.isReadable
+                LabeledContent("Focus database") {
+                    HStack(spacing: 10) {
+                        Text(focusReadable ? "Readable" : "Not readable")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        if !focusReadable {
+                            Button("Open Full Disk Access") { SystemSettingsPane.fullDiskAccess.open() }
+                                .help("Open the Full Disk Access pane in System Settings.")
+                        }
+                    }
+                }
             } header: {
                 Text("Status")
             } footer: {
-                Text("Focus is read from a local file that macOS keeps in your home folder. Playback sources are listed in Media.")
+                Text("Focus is read from a local file that macOS keeps in your home folder, and macOS may refuse to hand it over without Full Disk Access. Playback sources are listed in Media.")
             }
         }
         .formStyle(.grouped)

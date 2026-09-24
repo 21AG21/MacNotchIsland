@@ -9,6 +9,7 @@ struct MusicSectionView: View {
     @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var outputs = AudioOutputs.shared
     @ObservedObject private var lyrics = LyricsService.shared
+    @ObservedObject private var energy = EnergyPolicy.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
 
@@ -38,20 +39,28 @@ struct MusicSectionView: View {
     /// One size for every transport glyph. 24 pt is what the phone's island uses: big enough
     /// to hit with a pointer, small enough that three of them are a row rather than a bar.
     static let transportGlyph: CGFloat = 24
-    /// The row the three of them sit on. The section is 140 pt and what stands above this —
-    /// the 60 pt artwork row, 8 pt, and the 32 pt scrubber block — takes 100 of it, so 34 and
-    /// the 4 above it fill the rest exactly rather than being clipped by four points.
-    static let transportRow: CGFloat = 34
+    /// The row the three of them sit on, and the square each takes its click in. The section
+    /// is 140 pt and what stands above this — the 60 pt artwork row, 8 pt, and the 32 pt
+    /// scrubber block — takes 100 of it, so 36 and the 4 above it fill the rest exactly. It was
+    /// 34, which left 2 pt of the section unused, and the buttons kept their own 42 pt frames
+    /// inside it, reaching 4 pt over the scrubber's times above and 4 pt past the row below.
+    static let transportRow: CGFloat = 36
+    /// The glyphs' centres stay 72 pt apart, as they were with the wider frames.
+    static let transportSpacing: CGFloat = 72 - transportRow
 
     private func player(_ info: NowPlayingInfo) -> some View {
         let accent = Color(nsColor: info.accent)
         return VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 14) {
+                // No glow of the cover's colour under it either, for the same reason there is
+                // no wash behind the row (see the foot of this view) — and the section's clip
+                // cut the glow square 12 pt to the left of the cover and 8 pt above it.
                 ArtworkView(image: info.artwork, size: 60, radius: 13, flexible: true)
                     .id(info.artworkID)
                     .transition(IslandMotion.pop(scale: 0.85))
+                    // See `CompactLeadingView`: the pop needs a curve of its own to run on.
+                    .animation(IslandMotion.fade, value: info.artworkID)
                     .islandMatched(IslandMatchedID.nowPlayingArtwork)
-                    .shadow(color: accent.opacity(0.35), radius: 12, y: 4)
                     .onTapGesture { service.openApp() }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("Open \(info.appName)")
@@ -72,7 +81,10 @@ struct MusicSectionView: View {
             }
             .frame(height: 60)
 
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+            // Several times a second while playing, so the fill creeps rather than steps: once
+            // a second it jumped nearly four points at a time along a three-minute track.
+            // Paused, nothing moves and nothing is redrawn.
+            TimelineView(.animation(minimumInterval: max(0.25, energy.animationInterval), paused: !info.isPlaying)) { context in
                 let position = info.position(at: context.date)
                 let duration = info.duration
                 VStack(spacing: 4) {
@@ -104,12 +116,14 @@ struct MusicSectionView: View {
             // One size and one weight for all three, the way the phone's island sets them.
             // A 30 pt `pause.fill` beside 22 pt triangles is a third again as much ink in the
             // middle of the row: the two skips read as faint and the row lost its centre.
-            HStack(spacing: 30) {
-                GlyphButton(symbol: "backward.fill", size: Self.transportGlyph, weight: .medium) { service.previous() }
+            HStack(spacing: Self.transportSpacing) {
+                GlyphButton(symbol: "backward.fill", size: Self.transportGlyph, weight: .medium,
+                            hit: Self.transportRow) { service.previous() }
                 GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill",
-                            size: Self.transportGlyph, weight: .medium) { service.togglePlayPause() }
+                            size: Self.transportGlyph, weight: .medium, hit: Self.transportRow) { service.togglePlayPause() }
                     .animation(IslandMotion.fade, value: info.isPlaying)
-                GlyphButton(symbol: "forward.fill", size: Self.transportGlyph, weight: .medium) { service.next() }
+                GlyphButton(symbol: "forward.fill", size: Self.transportGlyph, weight: .medium,
+                            hit: Self.transportRow) { service.next() }
             }
             .frame(height: Self.transportRow)
             .padding(.top, 4)

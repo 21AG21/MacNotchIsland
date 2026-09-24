@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 import SwiftUI
@@ -258,13 +259,21 @@ final class ShortcutsRunner: ObservableObject {
     func symbolOverride(for name: String) -> String? { symbolOverrides[name] }
 
     func setSymbol(_ symbol: String, for name: String) {
-        let trimmed = symbol.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            symbolOverrides.removeValue(forKey: name)
+        if let accepted = Self.acceptedSymbol(symbol) {
+            symbolOverrides[name] = accepted
         } else {
-            symbolOverrides[name] = trimmed
+            symbolOverrides.removeValue(forKey: name)
         }
         UserDefaults.standard.set(symbolOverrides, forKey: Self.symbolsKey)
+    }
+
+    /// The name to keep, or nothing — which is the automatic symbol. Only a name SF Symbols
+    /// can draw is kept: anything else drew a blank tile, for good, with nothing to say why.
+    static func acceptedSymbol(_ raw: String,
+                               exists: (String) -> Bool = { NSImage(systemSymbolName: $0, accessibilityDescription: nil) != nil }) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, exists(trimmed) else { return nil }
+        return trimmed
     }
 
     /// A sensible default SF Symbol chosen by keyword in the shortcut's name.

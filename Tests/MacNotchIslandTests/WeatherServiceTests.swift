@@ -98,16 +98,6 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertEqual(WeatherService.formatTemperature(-0.4, fahrenheit: false), "0°")
     }
 
-    // MARK: - formatWind
-
-    func testWindFormatting() {
-        XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: false), "12 km/h")
-        XCTAssertEqual(WeatherService.formatWind(0, milesPerHour: false), "0 km/h")
-        // 12.3 km/h is 7.6 mph.
-        XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: true), "8 mph")
-        XCTAssertEqual(WeatherService.formatWind(100, milesPerHour: true), "62 mph")
-    }
-
     // MARK: - forecastURL
 
     func testForecastURLAsksForEverythingThePanelShows() throws {
@@ -116,7 +106,8 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("https://api.open-meteo.com/v1/forecast?"), text)
         let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
-        XCTAssertEqual(values["current"], "temperature_2m,weather_code,wind_speed_10m,is_day")
+        XCTAssertEqual(values["current"], "temperature_2m,weather_code,is_day",
+                       "only what is drawn: the wind was asked for and shown nowhere")
         XCTAssertEqual(values["daily"], "temperature_2m_max,temperature_2m_min")
         XCTAssertEqual(values["hourly"], "temperature_2m,weather_code,is_day")
         XCTAssertEqual(values["timezone"], "auto")
@@ -166,7 +157,6 @@ final class WeatherServiceTests: XCTestCase {
         let snapshot = try XCTUnwrap(WeatherService.parse(Data(samplePayload.utf8)))
         XCTAssertEqual(snapshot.temperatureC, 21.4, accuracy: 0.0001)
         XCTAssertEqual(snapshot.weatherCode, 2)
-        XCTAssertEqual(snapshot.windKmh, 12.3, accuracy: 0.0001)
         XCTAssertTrue(snapshot.isDay)
         XCTAssertEqual(try XCTUnwrap(snapshot.highC), 24.1, accuracy: 0.0001)
         XCTAssertEqual(try XCTUnwrap(snapshot.lowC), 14.6, accuracy: 0.0001)
@@ -199,7 +189,6 @@ final class WeatherServiceTests: XCTestCase {
         let snapshot = try XCTUnwrap(WeatherService.parse(Data(json.utf8)))
         XCTAssertNil(snapshot.highC)
         XCTAssertNil(snapshot.lowC)
-        XCTAssertEqual(snapshot.windKmh, 11, accuracy: 0.0001)
     }
 
     func testParseWithEmptyDailyArraysLeavesHighAndLowNil() throws {
@@ -224,12 +213,11 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(snapshot.lowC), 14.6, accuracy: 0.0001)
     }
 
-    func testParseDefaultsMissingWindAndIsDay() throws {
+    func testParseDefaultsMissingIsDay() throws {
         let json = """
         {"current": {"temperature_2m": 17, "weather_code": 0}}
         """
         let snapshot = try XCTUnwrap(WeatherService.parse(Data(json.utf8)))
-        XCTAssertEqual(snapshot.windKmh, 0, accuracy: 0.0001)
         XCTAssertTrue(snapshot.isDay, "A payload without is_day should read as daytime, not midnight.")
     }
 
@@ -243,7 +231,7 @@ final class WeatherServiceTests: XCTestCase {
     // MARK: - Snapshot round-trip (the UserDefaults cache)
 
     func testSnapshotSurvivesJSONRoundTrip() throws {
-        let original = WeatherService.Snapshot(temperatureC: 21.4, weatherCode: 2, windKmh: 12.3,
+        let original = WeatherService.Snapshot(temperatureC: 21.4, weatherCode: 2,
                                                isDay: true, highC: 24.1, lowC: 14.6,
                                                placeName: "Berlin",
                                                updatedAt: Date(timeIntervalSince1970: 1_757_246_100))
@@ -251,20 +239,27 @@ final class WeatherServiceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(WeatherService.Snapshot.self, from: data)
         XCTAssertEqual(decoded, original)
     }
+
+    func testAReadingCachedWithTheWindInItStillReadsBack() throws {
+        // A build that asked for the wind cached it with every reading, and a relaunch after
+        // updating must not come up with nothing to show for want of a field it no longer has.
+        let json = """
+        {"temperatureC": 9, "weatherCode": 3, "windKmh": 11, "isDay": true,
+         "updatedAt": 0, "hours": []}
+        """
+        let decoded = try JSONDecoder().decode(WeatherService.Snapshot.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.temperatureC, 9, accuracy: 0.0001)
+    }
+
     // MARK: - Which units, for whom
 
-    /// Three measurement systems, not two. Britain takes its temperature in Celsius and its
-    /// speed in miles per hour, and one flag for both put Fahrenheit in front of every reader
-    /// there.
-    func testTheUnitedKingdomGetsCelsiusAndMilesPerHour() {
-        for (system, fahrenheit, mph) in [(Locale.MeasurementSystem.metric, false, false),
-                                          (.uk, false, true),
-                                          (.us, true, true)] {
+    /// Three measurement systems, not two, and only one of them is Fahrenheit: Britain is not
+    /// metric and takes its temperature in Celsius.
+    func testTheUnitedKingdomGetsCelsius() {
+        for (system, fahrenheit) in [(Locale.MeasurementSystem.metric, false), (.uk, false), (.us, true)] {
             XCTAssertEqual(system == .us, fahrenheit, "\(system) and Fahrenheit")
-            XCTAssertEqual(system != .metric, mph, "\(system) and miles per hour")
         }
         XCTAssertEqual(WeatherService.formatTemperature(21.4, fahrenheit: false), "21°")
-        XCTAssertEqual(WeatherService.formatWind(12.3, milesPerHour: true), "8 mph")
     }
 
 
@@ -302,6 +297,20 @@ final class WeatherServiceTests: XCTestCase {
         let hours = WeatherService.hours(from: block, now: now)
         XCTAssertEqual(hours.count, 2)
         XCTAssertEqual(hours.map(\.weatherCode), [0, 0], "no code is a clear sky, not a crash")
+    }
+
+    func testACachedForecastOnlyShowsTheHoursStillToCome() {
+        // The strip is cached as it was fetched, so a morning relaunch with no network put
+        // last night's evening up as the next six hours.
+        let now = Date()
+        let evening = (-12 ... -7).map { offset in
+            WeatherService.Hour(date: now.addingTimeInterval(Double(offset) * 3600), temperatureC: 12,
+                                weatherCode: 3, isDay: false)
+        }
+        XCTAssertTrue(WeatherService.upcoming(evening, after: now).isEmpty, "all of it has been")
+        let later = WeatherService.Hour(date: now.addingTimeInterval(3600), temperatureC: 14,
+                                        weatherCode: 1, isDay: true)
+        XCTAssertEqual(WeatherService.upcoming(evening + [later], after: now), [later])
     }
 
     func testNoHourlyBlockIsNoStrip() {

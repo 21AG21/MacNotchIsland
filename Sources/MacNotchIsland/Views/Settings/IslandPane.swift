@@ -24,7 +24,7 @@ struct IslandPane: View {
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("The shortcut opens the panel on what is playing, or on Now Playing when nothing is; press it again to close. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
+                Text("The shortcut opens the panel on what is playing or running, or on the section you last had open when nothing is; press it again to close. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
             }
 
             // The keys that need nothing held down. Listed only while they are on, for the
@@ -55,11 +55,14 @@ struct IslandPane: View {
                 // Reads as what it is: a modifier of the switch above it. The two used to be
                 // near enough the same sentence — one of them in the passive — and nothing
                 // said which of them governed which island.
+                // Both only mean anything while the pointer opens the panel at all, and both were
+                // left live with that switched off — one of them showing on the strength of the
+                // other alone — saying something about a behaviour that was not happening.
                 Toggle("Open from the empty notch too", isOn: $prefs.expandOnIdleHover)
                     .help("With nothing playing or running there is nothing to peek at, so resting on the notch does nothing unless this is on.")
-                if prefs.hoverToExpand || prefs.expandOnIdleHover {
-                    SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
-                }
+                    .disabled(!prefs.hoverToExpand)
+                SettingsSlider("Hover delay", value: $prefs.hoverDelay, range: 0...0.6, unit: "s")
+                    .disabled(!prefs.hoverToExpand)
             } header: {
                 Text("Pointer")
             } footer: {

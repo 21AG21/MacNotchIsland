@@ -30,7 +30,7 @@ struct LyricsView: View {
                     .frame(height: lineHeight, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .id(line)
-                    .transition(.asymmetric(
+                    .transition(IslandMotion.reduceMotion ? .opacity : .asymmetric(
                         insertion: .offset(y: 6).combined(with: .opacity),
                         removal: .offset(y: -6).combined(with: .opacity)
                     ))

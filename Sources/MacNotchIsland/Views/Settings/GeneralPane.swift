@@ -52,14 +52,19 @@ struct GeneralPane: View {
             }
 
             Section {
-                SettingsSlider("Width", value: $prefs.notchWidthOverride,
-                               range: 0...320, unit: "pt", zeroLabel: "Automatic")
+                // Starts at the width the island already has. An override can only widen it —
+                // anything narrower would put the island's contents under glass that is not
+                // there — so the stretch of slider below that offered figures that did nothing.
+                let automatic = Self.automaticWidth
+                SettingsSlider("Width", value: widthOverride(automatic: automatic),
+                               range: min(automatic, Self.widestNotch - 1)...Self.widestNotch,
+                               unit: "pt", zeroLabel: "Automatic")
                 SettingsSlider("Height", value: $prefs.notchHeightOverride,
                                range: 0...60, unit: "pt", zeroLabel: "Automatic")
             } header: {
                 Text("Notch size")
             } footer: {
-                Text("Leave both automatic unless the island sits slightly off your notch.")
+                Text("Leave both automatic unless the island sits slightly off your notch. Either can only make the island bigger than the notch it measured.")
             }
 
             Section {
@@ -72,6 +77,24 @@ struct GeneralPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The widest the Width slider goes.
+    private static let widestNotch: Double = 320
+
+    /// The width the island has with no override, on the display with the notch, or the main
+    /// display where none has one.
+    private static var automaticWidth: Double {
+        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+        return screen.map { Double(NotchGeometry.automaticWidth(on: $0)) } ?? 0
+    }
+
+    /// The slider's end at that width is Automatic, and is stored as that.
+    private func widthOverride(automatic: Double) -> Binding<Double> {
+        Binding(
+            get: { prefs.notchWidthOverride },
+            set: { prefs.notchWidthOverride = NotchGeometry.widthOverride($0, automatic: automatic) }
+        )
     }
 }
 

@@ -112,10 +112,10 @@ final class ActivityCenter: ObservableObject {
     /// until the pointer has left and come back: closing with the pointer on the panel used
     /// to close nothing, since the peek branch drew the same panel again at once.
     private var peekSuppressed: String?
-    /// Whether the keyboard was asked for — a click on the island's body, the shortcut, Tab.
-    /// A click on a control inside a peek pins the panel but is not an invitation: the hand
-    /// that clicked pause in a peek while typing in Pages is going back to Pages, and the
-    /// island taking the keyboard on that click sent every letter after it into nothing.
+    /// Whether the keyboard was asked for — by any open but the one a click on a control in
+    /// a peek makes. That click pins the panel but is not an invitation: the hand that
+    /// clicked pause in a peek while typing in Pages is going back to Pages, and the island
+    /// taking the keyboard on that click sent every letter after it into nothing.
     private(set) var keyboardInvited = false {
         didSet { if keyboardInvited != oldValue { objectWillChange.send(); keyboardControlChanged() } }
     }
@@ -699,7 +699,7 @@ final class ActivityCenter: ObservableObject {
     func pinPeek(panel: String) {
         guard openView == nil, hoverPanel == panel, Preferences.shared.hoverToExpand,
               case .panel(let view) = presentation(for: panel) else { return }
-        open(view, panel: panel)
+        open(view, panel: panel, invitesKeyboard: false)
     }
 
     /// How long the island goes on counting as a drop target after the drag appears to leave
@@ -752,6 +752,8 @@ final class ActivityCenter: ObservableObject {
     /// menu bar extra toggles. Idle: open the Home panel. Alerts without a large view perform
     /// their action instead.
     func tap(panel: String = "main") {
+        // A click on the island's body asks for the keyboard, even on a panel a click on a
+        // control had pinned without it.
         keyboardInvited = true
         let shown = presentation(for: panel)
         IslandLog.island.notice("tap on \(panel, privacy: .public): \(shown.contentID, privacy: .public)")
@@ -790,11 +792,13 @@ final class ActivityCenter: ObservableObject {
     ///
     /// `panel` is the island it was opened on, for a click or a press; a step from the
     /// keyboard names none and stays wherever the panel already is, and an open from the
-    /// shortcut or the menu bar, with nothing open, is for every island.
-    func open(_ view: IslandView, direction: Int = 0, panel: String? = nil) {
+    /// shortcut or the menu bar, with nothing open, is for every island. Every open asks
+    /// for the keyboard except the one a click on a control makes (`pinPeek`).
+    func open(_ view: IslandView, direction: Int = 0, panel: String? = nil, invitesKeyboard: Bool = true) {
         homeWork?.cancel()
         lastInteraction = Date()
         navigationDirection = direction
+        if invitesKeyboard { keyboardInvited = true }
         if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
         let target = validated(view)
         let island = panel ?? (openView != nil ? openPanel : nil)
@@ -1095,7 +1099,6 @@ final class ActivityCenter: ObservableObject {
         if isOpen || presentation.isExpanded {
             collapse(reason: "shortcut")
         } else {
-            keyboardInvited = true
             open(defaultPeek())
         }
     }
@@ -1128,7 +1131,6 @@ final class ActivityCenter: ObservableObject {
     /// Shortcut modifiers + Tab (forward) or Shift + Tab (backward). Closed: opens the first
     /// (or last) view. Open: moves one step, wrapping around.
     func cycleView(forward: Bool) {
-        keyboardInvited = true
         step(forward: forward, wrap: true)
     }
 
@@ -1178,7 +1180,6 @@ final class ActivityCenter: ObservableObject {
     /// Open the Home panel programmatically (menu bar, URL scheme, the welcome tour). With a
     /// duration it closes itself again unless the user has interacted with it since.
     func showHome(for seconds: TimeInterval = 0) {
-        keyboardInvited = true
         open(.home(tab: Self.currentHomeTab))
         guard seconds > 0 else { return }
         let opened = Date()

@@ -138,6 +138,28 @@ final class AgendaStore: ObservableObject {
     var canReadEvents: Bool { eventsAccess == .fullAccess }
     var canReadReminders: Bool { remindersAccess == .fullAccess }
 
+    /// Reads both permissions again. They are granted in System Settings, which tells nobody,
+    /// and read once they left Today saying "Calendar access is off" until the app was
+    /// relaunched, however long ago the switch had been thrown. Every reading of the day looks
+    /// first — the minute's poll and the section appearing are both one.
+    private func rereadAccess() {
+        let events = EKEventStore.authorizationStatus(for: .event)
+        let reminders = EKEventStore.authorizationStatus(for: .reminder)
+        let granted = Self.newlyGranted(was: eventsAccess, now: events)
+            || Self.newlyGranted(was: remindersAccess, now: reminders)
+        if eventsAccess != events { eventsAccess = events }
+        if remindersAccess != reminders { remindersAccess = reminders }
+        // A store made before the grant can go on seeing no calendars at all; starting it
+        // afresh is what lets it see them. On the queue, ahead of the reading about to be
+        // handed to it there.
+        if granted { queue.async { [weak self] in self?.store.reset() } }
+    }
+
+    /// Whether a permission has just turned into one the store can read with.
+    static func newlyGranted(was old: EKAuthorizationStatus, now new: EKAuthorizationStatus) -> Bool {
+        new == .fullAccess && old != .fullAccess
+    }
+
     // MARK: - Reading
 
     /// Asks for the day. Called on the main thread — from the timer, from the system's change
@@ -147,6 +169,7 @@ final class AgendaStore: ObservableObject {
         // The gallery is handed its day rather than reading one, and this machine has no
         // calendar: refreshing here would only take the seeded day away again.
         guard !RenderMode.isGallery else { return }
+        rereadAccess()
         giveUpOnAStuckReading()
         guard pass.start() else { return }
         let now = Date()

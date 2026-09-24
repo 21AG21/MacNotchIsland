@@ -84,6 +84,25 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertEqual(result.position(at: t0 + 0.2), 90.2, accuracy: 0.05, "the seek target, advanced by the time since")
     }
 
+    // MARK: - A paused track the limit has taken away
+
+    func testThePausedTrackTheLimitTookAwayDoesNotComeBackOnTheNextReport() {
+        // The helper repeats the same paused track every five seconds; believing it put the
+        // card back five seconds after "Keep paused music for" had removed it, for good.
+        let dismissed = info(playing: false)
+        XCTAssertTrue(NowPlayingService.staysDismissed(info(playing: false, elapsed: 30), dismissed: dismissed))
+    }
+
+    func testPlayingItAgainOrAnotherTrackIsNews() {
+        let dismissed = info(playing: false)
+        XCTAssertFalse(NowPlayingService.staysDismissed(info(playing: true), dismissed: dismissed),
+                       "pressing play brings the card back")
+        XCTAssertFalse(NowPlayingService.staysDismissed(info("Another", playing: false), dismissed: dismissed),
+                       "a different track, even paused, is a different card")
+        XCTAssertFalse(NowPlayingService.staysDismissed(info(playing: false), dismissed: nil),
+                       "and nothing dismissed holds nothing back")
+    }
+
     // MARK: - Whether a backend is still worth listening to
 
     func testABackendThatHasGoneQuietStopsClaimingToBeHealthy() {

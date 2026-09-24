@@ -11,22 +11,33 @@ struct MarqueeText: View {
 
     @ObservedObject private var energy = EnergyPolicy.shared
     @State private var textWidth: CGFloat = 0
+    /// When this text arrived. The scroll is timed from here, so a new title holds still for
+    /// its pause and then sets off from its first letter. Timed from the wall clock, as it
+    /// was, a new title landed at whatever point of the cycle the clock happened to be at:
+    /// most of the time mid-scroll, with its first letters already gone.
+    @State private var epoch = Date()
 
     var body: some View {
         GeometryReader { geo in
             let overflow = textWidth > geo.size.width + 1
-            // Energy policy can pause scrolling even when the text doesn't fit; show the
-            // truncated first copy instead, exactly like the "fits already" case.
+            // Energy policy can pause scrolling even when the text doesn't fit.
             let scrolling = overflow && !energy.animationsPaused
             let distance = Double(textWidth + gap)
             TimelineView(.animation(minimumInterval: energy.animationInterval, paused: !scrolling)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
+                let t = max(0, context.date.timeIntervalSince(epoch))
                 let cycle = distance / speed + pause
                 let phase = t.truncatingRemainder(dividingBy: cycle)
                 let offset = scrolling ? (phase < pause ? 0 : min(distance, (phase - pause) * speed)) : 0
                 HStack(spacing: gap) {
-                    label
-                    if scrolling { label }
+                    if overflow && !scrolling {
+                        // Held still, a title that does not fit ends in an ellipsis. The
+                        // full-length label stood here, cut off square at the slot's edge
+                        // mid-letter with no fade — in the pill, on the curve of its end.
+                        Text(text).font(font).foregroundStyle(color).lineLimit(1).truncationMode(.tail)
+                    } else {
+                        label
+                        if scrolling { label }
+                    }
                 }
                 .offset(x: -CGFloat(offset))
             }
@@ -48,10 +59,15 @@ struct MarqueeText: View {
             }
         }
         .frame(height: lineHeight)
+        .onChange(of: text) { _, _ in epoch = Date() }
         .background(
             label.fixedSize().hidden().background(
                 GeometryReader { g in
-                    Color.clear.onChange(of: g.size.width, initial: true) { _, w in textWidth = w }
+                    Color.clear.onChange(of: g.size.width, initial: true) { _, w in
+                        textWidth = w
+                        // The width is known a frame after the text: the cycle starts then.
+                        epoch = Date()
+                    }
                 }
             )
         )

@@ -92,20 +92,14 @@ struct MotionPane: View {
     private var duration: Binding<Double> {
         Binding(
             get: { prefs.motionDuration * 100 },
-            set: { percent in
-                prefs.motionDuration = percent.rounded() / 100
-                notePreset()
-            }
+            set: { percent in prefs.motionDuration = percent.rounded() / 100 }
         )
     }
 
     private var bounce: Binding<Double> {
         Binding(
             get: { prefs.motionBounce * 100 },
-            set: { percent in
-                prefs.motionBounce = percent.rounded() / 100
-                notePreset()
-            }
+            set: { percent in prefs.motionBounce = percent.rounded() / 100 }
         )
     }
 
@@ -113,12 +107,6 @@ struct MotionPane: View {
     private func apply(_ preset: IslandMotion.Preset) {
         prefs.motionDuration = preset.tuning.duration
         prefs.motionBounce = preset.tuning.bounce
-        prefs.motionPreset = preset.rawValue
-    }
-
-    /// Keeps the stored preset name honest after a slider has moved.
-    private func notePreset() {
-        prefs.motionPreset = IslandMotion.Preset.matching(tuning)?.rawValue ?? Self.custom
     }
 
     private static func percent(_ range: ClosedRange<Double>) -> ClosedRange<Double> {

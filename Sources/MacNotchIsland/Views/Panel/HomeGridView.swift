@@ -19,6 +19,8 @@ struct HomeGridView: View {
     @ObservedObject private var agenda = AgendaStore.shared
     @ObservedObject private var inbox = NotificationInbox.shared
     @State private var hovered: HomeSection?
+    /// Whether this view is one of the agenda's viewers, see `holdAgenda`.
+    @State private var holdsAgenda = false
 
     /// Two rows, and as many columns as it takes. Now Playing is two columns wide, so a
     /// five-column grid holds three tiles beside it and five underneath: eight sections.
@@ -49,6 +51,11 @@ struct HomeGridView: View {
     }
     static var tileHeight: CGFloat { ((IslandLayout.sectionHeight - gap) / 2).rounded(.down) }
     static func wideWidth(columns: Int) -> CGFloat { tileWidth(columns: columns) * 2 + gap }
+    /// What a full row of tiles comes to. The tiles are rounded down to whole points, so this
+    /// falls a little short of the column — 2 pt at five columns, 4 at six.
+    static func gridWidth(columns: Int) -> CGFloat {
+        CGFloat(columns) * tileWidth(columns: columns) + CGFloat(columns - 1) * gap
+    }
 
     private var tiles: [HomeSection] { HomeSection.tiles(prefs) }
 
@@ -57,19 +64,38 @@ struct HomeGridView: View {
         let width = Self.tileWidth(columns: columns)
         // The wide tile eats two of the top row's columns.
         let acrossTheTop = columns - 2
+        // The grid is exactly as wide as its tiles and centred in the column, so what the
+        // rounding leaves over is shared by the two sides. Each row ended in a spacer, which
+        // gave all of it to the right: at six columns the grid stood 24 pt in from the left of
+        // the panel and 28 from the right. A row with fewer tiles still starts at the left of
+        // the grid, so its tiles stay on the columns of the row above.
         return VStack(alignment: .leading, spacing: Self.gap) {
             HStack(spacing: Self.gap) {
                 nowPlayingTile(width: Self.wideWidth(columns: columns))
                 ForEach(Array(tiles.prefix(acrossTheTop)), id: \.self) { tile($0, width: width) }
-                Spacer(minLength: 0)
             }
             HStack(spacing: Self.gap) {
                 ForEach(Array(tiles.dropFirst(acrossTheTop).prefix(columns)), id: \.self) { tile($0, width: width) }
-                Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: Self.gridWidth(columns: columns), alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(IslandMotion.hover, value: hovered)
+        // The Today tile's line is read from the agenda, and the agenda only reads the day
+        // while somebody is looking at it: unregistered, the tile said "Nothing today" after
+        // a fresh launch and, later on, named a meeting that had ended hours before. Held on
+        // the same terms as the calendar itself, so the tile never asks for it ahead of the tour.
+        .onAppear { holdAgenda(ServiceHub.wantsCalendar(prefs)) }
+        .onDisappear { holdAgenda(false) }
+        .onChange(of: ServiceHub.wantsCalendar(prefs)) { _, wanted in holdAgenda(wanted) }
+    }
+
+    /// Takes or gives back this view's place among the agenda's viewers — what it gave back on
+    /// the way out is what it took, whatever the switch says by then.
+    private func holdAgenda(_ wanted: Bool) {
+        guard wanted != holdsAgenda else { return }
+        holdsAgenda = wanted
+        if wanted { agenda.viewerAppeared() } else { agenda.viewerDisappeared() }
     }
 
     // MARK: - What is playing
@@ -181,28 +207,34 @@ struct HomeGridView: View {
     /// The line under a tile's name: what is behind it, in as few words as it takes. A count
     /// where there is one to give, and what the section is for where there is not — a tile
     /// that says only its own name twice is a tile that has told you nothing.
+    ///
+    /// Short enough for a six-column tile, which leaves 83 pt for the words. "Processor and
+    /// memory" did not fit even at five columns, and five more of these lost their last word
+    /// to an ellipsis at six.
     private func glimpse(_ section: HomeSection) -> String {
         switch section {
         case .home, .music: return ""
         case .today: return agendaGlimpse
-        case .controls: return "Wi-Fi and Bluetooth"
-        case .windows: return "Every open window"
+        case .controls: return "Wi-Fi, devices"
+        case .windows: return "Every window"
         case .shelf: return shelf.items.isEmpty ? "Drop files here" : count(shelf.items.count, "item")
-        case .clipboard: return clipboard.items.isEmpty ? "Nothing copied yet" : count(clipboard.items.count, "item")
+        case .clipboard: return clipboard.items.isEmpty ? "Nothing copied" : count(clipboard.items.count, "item")
         case .actions:
             let total = runner.favorites.count + apps.apps.count
-            return total == 0 ? "Shortcuts and apps" : count(total, "action")
+            return total == 0 ? "Shortcuts, apps" : count(total, "action")
         case .notes:
             let first = notes.text.split(separator: "\n").first.map(String.init) ?? ""
-            return first.isEmpty ? "Jot something down" : first
-        case .stats: return "Processor and memory"
+            return first.isEmpty ? "Jot it down" : first
+        case .stats: return "CPU, memory"
         case .notifications:
             return inbox.entries.isEmpty ? "Nothing yet" : count(inbox.entries.count, "notification")
         }
     }
 
     private var agendaGlimpse: String {
-        if let next = agenda.events.first { return next.title }
+        // Not over yet: the list is only as fresh as its last reading, and a meeting that has
+        // ended is not what is next.
+        if let next = agenda.events.first(where: { $0.end > Date() }) { return next.title }
         if let todo = agenda.reminders.first { return todo.title }
         return "Nothing today"
     }

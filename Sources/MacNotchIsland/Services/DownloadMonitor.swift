@@ -88,14 +88,20 @@ final class DownloadMonitor {
         for (key, old) in active where current[key] == nil {
             ActivityCenter.shared.end(id: "download-" + key)
             let final = downloads.appendingPathComponent(old.name)
-            let exists = FileManager.default.fileExists(atPath: final.path)
+            // A partial file goes away for more reasons than finishing: a cancelled download
+            // takes it with it, and Chrome renames "Unconfirmed 123.crdownload" to the real
+            // name part of the way through. Only a file that is actually there is complete.
+            guard FileManager.default.fileExists(atPath: final.path) else { continue }
             var done = old
             done.isComplete = true
-            if exists, let size = try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? Int64 { done.bytes = size }
+            if let size = try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? Int64 { done.bytes = size }
             var alert = IslandActivity(id: "download-done", kind: .download, content: .download(done), priority: 85, presentation: .expanded)
-            alert.openAction = exists ? .url(final) : nil
+            alert.openAction = .url(final)
             ActivityCenter.shared.showAlert(alert, duration: 4)
-            if exists && Preferences.shared.addDownloadsToShelf { ShelfStore.shared.add([final]) }
+            // The shelf's own switch first, as a screenshot's is: with the shelf off there is
+            // nowhere to see what was put on it.
+            let prefs = Preferences.shared
+            if prefs.shelfEnabled && prefs.addDownloadsToShelf { ShelfStore.shared.add([final]) }
         }
 
         active = current

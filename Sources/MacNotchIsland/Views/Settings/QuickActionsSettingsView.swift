@@ -79,10 +79,16 @@ private struct SymbolField: View {
         TextField("Symbol", text: $text)
             .frame(width: 130)
             .font(.callout)
-            .help("An SF Symbol name, such as bolt.fill. Leave empty for the automatic symbol.")
+            .help("An SF Symbol name, such as bolt.fill. Press Return to use it; a name that is not a symbol, or nothing at all, goes back to the automatic symbol.")
             .accessibilityLabel(Text("Symbol for \(name)"))
-            .onSubmit { runner.setSymbol(text, for: name) }
-            .onChange(of: text) { _, newValue in runner.setSymbol(newValue, for: name) }
+            // On Return only. Saved on every keystroke, a name was stored while it was still
+            // being typed — "b", "bo", "bol" — and one left half-typed or misspelt drew nothing
+            // on the tile at all. The field is put back to what was kept, so a name that was
+            // refused does not sit there looking as if it had been taken.
+            .onSubmit {
+                runner.setSymbol(text, for: name)
+                text = runner.symbolOverride(for: name) ?? ""
+            }
             .onAppear { text = runner.symbolOverride(for: name) ?? "" }
     }
 }

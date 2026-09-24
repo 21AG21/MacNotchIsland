@@ -58,6 +58,21 @@ final class ServiceHub {
         p.calendarEnabled && p.hasSeenWelcome
     }
 
+    /// Whether the folder watchers may run: Downloads, and wherever screenshots are saved.
+    ///
+    /// Held until the tour has been through, for the calendar's reason. Both are folders macOS
+    /// guards, so starting either asks for it, and a new Mac's first sight of the app was two
+    /// folder prompts arriving a moment ahead of the window that says what the app is — easy
+    /// to refuse, and a refusal leaves the download and screenshot cards dead with nothing to
+    /// say so. After the tour the question comes from an app that has introduced itself.
+    static func wantsDownloads(_ p: Preferences) -> Bool {
+        p.downloadsEnabled && p.hasSeenWelcome
+    }
+
+    static func wantsScreenshots(_ p: Preferences) -> Bool {
+        p.screenshotsEnabled && p.hasSeenWelcome
+    }
+
     /// Whether the banners on screen may be read, which is the same as whether anything at all
     /// about the notification history happens.
     ///
@@ -88,12 +103,14 @@ final class ServiceHub {
         p.focusEnabled ? focus.start() : focus.stop()
         Self.wantsCalendar(p) ? calendar.start() : calendar.stop()
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
-        p.downloadsEnabled ? downloads.start() : downloads.stop()
+        Self.wantsDownloads(p) ? downloads.start() : downloads.stop()
         p.drivesEnabled ? volumes.start() : volumes.stop()
         p.lowPowerEnabled ? lowPower.start() : lowPower.stop()
-        // Either feature needs the Carbon handler installed: the summon combination, and the
-        // keys the panel answers on its own while it is open.
-        (p.hotkeyEnabled || p.panelKeysEnabled) ? hotkey.start() : hotkey.stop()
+        // Always installed, whatever the two keyboard switches say: Escape closes whatever is
+        // open with both of them off — the Island pane promises it — and it is only ever
+        // claimed while something is. The summon combination is registered only while its
+        // switch is on, and the panel's own keys only while theirs is.
+        hotkey.start()
         // Which of those keys are claimed depends on the switch and on the section the panel
         // is on, so it is re-read whenever a preference changes.
         ActivityCenter.shared.refreshPanelKeys()
@@ -120,7 +137,7 @@ final class ServiceHub {
         p.hiddenAppBundleIDs.isEmpty ? hiddenApps.stop() : hiddenApps.start()
         // The card is the feature now, and the shelf is one of the things it does: a capture
         // is still announced with the shelf switched off, where it used to be silent.
-        p.screenshotsEnabled ? screenshots.start() : screenshots.stop()
+        Self.wantsScreenshots(p) ? screenshots.start() : screenshots.stop()
         (p.nowPlayingEnabled && p.reactiveVisualizerEnabled) ? audioLevel.start() : audioLevel.stop()
     }
 }

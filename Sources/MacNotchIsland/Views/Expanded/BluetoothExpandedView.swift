@@ -15,7 +15,10 @@ struct BluetoothExpandedView: View {
     var body: some View {
         VStack(spacing: 0) {
             NotchClearance(geometry: geometry, extra: 12)
-            HStack(spacing: 14) {
+            // Closer than the other cards' 14, because this row carries up to three readings
+            // and a button beside the name: at 14, with 20 between the readings and a 12 pt
+            // spacer, "AirPods Pro" had 59 pt of a 400 pt row and needs about 85.
+            HStack(spacing: 10) {
                 Image(systemName: state.symbol)
                     .font(.system(size: 26))
                     .foregroundStyle(.white)
@@ -31,10 +34,10 @@ struct BluetoothExpandedView: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                 }
-                Spacer(minLength: 12)
+                Spacer(minLength: 0)
                 // One right-aligned line of figures rather than a row of donuts: the label is
                 // small and quiet, the number carries the weight.
-                HStack(alignment: .firstTextBaseline, spacing: 20) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
                     ForEach(readings) { reading in
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             if !reading.label.isEmpty {

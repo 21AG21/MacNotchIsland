@@ -95,7 +95,9 @@ struct ControlsSectionView: View {
                                                        note: String?,
                                                        @ViewBuilder trailing: () -> Trailing,
                                                        @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // The same gap under the column's header line as under every section's header, so the
+        // first network sits where the first event, window or file does in the others.
+        VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
                     .font(.system(size: 12, weight: .semibold))
@@ -125,7 +127,21 @@ struct ControlsSectionView: View {
 
     @ViewBuilder
     private var wifiList: some View {
-        if wifi.networks.isEmpty {
+        if wifi.networks.isEmpty, wifi.needsLocation {
+            // macOS keeps the names of the networks around from an app Location has refused,
+            // so the list is empty on a Mac sitting on a perfectly good network, and "Nothing
+            // in range" would be a wrong answer. The same offer Today makes for its weather.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Network names need Location")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.white.opacity(0.35))
+                PillButton(title: "Allow Location", tint: .white.opacity(0.85)) {
+                    SystemSettingsPane.location.open()
+                }
+                .environment(\.islandCompactControls, true)
+                .accessibilityLabel(Text("Wi-Fi network names need your location. Open Location Services."))
+            }
+        } else if wifi.networks.isEmpty {
             Text(wifi.isScanning ? "Looking…" : "Nothing in range")
                 .font(.system(size: 11.5))
                 .foregroundStyle(.white.opacity(0.35))

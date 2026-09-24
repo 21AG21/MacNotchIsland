@@ -660,6 +660,27 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ServiceHub.wantsCalendar(prefs), "never when it is switched off")
     }
 
+    /// The same for the two folders macOS guards: a new Mac's first sight of the app was a
+    /// prompt for Downloads and another for the screenshots folder, ahead of the tour.
+    func testTheFolderWatchersWaitForTheTour() {
+        let prefs = Preferences.shared
+        let saved = (prefs.hasSeenWelcome, prefs.downloadsEnabled, prefs.screenshotsEnabled)
+        defer { (prefs.hasSeenWelcome, prefs.downloadsEnabled, prefs.screenshotsEnabled) = saved }
+
+        prefs.downloadsEnabled = true
+        prefs.screenshotsEnabled = true
+        prefs.hasSeenWelcome = false
+        XCTAssertFalse(ServiceHub.wantsDownloads(prefs), "not before the tour")
+        XCTAssertFalse(ServiceHub.wantsScreenshots(prefs), "not before the tour")
+        prefs.hasSeenWelcome = true
+        XCTAssertTrue(ServiceHub.wantsDownloads(prefs), "and after it, if it is switched on")
+        XCTAssertTrue(ServiceHub.wantsScreenshots(prefs))
+        prefs.downloadsEnabled = false
+        prefs.screenshotsEnabled = false
+        XCTAssertFalse(ServiceHub.wantsDownloads(prefs), "never when it is switched off")
+        XCTAssertFalse(ServiceHub.wantsScreenshots(prefs))
+    }
+
     // MARK: - The front door holds every tile there is
 
     func testTheGridWidensRatherThanLeaveASectionOffTheFrontDoor() {
@@ -688,6 +709,10 @@ final class ActivityCenterTests: XCTestCase {
             let used = CGFloat(columns) * width + CGFloat(columns - 1) * HomeGridView.gap
             XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth, "\(columns) columns")
             XCTAssertGreaterThan(width, 90, "a tile narrower than this cannot hold a section's name")
+            // The grid is drawn at exactly this width and centred, so what the rounding leaves
+            // over — 2 pt at five columns, 4 at six — is split between the two sides rather
+            // than all of it going to the right.
+            XCTAssertEqual(HomeGridView.gridWidth(columns: columns), used, "\(columns) columns")
         }
     }
 

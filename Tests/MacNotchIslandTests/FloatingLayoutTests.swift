@@ -104,6 +104,10 @@ final class FloatingLayoutTests: XCTestCase {
         XCTAssertEqual(IslandLayout.cardTopBand(external), IslandLayout.floatingCardTop)
         XCTAssertEqual(layout.bodyHeight, IslandLayout.floatingCardTop + ActivityContent.custom(
             CustomActivity(title: "Custom", body: "body", url: nil)).cardHeight)
+        // Every card keeps 12 pt over its row and 16 under it. With the band on top of that, the
+        // row sits as far from the lit top edge as from the bottom one: 4 + 12 = 16. At 12 it
+        // hung 24 from the top.
+        XCTAssertEqual(IslandLayout.floatingCardTop + 12, 16)
         let onNotch = IslandLayout.make(presentation: .card(a), geometry: notched)
         XCTAssertEqual(IslandLayout.cardTopBand(notched), notched.notchHeight)
         XCTAssertGreaterThan(onNotch.bodyHeight, layout.bodyHeight,
@@ -116,9 +120,24 @@ final class FloatingLayoutTests: XCTestCase {
             XCTAssertTrue(layout.floating, "\(presentation.contentID)")
             XCTAssertEqual(layout.frameWidth, layout.bodyWidth, "\(presentation.contentID)")
             XCTAssertEqual(layout.topRadius, layout.bottomRadius, "\(presentation.contentID)")
-            XCTAssertEqual(layout.bodyHeight, external.notchHeight + IslandLayout.bandExtra + IslandLayout.panelContentHeight)
+            XCTAssertEqual(layout.bodyHeight, external.notchHeight + IslandLayout.bandExtra
+                           + IslandLayout.floatingBandTop + IslandLayout.panelContentHeight)
             XCTAssertEqual(layout.topInset, external.menuBarHeight + 4, "hangs below the menu bar, never on it")
         }
+    }
+
+    /// A floating panel's top is an edge of its own, lit, and the switcher's row was centred
+    /// in the 30 pt a notch would have been: the disc of the view you are on sat 2 pt under
+    /// that edge while the close button kept 16 from the side. The row moves down, and the
+    /// panel grows by the same amount so nothing under it is squeezed.
+    func testTheFloatingSwitcherClearsItsLitTopEdge() {
+        let floating = IslandLayout.make(presentation: .panel(.home(tab: "music")), geometry: external)
+        let notchedPanel = IslandLayout.make(presentation: .panel(.home(tab: "music")), geometry: notched)
+        XCTAssertEqual(floating.bodyHeight - external.notchHeight,
+                       notchedPanel.bodyHeight - notched.notchHeight + IslandLayout.floatingBandTop,
+                       "only the floating panel grows")
+        let discTop = IslandLayout.floatingBandTop + (external.notchHeight - SwitcherBand.slot) / 2
+        XCTAssertEqual(discTop, 10, "8 of padding and the 2 the row's centring leaves")
     }
 
     // MARK: - the notched screen is untouched

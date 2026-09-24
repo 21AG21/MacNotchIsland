@@ -174,6 +174,12 @@ final class NotificationInbox: ObservableObject {
     /// Whether the history on disk has been read yet. See `loadIfNeeded`.
     private var loaded = false
 
+    /// The expiry, applied again on the hour. See `expire`.
+    private var expiryTimer: Timer?
+
+    /// How often the expiry is applied while nothing new arrives.
+    static let expiryInterval: TimeInterval = 60 * 60
+
     private init() {}
 
     /// Reads the history, once.
@@ -186,7 +192,31 @@ final class NotificationInbox: ObservableObject {
     func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        entries = NotificationInbox.trimmed(NotificationInbox.loadPersisted())
+        let stored = NotificationInbox.loadPersisted()
+        entries = NotificationInbox.trimmed(stored)
+        // What expired while the app was not running is gone from the list, and has to go
+        // from the disk as well: trimmed in memory only, it stayed in the file until something
+        // new happened to arrive and rewrite it.
+        if entries != stored { schedulePersist() }
+        startExpiring()
+    }
+
+    /// Three days is a promise about the file, not only about the list, and a Mac that
+    /// receives nothing for a week never came back round to `record` to keep it. On the hour,
+    /// whatever has passed its three days goes, from the disk too.
+    private func startExpiring() {
+        guard expiryTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.expiryInterval, repeats: true) { [weak self] _ in self?.expire() }
+        timer.tolerance = 5 * 60
+        RunLoop.main.add(timer, forMode: .common)
+        expiryTimer = timer
+    }
+
+    private func expire() {
+        let kept = Self.trimmed(entries)
+        guard kept != entries else { return }
+        entries = kept
+        schedulePersist()
     }
 
     // MARK: - Pure rules (unit-tested)

@@ -21,6 +21,8 @@ struct FindField: View {
     /// would allow.
     static let width: CGFloat = 168
     static let height: CGFloat = 22
+    /// The box the clear button's glyph is laid out in.
+    static let clearGlyph: CGFloat = 12
 
     var body: some View {
         Group {
@@ -39,7 +41,8 @@ struct FindField: View {
                 // The same fill the pills beside it wear, so the glass reads as a control
                 // on that line rather than as a decoration printed on the black.
                 .background(Circle().fill(Color.white.opacity(0.12)))
-                .contentShape(Circle())
+                // Drawn at the line's 22 pt, and taking its click in 24 like the pills.
+                .hitOutset(drawn: Self.height)
         }
         .buttonStyle(IslandButtonStyle())
         .help("Find — or just start typing")
@@ -60,10 +63,14 @@ struct FindField: View {
                     .accessibilityLabel(matches == 1 ? "1 match" : "\(matches) matches")
             }
             Button(action: { ActivityCenter.shared.endFind() }) {
+                // An 11 pt glyph was the whole of what took the click, the smallest target in
+                // the app. It is laid out in the 12 it is drawn in and answers in 24 around it,
+                // spending the gap before the count and most of the field's end padding.
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.4))
-                    .contentShape(Circle())
+                    .frame(width: Self.clearGlyph, height: Self.clearGlyph)
+                    .hitOutset(drawn: Self.clearGlyph)
             }
             .buttonStyle(IslandButtonStyle())
             .accessibilityLabel("Stop finding")
@@ -71,7 +78,16 @@ struct FindField: View {
         .padding(.horizontal, 9)
         .frame(width: Self.width, height: Self.height)
         .background(Capsule().fill(Color.white.opacity(0.08)))
-        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+        .transition(IslandMotion.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+    }
+
+    /// Puts the caret after the text in whichever field editor has the keyboard. A hop
+    /// later, because focus is applied after this change is observed.
+    private static func moveCaretToEnd() {
+        DispatchQueue.main.async {
+            guard let editor = NSApp?.keyWindow?.firstResponder as? NSTextView else { return }
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        }
     }
 
     @ViewBuilder
@@ -110,6 +126,10 @@ struct FindField: View {
             // field is reused for the next find.
             .onAppear { focused = true }
             .onChange(of: center.findQuery == nil) { _, gone in if !gone { focused = true } }
+            // Focus lands with the field's text selected, the way it does in every text
+            // field on the Mac — and the text is the letter that opened the find, so the
+            // next letter typed replaced it: "safari" found "afari". The caret goes to the end.
+            .onChange(of: focused) { _, now in if now { Self.moveCaretToEnd() } }
             .accessibilityLabel("Find")
         }
     }

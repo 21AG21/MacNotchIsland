@@ -82,6 +82,9 @@ struct SwitcherBand: View {
             // lower than the menu bar items either side of it. The extra goes below.
             .frame(width: IslandLayout.panelWidth, height: geometry.notchHeight)
             .frame(height: geometry.notchHeight + IslandLayout.bandExtra, alignment: .top)
+            // A floating panel's top is an edge of its own, lit, and the row sat 2 pt under it.
+            // The layout makes the panel this much taller to match.
+            .padding(.top, geometry.hasPhysicalNotch ? 0 : IslandLayout.floatingBandTop)
             // The slots themselves arrive and leave; the name under the pointer and the disc
             // that marks the view you are on only change where they are or how they look.
             .animation(IslandMotion.content, value: ring)
@@ -97,31 +100,29 @@ struct SwitcherBand: View {
     /// A screen with a cutout: the live activities to its left, the sections to its right, and
     /// the cutout itself as the divider between them.
     private var straddling: some View {
-        let width = IslandLayout.panelWidth
-        let side = (width - middle) / 2 - Self.inset
-        // The sections decide the size — there are always more of them — and the activity
-        // slots on the other side of the cutout take the same one, so the band reads as one
-        // row of buttons rather than two rows of different circles.
-        let right = Self.fit(sections, in: side)
-        let left = Self.fit(cards, in: side - Self.closeRoom, slot: right.slot, gap: right.gap)
+        let side = (IslandLayout.panelWidth - middle) / 2 - Self.inset
+        let row = Self.straddle(cards: cards, sections: sections, side: side)
+        // The live activities come first on this side, so the first slot says whether any are.
+        let showsCards = row.left.first.map { cards.contains($0) } ?? false
         return HStack(spacing: 0) {
             HStack(spacing: 0) {
-                closeButton(size: right.slot, gap: right.gap)
+                closeButton(size: row.slot, gap: row.gap)
                 // A step, not a gap: closing the panel is not the next thing along the row
                 // from the things that navigate it, and at four points it read as the first
                 // of them.
                 Color.clear.frame(width: Self.groupGap)
-                slots(left.views, slot: left.slot, gap: left.gap)
+                slots(row.left, slot: row.slot, gap: row.gap)
                 Spacer(minLength: 0)
                 // The left of the band is empty unless something is live, and a row of small
                 // round glyphs says nothing about itself. So the name of whatever the pointer
-                // is on appears here, against the cutout, for as long as it is on it.
-                if left.views.isEmpty, let name = label { hoverName(name) }
+                // is on appears here, against the cutout, for as long as it is on it. A section
+                // that spilled over to this side leaves it room, so the name still comes.
+                if !showsCards, let name = label { hoverName(name) }
             }
             .frame(width: side, alignment: .leading)
             Color.clear.frame(width: middle)
             HStack(spacing: 0) {
-                slots(right.views, slot: right.slot, gap: right.gap)
+                slots(row.right, slot: row.slot, gap: row.gap)
                 Spacer(minLength: 0)
             }
             .frame(width: side, alignment: .leading)
@@ -202,6 +203,15 @@ struct SwitcherBand: View {
     /// be carried to a section that takes drops of its own — a quick action, a window's tile —
     /// without putting it down first. Passing over a slot on the way somewhere else does
     /// nothing, which is what the pause is for.
+    /// Whether a section is worth opening under a drag: only one whose own tiles take the
+    /// drop. Every other section is drawn as the shelf's well for as long as the drag lasts,
+    /// so holding a file on Music gave a haptic, changed nothing anyone could see, and left
+    /// Music pinned — keyboard claimed, click-outside armed — after the drop.
+    static func takesDrops(_ view: IslandView) -> Bool {
+        guard case .home(let tab) = view, let section = HomeSection(rawValue: tab) else { return false }
+        return ActivityCenter.dropTargetSections.contains(section)
+    }
+
     private func springLoad(_ view: IslandView, inside: Bool) {
         springWork?.cancel()
         springWork = nil
@@ -213,7 +223,7 @@ struct SwitcherBand: View {
             return
         }
         springTarget = view
-        guard view != current else { return }
+        guard view != current, Self.takesDrops(view) else { return }
         // Settled now rather than in the closure, where the ring may have moved under it.
         let step = direction(to: view)
         let work = DispatchWorkItem {
@@ -228,6 +238,24 @@ struct SwitcherBand: View {
         }
         springWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.springDelay, execute: work)
+    }
+
+    /// How the row divides around the cutout.
+    ///
+    /// The sections decide the size — there are always more of them — and the activity slots
+    /// on the other side take the same one, so the band reads as one row of buttons rather
+    /// than two rows of different circles. The sections the right side cannot hold spill onto
+    /// the left after the live activities, in their order on the ring, for as long as there
+    /// is room there. With the defaults, ten sections, the right holds eight and Notes and
+    /// Stats had no slot at all while the left of the band stood empty; a section with no
+    /// slot is one only the keyboard can find. The activities go first, so a spilled section
+    /// can never push something live off the band.
+    static func straddle(cards: [IslandView], sections: [IslandView], side: CGFloat)
+        -> (left: [IslandView], right: [IslandView], slot: CGFloat, gap: CGFloat) {
+        let right = fit(sections, in: side)
+        let spill = Array(sections.dropFirst(right.views.count))
+        let left = fit(cards + spill, in: side - closeRoom, slot: right.slot, gap: right.gap)
+        return (left.views, right.views, right.slot, right.gap)
     }
 
     /// How to lay a row of slots out in the room there is: at the size they like where they

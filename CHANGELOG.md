@@ -82,6 +82,52 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Today shows the next few hours again.** With the weather on, the rows were still counted
+  against the whole section, so two events and a reminder pushed the hourly forecast off the
+  bottom of it. They are counted against the room above the forecast now, and a row that does
+  not fit is left out rather than drawn over it.
+- **Every section has a slot in the switcher out of the box.** Ten sections are on by default and
+  the right of the band holds eight at a size the pointer can hit, so Notes and Stats had no slot
+  while the left of the band stood empty. The ones that do not fit go to the left of the cutout
+  now, after anything live.
+- **Cards are as tall as what is in them.** Each card's height is summed from what it stacks,
+  where several borrowed a neighbour's: every card with a progress bar had 3 pt of black under
+  it, a calendar card 6, and a script's card with a body 33.
+- **A pushed activity's trailing words fit in the pill.** The slot was sized at 8 pt a character,
+  a guess about Latin letters that clipped Japanese and Chinese and gave "iii" the room of
+  "WWW". The words are measured in the face they are drawn in.
+- **"AirPods Pro" fits on its own card.** With three battery readings and a button on the row,
+  the name had 59 pt and needs about 85; the row is set closer so it has twice that.
+- **The privacy dots stay off the pill's rounded end.** In the compact pill they sat flush
+  against it, where the curve cut the second dot and the edge was drawn through it. They keep
+  10 pt of room there now.
+- **The sneak peek and a paused title end in an ellipsis.** The peek ran into the pill's curved
+  end, and with animation paused a title too long for its slot was cut off mid-letter, in the
+  pill and in Now Playing alike.
+- **The first name in Actions is whole.** Each name is centred on its disc and overhangs it, and
+  the section was cut at the column's edge, which left "stem Setti…". It is cut in the panel's
+  margin now, still well inside the island.
+- **No coloured glow beside the album cover.** The last of the cover's colour outside the cover
+  itself, and the section's edge cut it off square above and to the left.
+- **Now Playing's buttons stay in their row.** The row was 2 pt short of the section, and each
+  button took its clicks in 42 pt that reached over the scrubber's times. The row fills the
+  section and the buttons answer inside it.
+- **The Home grid is centred, and its lines fit.** The rounding gave all the spare width to the
+  right — 24 pt of margin on the left, 28 on the right at six columns — and six of the lines
+  under the tile names ended in an ellipsis. They are shorter now.
+- **Four window tiles reach the right edge.** Three gaps of 10 left each tile 160.5 pt, rounded
+  down to 2 pt short of the column; with gaps of 8 they are 162 and fill it.
+- **The line in Actions is sharp.** It fell between two pixels and was drawn as a smudge across
+  both; the row above it is half a point taller so the line lands on one.
+- **A floating island sits evenly in its outline.** The switcher's disc was 2 pt under the
+  floating panel's lit top edge, and a floating card's content hung 24 pt from its top and 16
+  from its bottom. Both are 16 now.
+- **Small controls are easier to hit.** A header's pills and find glass, the find field's clear
+  button, a window tile's corner buttons, a shelf tile's buttons, another timer's cancel and the
+  mute glyph all take their clicks in at least 24 pt, and are drawn at the size they were.
+- **Three small misalignments.** The Controls columns kept 6 pt under their headers where every
+  section keeps 8, the shelf's empty state was spaced unlike every other, and an alert banner's
+  glyph sat further from its end than the figure at the other end did from its own.
 - **The island's corners are one shape from the pill to the panel.** A compact pill's ends are
   semicircles and an open panel's corners are Apple's continuous curve, and the outline used to
   pick one family or the other from where it was *going*, so the first frame of every morph

@@ -23,7 +23,7 @@ struct NotchGeometry: Equatable {
         var top = screen.safeAreaInsets.top
         if top == 0, simulatesNotch { top = 32 }
         let hasNotch = top > 0
-        var width: CGFloat = 200
+        var width = automaticWidth(on: screen)
         var height: CGFloat = 32
         let menuBar = max(NSStatusBar.system.thickness, 24)
         // Which displays carry a menu bar is a system setting: every one of them with
@@ -34,21 +34,9 @@ struct NotchGeometry: Equatable {
 
         if hasNotch {
             height = top
-            let key = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
-            if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
-               case let w = screen.frame.width - left.width - right.width, w > 60 && w < 500 {
-                width = w
-                measuredWidths[key] = w
-            } else if let known = measuredWidths[key] {
-                // The auxiliary areas come and go with the menu bar; the cutout does not.
-                width = known
-            } else if simulatesNotch {
-                width = 200
-            }
         } else {
             // Simulated island on external displays: menu-bar height, iPhone-like proportions.
             height = max(menuBar, 30)
-            width = 190
         }
 
         // An override exists for a notch the system under-reports. It may only enlarge the
@@ -59,6 +47,31 @@ struct NotchGeometry: Equatable {
 
         return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch,
                              menuBarHeight: hasNotch ? top : (hasMenuBar ? menuBar : 0))
+    }
+
+    /// The width the island takes on a screen before any override: the cutout where there is
+    /// one, and the simulated island's where there is not. It is also where the Width slider
+    /// in Settings starts, since an override can only ever widen it.
+    static func automaticWidth(on screen: NSScreen) -> CGFloat {
+        var top = screen.safeAreaInsets.top
+        if top == 0, simulatesNotch { top = 32 }
+        // Simulated island on external displays: iPhone-like proportions.
+        guard top > 0 else { return 190 }
+        let key = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
+        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
+           case let w = screen.frame.width - left.width - right.width, w > 60 && w < 500 {
+            measuredWidths[key] = w
+            return w
+        }
+        // The auxiliary areas come and go with the menu bar; the cutout does not.
+        return measuredWidths[key] ?? 200
+    }
+
+    /// What a value on the Width slider stores. At or under the width the island already has,
+    /// an override would change nothing — it can only widen — so it is stored as Automatic,
+    /// which is what it is.
+    static func widthOverride(_ value: Double, automatic: Double) -> Double {
+        value <= automatic ? 0 : value
     }
 
     /// Whether `screen` is the primary display — the one the Displays arrangement puts the

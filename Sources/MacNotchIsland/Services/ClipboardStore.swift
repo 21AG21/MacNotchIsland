@@ -163,6 +163,12 @@ final class ClipboardStore: ObservableObject {
     private var pendingThumbnails: Set<UUID> = []
     /// Whether what is on disk has been read back yet.
     private var hasLoaded = false
+    /// Watches "Keep history across relaunches" for as long as the app runs, not only while
+    /// the clipboard is recording: switching it off has to take the file with it either way.
+    private var persistence: AnyCancellable?
+    /// Where the history is written and erased. One queue, in order, so an erase can never be
+    /// overtaken by a write that was already on its way.
+    private static let io = DispatchQueue(label: "com.macnotchisland.clipboard.io", qos: .utility)
 
     /// Fills the history for the rendered gallery, which starts with an empty pasteboard.
     /// Does nothing outside the gallery.
@@ -190,7 +196,36 @@ final class ClipboardStore: ObservableObject {
     func loadIfNeeded() {
         guard !hasLoaded else { return }
         hasLoaded = true
+        watchPersistence()
+        // Read back only while the history is kept across relaunches. Otherwise — which is how
+        // it ships — a file left behind by a build that always wrote one, or from before the
+        // switch went off, is erased rather than read back and carried on with.
+        guard Preferences.shared.clipboardPersists else {
+            Self.erasePersisted()
+            return
+        }
         items = ClipboardStore.loadPersisted()
+    }
+
+    private func watchPersistence() {
+        guard persistence == nil else { return }
+        persistence = Preferences.shared.$clipboardPersists
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] keeps in self?.persistenceChanged(keeps) }
+    }
+
+    /// Switched on, what is in memory is written now rather than at the next copy. Switched
+    /// off, anything on its way to the disk is stopped and the file goes.
+    private func persistenceChanged(_ keeps: Bool) {
+        if keeps {
+            schedulePersist()
+        } else {
+            persistWork?.cancel()
+            persistWork = nil
+            Self.erasePersisted()
+        }
     }
 
     // MARK: - Lifecycle
@@ -206,6 +241,13 @@ final class ClipboardStore: ObservableObject {
         EnergyPolicy.shared.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.rescheduleTimer() }
+            .store(in: &cancellables)
+        // "Items kept" is what is kept now, not what the next copy will trim to: lowering it
+        // used to change nothing until something else was copied. The first value arrives
+        // here too, for a limit lowered while the clipboard was off.
+        Preferences.shared.$clipboardLimit
+            .receive(on: RunLoop.main)
+            .sink { [weak self] limit in self?.trim(to: limit) }
             .store(in: &cancellables)
         rescheduleTimer()
         // The history was read back from disk before any of it was drawn, and the files it
@@ -343,7 +385,13 @@ final class ClipboardStore: ObservableObject {
             return result
         }
         result.insert(item, at: 0)
+        return capped(result, limit: limit)
+    }
 
+    /// Drops the oldest unpinned entries until the list fits. Pinned entries are never
+    /// dropped, and nor is the newest.
+    static func capped(_ items: [ClipboardItem], limit: Int) -> [ClipboardItem] {
+        var result = items
         let cap = max(1, limit)
         var index = result.count - 1
         while result.count > cap && index > 0 {
@@ -353,13 +401,30 @@ final class ClipboardStore: ObservableObject {
         return result
     }
 
+    /// "Items kept" as a count. A figure edited into defaults by hand that is not a number
+    /// at all would otherwise stop the app on the conversion.
+    static func itemLimit(_ value: Double) -> Int {
+        guard value.isFinite else { return 50 }
+        return Int(min(max(value, 1), 10_000).rounded())
+    }
+
     // MARK: - Mutation
 
     private func append(_ item: ClipboardItem) {
-        let limit = Int(Preferences.shared.clipboardLimit.rounded())
+        let limit = Self.itemLimit(Preferences.shared.clipboardLimit)
         let updated = ClipboardStore.inserting(item, into: items, limit: limit)
         guard updated != items else { return }
         items = updated
+        pruneThumbnails()
+        refreshMissingFiles()
+        schedulePersist()
+    }
+
+    /// Brings the history down to a lowered "Items kept" straight away.
+    private func trim(to limit: Double) {
+        let kept = Self.capped(items, limit: Self.itemLimit(limit))
+        guard kept != items else { return }
+        items = kept
         pruneThumbnails()
         refreshMissingFiles()
         schedulePersist()
@@ -591,20 +656,30 @@ final class ClipboardStore: ObservableObject {
 
     /// Writes the history now rather than eight tenths of a second from now. Quitting is
     /// faster than the debounce, and the last thing somebody copied is exactly the thing they
-    /// are about to want. Nothing is written for a history that has never been touched.
+    /// are about to want. Nothing is written for a history that has never been touched, nor
+    /// for one that is not kept across relaunches.
     func flush() {
         guard persistWork != nil else { return }
         persistWork?.cancel()
         persistWork = nil
-        Self.persist(items.filter { $0.kind != .image })
+        guard let snapshot = Self.toPersist(items, keeping: Preferences.shared.clipboardPersists) else { return }
+        // Behind anything already being written, on the same queue.
+        Self.io.sync { Self.persist(snapshot) }
     }
 
     private func schedulePersist() {
         persistWork?.cancel()
-        let snapshot = items.filter { $0.kind != .image }
+        persistWork = nil
+        guard let snapshot = Self.toPersist(items, keeping: Preferences.shared.clipboardPersists) else { return }
         let work = DispatchWorkItem { ClipboardStore.persist(snapshot) }
         persistWork = work
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.8, execute: work)
+        Self.io.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    /// What goes to disk, or nothing at all. Nothing while the history is not kept across
+    /// relaunches, which is how it ships; and never a picture, whose bytes stay in memory.
+    static func toPersist(_ items: [ClipboardItem], keeping: Bool) -> [ClipboardItem]? {
+        keeping ? items.filter { $0.kind != .image } : nil
     }
 
     private static func persist(_ items: [ClipboardItem]) {
@@ -612,6 +687,19 @@ final class ClipboardStore: ObservableObject {
             try IslandFiles.write(try JSONEncoder().encode(items), to: fileName)
         } catch {
             IslandLog.store.error("clipboard history save failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Takes the history off the disk, behind anything already on its way there.
+    private static func erasePersisted() {
+        io.async {
+            guard let url = IslandFiles.folder?.appendingPathComponent(fileName),
+                  FileManager.default.fileExists(atPath: url.path) else { return }
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                IslandLog.store.error("clipboard history could not be erased: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 }

@@ -70,6 +70,39 @@ final class LiveActivityAPI {
         return url
     }
 
+    // MARK: - The rest of the query, held to what the island can draw
+
+    /// The longest a script may keep an alert, or a card forced open, on the island.
+    static let maxSeconds: TimeInterval = 60
+
+    /// A length in seconds, or nothing. `Double` reads "inf", "nan" and "-3" as numbers, and
+    /// each of them is a way to put something up for ever or take it down on arrival; a
+    /// minute is longer than any alert needs to be read.
+    static func seconds(_ raw: String?) -> TimeInterval? {
+        raw.flatMap { Double($0) }.flatMap { $0.isFinite && $0 > 0 ? min($0, maxSeconds) : nil }
+    }
+
+    /// A card's rank, kept under a call's. Anything on this Mac can push a card, and a call is
+    /// 100: a card that asked for more would sit on top of the one thing that cannot wait.
+    static func priority(_ raw: String?) -> Int? {
+        raw.flatMap { Int($0) }.map { min(99, max(0, $0)) }
+    }
+
+    /// A value with something in it, or nothing: a title of nothing but spaces is a card with
+    /// nothing to say, and gets the default one instead.
+    static func text(_ raw: String?) -> String? {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return raw
+    }
+
+    /// The glyph asked for when SF Symbols has one by that name, and the card's own otherwise:
+    /// a name that is not a symbol draws nothing at all, and leaves a hole in the card.
+    static func symbol(_ raw: String?, fallback: String,
+                       exists: (String) -> Bool = { NSImage(systemSymbolName: $0, accessibilityDescription: nil) != nil }) -> String {
+        guard let raw, exists(raw) else { return fallback }
+        return raw
+    }
+
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "notchisland",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
@@ -82,9 +115,9 @@ final class LiveActivityAPI {
         switch (host, path) {
         case ("activity", ""), ("activity", "start"), ("activity", "update"):
             let id = q["id"] ?? "custom"
-            var custom = CustomActivity(title: q["title"] ?? "Activity")
+            var custom = CustomActivity(title: Self.text(q["title"]) ?? "Activity")
             custom.subtitle = q["subtitle"]
-            custom.symbol = q["symbol"] ?? q["icon"] ?? "app.fill"
+            custom.symbol = Self.symbol(q["symbol"] ?? q["icon"], fallback: "app.fill")
             custom.tint = q["tint"] ?? q["color"] ?? "white"
             custom.progress = q["progress"].flatMap { Double($0) }.map { min(1, max(0, $0)) }
             custom.trailingText = q["trailing"]
@@ -92,24 +125,25 @@ final class LiveActivityAPI {
             custom.url = Self.safeLink(q["url"])
             custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
             custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
-            let priority = q["priority"].flatMap { Int($0) } ?? 70
+            let priority = Self.priority(q["priority"]) ?? 70
             var activity = IslandActivity(id: "api-" + id, kind: .custom, content: .custom(custom), priority: priority)
             if let ttl = q["ttl"].flatMap({ Double($0) }), ttl > 0 { activity.expiresAt = Date().addingTimeInterval(ttl) }
             if let u = custom.url { activity.openAction = .url(u) }
             center.upsert(activity)
             if ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased()) {
-                center.forceExpanded(id: activity.id, for: q["duration"].flatMap { Double($0) } ?? 4)
+                center.forceExpanded(id: activity.id, for: Self.seconds(q["duration"]) ?? 4)
             }
 
         case ("activity", "end"), ("activity", "stop"):
             if let id = q["id"] { center.end(id: "api-" + id) } else { center.end(kind: .custom) }
 
         case ("alert", _):
-            var custom = CustomActivity(title: q["title"] ?? "Alert")
+            let title = Self.text(q["title"])
+            var custom = CustomActivity(title: title ?? "Alert")
             custom.subtitle = q["subtitle"]
-            custom.symbol = q["symbol"] ?? q["icon"] ?? "bell.fill"
+            custom.symbol = Self.symbol(q["symbol"] ?? q["icon"], fallback: "bell.fill")
             custom.tint = q["tint"] ?? q["color"] ?? "white"
-            custom.trailingText = q["trailing"] ?? q["title"]
+            custom.trailingText = q["trailing"] ?? title
             custom.body = q["body"]
             custom.url = Self.safeLink(q["url"])
             custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
@@ -117,7 +151,10 @@ final class LiveActivityAPI {
             var activity = IslandActivity(id: "api-alert", kind: .custom, content: .custom(custom), priority: 85,
                                           presentation: expanded ? .expanded : .compact)
             if let u = custom.url { activity.openAction = .url(u) }
-            center.showAlert(activity, duration: q["duration"].flatMap { Double($0) })
+            // A script's own figure is taken as it stands. The alert slider scales the island's
+            // alerts against each other; it is not a licence to turn "three seconds" into ten.
+            let seconds = Self.seconds(q["duration"])
+            center.showAlert(activity, duration: seconds, exact: seconds != nil)
 
         case ("timer", ""), ("timer", "start"):
             let minutes = q["minutes"].flatMap { Double($0) } ?? 0

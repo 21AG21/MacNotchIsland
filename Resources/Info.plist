@@ -56,7 +56,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notch Island only checks whether the microphone is in use to show the privacy indicator. It never records audio.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Notch Island uses your approximate location for the weather line in Today. It is never stored or shared.</string>
+	<string>Notch Island uses your approximate location for the weather line in Today, and macOS asks for it before showing the names of the Wi-Fi networks in range in Controls. It is never stored or shared.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Notch Island listens to the system's audio level only to animate the Now Playing bars. Nothing is recorded.</string>
 	<key>NSCameraUsageDescription</key>

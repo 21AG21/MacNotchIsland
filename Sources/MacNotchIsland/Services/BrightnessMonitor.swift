@@ -123,9 +123,25 @@ final class BrightnessMonitor {
     private func tick() {
         guard let v = read() else { return }
         if Self.lastSeen < 0 { Self.lastSeen = v; return }
-        guard abs(v - Self.lastSeen) > 0.002 else { return }
+        let previous = Self.lastSeen
+        // Every reading is taken in, announced or not, so a slow drift is absorbed a little at
+        // a time and never adds up to something that looks like a step. See `isDeliberate`.
         Self.lastSeen = v
+        guard Self.isDeliberate(from: previous, to: v) else { return }
         post(v)
+    }
+
+    /// Whether the move between two readings is somebody's hand rather than the light sensor.
+    ///
+    /// Anything over 0.002 used to raise the overlay, and auto-brightness moves the panel by
+    /// more than that all day: walk past a window and the island announced it, over and over,
+    /// with nobody touching anything. The line is the smallest step anybody takes by hand —
+    /// Shift-Option's quarter notch, 1/64 — less a little for a figure read back a hair under
+    /// what was written. It rests on how macOS reports an ambient change: as a ramp, a sliver
+    /// at each reading, where a key arrives as a step. A ramp steep enough to cover a quarter
+    /// notch between two readings still shows, and a slider dragged slowly enough does not.
+    static func isDeliberate(from previous: Float, to current: Float) -> Bool {
+        abs(current - previous) >= MediaKeyInterceptor.fineStep * 0.9
     }
 
     private func post(_ value: Float) {

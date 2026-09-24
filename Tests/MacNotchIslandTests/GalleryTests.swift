@@ -417,7 +417,7 @@ final class GalleryTests: XCTestCase {
                                 temperatureC: degrees[i], weatherCode: codes[i], isDay: i < 4)
         }
         WeatherService.shared.seedForGallery(
-            WeatherService.Snapshot(temperatureC: 17.6, weatherCode: 2, windKmh: 11, isDay: true,
+            WeatherService.Snapshot(temperatureC: 17.6, weatherCode: 2, isDay: true,
                                     highC: 19, lowC: 11, placeName: "London", hours: hours))
     }
 

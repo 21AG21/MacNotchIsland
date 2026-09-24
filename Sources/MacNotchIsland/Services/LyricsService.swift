@@ -302,10 +302,12 @@ final class LyricsService: ObservableObject {
         }
         request(url) { [weak self] data in
             guard let self else { return }
-            guard let data, let records = try? JSONDecoder().decode([Record].self, from: data) else {
-                self.finish(key, record: nil)
-                return
-            }
+            // Only an answer can say a track has no lyrics. A request that failed — no network,
+            // a server error, or the cancel a track change sends the one still in flight — says
+            // nothing about the track, and filing it as a miss kept that track without lyrics
+            // for good, on disk, across launches. Nothing is kept for it, so the next time the
+            // track comes round it is asked about again.
+            guard let data, let records = try? JSONDecoder().decode([Record].self, from: data) else { return }
             self.finish(key, record: Self.bestMatch(in: records, duration: key.duration))
         }
     }

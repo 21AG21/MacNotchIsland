@@ -19,6 +19,9 @@ struct GlyphButton: View {
     var tint: Color = .white
     var weight: Font.Weight = .bold
     var label: String? = nil
+    /// The square it takes its click in, where the row it stands in sets one. Otherwise the
+    /// glyph and 9 pt all round it.
+    var hit: CGFloat? = nil
     var action: () -> Void
 
     var body: some View {
@@ -26,7 +29,7 @@ struct GlyphButton: View {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: weight))
                 .foregroundStyle(tint)
-                .frame(width: size + 18, height: size + 18)
+                .frame(width: hit ?? size + 18, height: hit ?? size + 18)
                 .contentShape(Rectangle())
                 .contentTransition(.symbolEffect(.replace))
         }
@@ -80,6 +83,36 @@ struct CircleActionButton: View {
     }
 }
 
+/// The least a small control takes its click in: 24 pt. Several are drawn smaller than that
+/// on purpose — an 18 pt disc on a window's picture, a 22 pt pill on a header's line — and
+/// the drawing is the design; the target is the pointer's, and it was as small as the drawing.
+enum IslandHit {
+    static let minimum: CGFloat = 24
+
+    /// How far past a control drawn `drawn` points across its target has to reach on each side.
+    static func outset(drawn: CGFloat) -> CGFloat { max(0, (minimum - drawn) / 2) }
+}
+
+extension View {
+    /// Takes clicks this far past what is drawn, and lays out at exactly the size it is drawn:
+    /// out, the rectangle that takes the click, and straight back in again, so nothing beside
+    /// it moves a point. The same arrangement the Today section's tick box is built on. Goes
+    /// inside a button's label, which is where a button looks for the shape it answers to.
+    func hitOutset(horizontal: CGFloat, vertical: CGFloat) -> some View {
+        padding(.horizontal, horizontal)
+            .padding(.vertical, vertical)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -horizontal)
+            .padding(.vertical, -vertical)
+    }
+
+    /// The same, out to `IslandHit.minimum` from a control drawn `drawn` points square.
+    func hitOutset(drawn: CGFloat) -> some View {
+        let reach = IslandHit.outset(drawn: drawn)
+        return hitOutset(horizontal: reach, vertical: reach)
+    }
+}
+
 /// Whether controls here draw at the smaller size a section header uses.
 ///
 /// A section header is one 22 pt line, and a full-size pill is 28 pt tall: dropped on that
@@ -127,6 +160,7 @@ struct PillButton: View {
 
     var body: some View {
         let m = metrics
+        let reach = compact ? IslandHit.outset(drawn: SectionMetrics.headerHeight) : 0
         return Button(action: action) {
             HStack(spacing: m.gap) {
                 if let symbol, !symbolTrailing {
@@ -145,7 +179,11 @@ struct PillButton: View {
             // one size.
             .frame(height: compact ? SectionMetrics.headerHeight : nil)
             .background(Capsule().fill(prominent ? tint : tint.opacity(0.18)))
+            // Drawn at the line's 22 pt and taking its click in 24: out, the capsule that takes
+            // the click, and back in, so the line does not grow. A full-size pill is 28 already.
+            .padding(.vertical, reach)
             .contentShape(Capsule())
+            .padding(.vertical, -reach)
         }
         .buttonStyle(IslandButtonStyle())
     }

@@ -7,6 +7,8 @@ struct TodaySectionView: View {
     @ObservedObject private var agenda = AgendaStore.shared
     @ObservedObject private var weather = WeatherService.shared
     @EnvironmentObject private var prefs: Preferences
+    /// Whether this view holds one of the weather's claims, see `holdWeather`.
+    @State private var holdsWeather = false
 
     private static let eventRow: CGFloat = 36
     static let reminderRow: CGFloat = 28
@@ -21,7 +23,36 @@ struct TodaySectionView: View {
     /// The countdown's column. Without it "in 1 hr" on a row with no Join button landed 44 pt
     /// right of "in 7 min" on the row above.
     private static let countdown: CGFloat = 62
-    private static var listHeight: CGFloat { SectionMetrics.bodyHeight }
+
+    /// The room the rows are counted against. The whole body with the weather off; with the
+    /// hours along the floor, what they and the gap above them leave. The strip came after the
+    /// list and the list went on counting the whole body, so two events and a reminder — 100 pt
+    /// of rows — were laid out over 62 pt of room and the hours were pushed off the bottom of
+    /// the section.
+    static func listHeight(showingHours: Bool) -> CGFloat {
+        SectionMetrics.bodyHeight - (showingHours ? hourlyHeight + SectionMetrics.gapBelowHeader : 0)
+    }
+
+    private var showsHours: Bool { prefs.weatherEnabled && !weather.upcomingHours.isEmpty }
+    private var listHeight: CGFloat { Self.listHeight(showingHours: showsHours) }
+
+    /// How many events and reminders go into that room: events first and at most three, then
+    /// reminders, each only if the whole row fits. A row that does not fit is left out rather
+    /// than drawn half over the hours.
+    static func fit(events: Int, reminders: Int, in height: CGFloat) -> (events: Int, reminders: Int) {
+        var used: CGFloat = 0
+        var shownEvents = 0
+        while shownEvents < min(events, 3), used + eventRow <= height {
+            shownEvents += 1
+            used += eventRow
+        }
+        var shownReminders = 0
+        while shownReminders < reminders, used + reminderRow <= height {
+            shownReminders += 1
+            used += reminderRow
+        }
+        return (shownEvents, shownReminders)
+    }
 
     // MARK: - What the tick box answers to
 
@@ -62,27 +93,39 @@ struct TodaySectionView: View {
             // The rest of the day, along the floor of the section: the space under three
             // appointments was the emptiest part of the panel, and what happens next outside
             // is the one thing a section called Today was missing.
-            if prefs.weatherEnabled, !weather.hours.isEmpty { hourly }
+            if showsHours { hourly }
         }
         .onAppear {
             agenda.viewerAppeared()
-            if prefs.weatherEnabled { weather.start() }
+            holdWeather(prefs.weatherEnabled)
         }
         .onDisappear {
             agenda.viewerDisappeared()
-            if prefs.weatherEnabled { weather.stop() }
+            holdWeather(false)
         }
+        .onChange(of: prefs.weatherEnabled) { _, on in holdWeather(on) }
+    }
+
+    /// Takes or gives back this view's claim on the weather. What it gives back on the way out
+    /// is what it took, rather than what the switch says by then: turning Weather off with
+    /// Today on screen skipped the `stop()`, and the service went on polling with its switch
+    /// off for the rest of the session.
+    private func holdWeather(_ wanted: Bool) {
+        guard wanted != holdsWeather else { return }
+        holdsWeather = wanted
+        if wanted { weather.start() } else { weather.stop() }
     }
 
     // MARK: - The next few hours
 
     /// Six hours across the width, each an hour, a glyph and a figure — the shape of every
-    /// hourly forecast anybody has ever read.
-    static let hourlyHeight: CGFloat = 40
+    /// hourly forecast anybody has ever read. The three lines and the two points between them
+    /// come to about 41 pt, which a 40 pt strip clipped.
+    static let hourlyHeight: CGFloat = 42
 
     private var hourly: some View {
         HStack(spacing: 0) {
-            ForEach(weather.hours) { hour in
+            ForEach(weather.upcomingHours) { hour in
                 VStack(spacing: 1) {
                     Text(Self.hourLabel(hour.date))
                         .font(.system(size: 10, weight: .medium))
@@ -198,7 +241,7 @@ struct TodaySectionView: View {
     /// themselves keep: three events fill the section, and where no reminder would have
     /// fitted, neither does a line about them.
     private var remindersNoteFits: Bool {
-        rows.reduce(0) { $0 + $1.height } + Self.reminderRow <= Self.listHeight
+        rows.reduce(0) { $0 + $1.height } + Self.reminderRow <= listHeight
     }
 
     /// The same offer the weather makes for its location, to the pane that decides it.
@@ -248,18 +291,14 @@ struct TodaySectionView: View {
         }
     }
 
-    /// Today's events first (at most three), then reminders, as many as fit.
+    /// Today's events first (at most three), then reminders, as many as fit — see `fit`.
     private var rows: [Row] {
         let now = Date()
         let endOfDay = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 3600)
-        var result: [Row] = agenda.events.filter { $0.start < endOfDay }.prefix(3).map(Row.event)
-        var used = result.reduce(0) { $0 + $1.height }
-        for reminder in agenda.reminders where !reminder.isCompleted {
-            guard used + Self.reminderRow <= Self.listHeight else { break }
-            result.append(.reminder(reminder))
-            used += Self.reminderRow
-        }
-        return result
+        let events = agenda.events.filter { $0.start < endOfDay }
+        let reminders = agenda.reminders.filter { !$0.isCompleted }
+        let shown = Self.fit(events: events.count, reminders: reminders.count, in: listHeight)
+        return events.prefix(shown.events).map(Row.event) + reminders.prefix(shown.reminders).map(Row.reminder)
     }
 
     private var tomorrowHint: String? {

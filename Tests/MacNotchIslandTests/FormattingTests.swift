@@ -95,4 +95,20 @@ final class FormattingTests: XCTestCase {
         prefs.notchWidthOverride = 0
         prefs.notchHeightOverride = 0
     }
+
+    /// The override can only widen the island, so the Width slider starts at the width the
+    /// island already has, and its end there is Automatic rather than a figure that does nothing.
+    func testTheWidthSliderStartsAtTheWidthTheIslandAlreadyHas() {
+        XCTAssertEqual(NotchGeometry.widthOverride(185, automatic: 185), 0, "the slider's end is Automatic")
+        XCTAssertEqual(NotchGeometry.widthOverride(150, automatic: 185), 0, "narrower than the notch changes nothing")
+        XCTAssertEqual(NotchGeometry.widthOverride(222, automatic: 185), 222)
+
+        guard let screen = NSScreen.main else { return }
+        let prefs = Preferences.shared
+        let saved = prefs.notchWidthOverride
+        defer { prefs.notchWidthOverride = saved }
+        prefs.notchWidthOverride = 0
+        XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchWidth, NotchGeometry.automaticWidth(on: screen),
+                       "with no override the island is the width the slider starts at")
+    }
 }

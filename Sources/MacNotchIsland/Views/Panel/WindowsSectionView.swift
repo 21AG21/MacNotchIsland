@@ -125,8 +125,9 @@ struct WindowsSectionView: View {
     /// tile plus its name fills the body with room under the last line for the scroller. At a
     /// fixed 148 they stopped fifty points short of the right edge — where the header's count
     /// sits — so a row of exactly four read as a row that had come up short rather than as a
-    /// strip that scrolls.
-    static let tileGap: CGFloat = 10
+    /// strip that scrolls. The gap is 8 because that is what divides: 672 less three gaps of
+    /// 8 is four tiles of 162, where three of 10 left 160.5, rounded down to 160 and 2 pt short.
+    static let tileGap: CGFloat = 8
     static var tileWidth: CGFloat { ((IslandLayout.panelContentWidth - 3 * tileGap) / 4).rounded(.down) }
     static let tileHeight: CGFloat = 88
     static let labelHeight: CGFloat = 15
@@ -289,19 +290,25 @@ struct WindowsSectionView: View {
     }
 
     /// One of a tile's corner buttons: smaller than a zone, and out of the way of them.
+    ///
+    /// Drawn at 18 pt, 5 from the corner, and taking its click in 24 around that: the square
+    /// is laid out and the padding outside it is 3 less, so the disc has not moved.
     private func cornerButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let disc: CGFloat = 18
+        let hit = max(disc, IslandHit.minimum)
+        return Button(action: action) {
             ZStack {
                 Circle().fill(Color.white.opacity(0.16))
                 Image(systemName: symbol)
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.white.opacity(0.9))
             }
-            .frame(width: 18, height: 18)
-            .contentShape(Circle())
+            .frame(width: disc, height: disc)
+            .frame(width: hit, height: hit)
+            .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
-        .padding(5)
+        .padding(5 - (hit - disc) / 2)
         .help(label)
         .accessibilityLabel(label)
     }

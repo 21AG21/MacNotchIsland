@@ -186,4 +186,46 @@ final class LiveActivityAPITests: XCTestCase {
         let actions = LiveActivityAPI.actions(from: ["action2": "Only", "action2_url": "https://example.com"], allowsShortcuts: true)
         XCTAssertEqual(actions.map(\.title), ["Only"])
     }
+
+    // MARK: - The rest of the query
+
+    func testALengthIsANumberOfSecondsAndNothingElse() {
+        // `Double` reads all of these as numbers; none of them is a length an alert can be.
+        for bad in ["inf", "-inf", "nan", "0", "-3", "soon", ""] {
+            XCTAssertNil(LiveActivityAPI.seconds(bad), bad)
+        }
+        XCTAssertNil(LiveActivityAPI.seconds(nil))
+        XCTAssertEqual(LiveActivityAPI.seconds("3"), 3)
+        XCTAssertEqual(LiveActivityAPI.seconds("0.5"), 0.5)
+        XCTAssertEqual(LiveActivityAPI.seconds("86400"), LiveActivityAPI.maxSeconds, "a day is held to a minute")
+    }
+
+    func testAPushedCardCannotOutrankACall() {
+        XCTAssertEqual(LiveActivityAPI.priority("500"), 99)
+        XCTAssertEqual(LiveActivityAPI.priority("-5"), 0)
+        XCTAssertEqual(LiveActivityAPI.priority("70"), 70)
+        XCTAssertNil(LiveActivityAPI.priority("high"))
+        handle("notchisland://activity?id=p&title=T&priority=1000")
+        XCTAssertEqual(center.activity(id: "api-p")?.priority, 99, "a call is 100")
+    }
+
+    func testATitleOfNothingButSpacesIsNoTitle() {
+        XCTAssertNil(LiveActivityAPI.text("   "))
+        XCTAssertNil(LiveActivityAPI.text("\n"))
+        XCTAssertNil(LiveActivityAPI.text(nil))
+        XCTAssertEqual(LiveActivityAPI.text(" Build "), " Build ", "what is there is kept as it was sent")
+        handle("notchisland://activity?id=blank&title=%20%20")
+        guard case .custom(let c)? = center.activity(id: "api-blank")?.content else { return XCTFail() }
+        XCTAssertEqual(c.title, "Activity")
+    }
+
+    func testASymbolThatDoesNotExistDrawsTheCardsOwn() {
+        let known: (String) -> Bool = { $0 == "hammer.fill" }
+        XCTAssertEqual(LiveActivityAPI.symbol("hammer.fill", fallback: "app.fill", exists: known), "hammer.fill")
+        XCTAssertEqual(LiveActivityAPI.symbol("hamer.fill", fallback: "app.fill", exists: known), "app.fill")
+        XCTAssertEqual(LiveActivityAPI.symbol(nil, fallback: "bell.fill", exists: known), "bell.fill")
+        handle("notchisland://activity?id=typo&title=T&symbol=not.a.symbol.at.all")
+        guard case .custom(let c)? = center.activity(id: "api-typo")?.content else { return XCTFail() }
+        XCTAssertEqual(c.symbol, "app.fill")
+    }
 }

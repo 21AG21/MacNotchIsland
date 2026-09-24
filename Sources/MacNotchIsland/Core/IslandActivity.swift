@@ -423,11 +423,22 @@ enum ActivityContent: Equatable {
         case .capture: return (34, 88)
         case .custom(let c):
             if c.progress != nil && c.showsRing { return (34, 40) }
-            let text = c.trailingText ?? ""
-            let w = min(120, max(44, CGFloat(text.count) * 8 + 20))
-            return (34, w)
+            return (34, Self.customTrailingWidth(c.trailingText ?? ""))
         case .shelf(let s): return (34, s.count > 9 ? 48 : 40)
         }
+    }
+
+    /// The trailing slot a script's own words need, measured in the face the pill sets them in.
+    ///
+    /// It was a count of characters at 8 pt apiece, which is a guess about Latin letters: two
+    /// Japanese characters are each as wide as the type is tall and came out clipped, while
+    /// "iii" was given the room of "WWW". The 20 on top is what the slot keeps besides the
+    /// words — 6 pt on the cutout's side and 7 either side of them. Kept between a glyph's slot
+    /// and a width that leaves the menu bar something; past that the words truncate.
+    static func customTrailingWidth(_ text: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: CompactTrailingView.wordSize, weight: .semibold)
+        let words = (text as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        return min(120, max(44, words + 20))
     }
 
     /// The narrowest each side can go when the menu bar leaves little room: a glyph on the
@@ -462,26 +473,45 @@ enum ActivityContent: Equatable {
         }
     }
 
-    /// Height of this content's system card below the notch, derived from what it stacks: one
-    /// header row (12 above, 44 tall, 16 below), a progress bar under it, or a second row.
+    /// Height of this content's system card below the notch, summed from what each card
+    /// stacks: 12 above its row, the row, 16 under it. A card taller than that sum is black
+    /// under the content, and one shorter clips it.
+    ///
+    /// One header row: a 44 pt disc beside its two lines of text.
     static let cardRow: CGFloat = 72
-    static let cardRowWithBar: CGFloat = 87
+    /// The progress bar a download, a disk or a script's card puts under that row: 8 pt of air
+    /// and the 4 pt bar.
+    static let cardBar: CGFloat = 12
+    static var cardRowWithBar: CGFloat { cardRow + cardBar }
+    /// The timer's and the stopwatch's 40 pt digits under their eyebrow: 59 pt of row, not 44.
+    /// These two were what the old 87 of `cardRowWithBar` fitted, and every card with a bar was
+    /// given their height and 3 pt of black under it.
+    static let cardDigitsRow: CGFloat = 87
+    /// The calendar's title, its times and its countdown are three lines, 53 pt of row.
+    static let cardCalendarRow: CGFloat = 81
+    /// A script's card with a body: the title, the subtitle and two lines of body, 67 pt of
+    /// row. It was given the height of two rows, which left 33 pt of black under it.
+    static let cardCustomBody: CGFloat = 96
     static let cardTwoRows: CGFloat = 128
 
     var cardHeight: CGFloat {
         switch self {
+        // Neither of these is ever put up as a card: Now Playing's alert is the sneak peek,
+        // which stays on the pill, and nothing forces either one open. Both draw a whole
+        // section, 140 pt with 12 over it, so should one ever be, this needs to be 168 — at
+        // 128 the transport row, or the shelf's names, would be cut off at the bottom.
         case .nowPlaying: return Self.cardTwoRows
-        // 40 pt digits under their eyebrow need 59 pt of row, not 44.
-        case .timer: return Self.cardRowWithBar + IslandTimer.extraRowsHeight
-        case .stopwatch, .calendar: return Self.cardRowWithBar
+        case .timer: return Self.cardDigitsRow + IslandTimer.extraRowsHeight
+        case .stopwatch: return Self.cardDigitsRow
+        case .calendar: return Self.cardCalendarRow
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
         // The bar is how full the disk is, drawn only where the size could be read and only
         // while there is still a disk to be full.
         case .drive(let d): return d.showsFill ? Self.cardRowWithBar : Self.cardRow
         case .capture: return Self.cardRow
         case .custom(let c):
-            if c.body != nil { return Self.cardTwoRows }
-            return c.progress != nil && !c.showsRing ? Self.cardRowWithBar : Self.cardRow
+            let bar = c.progress != nil && !c.showsRing ? Self.cardBar : 0
+            return (c.body != nil ? Self.cardCustomBody : Self.cardRow) + bar
         case .unlock, .silent: return 40
         case .shelf: return Self.cardTwoRows
         default: return Self.cardRow

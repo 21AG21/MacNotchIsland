@@ -10,7 +10,9 @@ struct AlertBanner: View {
     var body: some View {
         Button(action: act) {
             HStack(spacing: 10) {
-                CompactLeadingView(activity: activity, height: 28)
+                // Hung from the banner's padding, as the figure at the far end is: the pill's
+                // notch-side padding has no cutout to keep clear of here.
+                CompactLeadingView(activity: activity, height: 28, besideNotch: false)
                     .frame(width: 28, height: 28)
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))

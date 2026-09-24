@@ -49,6 +49,8 @@ final class NowPlayingService: ObservableObject {
     private var running = false
     private var pollTimer: Timer?
     private var pausedSince: Date?
+    /// The paused track "Keep paused music for" last took off the island, see `staysDismissed`.
+    private var dismissedPaused: NowPlayingInfo?
     private var ticks = 0
     private(set) var activeBackend: Backend = .inactive
     /// What the user just asked for, held against stale backend reports for a moment.
@@ -127,6 +129,8 @@ final class NowPlayingService: ObservableObject {
         adapter.stop()
         mediaRemote.stop()
         clear()
+        // Switched back on, the paused track is news again.
+        dismissedPaused = nil
         refreshHealth()
     }
 
@@ -203,7 +207,10 @@ final class NowPlayingService: ObservableObject {
             // 0 means "clear as soon as playback pauses"; otherwise keep the paused track around.
             // Never while the user has the card open in front of them.
             let limit = Preferences.shared.keepPausedMinutes * 60
-            if limit <= 0 || Date().timeIntervalSince(since) > limit { clear() }
+            if limit <= 0 || Date().timeIntervalSince(since) > limit {
+                dismissedPaused = info
+                clear()
+            }
         }
         refreshHealth()
     }
@@ -218,6 +225,10 @@ final class NowPlayingService: ObservableObject {
             if activeBackend == backend || activeBackend == .inactive { scheduleClear() }
             return
         }
+        // The paused track the limit has already taken away is not news, see `staysDismissed`.
+        // Any other track, or this one playing again, is, and ends the dismissal.
+        if Self.staysDismissed(new, dismissed: dismissedPaused) { return }
+        dismissedPaused = nil
         clearWork?.cancel()
         clearWork = nil
         activeBackend = backend
@@ -261,6 +272,19 @@ final class NowPlayingService: ObservableObject {
         guard new.isPlaying, !new.title.isEmpty else { return false }
         guard let previous else { return true }
         return !sameTrack(new, previous)
+    }
+
+    /// Whether a report is the paused track "Keep paused music for" already took off the
+    /// island, and so not news.
+    ///
+    /// The helper speaks every five seconds whether or not anything has changed. Taken at its
+    /// word, the same paused track put the card back five seconds after the limit removed it,
+    /// with its clock started again — so it came back for good at five minutes and five
+    /// seconds, and with "Not at all" the pill blinked every five seconds. The same track
+    /// playing again, or any other track, is news.
+    static func staysDismissed(_ incoming: NowPlayingInfo, dismissed: NowPlayingInfo?) -> Bool {
+        guard let dismissed, !incoming.isPlaying else { return false }
+        return sameTrack(incoming, dismissed)
     }
 
     private func peek(_ track: NowPlayingInfo) {

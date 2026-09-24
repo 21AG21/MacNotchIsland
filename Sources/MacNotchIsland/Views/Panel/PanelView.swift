@@ -26,7 +26,15 @@ struct PanelView: View {
                 }
             }
             .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.sectionHeight, alignment: .top)
+            // Cut top and bottom at the section, but not at the column's sides: the first
+            // Actions name is centred on a disc that hangs from the column's edge and overhangs
+            // it by 13 pt, and a clip at the edge left "stem Setti…" of it. The sides are cut
+            // `sectionSideOutset` out into the panel's margin instead, which is still well
+            // inside the island's own outline — the body's clip, outside this, is the one that
+            // keeps anything from escaping the island.
+            .padding(.horizontal, Self.sectionSideOutset)
             .clipped()
+            .padding(.horizontal, -Self.sectionSideOutset)
             .environment(\.insidePanel, true)
 
             Rectangle()
@@ -44,7 +52,8 @@ struct PanelView: View {
                     .accessibilityHidden(center.overlayAlert != nil)
                 if let alert = center.overlayAlert {
                     AlertBanner(activity: alert)
-                        .transition(.asymmetric(insertion: .offset(y: 8).combined(with: .opacity), removal: .opacity))
+                        .transition(IslandMotion.reduceMotion ? .opacity
+                                    : .asymmetric(insertion: .offset(y: 8).combined(with: .opacity), removal: .opacity))
                 }
             }
             .frame(height: IslandLayout.railHeight)
@@ -57,6 +66,10 @@ struct PanelView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Self.title(for: view, center: center))
     }
+
+    /// How far past the content column a section may draw sideways before it is cut: more
+    /// than the 13 pt an Actions name overhangs its disc, and 10 pt short of the island's edge.
+    static let sectionSideOutset: CGFloat = 14
 
     static func title(for view: IslandView, center: ActivityCenter) -> String {
         SwitcherBand.entry(for: view, center: center).title

@@ -48,6 +48,13 @@ final class Preferences: ObservableObject {
     @Published var hasSeenWelcome: Bool { didSet { d.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
     @Published var clipboardEnabled: Bool { didSet { d.set(clipboardEnabled, forKey: "clipboardEnabled") } }
     @Published var clipboardLimit: Double { didSet { d.set(clipboardLimit, forKey: "clipboardLimit") } }
+    /// Keep the clipboard history across relaunches, which means writing it to disk.
+    ///
+    /// Off. The history itself is on out of the box, and held in memory it is gone when the
+    /// app quits; written down, it is every password, address and message somebody copied
+    /// that a password manager did not mark, in a file that outlives the moment it was copied
+    /// for. That is not the app's to assume, so it is asked for.
+    @Published var clipboardPersists: Bool { didSet { d.set(clipboardPersists, forKey: "clipboardPersists") } }
     @Published var pasteOnPick: Bool { didSet { d.set(pasteOnPick, forKey: "pasteOnPick") } }
     /// Keep a history of the banners that came past.
     ///
@@ -106,9 +113,9 @@ final class Preferences: ObservableObject {
     @Published var motionDuration: Double { didSet { d.set(motionDuration, forKey: "motionDuration") } }
     /// A multiplier on every spring's bounce. 0 never overshoots.
     @Published var motionBounce: Double { didSet { d.set(motionBounce, forKey: "motionBounce") } }
-    /// The preset last picked, by name, or "custom" once a slider has moved off it. The two
-    /// numbers above are the truth; this is the record of how they were arrived at.
-    @Published var motionPreset: String { didSet { d.set(motionPreset, forKey: "motionPreset") } }
+    // No preset is stored beside them. The two numbers are the whole of the motion, and the
+    // Motion pane works out which preset they are; a name kept alongside was written on every
+    // slider move and read by nothing.
 
     // MARK: Launch at login (SMAppService)
     /// SMAppService only makes sense for a real .app bundle (not `swift run` or the test host).
@@ -167,6 +174,7 @@ final class Preferences: ObservableObject {
         hasSeenWelcome = bool("hasSeenWelcome", false)
         clipboardEnabled = bool("clipboardEnabled", true)
         clipboardLimit = double("clipboardLimit", 50)
+        clipboardPersists = bool("clipboardPersists", false)
         pasteOnPick = bool("pasteOnPick", true)
         notificationsEnabled = bool("notificationsEnabled", false)
         apiShortcutsEnabled = bool("apiShortcutsEnabled", false)
@@ -203,7 +211,6 @@ final class Preferences: ObservableObject {
         let motion = IslandMotion.Tuning(duration: double("motionDuration", 1), bounce: double("motionBounce", 1)).clamped
         motionDuration = motion.duration
         motionBounce = motion.bounce
-        motionPreset = UserDefaults.standard.string(forKey: "motionPreset") ?? IslandMotion.Preset.faithful.rawValue
 
         launchAtLogin = Self.isBundledApp && SMAppService.mainApp.status == .enabled
     }

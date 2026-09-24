@@ -13,16 +13,19 @@ final class CalendarMonitor: NSObject {
     func start() {
         guard !running else { return }
         running = true
-        store.requestFullAccessToEvents { [weak self] granted, _ in
+        // Asked once, and the answer not kept: it is read again on every tick. Calendar access
+        // is granted in System Settings whenever somebody gets round to it, and nothing tells
+        // the app. Held from here, a refusal turned into a grant later never produced a card
+        // until the app was relaunched, because the timer that would have noticed was only
+        // ever started on a yes.
+        store.requestFullAccessToEvents { [weak self] _, _ in
             DispatchQueue.main.async {
                 guard let self, self.running else { return }
-                self.authorized = granted
-                guard granted else { return }
                 self.refresh()
-                self.timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
-                NotificationCenter.default.addObserver(self, selector: #selector(self.storeChanged), name: .EKEventStoreChanged, object: self.store)
             }
         }
+        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+        NotificationCenter.default.addObserver(self, selector: #selector(storeChanged), name: .EKEventStoreChanged, object: store)
     }
 
     func stop() {
@@ -37,7 +40,16 @@ final class CalendarMonitor: NSObject {
     @objc private func storeChanged() { refresh() }
 
     private func refresh() {
-        guard authorized else { return }
+        let granted = EKEventStore.authorizationStatus(for: .event) == .fullAccess
+        // A store made before the grant can go on seeing no calendars at all; starting it
+        // afresh is what lets it see them.
+        if granted && !authorized { store.reset() }
+        authorized = granted
+        guard granted else {
+            // Taken away while a card was up: the card goes with it.
+            ActivityCenter.shared.end(id: "calendar")
+            return
+        }
         let now = Date()
         let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-15 * 60), end: now.addingTimeInterval(60 * 60), calendars: nil)
         let events = store.events(matching: predicate)

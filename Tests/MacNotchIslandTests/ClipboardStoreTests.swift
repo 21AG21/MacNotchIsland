@@ -76,6 +76,23 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(items.map { $0.text }, ["only"])
     }
 
+    func testLoweringTheLimitTrimsWhatIsAlreadyKept() {
+        // "Items kept" is what is kept now: lowering it used to change nothing until the next
+        // copy. The same rule as a copy's: oldest unpinned first, pins and the newest never.
+        let items = [item("t4", at: 4), item("t3", at: 3), item("p", pinned: true, at: 2),
+                     item("t1", at: 1), item("t0", at: 0)]
+        XCTAssertEqual(ClipboardStore.capped(items, limit: 3).map(\.text), ["t4", "t3", "p"])
+        XCTAssertEqual(ClipboardStore.capped(items, limit: 1).map(\.text), ["t4", "p"])
+        XCTAssertEqual(ClipboardStore.capped(items, limit: 10), items, "a limit raised takes nothing")
+    }
+
+    func testALimitThatIsNotANumberIsNotACrash() {
+        XCTAssertEqual(ClipboardStore.itemLimit(50), 50)
+        XCTAssertEqual(ClipboardStore.itemLimit(.nan), 50)
+        XCTAssertEqual(ClipboardStore.itemLimit(.infinity), 50)
+        XCTAssertEqual(ClipboardStore.itemLimit(-4), 1)
+    }
+
     // MARK: - Concealed and transient copies
 
     func testConcealedCopiesAreSkipped() {
@@ -165,6 +182,15 @@ final class ClipboardStoreTests: XCTestCase {
         let stored = item("keep me", pinned: true, at: 1234)
         let decoded = try JSONDecoder().decode([ClipboardItem].self, from: JSONEncoder().encode([stored]))
         XCTAssertEqual(decoded, [stored])
+    }
+
+    func testNothingIsWrittenDownUnlessTheHistoryIsKeptAcrossRelaunches() {
+        // On out of the box, and held in memory: written down, it is everything somebody
+        // copied that a password manager did not mark, in a file that outlives the moment.
+        let items = [item("a password nobody marked"), ClipboardItem(kind: .image, text: "Image", imageData: Data([1]))]
+        XCTAssertNil(ClipboardStore.toPersist(items, keeping: false))
+        XCTAssertEqual(ClipboardStore.toPersist(items, keeping: true)?.map(\.kind), [.text],
+                       "and when it is kept, never a picture")
     }
 
     // MARK: - Row formatting

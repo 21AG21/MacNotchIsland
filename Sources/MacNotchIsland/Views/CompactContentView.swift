@@ -20,7 +20,11 @@ struct CompactContentView: View {
                                     minimal: layout.trailingWidth - layout.privacyWidth < activity.content.compactWidths.trailing)
                     .frame(width: layout.trailingWidth - layout.privacyWidth, height: layout.bodyHeight)
                 if layout.privacyWidth > 0 {
-                    PrivacyDots().frame(width: layout.privacyWidth, height: layout.bodyHeight)
+                    // The dots at their own width, and the rest of the slot between them and
+                    // the pill's rounded end — see `IslandLayout.compactPrivacyClearance`.
+                    PrivacyDots()
+                        .frame(width: IslandLayout.privacyDots, height: layout.bodyHeight)
+                        .padding(.trailing, max(0, layout.privacyWidth - IslandLayout.privacyDots))
                 }
             }
             .frame(width: layout.trailingWidth, height: layout.bodyHeight)
@@ -34,6 +38,12 @@ struct CompactContentView: View {
 struct CompactLeadingView: View {
     let activity: IslandActivity
     let height: CGFloat
+    /// Whether the slot ends at the cutout. The alert banner borrows this view for its glyph,
+    /// and there is no cutout there to keep clear of: carried into the banner, the notch-side
+    /// padding set the glyph further in from the banner's end than the figure at the other end
+    /// sits from its own. Off the notch the glyph hangs from the leading edge of its slot, the
+    /// banner's padding in from the end, the way the figure hangs from the trailing one.
+    var besideNotch: Bool = true
 
     /// One size for every leading glyph: a 16 pt symbol in a 34 pt slot.
     private var iconSize: CGFloat { max(12, height * 0.48) }
@@ -45,6 +55,9 @@ struct CompactLeadingView: View {
                 ArtworkView(image: info.artwork, size: height - 10, radius: 5, flexible: true)
                     .id(info.artworkID)
                     .transition(IslandMotion.pop(scale: 0.6))
+                    // A cover arrives from the service with no animation in its transaction,
+                    // so without a curve here the pop above never ran and the cover cut in.
+                    .animation(IslandMotion.fade, value: info.artworkID)
                     // Outside `.id` so a track change swaps the cover without tearing the
                     // element out of the matched group mid-expansion.
                     .islandMatched(IslandMatchedID.nowPlayingArtwork)
@@ -130,8 +143,8 @@ struct CompactLeadingView: View {
         }
         // Padding on the notch side, so the glyph sits toward the open end of the slot and
         // clear of the cutout's rounded corner.
-        .padding(.trailing, 6)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.trailing, besideNotch ? 6 : 0)
+        .frame(maxWidth: .infinity, alignment: besideNotch ? .center : .leading)
     }
 }
 
@@ -145,7 +158,14 @@ struct CompactTrailingView: View {
     /// Words ("Connected", "On", "Unlocked", "in 5m") sit in the system face like every other
     /// label in the island; only numerals get the rounded face and tabular digits, the way
     /// the iPhone sets its countdowns and percentages.
-    private var wordFont: Font { .system(size: 12.5, weight: .semibold) }
+    private var wordFont: Font { .system(size: Self.wordSize, weight: .semibold) }
+    /// The size of those words, which a script's own trailing text is measured at too — see
+    /// `ActivityContent.customTrailingWidth`.
+    static let wordSize: CGFloat = 12.5
+    /// What the sneak peek keeps clear of the pill's rounded end. The slot runs to the end of
+    /// the body, which is a semicircle as tall as the pill, and a title that ran to the edge
+    /// of the slot ran into the curve and under the rim.
+    static let peekEndClearance: CGFloat = 12
     private var numeralFont: Font { .system(size: max(11, height * 0.4), weight: .semibold, design: .rounded).monospacedDigit() }
 
     var body: some View {
@@ -160,6 +180,7 @@ struct CompactTrailingView: View {
                                 font: .system(size: 11, weight: .regular), color: .white.opacity(0.55))
                         .frame(height: 13)
                 }
+                .padding(.trailing, Self.peekEndClearance)
                 .frame(maxWidth: .infinity, alignment: .leading)
             case .nowPlaying(let info):
                 VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent.blended(withFraction: 0.3, of: .white) ?? info.accent),

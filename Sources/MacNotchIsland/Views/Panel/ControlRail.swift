@@ -42,8 +42,9 @@ struct ControlRail: View {
         let shape = [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled,
                      showsAirDrop, outputs.devices.count > 1]
         let motion: Animation? = RailAssembly.slides(mountedAt: mountedAt) ? IslandMotion.content : nil
-        // Budget at 672 pt with everything showing: two sliders (178 and 140), up to seven
-        // 30 pt buttons, 12 pt gaps, and a spacer that soaks up the rest.
+        // Budget at 672 pt with everything showing: two sliders with their glyphs (148 and
+        // 132), the output picker and up to seven 30 pt buttons, 12 pt gaps, and a spacer that
+        // soaks up the rest. `RailMetrics.widest` adds it up.
         return HStack(spacing: RailMetrics.gap) {
             volume
             // Beside the volume, not among the toggles: where the sound is going belongs with
@@ -128,7 +129,10 @@ struct ControlRail: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
                     .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
-                    .contentShape(Rectangle())
+                    // 22 across, 2 short of what the pointer is owed: a point further out on
+                    // each side, into the panel's margin and the gap before the slider,
+                    // without moving the glyph off the column it hangs from.
+                    .hitOutset(horizontal: IslandHit.outset(drawn: Self.leadingGlyph), vertical: 0)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(IslandButtonStyle())

@@ -66,7 +66,7 @@ struct ActionsSectionView: View {
     @ObservedObject private var stopwatch = IslandStopwatch.shared
 
     /// Two rows and the rule between them, measured so they fill the section exactly: the
-    /// header and its gap, 64 pt of buttons, the hairline with the same air above and below
+    /// header and its gap, 65.5 pt of buttons, the hairline with 8 pt of air above and below
     /// it, and the presets on the floor. Uniform stack spacing plus the rule's own padding
     /// used to leave 27 pt of black under the presets.
     var body: some View {
@@ -96,7 +96,11 @@ struct ActionsSectionView: View {
 
     private var isEmpty: Bool { runner.favorites.isEmpty && apps.apps.isEmpty }
 
-    static let actionsRow: CGFloat = 64
+    /// 65.5 rather than a round 64, so the two spacers come out at exactly `ruleGap` and the
+    /// half-point hairline starts 103.5 pt down the section, on a whole pixel of a Retina
+    /// display. At 64 the spacers shared 17.5 pt, 8.75 each, and the rule fell at 102.75 —
+    /// between two pixels, drawn as a smudge across both.
+    static let actionsRow: CGFloat = 65.5
     static let timerRowHeight: CGFloat = 28
     /// The air above and below the hairline between the two rows.
     static let ruleGap: CGFloat = 8
@@ -119,8 +123,18 @@ struct ActionsSectionView: View {
                 PillButton(title: "Cancel", tint: .white.opacity(0.7)) { IslandTimer.shared.cancel() }
             }
             Spacer(minLength: 0)
-            PillButton(title: stopwatch.state == nil ? "Stopwatch" : "Stop", symbol: "stopwatch.fill") {
-                if stopwatch.state == nil { stopwatch.start() } else { stopwatch.reset() }
+            // Stop means stop: it used to reset, and took the laps with it. Stopped, the same
+            // button clears it, and says so.
+            let running = stopwatch.state?.isRunning == true
+            PillButton(title: stopwatch.state == nil ? "Stopwatch" : (running ? "Stop" : "Reset"),
+                       symbol: "stopwatch.fill") {
+                if stopwatch.state == nil {
+                    stopwatch.start()
+                } else if stopwatch.state?.isRunning == true {
+                    stopwatch.stop()
+                } else {
+                    stopwatch.reset()
+                }
             }
         }
     }

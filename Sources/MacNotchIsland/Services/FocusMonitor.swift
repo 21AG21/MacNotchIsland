@@ -18,10 +18,14 @@ final class FocusMonitor {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/DoNotDisturb/DB", isDirectory: true)
     }
 
-    /// Whether the Focus database can be read (it lives in the user's own Library, but a
-    /// future macOS could move it or gate it).
+    /// Whether the Focus database can actually be read: the file the monitor reads, read.
+    ///
+    /// It lives in the user's own Library, and macOS guards that folder all the same. Asking
+    /// `isReadableFile` only consults the file's permissions, which say yes — so Privacy said
+    /// "Readable" on the very Mac where every read was being refused and no Focus was ever
+    /// seen. Only a read that comes back with something is an answer.
     static var isReadable: Bool {
-        FileManager.default.isReadableFile(atPath: dbDirectory.appendingPathComponent("ModeConfigurations.json").path)
+        (try? Data(contentsOf: dbDirectory.appendingPathComponent("Assertions.json"))) != nil
     }
 
     func start() {

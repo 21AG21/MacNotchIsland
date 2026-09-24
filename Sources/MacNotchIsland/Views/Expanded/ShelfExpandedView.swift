@@ -160,8 +160,11 @@ struct ShelfStripView: View {
         .animation(IslandMotion.hover, value: isDropTarget)
     }
 
+    /// Its own rather than `SectionEmptyState`, because the glyph and the words change while a
+    /// file is held over the well — but spaced the same, and lifted the same few points above
+    /// the middle, so an empty shelf and an empty clipboard read as one design.
     private var emptyState: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             Image(systemName: isDropTarget ? "tray.and.arrow.down.fill" : "tray")
                 .font(.system(size: 24, weight: .regular))
                 .foregroundStyle(.white.opacity(isDropTarget ? 0.9 : 0.3))
@@ -176,6 +179,7 @@ struct ShelfStripView: View {
                     .foregroundStyle(.white.opacity(0.4))
             }
         }
+        .padding(.bottom, 8)
     }
 
     private var items: some View {
@@ -350,9 +354,15 @@ struct ShelfItemView: View {
         }
     }
 
+    /// The discs under a hovered tile: drawn at 18 pt, taking their clicks in 24.
+    static let buttonSize: CGFloat = 18
+    /// Between two of them: wide enough that their 24 pt targets meet rather than lie over
+    /// each other, and three of those targets are exactly the 72 pt the tile is wide.
+    static let buttonGap: CGFloat = 6
+
     /// Copy, Quick Look, remove — the three things a shelf is for, under the tile.
     private var actions: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Self.buttonGap) {
             tileButton("doc.on.doc", "Copy") { shelf.copyToPasteboard(targets()) }
             tileButton("eye", "Quick Look") { ShelfQuickLook.shared.show(targets()) }
             tileButton("xmark", "Remove") { shelf.remove(targets()) }
@@ -368,8 +378,8 @@ struct ShelfItemView: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.white.opacity(0.9))
             }
-            .frame(width: 18, height: 18)
-            .contentShape(Circle())
+            .frame(width: Self.buttonSize, height: Self.buttonSize)
+            .hitOutset(drawn: Self.buttonSize)
         }
         .buttonStyle(IslandButtonStyle())
         .help(label)

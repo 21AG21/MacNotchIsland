@@ -223,11 +223,12 @@ struct TimerExpandedView: View {
                     .foregroundStyle(.white.opacity(0.45))
             }
             Button(action: { IslandTimer.shared.cancel(id: entry.id) }) {
+                // Laid out at 18, taking its click in the row's full 24.
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.45))
                     .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+                    .hitOutset(drawn: 18)
             }
             .buttonStyle(IslandButtonStyle())
             .accessibilityLabel("Cancel \(entry.label)")

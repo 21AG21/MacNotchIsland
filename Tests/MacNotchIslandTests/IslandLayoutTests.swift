@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import SwiftUI
 @testable import MacNotchIsland
@@ -390,5 +391,101 @@ final class IslandLayoutTests: XCTestCase {
                                     SwitcherBand.hit(slot: SwitcherBand.slot,
                                                      gap: SwitcherBand.gap).width + SwitcherBand.groupGap,
                                     "the close button's reservation covers what it takes clicks in")
+    }
+
+    // MARK: - The privacy dots in the pill
+
+    /// The compact pill ends in a semicircle as tall as it is, and the dots were given 18 pt
+    /// flush against it: the second dot was cut by the curve and had the rim drawn through it.
+    /// The slot keeps 10 pt between the dots and that end now, and the content keeps its own.
+    func testCompactKeepsThePrivacyDotsOffThePillsRoundedEnd() {
+        let timer = TimerState(label: "Timer", total: 60, endDate: Date().addingTimeInterval(60))
+        let a = activity("t", .timer(timer))
+        let plain = IslandLayout.make(presentation: .compact(a, bubble: nil), geometry: geometry, clearance: .unlimited)
+        ActivityCenter.shared.micInUse = true
+        defer { ActivityCenter.shared.micInUse = false }
+        let dotted = IslandLayout.make(presentation: .compact(a, bubble: nil), geometry: geometry, clearance: .unlimited)
+        XCTAssertEqual(dotted.privacyWidth, IslandLayout.privacyDots + IslandLayout.compactPrivacyClearance)
+        XCTAssertEqual(dotted.privacyWidth, 28)
+        XCTAssertEqual(dotted.trailingWidth, plain.trailingWidth + 28, "the timer's digits keep their whole slot")
+        // The resting island is unchanged: its dots already sat 4 pt in from either side.
+        let idle = IslandLayout.make(presentation: .idle, geometry: geometry, clearance: .unlimited)
+        XCTAssertEqual(idle.privacyWidth, IslandLayout.privacyDots)
+    }
+
+    // MARK: - A card is as tall as what is in it
+
+    /// Every card keeps 12 pt over its row and 16 under it, so its height is those and the
+    /// row, summed from what the card stacks. A card given more is black under its content —
+    /// every card with a bar was 3 pt too tall, a script's card with a body 33 — and a card
+    /// given less cuts it off.
+    func testEachCardIsAsTallAsWhatItStacks() {
+        let above: CGFloat = 12, below: CGFloat = 16
+        XCTAssertEqual(ActivityContent.cardRow, above + 44 + below, "a 44 pt disc beside two lines")
+        XCTAssertEqual(ActivityContent.cardRowWithBar, above + 44 + 8 + 4 + below, "and a 4 pt bar 8 under it")
+        XCTAssertEqual(ActivityContent.cardDigitsRow, above + 59 + below, "40 pt digits under their eyebrow")
+
+        let download = ActivityContent.download(DownloadState(name: "a.zip", bytes: 10, total: 100, app: "Safari"))
+        XCTAssertEqual(download.cardHeight, 84)
+        XCTAssertEqual(ActivityContent.stopwatch(StopwatchState(startedAt: Date())).cardHeight, 87)
+        let calendar = ActivityContent.calendar(CalendarState(title: "Standup", start: Date(), end: Date(),
+                                                              location: nil, joinURL: nil, tint: "blue"))
+        XCTAssertEqual(calendar.cardHeight, 81, "a title, its times and a countdown: 53 pt of row")
+        XCTAssertEqual(ActivityContent.custom(CustomActivity(title: "A", progress: 0.5)).cardHeight, 84)
+        XCTAssertEqual(ActivityContent.custom(CustomActivity(title: "A", progress: 0.5, showsRing: true)).cardHeight, 72,
+                       "a ring stands in the leading slot, so there is no bar under the row")
+        XCTAssertEqual(ActivityContent.custom(CustomActivity(title: "A", body: "b", url: nil)).cardHeight, 96,
+                       "a title, a subtitle and two lines of body: 67 pt of row")
+        XCTAssertEqual(ActivityContent.custom(CustomActivity(title: "A", progress: 0.5, body: "b", url: nil)).cardHeight,
+                       96 + ActivityContent.cardBar)
+    }
+
+    // MARK: - A script's own words
+
+    /// The pill's trailing slot is measured for a script's words, not counted for them. Eight
+    /// points a character is a guess about Latin letters: five Japanese characters, each as
+    /// wide as the type is tall, came out clipped, and "iii" was given the room of "WWW".
+    func testACustomActivitysTrailingWordsAreMeasuredNotCounted() {
+        func trailing(_ text: String) -> CGFloat {
+            ActivityContent.custom(CustomActivity(title: "A", trailingText: text)).compactWidths.trailing
+        }
+        let japanese = "会議中です"
+        XCTAssertGreaterThan(trailing(japanese), 5 * 8 + 20, "wider than a count of Latin letters allowed")
+        let font = NSFont.systemFont(ofSize: CompactTrailingView.wordSize, weight: .semibold)
+        let words = (japanese as NSString).size(withAttributes: [.font: font]).width
+        XCTAssertGreaterThanOrEqual(trailing(japanese), min(120, words + 20), "the words and the slot's own air")
+        XCTAssertLessThan(trailing("iii"), trailing("WWWWW"))
+        XCTAssertEqual(trailing(""), 44, "never narrower than a glyph's slot")
+        XCTAssertEqual(trailing(String(repeating: "W", count: 40)), 120, "nor wider than the menu bar can spare")
+    }
+
+    // MARK: - Sections the right of the band cannot hold
+
+    /// Ten sections are switched on out of the box, and beside a 14-inch cutout the right of
+    /// the band holds eight of them at the size the pointer needs. The two left over, Notes and
+    /// Stats, had no slot at all while the whole left of the band stood empty: 241.5 pt, less
+    /// 42 for the close button, is 199.5, seven slots of 28. They go there now, after anything
+    /// live and in their order on the ring.
+    func testSectionsTheRightCannotHoldSpillToTheLeft() {
+        let side = bandSide(notch: 185)
+        XCTAssertEqual(side, 241.5, "(720 − 205) / 2 − 16")
+        let sections = bandSlots(10)
+        let row = SwitcherBand.straddle(cards: [], sections: sections, side: side)
+        XCTAssertEqual(row.right, Array(sections.prefix(8)), "8 × 28 = 224 goes into 241.5, 9 × 28 does not")
+        XCTAssertEqual(row.left, Array(sections.suffix(2)), "the two left over, in ring order")
+        XCTAssertEqual(row.slot, SwitcherBand.minSlot, "one size of circle on both sides")
+
+        // Something live comes first, and a section spilled across never pushes it off.
+        let cards = (0..<7).map { IslandView.activity(id: "card\($0)") }
+        let one = SwitcherBand.straddle(cards: Array(cards.prefix(1)), sections: sections, side: side)
+        XCTAssertEqual(one.left, [cards[0]] + Array(sections.suffix(2)))
+        let busy = SwitcherBand.straddle(cards: cards, sections: sections, side: side)
+        XCTAssertEqual(busy.left, cards, "seven live activities fill the left, and the spill waits")
+        XCTAssertEqual(busy.right, Array(sections.prefix(8)))
+
+        // With room for every section on the right, nothing crosses over.
+        let few = SwitcherBand.straddle(cards: [], sections: bandSlots(5), side: side)
+        XCTAssertTrue(few.left.isEmpty)
+        XCTAssertEqual(few.right, bandSlots(5))
     }
 }

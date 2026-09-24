@@ -188,6 +188,18 @@ final class SystemHUDTests: XCTestCase {
                      "and neither has one with the lid shut and nothing plugged in")
     }
 
+    /// Auto-brightness moves the panel a sliver at a time all day; anything over 0.002 used to
+    /// raise the overlay for it. A step anybody takes by hand is at least a quarter notch.
+    func testTheLightSensorsDriftIsNotAnnouncedButAKeyIs() {
+        XCTAssertFalse(BrightnessMonitor.isDeliberate(from: 0.5, to: 0.505), "a sliver of a ramp")
+        XCTAssertFalse(BrightnessMonitor.isDeliberate(from: 0.5, to: 0.5))
+        XCTAssertTrue(BrightnessMonitor.isDeliberate(from: 0.5, to: 0.5 + MediaKeyInterceptor.coarseStep), "a notch")
+        XCTAssertTrue(BrightnessMonitor.isDeliberate(from: 0.5, to: 0.5 - MediaKeyInterceptor.fineStep),
+                      "a quarter notch, either way")
+        XCTAssertTrue(BrightnessMonitor.isDeliberate(from: 0.5, to: 0.5 + MediaKeyInterceptor.fineStep * 0.95),
+                      "read back a hair under what was written")
+    }
+
     /// The tap is probed over and over — every few seconds, and again after every wake — and
     /// `set(_:)` is told the answer each time, whether it is the same answer or not. Every
     /// view that draws a volume or a brightness display watches this, so an announcement for a

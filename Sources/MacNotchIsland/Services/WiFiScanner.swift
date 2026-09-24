@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreLocation
 import CoreWLAN
 
 /// The networks this Mac can see, and joining one of them.
@@ -16,7 +17,9 @@ import CoreWLAN
 /// last scan the system took — is a round trip to the Wi-Fi daemon, and the panel doing the
 /// asking is the one being animated open at that moment. So none of it happens on the main
 /// thread: a pass runs on the queue below and hands its answer back to be shown.
-final class WiFiScanner: ObservableObject {
+///
+/// An NSObject for one reason: it is Location's delegate, see `needsLocation`.
+final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = WiFiScanner()
 
     /// One network, as the list shows it.
@@ -39,6 +42,15 @@ final class WiFiScanner: ObservableObject {
     @Published private(set) var isScanning = false
     /// What the interface says it is on, whether or not the list has caught up.
     @Published private(set) var current: String?
+    /// Whether the names are being kept from us because Location has been refused.
+    ///
+    /// Since macOS 14 CoreWLAN only tells an app the names of the networks around it — the one
+    /// it is on included — once Location allows it, because a list of network names is a good
+    /// way to tell where somebody is. Without it every network in the scan comes back with no
+    /// name, a nameless network is skipped, and the column said "Nothing in range" on a Mac
+    /// sitting on a perfectly good network. Published so the column can say what is actually
+    /// wrong, and offer the pane that puts it right.
+    @Published private(set) var needsLocation = false
 
     /// How often the list is refreshed while somebody is looking at it.
     static let refreshInterval: TimeInterval = 12
@@ -52,8 +64,14 @@ final class WiFiScanner: ObservableObject {
 
     private var viewers = 0
     private var timer: Timer?
+    /// Held for as long as the app runs: a manager let go before macOS has answered takes its
+    /// question with it. Made the first time the list is looked at, so a Mac whose owner never
+    /// opens Controls is never asked. Main queue only, where its delegate calls arrive.
+    private var location: CLLocationManager?
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
     /// Fills in a list for the gallery, which has no radio and no location.
     func seedForGallery(_ list: [Network]) {
@@ -67,6 +85,7 @@ final class WiFiScanner: ObservableObject {
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
+        askForLocationIfNeeded()
         refresh(scan: true)
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(scan: true)
@@ -78,6 +97,41 @@ final class WiFiScanner: ObservableObject {
         guard viewers == 0 else { return }
         timer?.invalidate()
         timer = nil
+    }
+
+    // MARK: - Location, for the names
+
+    /// Asks once, the first time anybody looks, and otherwise only reads where things stand:
+    /// a refusal is System Settings' to undo, and the column offers the way there.
+    private func askForLocationIfNeeded() {
+        let manager: CLLocationManager
+        if let location {
+            manager = location
+        } else {
+            manager = CLLocationManager()
+            manager.delegate = self
+            location = manager
+        }
+        if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
+        noteLocation(manager.authorizationStatus)
+    }
+
+    private func noteLocation(_ status: CLAuthorizationStatus) {
+        let withheld = Self.namesWithheld(status)
+        if needsLocation != withheld { needsLocation = withheld }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        noteLocation(manager.authorizationStatus)
+        // Allowed while the list is open: the names are there to be read now, so read them
+        // rather than leave the column empty until the timer comes round.
+        if viewers > 0 { refresh() }
+    }
+
+    /// Whether Location's answer is one that keeps the names from us. Not yet asked is not a
+    /// refusal: the question is on screen, and the list is read again the moment it is answered.
+    static func namesWithheld(_ status: CLAuthorizationStatus) -> Bool {
+        status == .denied || status == .restricted
     }
 
     /// Re-reads the list, off the main thread, and shows the answer when it comes. With
