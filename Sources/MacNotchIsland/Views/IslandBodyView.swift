@@ -32,7 +32,7 @@ struct IslandBodyView: View {
                     .accessibilityHidden(true)
             }
 
-            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom)
+            NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating)
                 .fill(Color.black)
                 .islandShadow(shadowStrength, height: layout.bodyHeight)
             rim
@@ -46,12 +46,11 @@ struct IslandBodyView: View {
                 // the clip's bottom edge sweeps up through the switcher, the section and the
                 // divider, and a tapering sliver of each escaped at both corners and sat on
                 // the wallpaper outside the island.
-                .clipShape(NotchShape(topRadius: 0, bottomRadius: layout.bottomRadius,
-                                      floating: layout.floating, isPill: layout.isPillBottom))
+                .clipShape(NotchShape(topRadius: 0, bottomRadius: layout.bottomRadius, floating: layout.floating))
                 .padding(.horizontal, layout.floating ? 0 : layout.topRadius)
         }
         .frame(width: layout.frameWidth, height: layout.bodyHeight)
-        .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating, isPill: layout.isPillBottom))
+        .contentShape(NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating))
         // The outline's own curve, said again here — and this is load-bearing.
         //
         // Nested `.animation(_:value:)` is innermost-wins, so the press feedback below governed
@@ -118,8 +117,7 @@ struct IslandBodyView: View {
     @ViewBuilder
     private var rim: some View {
         let shape = NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius,
-                               floating: layout.floating, isPill: layout.isPillBottom,
-                               openTop: !layout.floating)
+                               floating: layout.floating, openTop: !layout.floating)
         if layout.floating {
             shape
                 .stroke(IslandRim.lit, lineWidth: IslandRim.width)
@@ -128,16 +126,17 @@ struct IslandBodyView: View {
             shape
                 .stroke(IslandRim.color, lineWidth: IslandRim.width)
                 .accessibilityHidden(true)
-                // Measured from the height on screen rather than the one being arrived at.
-                // A `UnitPoint` is a fraction of whatever it is drawn into, and taking that
-                // fraction from the final height while the mask was still the notch's own
-                // scaled the fade with the growth: the lit rim reached full strength a point
-                // below the top of the screen instead of ten, which is the bright hairline
-                // along the top row of the display that `IslandRim.fade` exists to prevent.
-                .mask {
-                    GeometryReader { proxy in
-                        LinearGradient(colors: [.clear, .black], startPoint: .top,
-                                       endPoint: UnitPoint(x: 0.5, y: IslandRim.fade / max(1, proxy.size.height)))
+                // A fade of a fixed length in points, whatever height the island is at. As a
+                // fraction of the height it scaled with the growth: a fraction of the final
+                // height applied to the island while it was still the notch's own let the
+                // lit rim run right up to the top row of the display along the ears, which
+                // is the bright hairline `IslandRim.fade` exists to prevent, and on the way
+                // closed it pulled the rim off the upper sides.
+                .mask(alignment: .top) {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: IslandRim.fade)
+                        Color.black
                     }
                 }
                 // Faded rather than taken away: the island is already growing out of the
@@ -154,6 +153,18 @@ struct IslandBodyView: View {
         return false
     }
 
+    /// The content's identity, which is what decides whether a change crosses over or is
+    /// drawn in place. A key-press HUD over a live activity keeps that activity's identity:
+    /// its glyph stays on the left (`IslandLayout.activityUnder`) and only the trailing half
+    /// changes, so the whole view must not be torn down and crossed over — which blurred the
+    /// very glyph that was staying put, twice, on every press of the volume key.
+    private var contentID: String {
+        if case .compact(let a, _) = presentation, let under = IslandLayout.activityUnder(a, center: center) {
+            return "compact-\(under.id)"
+        }
+        return presentation.contentID
+    }
+
     @ViewBuilder
     private var content: some View {
         Group {
@@ -164,18 +175,21 @@ struct IslandBodyView: View {
                 CompactContentView(activity: activity, layout: layout)
             case .card(let activity):
                 ExpandedContentView(activity: activity, layout: layout, geometry: geometry)
-            case .panel(let view):
-                PanelView(view: view, geometry: geometry, layout: layout)
-            case .shelf:
-                PanelView(view: .home(tab: HomeSection.shelf.rawValue), geometry: geometry, layout: layout, isDropTarget: true)
+            case .panel, .shelf:
+                // One panel, whichever section it is on: a drag arriving over an open panel
+                // takes it to the shelf's well and back, and two separate branches here tore
+                // the whole panel down for that — band, section and rail, with no animation,
+                // and the rail's audio listeners with them.
+                PanelView(view: presentation.panelView ?? .home(tab: HomeSection.shelf.rawValue),
+                          geometry: geometry, layout: layout, isDropTarget: presentation == .shelf)
             }
         }
-        .id(presentation.contentID)
+        .id(contentID)
         .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
         // The content crosses over on its own, shorter curve rather than riding the outline's.
         // The shape is what bounces; the thing inside it settles first and holds still while
         // the outline finishes arriving, which is the layering the phone's island has.
-        .animation(IslandMotion.content, value: presentation.contentID)
+        .animation(IslandMotion.content, value: contentID)
         .environment(\.islandNamespace, islandNamespace)
     }
 }
@@ -195,6 +209,10 @@ struct IdleContentView: View {
             }
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)
-        .animation(IslandMotion.content, value: center.privacyIndicatorsVisible)
+        // No curve of its own: the dots always change `layout.privacyWidth`, and their pop
+        // rides the layout's spring, the same one the outline is widening on. An inner curve
+        // here governed this frame as well, so the frame grew on the shorter content spring
+        // while the outline and its clip grew on the open spring, and the dots ran ahead of
+        // the black edge and were clipped while they popped in.
     }
 }

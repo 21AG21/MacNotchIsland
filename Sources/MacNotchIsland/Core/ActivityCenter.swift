@@ -36,6 +36,14 @@ final class ActivityCenter: ObservableObject {
                 // nothing. Set before the keys are settled, which read it.
                 findQuery = nil
                 findIndex = 0
+                // A close of any kind — a card's Stop, an alert replaced, a timed Home —
+                // forgets which way the last step went. `collapse` did; the other closes
+                // left the step in place, and the next open grew on the navigate spring and
+                // slid in from the side. The keyboard invitation ends with the panel too.
+                if openView == nil {
+                    navigationDirection = 0
+                    keyboardInvited = false
+                }
                 // Every change, not only opening and closing: the keys the panel answers
                 // depend on which section it is on.
                 keyboardControlChanged()
@@ -96,6 +104,26 @@ final class ActivityCenter: ObservableObject {
     private(set) var controlDragging = false
     /// A hover exit that arrived mid-drag and is waiting for the button to come up.
     private var deferredHoverExit: String?
+    /// The hover request on the timer, so the same request again is left to run rather than
+    /// re-armed: the panel reports the pointer's every move, and a grace period that starts
+    /// over on each of them never runs out while the pointer is moving.
+    private var pendingHover: (hovering: Bool, panel: String)?
+    /// An island whose panel was closed while the pointer was resting on it. It shows no peek
+    /// until the pointer has left and come back: closing with the pointer on the panel used
+    /// to close nothing, since the peek branch drew the same panel again at once.
+    private var peekSuppressed: String?
+    /// Whether the keyboard was asked for — a click on the island's body, the shortcut, Tab.
+    /// A click on a control inside a peek pins the panel but is not an invitation: the hand
+    /// that clicked pause in a peek while typing in Pages is going back to Pages, and the
+    /// island taking the keyboard on that click sent every letter after it into nothing.
+    private(set) var keyboardInvited = false {
+        didSet { if keyboardInvited != oldValue { objectWillChange.send(); keyboardControlChanged() } }
+    }
+    /// When the panel last opened, for the guards against the tail of the click that opened
+    /// it. Not `lastInteraction`, which every slider and every step moves as well: a click
+    /// outside right after letting go of the volume slider was taken for that tail, and
+    /// ignored.
+    private(set) var openedAt = Date.distantPast
     private var hoverWork: DispatchWorkItem?
     /// The pending "the drag has left" — see `setDragTargeted`.
     private var dragExitWork: DispatchWorkItem?
@@ -139,6 +167,10 @@ final class ActivityCenter: ObservableObject {
         peekView = nil
         fullscreenPanels = []
         lastSpaceChange = .distantPast
+        pendingHover = nil
+        peekSuppressed = nil
+        keyboardInvited = false
+        openedAt = .distantPast
         findQuery = nil
         findIndex = 0
         forcedExpandedID = nil
@@ -216,6 +248,8 @@ final class ActivityCenter: ObservableObject {
     func forgetPointer() {
         hoverWork?.cancel()
         hoverWork = nil
+        pendingHover = nil
+        peekSuppressed = nil
         dragExitWork?.cancel()
         dragExitWork = nil
         deferredHoverExit = nil
@@ -263,7 +297,11 @@ final class ActivityCenter: ObservableObject {
         if let alert, !isOpen, !peeking || Self.alertRank(alert) >= 6 {
             let large = alert.presentation == .expanded || (hovering && prefs.hoverToExpand && Self.alertRank(alert) > 2)
             if large && alert.content.hasExpandedView { return .card(alert) }
-            return .compact(alert, bubble: nil)
+            // A key-press HUD over a live activity keeps that activity's glyph on the left
+            // (`IslandLayout.activityUnder`) — and its bubble, which used to pop out and back
+            // on every press of the volume key.
+            let under = IslandLayout.activityUnder(alert, center: self)
+            return .compact(alert, bubble: under == nil ? nil : sortedActivities.dropFirst().first)
         }
 
         if let view = openView, Self.shows(openPanel: openPanel, on: panel) { return .panel(validated(view)) }
@@ -378,7 +416,9 @@ final class ActivityCenter: ObservableObject {
         if forcedExpandedID == id { forcedExpandedID = nil }
         if openView == .activity(id: id) {
             IslandLog.island.notice("closing: activity \(id, privacy: .public) ended")
+            closedUnderPointer()
             openView = nil
+            openPanel = nil
         }
     }
 
@@ -498,7 +538,9 @@ final class ActivityCenter: ObservableObject {
         return requested * (preference / standardAlertDuration)
     }
 
-    func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, haptic: Bool = true) {
+    /// `exact` takes `duration` as it is, unscaled by the alert-duration setting: a script
+    /// that asked for three seconds gets three, whatever the slider says.
+    func showAlert(_ activity: IslandActivity, duration: TimeInterval? = nil, exact: Bool = false, haptic: Bool = true) {
         if focusIsQuiet, Self.focusHolds(activity) {
             IslandLog.island.notice("focus holds \(activity.id, privacy: .public)")
             return
@@ -527,8 +569,9 @@ final class ActivityCenter: ObservableObject {
         }
         alert = activity
         if haptic { Haptics.tap() }
-        scheduleAlertDismiss(id: activity.id,
-                             after: Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration))
+        let seconds = exact ? (duration ?? Self.standardAlertDuration)
+                            : Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration)
+        scheduleAlertDismiss(id: activity.id, after: seconds)
     }
 
     private func enqueue(_ activity: IslandActivity, duration: TimeInterval?) {
@@ -583,16 +626,21 @@ final class ActivityCenter: ObservableObject {
     /// crossing the notch on its way to the clock opens nothing; departure waits a grace
     /// period, so a slip off the panel's edge does not close it.
     func setHovering(_ hovering: Bool, panel: String = "main") {
+        // The same request again, while the first is still on the timer, is that request.
+        if let pending = pendingHover, pending.hovering == hovering, pending.panel == panel { return }
         hoverWork?.cancel()
+        pendingHover = (hovering, panel)
         let delay = hovering ? Preferences.shared.hoverDelay : Self.hoverExitGrace
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            self.pendingHover = nil
             if hovering {
                 deferredHoverExit = nil
-                guard self.hoverPanel != panel else { return }
+                guard self.hoverPanel != panel, self.peekSuppressed != panel else { return }
                 if self.peekView == nil, self.hoverPeeks { self.peekView = self.defaultPeek() }
                 self.hoverPanel = panel
             } else {
+                if self.peekSuppressed == panel { self.peekSuppressed = nil }
                 guard self.hoverPanel == panel else { return }
                 // A slider or the scrubber being dragged keeps the panel: the pointer is
                 // allowed to run past the end of the track, the way it may on a menu bar
@@ -638,7 +686,7 @@ final class ActivityCenter: ObservableObject {
     func setPressed(_ pressed: Bool, panel: String = "main") {
         let next: String? = pressed ? panel : nil
         if pressedPanel != next { pressedPanel = next }
-        if pressed { pinPeekedPanel(panel: panel) }
+        if pressed { pinPeek(panel: panel) }
     }
 
     /// A click anywhere in a panel that is only under the pointer pins it.
@@ -648,7 +696,7 @@ final class ActivityCenter: ObservableObject {
     /// control and never reaches it. Without this, using one of those controls left the panel
     /// unpinned, and it would vanish the moment the pointer followed a menu off the island.
     /// The press is enough: the user has committed to the panel.
-    private func pinPeekedPanel(panel: String) {
+    func pinPeek(panel: String) {
         guard openView == nil, hoverPanel == panel, Preferences.shared.hoverToExpand,
               case .panel(let view) = presentation(for: panel) else { return }
         open(view, panel: panel)
@@ -663,7 +711,9 @@ final class ActivityCenter: ObservableObject {
             dragExitWork?.cancel()
             dragExitWork = nil
             guard dragPanel != panel else { return }
-            dragPanel = panel
+            // Animated: a panel that is open goes to the shelf's well and back, and a change
+            // with no animation of its own tore the whole panel down and built it again.
+            withAnimation(IslandMotion.fade) { dragPanel = panel }
             Haptics.tap()
         } else {
             guard dragPanel == panel || panel == "main" else { return }
@@ -692,7 +742,7 @@ final class ActivityCenter: ObservableObject {
         dragExitWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.dragExitWork = nil
-            self?.dragPanel = nil
+            withAnimation(IslandMotion.fade) { self?.dragPanel = nil }
         }
         dragExitWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dragExitGrace, execute: work)
@@ -702,6 +752,7 @@ final class ActivityCenter: ObservableObject {
     /// menu bar extra toggles. Idle: open the Home panel. Alerts without a large view perform
     /// their action instead.
     func tap(panel: String = "main") {
+        keyboardInvited = true
         let shown = presentation(for: panel)
         IslandLog.island.notice("tap on \(panel, privacy: .public): \(shown.contentID, privacy: .public)")
         switch shown {
@@ -747,6 +798,10 @@ final class ActivityCenter: ObservableObject {
         if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
         let target = validated(view)
         let island = panel ?? (openView != nil ? openPanel : nil)
+        // A hidden island opens nothing. The shortcut opened an invisible panel over a
+        // full-screen film, and its keys were claimed system-wide with nothing to show for
+        // them until Escape.
+        guard !isSuppressed(panel: island) else { return }
         guard openView != target else {
             // The same view, asked for from a second island: it shows on both.
             if openPanel != island { openPanel = nil }
@@ -767,6 +822,7 @@ final class ActivityCenter: ObservableObject {
             open(view, direction: direction)
             return
         }
+        guard !isSuppressed(panel: hoverPanel) else { return }
         lastInteraction = Date()
         navigationDirection = direction
         let target = validated(view)
@@ -919,8 +975,10 @@ final class ActivityCenter: ObservableObject {
     /// where their typing is going, which is the whole difference between a claim and a theft.
     /// A peek takes nothing: the pointer is only passing over.
     var wantsPanelKeyboard: Bool {
+        // A hidden island has nothing to type into.
+        if isSuppressed(panel: openPanel) { return false }
         if wantsKeyboard { return true }
-        return openView != nil && Preferences.shared.panelKeysEnabled
+        return openView != nil && keyboardInvited && Preferences.shared.panelKeysEnabled
     }
 
     /// Re-reads whether the panel's own keys should be claimed. Called when the panel moves
@@ -943,6 +1001,30 @@ final class ActivityCenter: ObservableObject {
 
     private func keyboardControlChanged() {
         HotKeyService.shared.setPanelKeys(currentClaim)
+        HotKeyService.shared.setEscapeArmed(escapeArmed)
+    }
+
+    /// Escape closes the panel from anywhere, as a global key — except while another of this
+    /// app's own windows has the keyboard. Quick Look opened from the shelf, or Settings from
+    /// the rail, took the key from the panel: the island closed and the window the key was
+    /// meant for stayed, and a second Escape was needed.
+    private var escapeArmed: Bool {
+        guard openView != nil else { return false }
+        let windows = (NSApp?.windows ?? []).map { (isKey: $0.isKeyWindow, isPanel: $0 is NotchPanel) }
+        return !PanelKeyboard.heldByAnotherOfOurs(windows)
+    }
+
+    /// Key status moving between this app's own windows re-reads `escapeArmed`. Armed only
+    /// while something is open, like the click-outside monitor.
+    private var keyWindowObservers: [NSObjectProtocol] = []
+
+    private func watchOurOwnWindows() {
+        guard keyWindowObservers.isEmpty else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            keyWindowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.keyboardControlChanged()
+            })
+        }
     }
 
     /// One step along the ring. Without `wrap` the ends are ends (a swipe is spatial); with it
@@ -952,7 +1034,9 @@ final class ActivityCenter: ObservableObject {
         let ring = self.ring
         guard !ring.isEmpty else { return false }
         guard let current = currentView, let i = ring.firstIndex(of: current) else {
-            select(forward ? ring[0] : ring[ring.count - 1], direction: forward ? 1 : -1)
+            // Nothing is showing: this is an open, not a step, and it grows on the open
+            // spring with its content crossing over — not sliding in from the side.
+            select(forward ? ring[0] : ring[ring.count - 1], direction: 0)
             return true
         }
         var next = i + (forward ? 1 : -1)
@@ -1011,6 +1095,7 @@ final class ActivityCenter: ObservableObject {
         if isOpen || presentation.isExpanded {
             collapse(reason: "shortcut")
         } else {
+            keyboardInvited = true
             open(defaultPeek())
         }
     }
@@ -1043,6 +1128,7 @@ final class ActivityCenter: ObservableObject {
     /// Shortcut modifiers + Tab (forward) or Shift + Tab (backward). Closed: opens the first
     /// (or last) view. Open: moves one step, wrapping around.
     func cycleView(forward: Bool) {
+        keyboardInvited = true
         step(forward: forward, wrap: true)
     }
 
@@ -1054,19 +1140,33 @@ final class ActivityCenter: ObservableObject {
         if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
+        let hovering = isHovering
+        closedUnderPointer()
         withAnimation(IslandMotion.close) {
             openView = nil
             openPanel = nil
             peekView = nil
             forcedExpandedID = nil
             for id in held { end(id: id) }
-            if !isHovering, alert != nil {
+            if !hovering, alert != nil {
                 alertWork?.cancel()
                 alert = nil
             }
         }
         // Anything a louder alert pushed aside gets its turn now.
         if alert == nil { showNextPendingAlert() }
+    }
+
+    /// The panel is closing under a pointer resting on it. The pointer is forgotten, and that
+    /// island shows no peek until the pointer has left and come back: otherwise the peek
+    /// branch drew the same panel straight back, and a Stop, an Escape, picking a clipboard
+    /// row or the switcher's close button closed nothing anyone could see.
+    private func closedUnderPointer() {
+        guard let panel = hoverPanel else { return }
+        hoverWork?.cancel()
+        pendingHover = nil
+        peekSuppressed = panel
+        hoverPanel = nil
     }
 
     /// Menus and share sheets used to need this to survive the pointer leaving; an open island
@@ -1078,6 +1178,7 @@ final class ActivityCenter: ObservableObject {
     /// Open the Home panel programmatically (menu bar, URL scheme, the welcome tour). With a
     /// duration it closes itself again unless the user has interacted with it since.
     func showHome(for seconds: TimeInterval = 0) {
+        keyboardInvited = true
         open(.home(tab: Self.currentHomeTab))
         guard seconds > 0 else { return }
         let opened = Date()
@@ -1113,10 +1214,11 @@ final class ActivityCenter: ObservableObject {
     /// disarms both the moment it closes, so neither costs anything at rest.
     private func openStateChanged() {
         lastInteraction = Date()
+        if openView != nil { openedAt = Date() }
         keyboardControlChanged()
         if openView != nil {
-            HotKeyService.shared.setEscapeArmed(true)
             watchForAnotherApp()
+            watchOurOwnWindows()
             guard outsideClickMonitor == nil else { return }
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 let type = event.type.rawValue
@@ -1124,9 +1226,10 @@ final class ActivityCenter: ObservableObject {
                 DispatchQueue.main.async { self?.clickedElsewhere(type: type, window: window) }
             }
         } else {
-            HotKeyService.shared.setEscapeArmed(false)
             if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor) }
             outsideClickMonitor = nil
+            keyWindowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            keyWindowObservers.removeAll()
             if let activationObserver {
                 NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
                 self.activationObserver = nil
@@ -1196,10 +1299,11 @@ extension ActivityCenter {
     fileprivate func clickedElsewhere(type: UInt, window: Int) {
         guard openView != nil else { return }
         let location = NSEvent.mouseLocation
-        let sinceInteraction = Date().timeIntervalSince(lastInteraction)
+        let sinceOpened = Date().timeIntervalSince(openedAt)
         let onIsland = islandHitTest?(location) ?? false
-        IslandLog.island.notice("mouse-down elsewhere: type \(type, privacy: .public) window \(window, privacy: .public) at \(Double(location.x), privacy: .public),\(Double(location.y), privacy: .public) onIsland \(onIsland, privacy: .public) after \(sinceInteraction, privacy: .public)s")
-        guard sinceInteraction > 0.4, !onIsland else { return }
+        IslandLog.island.notice("mouse-down elsewhere: type \(type, privacy: .public) window \(window, privacy: .public) at \(Double(location.x), privacy: .public),\(Double(location.y), privacy: .public) onIsland \(onIsland, privacy: .public) \(sinceOpened, privacy: .public)s after opening")
+        // The tail of the click that opened the panel is not a click outside it.
+        guard sinceOpened > 0.4, !onIsland else { return }
         collapse(reason: "click outside")
     }
 }

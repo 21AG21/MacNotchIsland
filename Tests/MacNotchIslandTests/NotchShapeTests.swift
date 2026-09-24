@@ -118,12 +118,81 @@ final class NotchShapeTests: XCTestCase {
         }
     }
 
-    func testCapsuleBottomIsDetectedOnlyForSemicircularEnds() {
-        XCTAssertTrue(NotchShape.hasCapsuleBottom(height: 32, bottomRadius: 16))
-        XCTAssertTrue(NotchShape.hasCapsuleBottom(height: 32, bottomRadius: 24))
-        XCTAssertFalse(NotchShape.hasCapsuleBottom(height: 32, bottomRadius: 10))
-        XCTAssertFalse(NotchShape.hasCapsuleBottom(height: 120, bottomRadius: 30))
-        XCTAssertFalse(NotchShape.hasCapsuleBottom(height: 0, bottomRadius: 0))
+    func testTheProfileAtAppleSmoothingIsTheStoredCorner() {
+        let made = SmoothCorner.profile(smoothing: SmoothCorner.fullSmoothing)
+        for (a, b) in zip(made, SmoothCorner.unit) {
+            XCTAssertEqual(a.x, b.x, accuracy: 1e-7)
+            XCTAssertEqual(a.y, b.y, accuracy: 1e-7)
+        }
+    }
+
+    func testTheProfileAtZeroSmoothingIsAQuarterCircle() {
+        let u = SmoothCorner.profile(smoothing: 0)
+        // The outer cubics have no length; the middle one is the whole quarter circle of
+        // radius 1 centred at (1, 1).
+        for i in 0...3 {
+            XCTAssertEqual(u[i].x, 1, accuracy: 1e-9)
+            XCTAssertEqual(u[i].y, 0, accuracy: 1e-9)
+        }
+        for step in 0...20 {
+            let p = cubic(u[3], u[4], u[5], u[6], CGFloat(step) / 20)
+            XCTAssertEqual(length(p.x - 1, p.y - 1), 1, accuracy: 3e-4, "the arc drifts off the circle")
+        }
+    }
+
+    func testEveryProfileInBetweenIsSmoothAndOnItsCircle() {
+        for smoothing in stride(from: CGFloat(0), through: SmoothCorner.fullSmoothing, by: 0.05) {
+            let u = SmoothCorner.profile(smoothing: smoothing)
+            let r = 1 / (1 + smoothing)
+            XCTAssertEqual(u.count, 10)
+            for i in 0..<u.count {
+                XCTAssertEqual(u[i].x, u[u.count - 1 - i].y, accuracy: 1e-9, "mirror about the diagonal at \(smoothing)")
+            }
+            for join in [3, 6] {
+                let incoming = CGPoint(x: u[join].x - u[join - 1].x, y: u[join].y - u[join - 1].y)
+                let outgoing = CGPoint(x: u[join + 1].x - u[join].x, y: u[join + 1].y - u[join].y)
+                let scale = length(incoming.x, incoming.y) * length(outgoing.x, outgoing.y)
+                guard scale > 1e-12 else { continue }   // a cubic of no length has no direction to break
+                let cross = incoming.x * outgoing.y - incoming.y * outgoing.x
+                XCTAssertEqual(cross / scale, 0, accuracy: 1e-6, "tangent breaks at join \(join) for smoothing \(smoothing)")
+            }
+            for step in 0...20 {
+                let p = cubic(u[3], u[4], u[5], u[6], CGFloat(step) / 20)
+                XCTAssertEqual(length(p.x - r, p.y - r), r, accuracy: 3e-4, "off its circle at smoothing \(smoothing)")
+            }
+        }
+    }
+
+    func testSmoothingGivesWayAsTheRoomRunsOut() {
+        // Room for the whole reach: Apple's corner.
+        let roomy = SmoothCorner.fit(radius: 36, along: 672, across: 230)
+        XCTAssertEqual(roomy.span, 36 * SmoothCorner.reach, accuracy: 1e-6)
+        XCTAssertEqual(roomy.smoothing, SmoothCorner.fullSmoothing, accuracy: 1e-9)
+        // Exactly one radius of room: the circle, which is what makes the compact pill a capsule.
+        let pill = SmoothCorner.fit(radius: 16, along: 268, across: 32)
+        XCTAssertEqual(pill.span, 16, accuracy: 1e-9)
+        XCTAssertEqual(pill.smoothing, 0, accuracy: 1e-9)
+        // In between, in proportion: a short card keeps its radius and loses some smoothing.
+        let card = SmoothCorner.fit(radius: 36, along: 400, across: 87)
+        XCTAssertEqual(card.span, 43.5, accuracy: 1e-9)
+        XCTAssertEqual(card.smoothing, 43.5 / 36 - 1, accuracy: 1e-9)
+        XCTAssertGreaterThan(card.smoothing, 0)
+        XCTAssertLessThan(card.smoothing, SmoothCorner.fullSmoothing)
+        XCTAssertEqual(SmoothCorner.fit(radius: 0, along: 100, across: 100).span, 0)
+    }
+
+    func testTheMorphNeverChangesCornerFamily() {
+        // Every frame between the pill and the panel is drawn by one rule, so the outline
+        // at any intermediate size is the same shape whether it is on its way up or down —
+        // there is no flag from the target state deciding a capsule-or-continuous branch.
+        for height in stride(from: CGFloat(32), through: 230, by: 11) {
+            let radius = 16 + (36 - 16) * (height - 32) / (230 - 32)
+            let width = 300 + (720 - 300) * (height - 32) / (230 - 32)
+            let rect = CGRect(x: 0, y: 0, width: width, height: height)
+            let path = NotchShape(topRadius: 8, bottomRadius: radius).path(in: rect)
+            XCTAssertTrue(path.contains(CGPoint(x: width / 2, y: height - 1)), "bottom edge at \(height)")
+            XCTAssertFalse(path.contains(CGPoint(x: 8 + 0.5, y: height - 0.5)), "corner cut at \(height)")
+        }
     }
 
     // MARK: - the outline

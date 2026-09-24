@@ -215,12 +215,17 @@ final class GestureRouter {
 
     /// Trackpads report points; wheels report lines, and some mice only fill in `deltaX/Y`.
     private static func deltas(from event: NSEvent) -> (dx: CGFloat, dy: CGFloat) {
+        // `decide` reads the deltas as the natural scroll direction gives them: the content
+        // follows the fingers, so fingers up is a negative `dy`. With natural scrolling
+        // switched off the deltas arrive the other way up, and two fingers up lowered the
+        // volume and a swipe to the left skipped back. The event says which it is.
+        let sign: CGFloat = event.isDirectionInvertedFromDevice ? 1 : -1
         if event.hasPreciseScrollingDeltas {
-            return (event.scrollingDeltaX, event.scrollingDeltaY)
+            return (event.scrollingDeltaX * sign, event.scrollingDeltaY * sign)
         }
         let x = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.deltaX
         let y = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.deltaY
-        return (x * lineScale, y * lineScale)
+        return (x * lineScale * sign, y * lineScale * sign)
     }
 
     // MARK: - Context

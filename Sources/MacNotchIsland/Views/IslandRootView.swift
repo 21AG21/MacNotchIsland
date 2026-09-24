@@ -14,6 +14,12 @@ struct IslandRootView: View {
         let presentation = center.presentation(for: panelID)
         let layout = IslandLayout.make(presentation: presentation, geometry: geometry, center: center, clearance: menuBar.limits)
         let animation = IslandMotion.shape(from: previousLayout ?? layout, to: layout, direction: center.navigationDirection)
+        // Which activity the bubble is showing, if one: its identity, so that swapping the two
+        // activities crosses the bubble's glyph over instead of cutting it.
+        let bubbleID: String? = {
+            guard layout.hasBubble, case .compact(_, let bubble) = presentation else { return nil }
+            return bubble?.id
+        }()
 
         ZStack(alignment: .top) {
             Color.clear
@@ -27,11 +33,12 @@ struct IslandRootView: View {
                     Group {
                         if layout.hasBubble, case .compact(_, let bubble) = presentation, let bubble {
                             BubbleView(activity: bubble, diameter: layout.bubbleDiameter)
+                                .id(bubble.id)
                                 .offset(y: layout.topInset)
                                 .transition(IslandMotion.pop(scale: 0.2))
                         }
                     }
-                    .animation(IslandMotion.bubble, value: layout.hasBubble)
+                    .animation(IslandMotion.bubble, value: bubbleID)
                 }
                 // Keep the notch gap on the notch: undo the bubble's share of the row's width,
                 // and shift the body by the difference between its two slots (see `bodyShift`).

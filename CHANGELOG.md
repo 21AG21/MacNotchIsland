@@ -82,6 +82,58 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **The island's corners are one shape from the pill to the panel.** A compact pill's ends are
+  semicircles and an open panel's corners are Apple's continuous curve, and the outline used to
+  pick one family or the other from where it was *going*, so the first frame of every morph
+  swapped them: the pill's round ends became a squeezed squircle with a dent in it, and a closing
+  panel's corners snapped to circular arcs. Apple's own continuous corners give up their smoothing
+  as the room for it runs out, until with exactly one radius of room they are the circle. The
+  island's do the same now, by one rule for every frame, so nothing changes family at all.
+- **Closing the panel with the pointer on it closes it.** Escape, the shortcut, Stop on a card,
+  picking a clipboard row or a window, or the switcher's close button: with the pointer resting
+  on the panel, each closed it and the peek drew the same panel straight back. The island now
+  shows nothing until the pointer has left and come back.
+- **A click on any control in a peek pins it.** A click on one of AppKit's own controls — the
+  output menu, the Notes editor, the find field, the shelf's drag handle — went straight to that
+  control and never pinned the panel, so picking AirPods let the peek close under the menu, and
+  typing into Notes from a peek typed into the app behind.
+- **A click on a control does not take the keyboard.** Clicking pause in a peek while typing in
+  Pages pinned the panel and, with the panel's keys on, moved the keyboard to the island: the
+  letters beeped and every Space restarted the music. A click on the island's body, the shortcut
+  or Tab asks for the keyboard; a click on a control does not.
+- **Escape stays with Quick Look and Settings.** Escape closed the island from anywhere while the
+  panel was open, including from a Quick Look opened off the shelf or the Settings window opened
+  from the rail, which then needed a second Escape. It now leaves the key with whichever of the
+  app's own windows has the keyboard.
+- **The island's click area is its outline.** It was a rectangle round the island, which reached
+  thirty points past an open panel's sides and down into its rounded corners; a click there to
+  dismiss the panel hit nothing and the panel stayed. And the pointer's every move restarted the
+  hover's grace, so a peek followed the pointer down into the page and stayed while it moved.
+- **A drag out of the island no longer leaves it pressed.** Dragging a screenshot's thumbnail or
+  a clipboard row out took the press's release with it: the pill stayed at its pressed scale and
+  the window kept every click under the notch until the island itself was clicked.
+- **A volume key over music leaves the bubble alone.** A key-press HUD over a live activity keeps
+  that activity's glyph on the left, but it was drawn as a different thing: the bubble popped out
+  and back and the glyph blurred out and in, on every press.
+- **Every close forgets the last step's direction.** A card's Stop, an alert replaced or a timed
+  Home left the sideways step in place, and the next open grew on the flat navigate spring with
+  its content sliding in from the side. And Tab with nothing open is an open, not a step.
+- **A drag over an open panel crosses to the shelf.** It tore the whole panel down — band,
+  section and rail, with the rail's audio listeners — and built it again as the shelf, with no
+  animation, and back again when the drag left.
+- **The bubble's glyph crosses over when the two activities swap.** It cut.
+- **The rim's fade is a fixed ten points.** As a fraction of the height it scaled with the growth:
+  the lit rim ran up to the top row of the display along the ears on the way open, and pulled off
+  the upper sides on the way closed.
+- **The privacy dots grow with the island.** They ran ahead of the black edge on a shorter spring
+  of their own and were clipped while they popped in.
+- **The window waits for a slower spring.** With the Motion pane's duration turned up, the window
+  narrowed around the island before its spring had settled and cut the shadow flat at the sides,
+  and the keyboard hand-back cycled the window mid-close.
+- **A click outside right after using a control closes the panel.** The guard against the tail
+  of the opening click compared against the last interaction, which every slider and step moves.
+- **Gestures follow the scroll-direction setting.** With natural scrolling off, two fingers up
+  lowered the volume and a swipe to the left skipped back.
 - **Clicks beside and under the island reach what they were aimed at.** The window behind the
   island is a canvas as tall as the tallest card and as wide as the island plus its slack, and
   AppKit hands every click inside a window's frame to that window, drawn on or not — the

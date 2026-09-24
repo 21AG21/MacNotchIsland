@@ -15,14 +15,16 @@ final class NotchContainerView: NSView {
     }
 }
 
-/// Hosting view that only accepts mouse events inside the island's current footprint so the
+/// Hosting view that only accepts mouse events inside the island's drawn outline so the
 /// transparent canvas around it stays click-through (menu bar, windows below keep working).
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
-    /// The island's reach from the notch centre: left, right, and down from the top edge —
-    /// and `top`, how far below that edge it begins. Zero against a physical notch. On a
-    /// screen with none the pill hangs below the menu bar, and the strip above it is the
-    /// menu bar's: a click there is a click on the menu bar, not on the island.
-    var hitExtentsProvider: (() -> (leading: CGFloat, trailing: CGFloat, top: CGFloat, height: CGFloat))?
+    /// The island's layout right now, or nil while nothing is drawn (the island is hidden).
+    /// The outline is built from it: the body's own shape, ears and all, plus the bubble's
+    /// circle when there is one — never a rectangle round them. The rectangle reached thirty
+    /// points past an open panel's sides (the ears' width, which only exists at the very top)
+    /// and down into its rounded corners, and a click there to dismiss the panel was taken by
+    /// the window and hit nothing, so the panel stayed and a second click was needed.
+    var islandLayoutProvider: (() -> IslandLayout?)?
     /// Which panel (screen) this view belongs to; gestures are routed per panel.
     var panelID: String = "main"
 
@@ -52,30 +54,54 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         super.scrollWheel(with: event)
     }
 
-    /// The island's footprint in this view's own coordinates, or nil when no extents are
-    /// known. This view is kept centred on the notch by its panel, so `bounds.midX` is the notch.
-    func islandRect() -> CGRect? {
-        guard let provider = hitExtentsProvider else { return nil }
-        let e = provider()
-        let width = e.leading + e.trailing
-        let height = max(0, e.height - e.top)
-        if isFlipped {
-            return CGRect(x: bounds.midX - e.leading, y: e.top, width: width, height: height)
+    /// The island's outline in this view's own top-left coordinates, or nil when nothing is
+    /// drawn. This view is kept centred on the notch by its panel, so `bounds.midX` is the
+    /// notch.
+    func islandPath() -> Path? {
+        guard let layout = islandLayoutProvider?() else { return nil }
+        return Self.outline(of: layout, in: bounds)
+    }
+
+    /// The outline `IslandRootView` draws for `layout`, in a top-left space of `bounds`
+    /// centred on the notch: the body shifted by `bodyShift`, hanging `topInset` below the
+    /// top, and the bubble a gap to its right.
+    static func outline(of layout: IslandLayout, in bounds: CGRect) -> Path {
+        let width = layout.frameWidth
+        let body = CGRect(x: bounds.midX + layout.bodyShift - width / 2, y: bounds.minY + layout.topInset,
+                          width: width, height: layout.bodyHeight)
+        var path = NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating)
+            .path(in: body)
+        if layout.hasBubble {
+            let d = layout.bubbleDiameter
+            path.addEllipse(in: CGRect(x: body.maxX + layout.bubbleGap, y: body.minY, width: d, height: d))
         }
-        return CGRect(x: bounds.midX - e.leading, y: bounds.maxY - e.height, width: width, height: height)
+        return path
+    }
+
+    /// Whether `point` is on the outline, or within `margin` of its edge.
+    static func contains(_ path: Path, _ point: CGPoint, margin: CGFloat) -> Bool {
+        if path.contains(point) { return true }
+        guard margin > 0 else { return false }
+        return path.strokedPath(StrokeStyle(lineWidth: margin * 2)).contains(point)
+    }
+
+    /// A point in this view's coordinates as the outline is drawn: top-left, whichever way
+    /// AppKit has this view's axis.
+    private func topLeft(_ local: CGPoint) -> CGPoint {
+        isFlipped ? local : CGPoint(x: local.x, y: bounds.minY + (bounds.maxY - local.y))
     }
 
     /// Whether a point in window coordinates lies on the island, or within `margin` of it.
     /// Pure geometry: nothing here asks SwiftUI anything, so it is safe to call from any
     /// callback at any moment.
     func islandContains(windowPoint: NSPoint, margin: CGFloat = 0) -> Bool {
-        guard let rect = islandRect() else { return bounds.contains(convert(windowPoint, from: nil)) }
-        return rect.insetBy(dx: -margin, dy: -margin).contains(convert(windowPoint, from: nil))
+        guard let path = islandPath() else { return false }
+        return Self.contains(path, topLeft(convert(windowPoint, from: nil)), margin: margin)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let rect = islandRect() else { return super.hitTest(point) }
-        guard rect.contains(convert(point, from: superview)) else { return nil }
+        guard let path = islandPath() else { return nil }
+        guard Self.contains(path, topLeft(convert(point, from: superview)), margin: 0) else { return nil }
         return super.hitTest(point)
     }
 }

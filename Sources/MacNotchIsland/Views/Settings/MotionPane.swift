@@ -170,7 +170,7 @@ struct MotionPreview: View {
                 // something pale.
                 Color(white: 0.965)
                 menuBar(height: Self.menuBarHeight * fit)
-                NotchShape(topRadius: top, bottomRadius: bottom, floating: false, isPill: !expanded)
+                NotchShape(topRadius: top, bottomRadius: bottom, floating: false)
                     .fill(Color.black)
                     .frame(width: size.width * fit + top * 2, height: size.height * fit)
             }

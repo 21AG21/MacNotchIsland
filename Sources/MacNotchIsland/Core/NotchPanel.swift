@@ -103,10 +103,10 @@ final class NotchPanel: NSPanel {
         view.panelID = panelID
         let geo = geometry
         let pid = panelID
-        view.hitExtentsProvider = {
-            if ActivityCenter.shared.isSuppressed(panel: pid) { return (0, 0, 0, 0) }
-            let layout = IslandLayout.make(presentation: ActivityCenter.shared.presentation(for: pid), geometry: geo)
-            return (layout.hitLeading, layout.hitTrailing, layout.hitTop, layout.hitHeight)
+        view.islandLayoutProvider = {
+            let center = ActivityCenter.shared
+            if center.isSuppressed(panel: pid) { return nil }
+            return IslandLayout.make(presentation: center.presentation(for: pid), geometry: geo, center: center)
         }
         // The window decides its own size; SwiftUI must not resize it to the content's ideal.
         // A hosting view used directly as the content view still does (its intrinsic size
@@ -196,26 +196,52 @@ final class NotchPanel: NSPanel {
         }
     }
 
+    /// Whether the pointer was on the island the last time it was seen, so that only a change
+    /// is reported. The pointer's every move comes through here, and `setHovering` re-arms its
+    /// timer on every call: told on every move, the hover's grace period started over each
+    /// time and never ran out while the pointer was moving.
+    private var pointerOnIsland = false
+
     private func updatePassThrough() {
         let center = ActivityCenter.shared
         let pointer = NSEvent.mouseLocation
-        let onIsland = islandContains(screenPoint: pointer, margin: Self.passThroughMargin)
+        let buttons = NSEvent.pressedMouseButtons
+        // A press whose release went elsewhere — to the drag session a thumbnail started, to
+        // another window — would have kept the window solid for good, and the pill at its
+        // pressed scale. No button is down, so nothing is pressed.
+        if buttons == 0, center.pressedPanel == panelID { center.setPressed(false, panel: panelID) }
+        let onIsland = islandContains(screenPoint: pointer)
+        let nearIsland = onIsland || islandContains(screenPoint: pointer, margin: Self.passThroughMargin)
         // A button held down while the window is solid is a press or a drag that began here.
-        let holding = NSEvent.pressedMouseButtons != 0 && !ignoresMouseEvents
+        let holding = buttons != 0 && !ignoresMouseEvents
         let engaged = holding || center.controlDragging || center.dragPanel == panelID || center.pressedPanel == panelID
-        let pass = Self.passesThrough(onIsland: onIsland, engaged: engaged, suppressed: center.isSuppressed(panel: panelID))
+        let pass = Self.passesThrough(onIsland: nearIsland, engaged: engaged, suppressed: center.isSuppressed(panel: panelID))
         if ignoresMouseEvents != pass {
             ignoresMouseEvents = pass
             IslandLog.panel.debug("panel \(self.panelID, privacy: .public) \(pass ? "lets the mouse through" : "takes the mouse", privacy: .public)")
         }
         // The view's own hover tracking rides on the events the window receives, and the
         // window stops receiving them the moment it goes transparent — so the arrival and
-        // the departure are told to the centre from here as well. Both are idempotent.
-        if pass {
-            if center.hoverPanel == panelID { center.setHovering(false, panel: panelID) }
-        } else if !engaged, islandContains(screenPoint: pointer), center.hoverPanel != panelID {
-            center.setHovering(true, panel: panelID)
+        // the departure are told to the centre from here as well, once each.
+        guard onIsland != pointerOnIsland else { return }
+        pointerOnIsland = onIsland
+        center.setHovering(onIsland, panel: panelID)
+    }
+
+    /// A click anywhere on a panel that is only under the pointer pins it, see
+    /// `ActivityCenter.pinPeek`. The island's own tap and the hosting view's `mouseDown` do
+    /// that for a click on the SwiftUI side; a click on one of AppKit's own controls — the
+    /// output menu, the Notes editor, the find field, the shelf's drag view — goes straight
+    /// to that control and nothing upstream saw it, so picking AirPods from a peek let the
+    /// peek close under the menu, and typing into Notes from a peek typed into the app
+    /// behind. Every click is seen here first. Pinning ahead of the dispatch also lets
+    /// AppKit make the panel key on that same click, which is what the editor needs.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .rightMouseDown,
+           islandContains(screenPoint: NSEvent.mouseLocation) {
+            ActivityCenter.shared.pinPeek(panel: panelID)
         }
+        super.sendEvent(event)
     }
 
     /// Above the menu bar, above other floating panels, above anything an ordinary app can
@@ -394,10 +420,19 @@ final class NotchPanel: NSPanel {
             self.orderFrontRegardless()
         }
         keyReleaseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyReleaseDelay, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settled(Self.keyReleaseDelay), execute: work)
     }
 
     static let keyReleaseDelay: TimeInterval = 0.35
+
+    /// A delay that waits for a closing spring, stretched with the Motion pane's duration.
+    /// The delays are set for the shipping springs; turned up to twice the length, the open
+    /// spring is still a few points past its target when a fixed delay runs out, and the
+    /// window narrowed around it and cut its shadow flat, and the key hand-back cycled the
+    /// window in the middle of the close.
+    static func settled(_ delay: TimeInterval) -> TimeInterval {
+        delay * max(1, IslandMotion.tuning.duration)
+    }
 
     static func displayKey(for screen: NSScreen) -> String {
         let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
@@ -537,7 +572,7 @@ final class NotchPanel: NSPanel {
             if !Self.same(self.frame, rest) { self.place(rest) }
         }
         settleWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settled(Self.settleDelay), execute: work)
     }
 }
 

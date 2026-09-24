@@ -43,6 +43,16 @@ enum IslandPresentation: Equatable {
         case .panel, .shelf: return "panel"
         }
     }
+
+    /// The view the panel is on: its own, or the Shelf section while files are dragged over
+    /// the island. One panel either way, see `contentID`.
+    var panelView: IslandView? {
+        switch self {
+        case .panel(let view): return view
+        case .shelf: return .home(tab: HomeSection.shelf.rawValue)
+        default: return nil
+        }
+    }
 }
 
 /// Concrete geometry for a presentation on a given screen.
@@ -85,6 +95,11 @@ struct IslandLayout: Equatable {
     static let panelWidth: CGFloat = 720
     /// The top band straddles the notch by this much; the switcher lives in it.
     static let bandExtra: CGFloat = 2.5
+    /// What a floating panel adds above its band. Against a notch the band's top is the top of
+    /// the screen; on a floating pill it is a lit edge, and a row centred in 30 pt put the
+    /// 26 pt disc of the view you are on 2 pt under it while the close button kept 16 from the
+    /// side. The row moves down this far, and the panel is this much taller to hold it.
+    static let floatingBandTop: CGFloat = 8
     static let sectionHeight: CGFloat = 140
     static let railHeight: CGFloat = 40
     /// 8 pt, a hairline, 8 pt.
@@ -102,7 +117,11 @@ struct IslandLayout: Equatable {
     /// and on a screen with none just enough air to hang the content off. A card that keeps
     /// the height of a camera housing that is not there is a card with a hole in the top of
     /// it, and the content sitting low in its own shape.
-    static let floatingCardTop: CGFloat = 12
+    ///
+    /// Every card keeps 12 pt over its row and 16 under it, so 4 here puts the row 16 from the
+    /// lit top edge as well as the bottom one. At 12 it hung 24 below the top and 16 above the
+    /// bottom, low in its own shape by another name.
+    static let floatingCardTop: CGFloat = 4
     static func cardTopBand(_ g: NotchGeometry) -> CGFloat {
         g.hasPhysicalNotch ? g.notchHeight : floatingCardTop
     }
@@ -124,13 +143,17 @@ struct IslandLayout: Equatable {
     /// What stands in for the cutout there: enough that the two slots read as two, no more.
     static let floatingMiddle: CGFloat = 28
 
+    /// The privacy dots: two 7 pt dots and the 4 between them.
+    static let privacyDots: CGFloat = 18
+    /// What the dots keep clear of the compact pill's end. That end is a semicircle as tall as
+    /// the pill, curving in right where the dots sit, and the rim is drawn over whatever it
+    /// passes: flush against it, the second dot was cut by the curve and had the edge drawn
+    /// through it. The resting island keeps 4 pt either side of them for the same reason.
+    static let compactPrivacyClearance: CGFloat = 10
+
     /// Full width of the shape: the body plus the outward top corners, which only exist when the
     /// island is fused to a physical notch.
     var frameWidth: CGFloat { floating ? bodyWidth : bodyWidth + topRadius * 2 }
-
-    /// Whether the bottom corners are semicircles at rest (compact pill); the shape uses this
-    /// instead of the animated radius so corners never pop mid-spring.
-    var isPillBottom: Bool { NotchShape.hasCapsuleBottom(height: bodyHeight, bottomRadius: bottomRadius) }
 
     /// How far the body's centre sits right of the notch's centre. The compact body is the
     /// notch gap with a leading and a trailing slot either side, and those are rarely the
@@ -165,7 +188,7 @@ struct IslandLayout: Equatable {
                      clearance: MenuBarClearance.Limits = MenuBarClearance.shared.limits) -> IslandLayout {
         let notchW = g.notchWidth
         let h = g.notchHeight
-        let privacy: CGFloat = center.privacyIndicatorsVisible ? 18 : 0
+        let privacy: CGFloat = center.privacyIndicatorsVisible ? privacyDots : 0
         let floating = !g.hasPhysicalNotch
         // The floating pill hangs just below the menu bar, never on it.
         let inset: CGFloat = floating ? g.menuBarHeight + 4 : 0
@@ -199,10 +222,12 @@ struct IslandLayout: Equatable {
                 minimal.leading = under.content.compactMinimalWidths.leading
             }
             let leading = MenuBarClearance.fitted(full.leading, minimal: minimal.leading, free: room.leading)
-            // The privacy dots come first on the right; the content gets what is left.
+            // The privacy dots come first on the right, with their clearance from the pill's
+            // rounded end; the content gets what is left.
+            let dots = privacy > 0 ? privacy + compactPrivacyClearance : 0
             let content = MenuBarClearance.fitted(full.trailing, minimal: minimal.trailing,
-                                                  free: room.trailing.map { $0 - privacy })
-            let trailing = content + privacy
+                                                  free: room.trailing.map { $0 - dots })
+            let trailing = content + dots
             // The bubble hangs off the right, so it needs its own room beyond the trailing side.
             let bubbleRoom = h + 8
             let hasBubble = bubble != nil
@@ -211,7 +236,7 @@ struct IslandLayout: Equatable {
             let middle = floating ? floatingMiddle : notchW
             return IslandLayout(bodyWidth: middle + leading + trailing, bodyHeight: h,
                                 topRadius: floating ? bottom : compactTopRadius, bottomRadius: bottom,
-                                leadingWidth: leading, trailingWidth: trailing, privacyWidth: privacy,
+                                leadingWidth: leading, trailingWidth: trailing, privacyWidth: dots,
                                 bubbleDiameter: h, bubbleGap: 8, hasBubble: hasBubble, isExpanded: false,
                                 floating: floating, topInset: inset, middleWidth: middle)
 
@@ -224,7 +249,8 @@ struct IslandLayout: Equatable {
                                 floating: floating, topInset: inset)
 
         case .panel, .shelf:
-            return IslandLayout(bodyWidth: panelWidth, bodyHeight: h + bandExtra + panelContentHeight,
+            let band = h + bandExtra + (floating ? floatingBandTop : 0)
+            return IslandLayout(bodyWidth: panelWidth, bodyHeight: band + panelContentHeight,
                                 topRadius: floating ? expandedBottomRadius : expandedTopRadius,
                                 bottomRadius: expandedBottomRadius,
                                 leadingWidth: 0, trailingWidth: 0, privacyWidth: privacy,
