@@ -357,8 +357,8 @@ final class NotchPanel: NSPanel {
     /// it leaves takes it out; see `IslandSpace`. Ordering out and back in is how key status
     /// is handed back (`scheduleKeyRelease`), and a window ordered back in by AppKit is back
     /// in AppKit's spaces alone.
-    override func orderWindow(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
-        super.orderWindow(place, relativeTo: otherWin)
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        super.order(place, relativeTo: otherWin)
         if place == .out { IslandSpace.shared.release(self) } else { IslandSpace.shared.adopt(self) }
     }
 
