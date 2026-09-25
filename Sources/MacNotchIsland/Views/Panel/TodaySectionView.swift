@@ -8,8 +8,8 @@ struct TodaySectionView: View {
     @ObservedObject private var weather = WeatherService.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
-    /// Whether this view holds one of the weather's claims, see `holdWeather`.
-    @State private var holdsWeather = false
+    /// How this view holds the weather, see `weatherHoldNow`.
+    @State private var heldWeather = AgendaStore.Hold.off
     /// How this view holds the agenda, see `agendaHoldNow`.
     @State private var heldAgenda = AgendaStore.Hold.off
 
@@ -165,14 +165,14 @@ struct TodaySectionView: View {
         }
         .onAppear {
             holdAgenda(agendaHoldNow)
-            holdWeather(prefs.weatherEnabled)
+            holdWeather(weatherHoldNow)
         }
         .onDisappear {
             holdAgenda(.off)
-            holdWeather(false)
+            holdWeather(.off)
         }
         .onChange(of: agendaHoldNow) { _, hold in holdAgenda(hold) }
-        .onChange(of: prefs.weatherEnabled) { _, on in holdWeather(on) }
+        .onChange(of: weatherHoldNow) { _, hold in holdWeather(hold) }
     }
 
     /// How this section holds the agenda: the same rule as the Home grid's Today tile, so a
@@ -189,14 +189,27 @@ struct TodaySectionView: View {
         heldAgenda = hold
     }
 
+    /// How this section holds the weather: not at all with the switch off; and otherwise the
+    /// agenda's rule. A peek that lands on Today reads whatever Location has been granted and
+    /// never asks — its first refresh used to, and a pointer resting on the notch put the
+    /// Location sheet up. A panel somebody pinned open may ask. Pure, so it is tested.
+    static func weatherHold(weatherOn: Bool, pinnedOpen: Bool) -> AgendaStore.Hold {
+        guard weatherOn else { return .off }
+        return pinnedOpen ? .asking : .reading
+    }
+
+    private var weatherHoldNow: AgendaStore.Hold {
+        Self.weatherHold(weatherOn: prefs.weatherEnabled, pinnedOpen: center.isOpen)
+    }
+
     /// Takes or gives back this view's claim on the weather. What it gives back on the way out
     /// is what it took, rather than what the switch says by then: turning Weather off with
     /// Today on screen skipped the `stop()`, and the service went on polling with its switch
     /// off for the rest of the session.
-    private func holdWeather(_ wanted: Bool) {
-        guard wanted != holdsWeather else { return }
-        holdsWeather = wanted
-        if wanted { weather.start() } else { weather.stop() }
+    private func holdWeather(_ hold: AgendaStore.Hold) {
+        guard hold != heldWeather else { return }
+        weather.move(from: heldWeather, to: hold)
+        heldWeather = hold
     }
 
     // MARK: - The next few hours

@@ -162,6 +162,22 @@ final class Preferences: ObservableObject {
         UserDefaults.standard.object(forKey: key) == nil ? nil : UserDefaults.standard.bool(forKey: key)
     }
 
+    /// The shortcut the app starts with, and whether it is to be written down now. A stored
+    /// one — recorded, or written down on an earlier first run — is kept as it is and not
+    /// written again. With nothing stored, the shipping pair (`HotKeyService.shippingDefault`)
+    /// is used and written, so the next launch finds it stored and never asks the Mac again.
+    /// `shipping` is read only when nothing is stored: it asks the Text Input Sources, which
+    /// a launch with a shortcut already chosen has no reason to.
+    static func startingShortcut(stored: (keyCode: Double, modifiers: Double)?,
+                                 shipping: @autoclosure () -> (keyCode: Int, modifiers: Int))
+        -> (keyCode: Double, modifiers: Double, writes: Bool) {
+        if let stored {
+            return (keyCode: stored.keyCode, modifiers: stored.modifiers, writes: false)
+        }
+        let pair = shipping()
+        return (keyCode: Double(pair.keyCode), modifiers: Double(pair.modifiers), writes: true)
+    }
+
     /// Puts the switches that follow the island where `FloatingDefaults` has them for the
     /// islands just built, one entry per panel, true where it floats. A switch that has been
     /// set is left as it was set.
@@ -309,13 +325,20 @@ final class Preferences: ObservableObject {
         // every launch, and an input source added or taken away since the last one moved the
         // shortcut the tour had taught without a word. Once written it stays, as a recorded
         // one does; the recorder's Reset asks again.
-        if d.object(forKey: "hotkeyKeyCode") == nil {
-            let shipping = HotKeyService.shippingDefaultOnThisMac
-            d.set(Double(shipping.keyCode), forKey: "hotkeyKeyCode")
-            d.set(Double(shipping.modifiers), forKey: "hotkeyModifiers")
+        // The rule is `startingShortcut`; this is only what it is given and what it says.
+        var storedShortcut: (keyCode: Double, modifiers: Double)? = nil
+        if d.object(forKey: "hotkeyKeyCode") != nil {
+            storedShortcut = (keyCode: double("hotkeyKeyCode", Double(HotKeyService.defaultKeyCode)),
+                              modifiers: double("hotkeyModifiers", Double(HotKeyService.defaultModifiers)))
         }
-        hotkeyKeyCode = double("hotkeyKeyCode", Double(HotKeyService.defaultKeyCode))
-        hotkeyModifiers = double("hotkeyModifiers", Double(HotKeyService.defaultModifiers))
+        let shortcut = Self.startingShortcut(stored: storedShortcut,
+                                             shipping: HotKeyService.shippingDefaultOnThisMac)
+        if shortcut.writes {
+            d.set(shortcut.keyCode, forKey: "hotkeyKeyCode")
+            d.set(shortcut.modifiers, forKey: "hotkeyModifiers")
+        }
+        hotkeyKeyCode = shortcut.keyCode
+        hotkeyModifiers = shortcut.modifiers
         pausedUntil = double("pausedUntil", 0)
         hiddenAppBundleIDs = UserDefaults.standard.stringArray(forKey: "hiddenAppBundleIDs") ?? []
         sectionOrder = UserDefaults.standard.stringArray(forKey: "sectionOrder") ?? []

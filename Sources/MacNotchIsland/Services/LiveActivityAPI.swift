@@ -65,6 +65,38 @@ final class LiveActivityAPI {
         }
     }
 
+    /// What a card's button does when it is pressed, decided at that moment.
+    ///
+    /// `actions(from:allowsShortcuts:)` reads "Let pushed cards run Shortcuts" when the card is
+    /// pushed, and that alone was the whole check: a card pushed with a Shortcut while the
+    /// switch was on went on running it after the switch was turned off, for as long as the
+    /// card stayed up. So the switch is asked again here, as it is now, for every card a
+    /// script pushed (`pushedPrefix`). The island's own cards carry commands, never a Shortcut
+    /// somebody else named, and are not held to it.
+    enum Press: Equatable {
+        case command(IslandCommand)
+        case link(URL)
+        case shortcut(String)
+        /// A Shortcut a pushed card names, with the switch off now: nothing is run, and the
+        /// button is drawn as one that does nothing.
+        case refused
+        /// Nothing to do at all.
+        case nothing
+    }
+
+    /// The id every card a script pushes carries in front of its own: `activity` and `alert`.
+    static let pushedPrefix = "api-"
+
+    /// Pure: what pressing `action` on the card `activityID` does, with the switch as it is.
+    /// The order is `CustomAction`'s: a command, then a link, then a Shortcut.
+    static func press(_ action: CustomAction, activityID: String, allowsShortcuts: Bool) -> Press {
+        if let command = action.command { return .command(command) }
+        if let url = action.url { return .link(url) }
+        guard let name = action.shortcut, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return .nothing }
+        guard allowsShortcuts || !activityID.hasPrefix(pushedPrefix) else { return .refused }
+        return .shortcut(name)
+    }
+
     /// Third-party activities may only open web links, never file: or other schemes.
     static func safeLink(_ raw: String?) -> URL? {
         guard let raw, let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
@@ -136,7 +168,7 @@ final class LiveActivityAPI {
             custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
             custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
             let priority = Self.priority(q["priority"]) ?? 70
-            var activity = IslandActivity(id: "api-" + id, kind: .custom, content: .custom(custom), priority: priority)
+            var activity = IslandActivity(id: Self.pushedPrefix + id, kind: .custom, content: .custom(custom), priority: priority)
             if let ttl = q["ttl"].flatMap({ Double($0) }), ttl > 0 { activity.expiresAt = Date().addingTimeInterval(ttl) }
             if let u = custom.url { activity.openAction = .url(u) }
             center.upsert(activity)

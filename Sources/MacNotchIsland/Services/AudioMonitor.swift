@@ -76,7 +76,12 @@ final class AudioMonitor {
 
     // MARK: Binding
 
+    /// Called by `start`, and by the default-output listener on `queue`, the main queue, which
+    /// is where `stop` runs too — so `running` is read where it is written.
     private func bindOutput() {
+        // A default-device change already queued when the monitor stopped would otherwise put
+        // back listeners that nothing is left to take off, as in `bindProcesses`.
+        guard running else { return }
         remove(&outputRegistrations)
         outputDevice = defaultDevice(kAudioHardwarePropertyDefaultOutputDevice)
         guard outputDevice != 0 else { return }
@@ -96,7 +101,9 @@ final class AudioMonitor {
                                           scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.muteChanged() })
     }
 
+    /// The same as `bindOutput`, for the default input, and guarded for the same reason.
     private func bindInput() {
+        guard running else { return }
         remove(&inputRegistrations)
         inputDevice = defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
         // Read even with no device: a microphone unplugged is a microphone no longer in use.

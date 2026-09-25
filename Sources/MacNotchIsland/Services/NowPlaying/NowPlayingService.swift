@@ -302,14 +302,28 @@ final class NowPlayingService: ObservableObject {
         // prompt. The fallback is for a backend that has gone quiet, which is a different thing
         // — and a helper that was asleep with the Mac has not, so for its first silence window
         // after a wake it still counts as answering, see `AdapterBackend.isOverdue`.
-        if !energy.isAsleep, !adapter.isAnswering, !mediaRemote.isAnswering, ticks % pollEvery == 0 {
-            appleScript.poll { [weak self] info in self?.handle(info, from: .appleScript) }
+        if !energy.isAsleep, Self.scriptsPlayers(Preferences.shared), !adapter.isAnswering, !mediaRemote.isAnswering,
+           ticks % pollEvery == 0 {
+            appleScript.poll(artworkLookup: Preferences.shared.artworkLookupEnabled) { [weak self] info in
+                self?.handle(info, from: .appleScript)
+            }
         } else if activeBackend == .mediaRemote {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
             mediaRemote.refreshIfStale()
         }
         // Which also stops the tick, once there is nothing left for it to do.
         updateTick()
+    }
+
+    /// Whether the AppleScript fallback may poll Music and Spotify at all: only once the tour
+    /// has been through. The first script sent to either is what puts macOS's Automation
+    /// question on screen, so with the helper and MediaRemote silent and a player open, that
+    /// question came up on a new Mac ahead of the window that says what the app is — the
+    /// calendar's and Bluetooth's mistake (`ServiceHub.wantsCalendar`, `wantsBluetooth`). A
+    /// button somebody presses on the card still sends its script: that is somebody asking.
+    /// Pure over the preferences, beside the rules it follows.
+    static func scriptsPlayers(_ p: Preferences) -> Bool {
+        p.hasSeenWelcome
     }
 
     /// When a paused track comes off the island: "Keep paused music for" after it paused

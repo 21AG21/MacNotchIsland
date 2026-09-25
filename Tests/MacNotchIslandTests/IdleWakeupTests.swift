@@ -191,4 +191,22 @@ final class IdleWakeupTests: XCTestCase {
         XCTAssertFalse(AudioLevelTap.shouldRun(wanted: true, playing: false, animationsPaused: false, viewers: 1))
         XCTAssertFalse(AudioLevelTap.shouldRun(wanted: false, playing: true, animationsPaused: false, viewers: 1))
     }
+
+    /// "Pause animations on battery" was read only inside `animationsPaused`, and nothing read
+    /// it again when it moved: switched on while unplugged, the tap and the bars ran on until
+    /// some unrelated change came by. The move is announced now, and only where it changes
+    /// something, since each announcement restarts every poller that follows the policy.
+    func testThePauseSwitchIsHeardWhereItChangesSomething() {
+        XCTAssertTrue(EnergyPolicy.pauseSwitchMatters(asleep: false, lowPower: false, onBattery: true),
+                      "unplugged: the switch is what stops the bars")
+        XCTAssertFalse(EnergyPolicy.pauseSwitchMatters(asleep: false, lowPower: false, onBattery: false),
+                       "on the charger it decides nothing")
+        XCTAssertFalse(EnergyPolicy.pauseSwitchMatters(asleep: false, lowPower: true, onBattery: true),
+                       "Low Power Mode has already stopped them")
+        XCTAssertFalse(EnergyPolicy.pauseSwitchMatters(asleep: true, lowPower: false, onBattery: true))
+        XCTAssertFalse(EnergyPolicy.pauseSwitchMatters(asleep: false, lowPower: false, onBattery: true, unattended: true))
+        // Reduce Motion stops the loops whatever the switch says, but not the interval they are
+        // paced at, which the switch still moves.
+        XCTAssertTrue(EnergyPolicy.pauseSwitchMatters(asleep: false, lowPower: false, onBattery: true, reduceMotion: true))
+    }
 }

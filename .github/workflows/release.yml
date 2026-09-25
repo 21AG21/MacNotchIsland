@@ -36,6 +36,18 @@ jobs:
           # commit to count.
           echo "NOTCH_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
           echo "Building $VERSION ($GITHUB_RUN_NUMBER)"
+      # The tests, as build.yml runs them, before anything is packaged: a tag whose tests fail
+      # stops here, and the steps after it, the GitHub Release among them, never run.
+      - name: Test
+        run: |
+          set -o pipefail
+          swift test 2>&1 | grep -v "^\[" | tee test.log | tail -n 300
+      - name: Failures
+        if: failure()
+        run: |
+          [ -f test.log ] || { echo "Nothing was tested; see the step that failed."; exit 0; }
+          echo "Failing assertions and errors:"
+          grep -nE "error:|: failed|failed \(" test.log | grep -v "passed" | head -n 60 || true
       - name: Build and package
         run: |
           set -o pipefail

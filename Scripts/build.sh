@@ -122,17 +122,33 @@ fi
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
 
+# Signing that fails is said, never swallowed. A release build (NOTCH_VERSION set) stops
+# there: an unsigned bundle shipped as a release loses its permission grants on every update,
+# and a `|| true` here let one go out without anyone noticing. A local build warns and goes
+# on, so a machine whose codesign is broken can still try what it built.
+sign() {
+  local said
+  if ! said=$(codesign "$@" 2>&1); then
+    echo "$said" >&2
+    if [[ -n "$NOTCH_VERSION" ]]; then
+      echo "codesign failed on the release build of $NOTCH_VERSION; nothing unsigned is shipped." >&2
+      exit 1
+    fi
+    echo "warning: codesign failed; this build is unsigned." >&2
+  fi
+}
+
 # MediaRemote helper: a small ObjC dylib loaded by /usr/bin/perl so Now Playing keeps
 # working on macOS 15.4+ (see Adapter/MediaRemoteAdapter.m).
 if [ -f Adapter/MediaRemoteAdapter.m ]; then
   clang -fobjc-arc -O2 -dynamiclib -framework Foundation \
     -Wl,-install_name,@rpath/MediaRemoteAdapter.dylib \
     -o "$OUT/Contents/Resources/MediaRemoteAdapter.dylib" Adapter/MediaRemoteAdapter.m
-  codesign --force --sign - "$OUT/Contents/Resources/MediaRemoteAdapter.dylib" >/dev/null 2>&1 || true
+  sign --force --sign - "$OUT/Contents/Resources/MediaRemoteAdapter.dylib"
 fi
 
 # Ad-hoc sign so macOS keeps TCC grants (Automation, Calendar) stable between builds.
-codesign --force --deep --sign - "$OUT" >/dev/null 2>&1 || true
+sign --force --deep --sign - "$OUT"
 
 # Register the notchisland:// URL scheme with LaunchServices.
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"

@@ -54,7 +54,7 @@ struct GeneralPane: View {
             } header: {
                 Text("Displays")
             } footer: {
-                Text("A display without a notch gets an island of its own along the top edge, with the same morphs. Left off, only the built-in display has one. Staying put keeps the island where it is while a swipe between desktops or full-screen apps slides everything else, the way the menu bar stays; turn it off if the island ever fails to appear on one of your displays.")
+                Text("A display without a notch gets an island of its own along the top edge, with the same morphs. Left off, there is one island: on the display with the notch, or, where no display has one — a Mac mini, an iMac, a MacBook with its lid closed — on the main display, the one with the menu bar in Displays settings. Staying put keeps the island where it is while a swipe between desktops or full-screen apps slides everything else, the way the menu bar stays; turn it off if the island ever fails to appear on one of your displays.")
             }
 
             // The two ways the island gets out of the way, one after the other.

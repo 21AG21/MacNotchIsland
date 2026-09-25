@@ -49,6 +49,31 @@ final class FirstLaunchPromptsTests: XCTestCase {
                        "asked once this session already")
     }
 
+    // MARK: - Location, from a peek at Today
+
+    /// Any Today on screen started the weather, and its first refresh asked for Location: a
+    /// pointer resting on the notch, a peek landing on Today, put the sheet up.
+    func testAPeekAtTodayDoesNotAskForLocation() {
+        XCTAssertEqual(TodaySectionView.weatherHold(weatherOn: true, pinnedOpen: false), .reading,
+                       "a pointer passing over is not somebody asking")
+        XCTAssertEqual(TodaySectionView.weatherHold(weatherOn: true, pinnedOpen: true), .asking,
+                       "a panel somebody opened may ask")
+        XCTAssertEqual(TodaySectionView.weatherHold(weatherOn: false, pinnedOpen: true), .off,
+                       "and nothing at all with the weather switched off")
+        XCTAssertEqual(TodaySectionView.weatherHold(weatherOn: false, pinnedOpen: false), .off)
+    }
+
+    func testTheWeatherReadsWhatIsGrantedAndAsksOnlyWhereItMay() {
+        XCTAssertEqual(WeatherService.locationStep(.notDetermined, mayAsk: false), .wait, "a peek never asks")
+        XCTAssertEqual(WeatherService.locationStep(.notDetermined, mayAsk: true), .ask)
+        // Everything already answered reads the same, asking or not.
+        for mayAsk in [false, true] {
+            XCTAssertEqual(WeatherService.locationStep(.authorizedAlways, mayAsk: mayAsk), .locate, "\(mayAsk)")
+            XCTAssertEqual(WeatherService.locationStep(.denied, mayAsk: mayAsk), .refuse, "\(mayAsk)")
+            XCTAssertEqual(WeatherService.locationStep(.restricted, mayAsk: mayAsk), .refuse, "\(mayAsk)")
+        }
+    }
+
     // MARK: - Location, from arriving on Controls
 
     func testTheWiFiColumnOffersToAskRatherThanAsking() {
@@ -86,6 +111,19 @@ final class FirstLaunchPromptsTests: XCTestCase {
         XCTAssertEqual(AutomationConsent.summary([("Music", .allowed), ("Spotify", .notAsked)]), "Granted for Music")
         XCTAssertEqual(AutomationConsent.summary([("Music", .notRunning)]), "Asked when needed")
         XCTAssertEqual(AutomationConsent.summary([]), "Asked when needed")
+    }
+
+    /// With the helper and MediaRemote silent and Music or Spotify open, the AppleScript
+    /// fallback's first poll put the Automation question up ahead of the tour.
+    func testThePlayersAreNotScriptedBeforeTheTour() {
+        let prefs = Preferences.shared
+        let saved = prefs.hasSeenWelcome
+        defer { prefs.hasSeenWelcome = saved }
+
+        prefs.hasSeenWelcome = false
+        XCTAssertFalse(NowPlayingService.scriptsPlayers(prefs), "not before the tour")
+        prefs.hasSeenWelcome = true
+        XCTAssertTrue(NowPlayingService.scriptsPlayers(prefs), "and after it")
     }
 
     /// The backend's health said answering whenever it was asked, refused or not.

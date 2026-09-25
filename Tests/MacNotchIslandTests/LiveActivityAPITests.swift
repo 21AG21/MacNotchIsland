@@ -191,6 +191,43 @@ final class LiveActivityAPITests: XCTestCase {
         XCTAssertEqual(both[0].url?.absoluteString, "https://example.com")
     }
 
+    /// The switch was read when the card was pushed and never again: a card pushed while it was
+    /// on ran its Shortcut after it had been turned off. It is asked again at the press.
+    func testAPushedCardsShortcutIsAskedAboutAgainWhenItIsPressed() throws {
+        let prefs = Preferences.shared
+        let saved = prefs.apiShortcutsEnabled
+        defer { prefs.apiShortcutsEnabled = saved }
+
+        prefs.apiShortcutsEnabled = true
+        handle("notchisland://activity?id=ship&title=Ready&action=Install&action_shortcut=Ship%20it")
+        guard case .custom(let card)? = center.activity(id: LiveActivityAPI.pushedPrefix + "ship")?.content else {
+            return XCTFail("card missing")
+        }
+        let install = try XCTUnwrap(card.actions.first)
+        let id = LiveActivityAPI.pushedPrefix + "ship"
+        XCTAssertEqual(LiveActivityAPI.press(install, activityID: id, allowsShortcuts: prefs.apiShortcutsEnabled),
+                       .shortcut("Ship it"), "pushed with the switch on, and it is still on")
+        prefs.apiShortcutsEnabled = false
+        XCTAssertEqual(LiveActivityAPI.press(install, activityID: id, allowsShortcuts: prefs.apiShortcutsEnabled),
+                       .refused, "turned off since: the card already up runs nothing")
+        XCTAssertEqual(LiveActivityAPI.press(install, activityID: "api-alert", allowsShortcuts: false), .refused,
+                       "an alert a script pushed is held to it too")
+    }
+
+    func testARefusedShortcutLeavesTheRestOfTheButtonAlone() {
+        let link = URL(string: "https://example.com")!
+        let both = CustomAction(title: "Open", url: link, shortcut: "Ship it")
+        XCTAssertEqual(LiveActivityAPI.press(both, activityID: "api-build", allowsShortcuts: false), .link(link),
+                       "a link beside it still goes")
+        // The island's own cards carry commands, not somebody else's Shortcut, and are not
+        // held to a switch about pushed cards.
+        let stop = CustomAction(title: "Stop", symbol: "stop.fill", command: .stopRecording)
+        XCTAssertEqual(LiveActivityAPI.press(stop, activityID: ScreenRecorder.activityID, allowsShortcuts: false),
+                       .command(.stopRecording))
+        let blank = CustomAction(title: "Nothing", shortcut: "  ")
+        XCTAssertEqual(LiveActivityAPI.press(blank, activityID: "api-build", allowsShortcuts: true), .nothing)
+    }
+
     func testNoMoreThanTwo() {
         let q = ["action": "One", "action_url": "https://a.example",
                  "action2": "Two", "action2_url": "https://b.example",

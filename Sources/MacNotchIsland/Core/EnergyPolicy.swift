@@ -26,6 +26,8 @@ final class EnergyPolicy: ObservableObject {
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var powerSource: CFRunLoopSource?
     private var started = false
+    /// "Pause animations on battery", heard as a change of this object's, see `start`.
+    private var pauseOnBatteryObserver: AnyCancellable?
 
     private init() {}
 
@@ -69,6 +71,23 @@ final class EnergyPolicy: ObservableObject {
         if animationsPaused(asleep: asleep, lowPower: lowPower, onBattery: onBattery, pauseOnBattery: pauseOnBattery,
                             unattended: unattended) { return 1 }
         return onBattery ? 1.0 / 20.0 : 1.0 / 30.0
+    }
+
+    /// Whether moving "Pause animations on battery" changes anything this object says, which
+    /// is when the move is announced (`start`). Off battery it decides nothing; on battery with
+    /// something else already holding everything still — Low Power Mode, the Mac asleep — it
+    /// decides nothing either. Pure, so the rule is tested.
+    static func pauseSwitchMatters(asleep: Bool, lowPower: Bool, onBattery: Bool,
+                                   reduceMotion: Bool = false, unattended: Bool = false) -> Bool {
+        func paused(_ pause: Bool) -> Bool {
+            animationsPaused(asleep: asleep, lowPower: lowPower, onBattery: onBattery, pauseOnBattery: pause,
+                             reduceMotion: reduceMotion, unattended: unattended)
+        }
+        func interval(_ pause: Bool) -> TimeInterval {
+            animationInterval(asleep: asleep, lowPower: lowPower, onBattery: onBattery, pauseOnBattery: pause,
+                              unattended: unattended)
+        }
+        return paused(true) != paused(false) || interval(true) != interval(false)
     }
 
     /// Pure form of `pollingMultiplier`.
@@ -143,6 +162,26 @@ final class EnergyPolicy: ObservableObject {
         observe(NotificationCenter.default, .NSProcessInfoPowerStateDidChange) { policy in
             policy.refreshLowPower()
         }
+        // "Pause animations on battery" is read inside `animationsPaused` and
+        // `animationInterval`, and nothing read them again when the switch itself moved: turned
+        // on while unplugged, the audio tap and the visualizers ran on until some unrelated
+        // change came by. Everything that follows this object re-reads it on `objectWillChange`,
+        // so the switch is announced as a change of this object's. After the value has landed
+        // — `@Published` announces before it stores, so the hop through the main queue — and,
+        // as every other change here, only when it changes something (`pauseSwitchMatters`): a
+        // send restarts every poller that follows this object.
+        pauseOnBatteryObserver = Preferences.shared.$pauseAnimationsOnBattery
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self,
+                      EnergyPolicy.pauseSwitchMatters(asleep: self.isAsleep, lowPower: self.isLowPower,
+                                                      onBattery: self.isOnBattery,
+                                                      reduceMotion: IslandMotion.reduceMotion,
+                                                      unattended: self.isUnattended) else { return }
+                self.objectWillChange.send()
+            }
         refreshLowPower()
         // Launched at the lock screen, or with the displays already dark, is launched unattended.
         resync()

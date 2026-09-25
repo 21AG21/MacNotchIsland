@@ -17,6 +17,9 @@ final class AppleScriptBackend {
     private var artwork: NSImage?
     private var artworkID = 0
     private var accent: NSColor = .white
+    /// A cover Spotify named that was not fetched because "Find missing album art" was off,
+    /// so switching it on fetches this track's cover rather than waiting for the next track.
+    private var artworkWithheld = false
 
     static let musicID = "com.apple.Music"
     static let spotifyID = "com.spotify.client"
@@ -73,7 +76,10 @@ final class AppleScriptBackend {
         inFlight = false
     }
 
-    func poll(_ completion: @escaping (NowPlayingInfo?) -> Void) {
+    /// `artworkLookup` is "Find missing album art", read on the main thread by the caller and
+    /// carried to the poll's queue: Privacy lists the fetch of a cover Spotify names under that
+    /// switch, and the poll fetched it whatever the switch said (`spotifyArtworkURL`).
+    func poll(artworkLookup: Bool, _ completion: @escaping (NowPlayingInfo?) -> Void) {
         guard !inFlight else { return }
         let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
         let hasSpotify = running.contains(Self.spotifyID)
@@ -95,8 +101,8 @@ final class AppleScriptBackend {
         }
         queue.async { [self] in
             var candidates: [NowPlayingInfo] = []
-            if hasSpotify, let s = query(spotify: true) { candidates.append(s) }
-            if hasMusic, let m = query(spotify: false) { candidates.append(m) }
+            if hasSpotify, let s = query(spotify: true, artworkLookup: artworkLookup) { candidates.append(s) }
+            if hasMusic, let m = query(spotify: false, artworkLookup: artworkLookup) { candidates.append(m) }
             let chosen = candidates.first(where: { $0.isPlaying }) ?? candidates.first
             DispatchQueue.main.async {
                 guard self.generation == myGeneration else { return }
@@ -106,7 +112,7 @@ final class AppleScriptBackend {
         }
     }
 
-    private func query(spotify: Bool) -> NowPlayingInfo? {
+    private func query(spotify: Bool, artworkLookup: Bool) -> NowPlayingInfo? {
         let source: String
         if spotify {
             source = """
@@ -163,9 +169,21 @@ final class AppleScriptBackend {
         let bundle = spotify ? Self.spotifyID : Self.musicID
 
         let key = bundle + "|" + trackID + "|" + title
-        if key != artworkKey {
+        if key != artworkKey || (artworkWithheld && artworkLookup) {
             artworkKey = key
-            artwork = spotify ? fetchSpotifyArtwork(artworkURL) : fetchMusicArtwork()
+            if spotify {
+                if let url = Self.spotifyArtworkURL(artworkURL, lookupEnabled: artworkLookup) {
+                    artwork = fetchSpotifyArtwork(url)
+                    artworkWithheld = false
+                } else {
+                    artwork = nil
+                    artworkWithheld = Self.spotifyArtworkURL(artworkURL, lookupEnabled: true) != nil
+                }
+            } else {
+                // Music hands its cover over itself, from the Mac: nothing leaves it.
+                artwork = fetchMusicArtwork()
+                artworkWithheld = false
+            }
             artworkID = key.hashValue
             accent = artwork?.dominantColor() ?? .white
         }
@@ -222,8 +240,15 @@ final class AppleScriptBackend {
         return NSImage(data: data)
     }
 
-    private func fetchSpotifyArtwork(_ urlString: String) -> NSImage? {
-        guard let url = URL(string: urlString), url.scheme?.hasPrefix("http") == true else { return nil }
+    /// The address of the cover Spotify names for a track, when it is to be fetched: an http
+    /// or https one, and only with "Find missing album art" on. The fetch leaves the Mac, and
+    /// Privacy lists it under that switch as one it stops. Pure, so it is tested.
+    static func spotifyArtworkURL(_ text: String, lookupEnabled: Bool) -> URL? {
+        guard lookupEnabled, let url = URL(string: text), url.scheme?.hasPrefix("http") == true else { return nil }
+        return url
+    }
+
+    private func fetchSpotifyArtwork(_ url: URL) -> NSImage? {
         let semaphore = DispatchSemaphore(value: 0)
         var image: NSImage?
         let task = URLSession.shared.dataTask(with: url) { data, _, _ in

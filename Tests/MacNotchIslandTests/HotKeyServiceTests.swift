@@ -82,6 +82,37 @@ final class HotKeyServiceTests: XCTestCase {
     /// Whatever the shortcut starts at, it is written down the first time the app runs, so an
     /// input source added or taken away later cannot move it at the next launch.
     func testTheShippingShortcutIsWrittenDownOnce() {
+        var asked = 0
+        // What this Mac would ship with, standing in for its input sources.
+        func shipping() -> (keyCode: Int, modifiers: Int) {
+            asked += 1
+            return (keyCode: HotKeyService.fallbackKeyCode, modifiers: HotKeyService.fallbackModifiers)
+        }
+
+        // Nothing stored: the shipping pair is used, and written down.
+        let first = Preferences.startingShortcut(stored: nil, shipping: shipping())
+        XCTAssertEqual(first.keyCode, Double(HotKeyService.fallbackKeyCode))
+        XCTAssertEqual(first.modifiers, Double(HotKeyService.fallbackModifiers))
+        XCTAssertTrue(first.writes)
+        XCTAssertEqual(asked, 1)
+
+        // The next launch finds it stored: kept, not written again, and the Mac not asked.
+        let next = Preferences.startingShortcut(stored: (keyCode: first.keyCode, modifiers: first.modifiers),
+                                                shipping: shipping())
+        XCTAssertEqual(next.keyCode, first.keyCode)
+        XCTAssertEqual(next.modifiers, first.modifiers)
+        XCTAssertFalse(next.writes)
+        XCTAssertEqual(asked, 1, "a stored shortcut does not ask what this Mac would ship with")
+
+        // One recorded by hand is kept the same way, whatever the Mac would ship with now.
+        let recorded = Preferences.startingShortcut(stored: (keyCode: 0, modifiers: Double(cmd | shift)),
+                                                    shipping: shipping())
+        XCTAssertEqual(recorded.keyCode, 0)
+        XCTAssertEqual(recorded.modifiers, Double(cmd | shift))
+        XCTAssertFalse(recorded.writes)
+        XCTAssertEqual(asked, 1)
+
+        // And the app, having started, has both written down.
         _ = Preferences.shared
         XCTAssertNotNil(UserDefaults.standard.object(forKey: "hotkeyKeyCode"))
         XCTAssertNotNil(UserDefaults.standard.object(forKey: "hotkeyModifiers"))

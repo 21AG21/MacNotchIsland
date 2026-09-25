@@ -119,6 +119,9 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     private var manager: CLLocationManager?
     private let geocoder = CLGeocoder()
     private var subscribers = 0
+    /// How many of those may ask for Location: a panel somebody pinned open. A peek is a
+    /// viewer too, and reads whatever has been granted without asking, see `locationStep`.
+    private var askers = 0
     private var timer: Timer?
     private var timerInterval: TimeInterval = 0
     private var energyCancellable: AnyCancellable?
@@ -136,23 +139,45 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     // MARK: - Reference-counted lifetime
 
-    /// Claim the weather. Balanced by `stop()`; only the first caller starts the timer, and
-    /// a cached reading younger than `refreshInterval` is reused rather than re-fetched.
-    func start() {
+    /// Claim the weather. Balanced by `stop(mayAsk:)` with the same flag; only the first caller
+    /// starts the timer, and a cached reading younger than `refreshInterval` is reused rather
+    /// than re-fetched.
+    ///
+    /// `mayAsk` is whether this viewer may put macOS's Location question on screen. Any Today
+    /// on screen used to start the weather, and its first refresh asked — so a pointer resting
+    /// on the notch, a peek landing on Today, put the Location sheet up. The same rule as the
+    /// agenda's (`AgendaStore.Hold`): a peek reads what has been granted, a panel somebody
+    /// pinned open may ask.
+    func start(mayAsk: Bool = false) {
         subscribers += 1
-        guard subscribers == 1 else { return }
-
-        energyCancellable = EnergyPolicy.shared.objectWillChange
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.rescheduleTimer() }
-        rescheduleTimer()
-
-        if isStale { refresh() }
+        if mayAsk { askers += 1 }
+        if subscribers == 1 {
+            energyCancellable = EnergyPolicy.shared.objectWillChange
+                .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+                .sink { [weak self] _ in self?.rescheduleTimer() }
+            rescheduleTimer()
+            if isStale { refresh() }
+        } else if mayAsk, askers == 1, locationUnasked() {
+            // The first viewer that may ask, joining ones that could not: a peek pinned open.
+            // A question never put is put now, not at the next refresh half an hour on.
+            refresh()
+        }
     }
 
-    /// Release a claim. Once the last view goes away nothing is left running.
-    func stop() {
+    /// Moves one viewer's claim from `old` to `new`. The new claim is taken before the old one
+    /// is given back, so a peek pinned open stays one viewer throughout and its timer and any
+    /// fetch in flight carry on.
+    func move(from old: AgendaStore.Hold, to new: AgendaStore.Hold) {
+        guard old != new else { return }
+        if new != .off { start(mayAsk: new == .asking) }
+        if old != .off { stop(mayAsk: old == .asking) }
+    }
+
+    /// Release a claim, with the flag it was taken with. Once the last view goes away nothing
+    /// is left running.
+    func stop(mayAsk: Bool = false) {
         guard subscribers > 0 else { return }
+        if mayAsk, askers > 0 { askers -= 1 }
         subscribers -= 1
         guard subscribers == 0 else { return }
 
@@ -172,11 +197,18 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     }
 
     /// Fetch now: the timer, the Retry button and the first `start()` all come through here.
-    /// Re-asks CoreLocation for a fix, which is also how the place name stays current.
+    /// Re-asks CoreLocation for a fix, which is also how the place name stays current. Asks
+    /// for Location only while a viewer that may ask holds the weather (`start(mayAsk:)`).
     func refresh() {
         guard !EnergyPolicy.shared.isAsleep else { return }
         ensureManager()
-        resolveAuthorization()
+        resolveAuthorization(mayAsk: askers > 0)
+    }
+
+    /// Whether Location has never been answered. Making the manager asks nothing.
+    private func locationUnasked() -> Bool {
+        ensureManager()
+        return manager?.authorizationStatus == .notDetermined
     }
 
     /// True while at least one view is on screen asking for weather.
@@ -270,19 +302,50 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         manager = created
     }
 
-    private func resolveAuthorization() {
-        guard let manager = manager else { return }
-        switch manager.authorizationStatus {
+    /// What a refresh does with Location as it stands, for a viewer that may or may not ask.
+    enum LocationStep: Equatable {
+        /// Put macOS's question on screen.
+        case ask
+        /// Granted: ask for a fix.
+        case locate
+        /// Refused, or not ours to have.
+        case refuse
+        /// Never answered, and this viewer may not ask: nothing is asked and nothing changes,
+        /// and the line shows whatever it was showing.
+        case wait
+        case unknown
+    }
+
+    /// Pure, so the rule is tested: a question only where one may be asked, and everything
+    /// already answered read the same either way.
+    static func locationStep(_ status: CLAuthorizationStatus, mayAsk: Bool) -> LocationStep {
+        switch status {
         case .notDetermined:
-            beginLocating()
-            manager.requestWhenInUseAuthorization()
+            return mayAsk ? .ask : .wait
         case .authorizedAlways, .authorizedWhenInUse:
             // `.authorized` is the deprecated spelling of `.authorizedAlways`; they are the
             // same value, so this arm covers it too.
-            requestLocation()
+            return .locate
         case .denied, .restricted:
-            refused()
+            return .refuse
         @unknown default:
+            return .unknown
+        }
+    }
+
+    private func resolveAuthorization(mayAsk: Bool) {
+        guard let manager = manager else { return }
+        switch Self.locationStep(manager.authorizationStatus, mayAsk: mayAsk) {
+        case .ask:
+            beginLocating()
+            manager.requestWhenInUseAuthorization()
+        case .locate:
+            requestLocation()
+        case .refuse:
+            refused()
+        case .wait:
+            break
+        case .unknown:
             if snapshot == nil { state = .failed }
         }
     }

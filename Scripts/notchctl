@@ -31,6 +31,7 @@
 #    64    bad usage: a missing argument, or an unknown command or flag; nothing was sent
 #    66    shelf add: no such file
 #    69    Notch Island could not be reached: `open` refused the notchisland:// URL
+#    73    ask: no folder could be made in /tmp for the answer; nothing was sent
 #   130    ask: interrupted with Control-C while waiting for the answer
 #   143    ask: terminated (SIGTERM) while waiting for the answer
 set -euo pipefail
@@ -216,7 +217,12 @@ case "$cmd" in
     # In /tmp, not $TMPDIR: the island writes only inside the home folder or /tmp, and macOS's
     # $TMPDIR is neither. The folder is ours alone (mktemp makes it 0700); the island creates
     # the file in it, and never replaces one that is already there.
-    ask_dir=$(mktemp -d /tmp/notchctl-ask.XXXXXX)
+    # A folder that cannot be made is not a no: under `set -e` the failed assignment exited
+    # 1, which is the answer no, for a question that was never asked.
+    if ! ask_dir=$(mktemp -d /tmp/notchctl-ask.XXXXXX); then
+      echo "notchctl ask: could not make a folder in /tmp for the answer" >&2
+      exit 73
+    fi
     trap 'rm -rf "$ask_dir"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM

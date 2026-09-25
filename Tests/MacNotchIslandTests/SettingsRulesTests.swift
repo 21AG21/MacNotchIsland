@@ -63,6 +63,18 @@ final class SettingsRulesTests: XCTestCase {
         XCTAssertFalse(ServiceHub.wantsBluetooth(prefs), "never when it is switched off")
     }
 
+    // MARK: - A switch that stops what Privacy says it stops
+
+    /// Privacy lists the fetch of a cover Spotify names under "Missing album art", as one the
+    /// switch stops, and the AppleScript poll fetched it whatever the switch said.
+    func testTheCoverSpotifyNamesIsFetchedOnlyWithTheLookupOn() {
+        let cover = "https://i.scdn.co/image/ab67616d0000b273"
+        XCTAssertEqual(AppleScriptBackend.spotifyArtworkURL(cover, lookupEnabled: true)?.absoluteString, cover)
+        XCTAssertNil(AppleScriptBackend.spotifyArtworkURL(cover, lookupEnabled: false), "off, nothing leaves the Mac")
+        XCTAssertNil(AppleScriptBackend.spotifyArtworkURL("file:///etc/hosts", lookupEnabled: true), "only the web")
+        XCTAssertNil(AppleScriptBackend.spotifyArtworkURL("", lookupEnabled: true), "and only an address")
+    }
+
     // MARK: - A tick that is not the whole story
 
     /// A `register()` that threw left the tick in place with nothing registered, and an item

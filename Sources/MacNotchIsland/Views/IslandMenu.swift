@@ -180,9 +180,13 @@ struct IslandMenu: View {
     /// Everything this Mac is paired with, connected first. A click connects what is not and
     /// disconnects what is — the one thing the menu bar's own Bluetooth item takes three
     /// clicks and a submenu to do.
+    ///
+    /// Read only once the tour is done, as Controls reads it (`ControlsSectionView`): reading
+    /// the list is a Bluetooth question, and a right-click on a new Mac put macOS's Bluetooth
+    /// sheet up ahead of the welcome tour. Before it the menu has no Bluetooth item at all.
     @ViewBuilder
     private var bluetoothDevices: some View {
-        let devices = BluetoothMonitor.paired()
+        let devices: [BluetoothMonitor.Paired] = prefs.hasSeenWelcome ? BluetoothMonitor.paired() : []
         if !devices.isEmpty {
             Menu("Bluetooth") {
                 ForEach(devices) { device in

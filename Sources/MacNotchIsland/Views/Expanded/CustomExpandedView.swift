@@ -7,20 +7,42 @@ struct CustomExpandedView: View {
     let activity: IslandActivity
     let geometry: NotchGeometry
     @Environment(\.insidePanel) private var insidePanel
+    /// Observed for "Let pushed cards run Shortcuts", so a button that runs one greys out the
+    /// moment the switch is turned off, rather than at the next push.
+    @ObservedObject private var prefs = Preferences.shared
 
     private var tint: Color { Color.named(state.tint) }
 
     /// A web link, or a Shortcut by name — or, on one of the island's own cards, something the
     /// app does itself. The panel goes first either way: whatever happens next happens in
-    /// another app, and the island has no business sitting over it.
-    static func perform(_ action: CustomAction) {
-        ActivityCenter.shared.collapse(reason: "a scripted action")
-        if let command = action.command {
+    /// another app, and the island has no business sitting over it. What the press does is
+    /// decided now, with the switch as it is now (`LiveActivityAPI.press`).
+    static func perform(_ action: CustomAction, activityID: String) {
+        let press = LiveActivityAPI.press(action, activityID: activityID,
+                                          allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
+        switch press {
+        case .command(let command):
+            ActivityCenter.shared.collapse(reason: "a scripted action")
             command.perform()
-        } else if let url = action.url {
+        case .link(let url):
+            ActivityCenter.shared.collapse(reason: "a scripted action")
             NSWorkspace.shared.open(url)
-        } else if let name = action.shortcut, !name.trimmingCharacters(in: .whitespaces).isEmpty {
+        case .shortcut(let name):
+            ActivityCenter.shared.collapse(reason: "a scripted action")
             ShortcutsRunner.shared.run(name)
+        case .refused:
+            // The button is greyed out for this; a press that gets here anyway runs nothing.
+            IslandLog.island.notice("a pushed card's Shortcut was not run: Let pushed cards run Shortcuts is off")
+        case .nothing:
+            break
+        }
+    }
+
+    /// Whether a button does anything if pressed now. One that would not is drawn disabled.
+    private func isLive(_ action: CustomAction) -> Bool {
+        switch LiveActivityAPI.press(action, activityID: activity.id, allowsShortcuts: prefs.apiShortcutsEnabled) {
+        case .refused, .nothing: return false
+        case .command, .link, .shortcut: return true
         }
     }
 
@@ -66,13 +88,19 @@ struct CustomExpandedView: View {
                 // The buttons a script asked for, named rather than glyphed: a script's action
                 // is "Retry" or "Open the logs", and a disc with an arrow on it says neither.
                 ForEach(Array(state.actions.prefix(LiveActivityAPI.maxActions).enumerated()), id: \.offset) { pair in
+                    let live = isLive(pair.element)
                     PillButton(title: pair.element.title, symbol: pair.element.symbol,
                                tint: tint, prominent: pair.offset == 0) {
-                        Self.perform(pair.element)
+                        Self.perform(pair.element, activityID: activity.id)
                     }
                     // At the size a row's controls are, so two of them and the title always
                     // fit across a card that is 440 points wide.
                     .environment(\.islandCompactControls, true)
+                    // A Shortcut the switch no longer allows: still there, so the card reads as
+                    // it did, and greyed out, since the island's button style does not dim a
+                    // disabled one by itself.
+                    .disabled(!live)
+                    .opacity(live ? 1 : 0.4)
                 }
                 if state.url != nil, state.actions.isEmpty {
                     CircleActionButton(symbol: "arrow.up.forward", tint: .white) { activity.openAction?.perform() }

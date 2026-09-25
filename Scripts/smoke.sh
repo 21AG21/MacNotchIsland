@@ -15,6 +15,20 @@ swiftc -O -o "$OUT/topgap" Scripts/topgap.swift || exit 1
 swiftc -O -o "$OUT/notify" Scripts/notify.swift || exit 1
 swiftc -O -o "$OUT/windowid" Scripts/windowid.swift || exit 1
 swiftc -O -o "$OUT/key" Scripts/key.swift || exit 1
+# Where the floating pill's middle is, in points from the top of the main display, worked out
+# the way the app works it out rather than guessed. NotchGeometry.detect: a display carrying
+# the menu bar keeps max(NSStatusBar thickness, 24) of its top for it, and nothing when the
+# menu bar hides itself (_HIHideMenuBar). IslandLayout.make hangs the floating pill 4 pt
+# below that, and the idle pill is floatingIdleHeight, 22 pt, tall. On a runner that is
+# 28 to 50: the old click at 21 was a click on the menu bar, and the case passed on the app
+# merely staying alive.
+cat > "$OUT/pillmiddle.swift" <<'SWIFT'
+import AppKit
+_ = NSApplication.shared
+let menuBar: CGFloat = UserDefaults.standard.bool(forKey: "_HIHideMenuBar") ? 0 : max(NSStatusBar.system.thickness, 24)
+print(Int((menuBar + 4 + 22 / 2).rounded()))
+SWIFT
+swiftc -O -o "$OUT/pillmiddle" "$OUT/pillmiddle.swift" || exit 1
 defaults write "$ID" hasSeenWelcome -bool true
 defaults write "$ID" hapticsEnabled -bool false
 defaults write "$ID" updateChecksEnabled -bool false
@@ -88,12 +102,32 @@ run_case() {  # name, click y, extra env
     if [ "$escaped" -lt 1 ]; then echo "SMOKE FAILED: Escape did not close the panel"; DIED=1; fi
     for shot in 1-after-open 3-after-outside-click; do
       local png="$OUT/$name-$shot.png"
-      [ -f "$png" ] || continue
-      local gap; gap=$("$OUT/topgap" "$png")
+      local gap=""
+      [ -f "$png" ] && gap=$("$OUT/topgap" "$png")
       echo "--- topgap $name-$shot: $gap px"
       echo "topgap $name-$shot: $gap px" >> "$SUMMARY"
-      if [ "$gap" -gt 4 ]; then echo "SMOKE FAILED: the island sits ${gap}px below the top of the screen"; DIED=1; fi
+      # Only a count of rows passes. topgap prints -1 when the column has no black in it at
+      # all, and nothing when it cannot read the picture, and the old `-gt 4` passed both:
+      # -1 is not greater than 4, and an empty string is a test that fails, which is no
+      # failure. A missing island passed as a fused one.
+      if ! [[ "$gap" =~ ^[0-9]+$ ]]; then
+        echo "SMOKE FAILED: no island measured at the top of $name-$shot (topgap said \"$gap\")"; DIED=1
+      elif [ "$gap" -gt 4 ]; then
+        echo "SMOKE FAILED: the island sits ${gap}px below the top of the screen"; DIED=1
+      fi
     done
+  else
+    # The floating pill has no switcher to step through and hangs below the menu bar by
+    # design, so neither check above is its. What it has is the open and the close, and the
+    # app logs both: the click opens Home, the click far away closes it again.
+    local opened closed
+    opened=$(grep -c 'open view: Optional' "$logfile" || true)
+    closed=$(grep -c 'open view: nil' "$logfile" || true)
+    echo "--- opened: $opened, closed: $closed"
+    echo "opened $name: $opened" >> "$SUMMARY"
+    echo "closed $name: $closed" >> "$SUMMARY"
+    if [ "$opened" -lt 1 ]; then echo "SMOKE FAILED: clicking the floating pill did not open it"; DIED=1; fi
+    if [ "$closed" -lt 1 ]; then echo "SMOKE FAILED: clicking away did not close the floating panel"; DIED=1; fi
   fi
   echo "--- app stderr"; tail -n 20 "$OUT/$name-app.log"
   echo "--- crash reports"
@@ -229,7 +263,13 @@ run_settings() {
 # screen is no business of this test's, and an island hidden under it would click as broken.
 # Put back to unset afterwards, so the cases after it run as a new Mac would.
 defaults write "$ID" hideInFullscreen -bool false
-run_case floating 21
+FLOATING_Y=$("$OUT/pillmiddle")
+if ! [[ "$FLOATING_Y" =~ ^[0-9]+$ ]]; then
+  echo "SMOKE FAILED: could not work out where the floating pill hangs (got \"$FLOATING_Y\")"; DIED=1
+  FLOATING_Y=39
+fi
+echo "--- floating pill middle: y=$FLOATING_Y"
+run_case floating "$FLOATING_Y"
 defaults delete "$ID" hideInFullscreen 2>/dev/null
 run_case notch 16 "NOTCH_SIMULATE=1"
 # The path users take most: a track is playing, the compact island shows it, a click opens
