@@ -176,8 +176,9 @@ final class ClipboardStore: ObservableObject {
         guard RenderMode.isGallery else { return }
         self.items = items
         // The gallery's history is the whole of its history; nothing on disk may land on top
-        // of it later.
+        // of it later, and no Clear from an earlier scene is waiting to be taken back.
         hasLoaded = true
+        forgetUndo()
         refreshMissingFiles()
     }
 
@@ -535,13 +536,76 @@ final class ClipboardStore: ObservableObject {
         schedulePersist()
     }
 
-    func clear() {
-        guard !items.isEmpty else { return }
-        items.removeAll()
-        thumbnails.removeAll()
-        pendingThumbnails.removeAll()
-        missingFileIDs.removeAll()
+    // MARK: - Clearing, and taking it back
+
+    /// What the section's Clear takes: every entry that answers the find — all of them, with
+    /// nothing typed — except the pinned ones.
+    ///
+    /// A pin is somebody saying "keep this", and the ring buffer has always honoured it; Clear
+    /// took the pins with everything else, which made pinning something the one way to lose it
+    /// to a single stray click. The matching is the list's own (`ClipboardView.ordered`), so
+    /// Clear never takes a row the list is not showing.
+    static func clearing(_ items: [ClipboardItem], query: String?) -> [ClipboardItem] {
+        ClipboardView.ordered(items, query: query).filter { !$0.pinned }
+    }
+
+    /// What Undo Clear leaves: the entries the Clear took, back in their places by the time
+    /// they were copied, beside whatever has been copied since. The history fills itself while
+    /// the offer stands, so the offer cannot wait for it to hold still the way the scratchpad's
+    /// does; an entry that is somehow already back is not put back twice.
+    static func restoring(_ cleared: [ClipboardItem], into items: [ClipboardItem], limit: Int) -> [ClipboardItem] {
+        let present = Set(items.map(\.id))
+        var result = items
+        for entry in cleared where !present.contains(entry.id) {
+            // After everything copied at the same moment or later, so what was cleared keeps
+            // its own order and never jumps ahead of a copy made since.
+            let index = result.firstIndex { $0.date < entry.date } ?? result.count
+            result.insert(entry, at: index)
+        }
+        return capped(result, limit: limit)
+    }
+
+    /// How long "Undo Clear" is offered for: the same moment the scratchpad gives.
+    static let undoWindow: TimeInterval = NotesStore.undoWindow
+
+    /// What the last Clear took, for as long as the offer to put it back stands.
+    @Published private(set) var clearedItems: [ClipboardItem]?
+    private var clearedWork: DispatchWorkItem?
+
+    /// The section's Clear: what the list is showing, less the pins, and for a moment
+    /// afterwards it can be put back. A second Clear supersedes the first, as the scratchpad's
+    /// does.
+    func clear(matching query: String?) {
+        let going = Self.clearing(items, query: query)
+        guard !going.isEmpty else { return }
+        let ids = Set(going.map(\.id))
+        items.removeAll { ids.contains($0.id) }
+        pruneThumbnails()
+        pendingThumbnails.subtract(ids)
+        missingFileIDs.subtract(ids)
         schedulePersist()
+        forgetUndo()
+        clearedItems = going
+        let work = DispatchWorkItem { [weak self] in self?.forgetUndo() }
+        clearedWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: work)
+    }
+
+    /// Puts back what the last Clear took.
+    func undoClear() {
+        guard let cleared = clearedItems else { return }
+        forgetUndo()
+        let restored = Self.restoring(cleared, into: items, limit: Self.itemLimit(Preferences.shared.clipboardLimit))
+        guard restored != items else { return }
+        items = restored
+        refreshMissingFiles()
+        schedulePersist()
+    }
+
+    private func forgetUndo() {
+        clearedWork?.cancel()
+        clearedWork = nil
+        clearedItems = nil
     }
 
     // MARK: - Which entries have lost their files

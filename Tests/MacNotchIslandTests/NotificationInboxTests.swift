@@ -142,6 +142,70 @@ final class NotificationInboxTests: XCTestCase {
         XCTAssertTrue(NotificationInbox.matches(entry("anything"), query: "   "), "spaces are not a search")
     }
 
+    // MARK: - Clearing, and taking it back
+
+    func testClearDuringAFindTakesOnlyTheMatches() {
+        let bank = entry("Payment received", app: "Bank", bundle: "com.example.bank", at: 3)
+        let mail = entry("Lunch?", at: 2)
+        let going = NotificationInbox.clearing([bank, mail], query: "bank")
+        XCTAssertEqual(going.map { $0.id }, [bank.id], "the rows the find is hiding stay")
+        XCTAssertEqual(NotificationInbox.clearing([bank, mail], query: nil).count, 2, "nothing typed is everything")
+    }
+
+    func testUndoPutsWhatWasClearedBackBesideWhatArrivedSince() {
+        let now = Date(timeIntervalSinceReferenceDate: 1_000)
+        let older = entry("Older", at: 900)
+        let oldest = entry("Oldest", app: "Calendar", bundle: "com.apple.iCal", at: 800)
+        let since = entry("Since", app: "Messages", bundle: "com.apple.MobileSMS", at: 990)
+        let restored = NotificationInbox.restoring([older, oldest], into: [since], now: now)
+        XCTAssertEqual(restored.map { $0.title }, ["Since", "Older", "Oldest"], "newest first, as the list is kept")
+    }
+
+    func testABannerReadAgainWhileTheOfferStoodIsOneLineAfterUndo() {
+        let now = Date(timeIntervalSinceReferenceDate: 1_000)
+        let cleared = entry("Two new messages", at: 950)
+        let readAgain = entry("Two new messages", at: 960)
+        let restored = NotificationInbox.restoring([cleared], into: [readAgain], now: now)
+        XCTAssertEqual(restored.count, 1)
+    }
+
+    func testUndoStillLetsGoOfWhatHasExpired() {
+        let now = Date(timeIntervalSinceReferenceDate: NotificationInbox.maxAge + 1_000)
+        let ancient = entry("Ancient", at: 0)
+        XCTAssertTrue(NotificationInbox.restoring([ancient], into: [], now: now).isEmpty)
+    }
+
+    func testTheSectionsClearCanBeTakenBackAndErasingEndsTheOffer() {
+        let previousOverride = IslandFiles.overrideFolder
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("inbox-clear-\(UUID().uuidString)", isDirectory: true)
+        let wasGallery = RenderMode.isGallery
+        let inbox = NotificationInbox.shared
+        IslandFiles.overrideFolder = folder
+        RenderMode.isGallery = true
+        defer {
+            inbox.seedForGallery([])
+            // Anything on its way to the disk lands in the folder made for this test.
+            inbox.flush()
+            RenderMode.isGallery = wasGallery
+            IslandFiles.overrideFolder = previousOverride
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let recent = NotificationInbox.Entry(bundleID: "com.apple.mail", appName: "Mail", title: "Recent")
+        inbox.seedForGallery([recent])
+
+        inbox.clear(matching: nil)
+        XCTAssertTrue(inbox.entries.isEmpty)
+        XCTAssertEqual(inbox.clearedEntries?.map { $0.id }, [recent.id])
+        inbox.undoClear()
+        XCTAssertEqual(inbox.entries.map { $0.id }, [recent.id])
+        XCTAssertNil(inbox.clearedEntries, "the offer is spent once it is taken")
+
+        inbox.clear(matching: nil)
+        inbox.clear()
+        XCTAssertNil(inbox.clearedEntries, "Erase in Settings forgets them for good, offer and all")
+    }
+
     // MARK: - Grouped by app
 
     func testGroupsAreOrderedByTheirNewestNotification() {

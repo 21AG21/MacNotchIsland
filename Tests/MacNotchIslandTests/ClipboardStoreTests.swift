@@ -42,6 +42,75 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(items[0].id, stored.id)
     }
 
+    // MARK: - Clearing, and taking it back
+
+    func testClearKeepsThePinnedCopies() {
+        let pinned = [item("address", pinned: true, at: 3), item("token", pinned: true, at: 1)]
+        let loose = [item("a line", at: 4), item("another", at: 2)]
+        let going = ClipboardStore.clearing([loose[0], pinned[0], loose[1], pinned[1]], query: nil)
+        XCTAssertEqual(Set(going.map { $0.id }), Set(loose.map { $0.id }),
+                       "a pin is somebody saying keep this, and Clear is not them taking it back")
+        XCTAssertTrue(ClipboardStore.clearing(pinned, query: nil).isEmpty, "a list of pins has nothing to clear")
+    }
+
+    func testClearDuringAFindTakesOnlyTheMatchesThatAreNotPinned() {
+        let invoice = item("invoice 42", at: 3)
+        let pinnedInvoice = item("invoice 41", pinned: true, at: 2)
+        let other = item("lunch?", at: 1)
+        let going = ClipboardStore.clearing([invoice, pinnedInvoice, other], query: "invoice")
+        XCTAssertEqual(going.map { $0.id }, [invoice.id])
+    }
+
+    func testUndoPutsWhatWasClearedBackBesideWhatWasCopiedSince() {
+        let older = item("older", at: 10)
+        let oldest = item("oldest", at: 5)
+        let pin = item("pinned", pinned: true, at: 7)
+        let since = item("copied since", at: 20)
+        let restored = ClipboardStore.restoring([older, oldest], into: [since, pin], limit: 50)
+        XCTAssertEqual(restored.map { $0.text }, ["copied since", "older", "pinned", "oldest"],
+                       "each back where its time puts it, and nothing copied since is moved")
+    }
+
+    func testUndoDoesNotPutBackWhatIsAlreadyThere() {
+        let kept = item("kept", at: 10)
+        let restored = ClipboardStore.restoring([kept], into: [kept], limit: 50)
+        XCTAssertEqual(restored.count, 1)
+    }
+
+    func testUndoStillHonoursTheLimit() {
+        let cleared = [item("a", at: 3), item("b", at: 2)]
+        let restored = ClipboardStore.restoring(cleared, into: [item("new", at: 9)], limit: 2)
+        XCTAssertEqual(restored.map { $0.text }, ["new", "a"])
+    }
+
+    func testTheSectionsClearCanBeTakenBack() {
+        let previousOverride = IslandFiles.overrideFolder
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clipboard-clear-\(UUID().uuidString)", isDirectory: true)
+        let wasGallery = RenderMode.isGallery
+        let store = ClipboardStore.shared
+        IslandFiles.overrideFolder = folder
+        RenderMode.isGallery = true
+        defer {
+            store.seedForGallery([])
+            // Anything on its way to the disk lands in the folder made for this test.
+            store.flush()
+            RenderMode.isGallery = wasGallery
+            IslandFiles.overrideFolder = previousOverride
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let pin = item("keep me", pinned: true, at: 2)
+        let loose = item("let me go", at: 1)
+        store.seedForGallery([pin, loose])
+
+        store.clear(matching: nil)
+        XCTAssertEqual(store.items.map { $0.id }, [pin.id], "the pin stays")
+        XCTAssertEqual(store.clearedItems?.map { $0.id }, [loose.id])
+        store.undoClear()
+        XCTAssertEqual(store.items.map { $0.id }, [pin.id, loose.id])
+        XCTAssertNil(store.clearedItems, "the offer is spent once it is taken")
+    }
+
     // MARK: - Limit trimming
 
     func testLimitDropsTheOldestItems() {

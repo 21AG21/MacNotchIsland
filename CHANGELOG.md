@@ -270,6 +270,10 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Clear takes what the find is showing, keeps the pins, and can be taken back.** With "pdf" typed on a shelf of ten files and two showing, Clear emptied all ten, and the island's own snippets went to the Trash; on Clipboard it took pinned copies too. With a find up, Clear on Shelf, Clipboard and Notifications says how many it takes, "Clear 2", and takes only those; Clipboard's leaves the pins. For twelve seconds after, the pill is Undo Clear, as on Notes, and the shelf trashes its own files only once that has passed.
+- **A big drop no longer pushes the island's own files off the shelf.** Twenty-five files from Finder took a parked snippet, and the drop's own first file, off the shelf, and the snippet to the Trash, without a word. Room is made only from files that came from Finder; what still does not fit is turned away from the end of the drop, and the island says how many did not fit.
+- **Controls stay under the pointer.** The stopwatch pill keeps its width when it says Stop or Reset, so the second click lands. The Actions timer glyph takes clicks 24 points wide and the rail's sliders 24 points tall; nothing is drawn differently.
+- **Space previews what is picked out on the shelf.** It showed the whole shelf whatever was selected.
 - **The timer card acts on the timer it shows.** With a second timer swapped onto the card, Cancel cancelled the other one, Pause paused it, and Resume did nothing. Repeat started the last timer started rather than the one that rang. The card and the menu's Repeat now restart that timer, in place, with its own name and length.
 - **A stream's bar is not a seek to the start.** On a live radio stream or a browser podcast with no length, a click on the progress bar jumped to 0:00. The bar is a plain line there now.
 - **The heart can be taken back.** In Music a second press removes the favourite. Where a player cannot be asked to (Spotify, the helper), the lit heart is dimmed and says where to do it.

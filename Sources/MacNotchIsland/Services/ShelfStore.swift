@@ -19,7 +19,14 @@ final class ShelfStore: ObservableObject {
     static let shared = ShelfStore()
 
     @Published private(set) var items: [ShelfItem] = [] {
-        didSet { if items != oldValue { publishActivity() } }
+        didSet {
+            guard items != oldValue else { return }
+            publishActivity()
+            // The offer to take a Clear back is an offer to put back the shelf as it stood,
+            // and it only holds while the shelf is still the one the Clear left. Anything
+            // landing or leaving since ends it.
+            if let offer = clearOffer, items != offer.after { settleClear() }
+        }
     }
     @Published private var thumbnails: [URL: NSImage] = [:]
     /// Whether this store owns the island's "shelf" activity. Only the shared store does;
@@ -37,6 +44,7 @@ final class ShelfStore: ObservableObject {
 
     private var sweepTimer: Timer?
     private var sharingPicker: NSSharingServicePicker?
+    private var quitObserver: NSObjectProtocol?
 
     private var thumbnailQueue: [URL] = []
     private var thumbnailsInFlight = 0
@@ -69,6 +77,14 @@ final class ShelfStore: ObservableObject {
         rescheduleSweep()
         // `didSet` does not run during init; announce whatever was loaded.
         publishActivity()
+        // A Clear that could still be taken back has not sent the island's own files to the
+        // Trash yet. Quitting ends the offer, so it sends them now, before the process goes.
+        if backgroundWork {
+            quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                                                  object: nil, queue: .main) { [weak self] _ in
+                self?.settleClear(waiting: true)
+            }
+        }
     }
 
     // MARK: - Island activity
@@ -114,25 +130,91 @@ final class ShelfStore: ObservableObject {
         guard !files.isEmpty else { return }
 
         let now = Date()
-        var next = items
-        for url in files {
-            next.removeAll { $0.url == url }
-            next.insert(ShelfItem(url: url, addedAt: now), at: 0)
-        }
-        // Cap *before* asking for thumbnails so dropping hundreds of files stays cheap.
-        if next.count > maxItems { next = Array(next.prefix(maxItems)) }
+        // Capped *before* asking for thumbnails, so dropping hundreds of files stays cheap.
+        let admission = Self.admitting(files, into: items, cap: maxItems, now: now)
         let before = Set(items.map(\.url))
-        items = Self.pruned(next, expiryHours: expiryHoursProvider(), now: now)
-        // Anything the cap or the expiry pushed off takes its file with it when the file was
-        // ours to begin with; otherwise the drop folder would grow forever.
+        items = Self.pruned(admission.items, expiryHours: expiryHoursProvider(), now: now)
+        // Anything the expiry swept off takes its file with it when the file was ours to begin
+        // with; otherwise the drop folder would grow forever. So does a picture or a piece of
+        // text written for a drop there was no room for: it never reached the shelf, and the
+        // island has said so. The cap itself never pushes one of ours off — see `admitting`.
         let leaving = before.union(files).subtracting(items.map(\.url))
         discardOwned(Array(leaving))
+        if !admission.refused.isEmpty { announceNoRoom(admission.refused.count) }
 
         pruneThumbnailCache()
         for item in items { requestThumbnail(item.url) }
         persist()
         rescheduleSweep()
         Haptics.tap()
+    }
+
+    /// What a drop does to the shelf, worked out before anything is touched.
+    struct Admission: Equatable {
+        /// The shelf afterwards, newest first.
+        var items: [ShelfItem]
+        /// Files from Finder that were already on the shelf and left it to make room. Only the
+        /// shelf's reference to each goes; the file stays where it always was.
+        var evicted: [URL]
+        /// Files from the drop there was no room for, in the order they were dragged.
+        var refused: [URL]
+    }
+
+    /// The cap, as a rule: what a drop leaves on a shelf that holds at most `cap` things.
+    ///
+    /// Each file goes in at the front as it comes, so the last one dragged is the first on the
+    /// shelf. Room is made from the far end — the oldest — and only out of files that came
+    /// from Finder, because letting go of one of those loses nothing: the file is still where
+    /// it was. A picture, a link or a piece of text the island wrote for an earlier drop has
+    /// nowhere else to live, and pushing it off the shelf sent it to the Trash; twenty-five
+    /// files dragged from Finder used to do exactly that to a snippet somebody had parked, and
+    /// to the first file of the drop itself, without a word. Whatever still does not fit is
+    /// turned away from the end of the drop — what was dragged first gets in — and the caller
+    /// says how many. A file already on the shelf is never turned away: dropping it again only
+    /// brings it to the front.
+    static func admitting(_ files: [URL], into items: [ShelfItem], cap: Int, now: Date = Date(),
+                          isOwned: (URL) -> Bool = ShelfStore.isOwned) -> Admission {
+        // One of each, in the order they were dragged.
+        var seen = Set<URL>()
+        let drop = files.filter { seen.insert($0).inserted }
+        let onShelf = Set(items.map(\.url))
+        let fresh = drop.filter { !onShelf.contains($0) }
+        var staying = items.filter { !seen.contains($0.url) }
+
+        var over = staying.count + drop.count - max(1, cap)
+        var evicted: [URL] = []
+        var index = staying.count - 1
+        while over > 0, index >= 0 {
+            if !isOwned(staying[index].url) {
+                evicted.append(staying[index].url)
+                staying.remove(at: index)
+                over -= 1
+            }
+            index -= 1
+        }
+
+        let refused = over > 0 ? Array(fresh.suffix(over)) : []
+        let turnedAway = Set(refused)
+        let front = drop.filter { !turnedAway.contains($0) }
+            .reversed()
+            .map { ShelfItem(url: $0, addedAt: now) }
+        return Admission(items: front + staying, evicted: evicted, refused: refused)
+    }
+
+    /// What the island says when a drop did not all fit.
+    static func noRoomTitle(_ count: Int) -> String { "\(count) didn't fit" }
+
+    /// A drop bigger than the room the shelf had. Said as the card, like a drop that carried
+    /// nothing: somebody has just let go over the island and is looking straight at it.
+    private func announceNoRoom(_ count: Int) {
+        guard publishesActivity else { return }
+        let custom = CustomActivity(title: Self.noRoomTitle(count),
+                                     subtitle: "The shelf holds \(maxItems). Make some room and drop \(count == 1 ? "it" : "them") again.",
+                                     symbol: "tray.full", tint: "orange")
+        ActivityCenter.shared.showAlert(IslandActivity(id: "shelf-full", kind: .custom,
+                                                       content: .custom(custom), priority: 85,
+                                                       presentation: .expanded),
+                                        duration: 3)
     }
 
     func remove(_ urls: [URL]) {
@@ -163,7 +245,12 @@ final class ShelfStore: ObservableObject {
         rescheduleSweep()
     }
 
+    /// Everything off the shelf at once, for good: what the menu bar's Clear Shelf, the island's
+    /// menu and a script ask for. The section's own pill is `clear(matching:)`, which can be
+    /// taken back.
     func clear() {
+        // Whatever an earlier Clear was holding goes the way this one sends everything.
+        settleClear()
         guard !items.isEmpty else { return }
         let leaving = urls
         items.removeAll()
@@ -174,18 +261,139 @@ final class ShelfStore: ObservableObject {
         rescheduleSweep()
     }
 
+    // MARK: - Clearing, and taking it back
+
+    /// The files whose names answer to what was typed, in shelf order; everything when nothing
+    /// was. The strip shows this, the gesture router counts it, and Clear takes it.
+    static func matching(_ items: [ShelfItem], query: String?) -> [ShelfItem] {
+        items.filter { PanelFind.matches([$0.url.lastPathComponent], query: query) }
+    }
+
+    /// What the section's Clear takes: what the strip is showing. With a find up that is the
+    /// matches and nothing else — the pill counts them, and a pill that says "Clear 2" while
+    /// eight more go with them is a pill that does more than it says.
+    static func clearing(_ items: [ShelfItem], query: String?) -> [ShelfItem] {
+        matching(items, query: query)
+    }
+
+    /// How long "Undo Clear" is offered for: the same moment the scratchpad gives.
+    static let undoWindow: TimeInterval = NotesStore.undoWindow
+
+    /// What the last Clear took, and the shelf either side of it.
+    private struct ClearOffer {
+        let before: [ShelfItem]
+        let after: [ShelfItem]
+        let taken: [ShelfItem]
+    }
+
+    private var clearOffer: ClearOffer? {
+        didSet { clearedItems = clearOffer?.taken }
+    }
+    private var clearWork: DispatchWorkItem?
+
+    /// What the last Clear took off the shelf, for as long as the offer to put it back stands.
+    /// The section's pill reads this.
+    @Published private(set) var clearedItems: [ShelfItem]?
+
+    /// The section's Clear: what the strip is showing comes off, and can be put back for a
+    /// moment afterwards.
+    ///
+    /// The island's own files are not sent to the Trash until the offer has gone — putting
+    /// back a snippet that is already in the Trash would put back a tile with nothing behind
+    /// it. A second Clear supersedes the first, the way the scratchpad's does: one offer at a
+    /// time, and always for the most recent thing taken.
+    func clear(matching query: String?) {
+        let going = Self.clearing(items, query: query)
+        guard !going.isEmpty else { return }
+        settleClear()
+        let before = items
+        let leaving = Set(going.map(\.url))
+        items.removeAll { leaving.contains($0.url) }
+        pruneThumbnailCache()
+        persist()
+        rescheduleSweep()
+        clearOffer = ClearOffer(before: before, after: items, taken: going)
+        let work = DispatchWorkItem { [weak self] in self?.settleClear() }
+        clearWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: work)
+    }
+
+    /// Puts the shelf back as it stood before the last Clear, in the same order. Only ever
+    /// while the shelf is still what the Clear left, so it can never undo a drop made since.
+    func undoClear() {
+        guard let offer = clearOffer, items == offer.after else { return }
+        clearWork?.cancel()
+        clearWork = nil
+        clearOffer = nil
+        // A file somebody deleted in Finder while the offer stood stays gone.
+        items = backgroundWork ? offer.before.filter { Self.stillThere($0) } : offer.before
+        for item in items { requestThumbnail(item.url) }
+        persist()
+        rescheduleSweep()
+    }
+
+    /// The offer has gone — its moment passed, the shelf changed, a second Clear came, or the
+    /// app is quitting — and what it was holding goes the way a Clear always sent it: the
+    /// island's own files to the Trash, anybody else's left where they are.
+    private func settleClear(waiting: Bool = false) {
+        guard let offer = clearOffer else { return }
+        clearWork?.cancel()
+        clearWork = nil
+        clearOffer = nil
+        let live = Set(items.map(\.url))
+        discardOwned(offer.taken.map(\.url).filter { !live.contains($0) }, waiting: waiting)
+    }
+
     /// A picture, a link or a piece of text the island itself wrote has nowhere else to live,
     /// so it goes to the Trash when it leaves the shelf — recoverable, and it does not pile up
-    /// in Application Support. A file that came from Finder is never touched.
-    private func discardOwned(_ urls: [URL]) {
+    /// in Application Support. A file that came from Finder is never touched. Off the main
+    /// thread, unless the app is on its way out and there is no later to do it in.
+    private func discardOwned(_ urls: [URL], waiting: Bool = false) {
         let owned = urls.filter { Self.isOwned($0) }
         guard backgroundWork, !owned.isEmpty else { return }
-        DispatchQueue.global(qos: .utility).async {
+        let discard: () -> Void = {
             for url in owned {
                 guard FileManager.default.fileExists(atPath: url.path) else { continue }
                 try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
             }
         }
+        if waiting {
+            discard()
+        } else {
+            DispatchQueue.global(qos: .utility).async(execute: discard)
+        }
+    }
+
+    // MARK: - What Space previews
+
+    /// What the strip on screen has picked out and what it is showing, as it last said. The
+    /// selection is the strip's own state, and the hot key that turns Space into Quick Look
+    /// lives nowhere near it; this is how the one hears about the other.
+    private var stripSelection: [URL] = []
+    private var stripShown: [URL] = []
+
+    /// The strip's selection or find changed. Not published: nothing is drawn from it.
+    func stripChanged(selected: [URL], shown: [URL]) {
+        stripSelection = selected
+        stripShown = shown
+    }
+
+    /// What Space shows in Quick Look on the shelf.
+    var quickLookTargets: [URL] {
+        Self.quickLookTargets(selected: stripSelection, shown: stripShown, on: urls)
+    }
+
+    /// What is picked out; failing that, what a find has narrowed the strip to; failing that,
+    /// the whole shelf — the way Space works on a Finder window. Only files still on the shelf
+    /// count, so a strip that last spoke before something left it cannot preview a file that
+    /// is not there.
+    static func quickLookTargets(selected: [URL], shown: [URL], on shelf: [URL]) -> [URL] {
+        let live = Set(shelf)
+        let picked = selected.filter { live.contains($0) }
+        if !picked.isEmpty { return picked }
+        let narrowed = shown.filter { live.contains($0) }
+        if !narrowed.isEmpty { return narrowed }
+        return shelf
     }
 
     // MARK: - Expiry

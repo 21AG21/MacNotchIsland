@@ -64,6 +64,15 @@ struct ShelfStripView: View {
             selection = selection.intersection(live)
             if let anchor = selectionAnchor, !live.contains(anchor) { selectionAnchor = nil }
         }
+        // Space is Quick Look here, and the hot key that takes it is nowhere near this view's
+        // selection; the store passes on what is picked out and what the find is showing, so
+        // Space previews those rather than the whole shelf.
+        .onChange(of: orderedSelection, initial: true) { _, picked in
+            shelf.stripChanged(selected: picked, shown: shown.map(\.url))
+        }
+        .onChange(of: shown.map(\.url)) { _, now in
+            shelf.stripChanged(selected: orderedSelection, shown: now)
+        }
         // A drag reaching the island says straight away whether it is carrying files, so the
         // well splits as it arrives — not only once the pointer is over the well itself. The
         // gallery has no drag, only whatever the last real one left on the pasteboard.
@@ -105,9 +114,10 @@ struct ShelfStripView: View {
     private var shown: [ShelfItem] { Self.matching(shelf.items, query: center.findQuery) }
 
     /// The same, from anywhere: the gesture router counts what the strip is showing, and only
-    /// the same filter counts it right.
+    /// the same filter counts it right. The rule is the store's, because Clear takes exactly
+    /// what this shows.
     static func matching(_ items: [ShelfItem], query: String?) -> [ShelfItem] {
-        items.filter { PanelFind.matches([$0.url.lastPathComponent], query: query) }
+        ShelfStore.matching(items, query: query)
     }
 
     private var headerTitle: String {
@@ -141,24 +151,35 @@ struct ShelfStripView: View {
                     shelf.open([shown[index].url])
                 }
             }
-            if !shelf.items.isEmpty {
-                if picked {
-                    PillButton(title: "Open") { shelf.open(orderedSelection) }
-                }
+            if picked {
+                PillButton(title: "Open") { shelf.open(orderedSelection) }
+            }
+            // Nothing on screen is nothing to send: a find with no matches has no AirDrop.
+            if !shown.isEmpty {
                 PillButton(title: "AirDrop", symbol: "dot.radiowaves.right") {
                     shelf.airDrop(picked ? orderedSelection : shown.map(\.url))
                 }
-                // With a selection the destructive pill takes only that: emptying the whole
-                // shelf when the user has picked out two files is not what they asked for.
-                if !picked {
-                    PillButton(title: "Clear", tint: .white.opacity(0.85)) { shelf.clear() }
-                } else {
-                    PillButton(title: "Remove", tint: .white.opacity(0.85)) {
-                        let going = orderedSelection
-                        selection.removeAll()
-                        selectionAnchor = nil
-                        shelf.remove(going)
-                    }
+            }
+            // With a selection the destructive pill takes only that: emptying the whole
+            // shelf when the user has picked out two files is not what they asked for.
+            if picked {
+                PillButton(title: "Remove", tint: .white.opacity(0.85)) {
+                    let going = orderedSelection
+                    selection.removeAll()
+                    selectionAnchor = nil
+                    shelf.remove(going)
+                }
+            } else if shelf.clearedItems != nil {
+                // Where the Clear was, for the moment the offer stands: the pill somebody has
+                // just clicked by mistake is the one they look at, and it must not turn into
+                // another Clear under the pointer.
+                PillButton(title: "Undo Clear", tint: .white.opacity(0.85)) { shelf.undoClear() }
+            } else if !shown.isEmpty {
+                // Clear takes what the strip is showing and says so: two files found out of
+                // ten is "Clear 2", and the eight the find is hiding stay where they are.
+                PillButton(title: ClearPill.title(clearing: shown.count, query: center.findQuery),
+                           tint: .white.opacity(0.85)) {
+                    shelf.clear(matching: center.findQuery)
                 }
             }
         }

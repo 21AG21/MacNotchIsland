@@ -361,10 +361,74 @@ final class NotificationInbox: ObservableObject {
         schedulePersist()
     }
 
+    /// Forgets every notification kept so far, for good: Settings' Erase. An offer to take back
+    /// a Clear goes with them — "what was written to disk goes with them" is a promise about
+    /// memory as much as about the file.
     func clear() {
+        forgetUndo()
         guard !entries.isEmpty else { return }
         entries.removeAll()
         schedulePersist()
+    }
+
+    // MARK: - Clearing from the section, and taking it back
+
+    /// What the section's Clear takes: what the list is showing. With a find up, the matches
+    /// and nothing else; with nothing typed, everything.
+    static func clearing(_ entries: [Entry], query: String?) -> [Entry] {
+        entries.filter { matches($0, query: query) }
+    }
+
+    /// What Undo Clear leaves: the entries the Clear took, back in their places beside
+    /// whatever has arrived since. Banners keep coming while the offer stands, so it cannot
+    /// wait for the list to hold still the way the scratchpad's does. Each goes back the way a
+    /// reading is filed, so a banner read again in the meantime is one line rather than two,
+    /// and the cap and the expiry still apply.
+    static func restoring(_ cleared: [Entry], into entries: [Entry], now: Date = Date()) -> [Entry] {
+        let present = Set(entries.map(\.id))
+        var result = entries
+        for entry in cleared where !present.contains(entry.id) {
+            result = dedupe(entry, into: result)
+        }
+        return trimmed(result, now: now)
+    }
+
+    /// How long "Undo Clear" is offered for: the same moment the scratchpad gives.
+    static let undoWindow: TimeInterval = NotesStore.undoWindow
+
+    /// What the last Clear took, for as long as the offer to put it back stands.
+    @Published private(set) var clearedEntries: [Entry]?
+    private var clearedWork: DispatchWorkItem?
+
+    /// The section's Clear: what the list is showing goes, and for a moment afterwards it can
+    /// be put back. A second Clear supersedes the first, as the scratchpad's does.
+    func clear(matching query: String?) {
+        let going = Self.clearing(entries, query: query)
+        guard !going.isEmpty else { return }
+        let ids = Set(going.map(\.id))
+        entries.removeAll { ids.contains($0.id) }
+        schedulePersist()
+        forgetUndo()
+        clearedEntries = going
+        let work = DispatchWorkItem { [weak self] in self?.forgetUndo() }
+        clearedWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: work)
+    }
+
+    /// Puts back what the last Clear took.
+    func undoClear() {
+        guard let cleared = clearedEntries else { return }
+        forgetUndo()
+        let restored = Self.restoring(cleared, into: entries)
+        guard restored != entries else { return }
+        entries = restored
+        schedulePersist()
+    }
+
+    private func forgetUndo() {
+        clearedWork?.cancel()
+        clearedWork = nil
+        clearedEntries = nil
     }
 
     /// Fills the history for the rendered gallery, which starts with nothing to show. Does
@@ -373,6 +437,7 @@ final class NotificationInbox: ObservableObject {
         loaded = true
         guard RenderMode.isGallery else { return }
         self.entries = entries
+        forgetUndo()
     }
 
     // MARK: - Persistence

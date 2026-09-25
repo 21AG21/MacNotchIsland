@@ -371,9 +371,10 @@ final class HotKeyService: ObservableObject {
         case .volumeDown: GestureRouter.shared.nudgeVolume(up: false)
         case .playPause:
             // On the shelf, Space is Quick Look — where every Mac has taught people to expect
-            // it. Anywhere else it plays and pauses.
+            // it — of what is picked out, as in Finder, and of the whole shelf when nothing
+            // is (`ShelfStore.quickLookTargets`). Anywhere else it plays and pauses.
             if center.isShowingShelf, !ShelfStore.shared.items.isEmpty {
-                ShelfQuickLook.shared.show(ShelfStore.shared.urls)
+                ShelfQuickLook.shared.show(ShelfStore.shared.quickLookTargets)
             } else {
                 NowPlayingService.shared.togglePlayPause()
             }

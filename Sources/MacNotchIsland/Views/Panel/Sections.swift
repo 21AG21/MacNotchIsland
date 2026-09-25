@@ -12,6 +12,20 @@ struct ShelfSectionView: View {
     }
 }
 
+// MARK: - Clear
+
+/// What the Clear pill on the three lists says: the shelf, the clipboard and the notifications.
+///
+/// "Clear" while nothing is typed, and with a find up the number it is about to take — the
+/// matches, never the rows the find is hiding. Ten files on the shelf, "pdf" typed and two
+/// showing: the pill said "Clear" and emptied all ten, and the eight nobody could see went with
+/// no way back.
+enum ClearPill {
+    static func title(clearing count: Int, query: String?) -> String {
+        PanelFind.needle(query) == nil ? "Clear" : "Clear \(count)"
+    }
+}
+
 // MARK: - Clipboard
 
 struct ClipboardSectionView: View {
@@ -43,8 +57,18 @@ struct ClipboardSectionView: View {
                         store.pick(item: matches[index])
                     }
                 }
-                if !store.items.isEmpty {
-                    PillButton(title: "Clear", tint: .white.opacity(0.85)) { store.clear() }
+                // A pin is somebody saying "keep this", and Clear is not them taking it back:
+                // the pill takes what is not pinned, so a list of nothing but pins has none.
+                let clearable = ClipboardStore.clearing(store.items, query: center.findQuery)
+                if store.clearedItems != nil {
+                    // Where the Clear was, for the moment the offer stands. A copy arriving in
+                    // the meantime must not turn the pill back into a Clear under the pointer.
+                    PillButton(title: "Undo Clear", tint: .white.opacity(0.85)) { store.undoClear() }
+                } else if !clearable.isEmpty {
+                    PillButton(title: ClearPill.title(clearing: clearable.count, query: center.findQuery),
+                               tint: .white.opacity(0.85)) {
+                        store.clear(matching: center.findQuery)
+                    }
                 }
             }
             ClipboardView(query: center.findQuery ?? "", found: foundID)
@@ -106,19 +130,41 @@ struct ActionsSectionView: View {
     static let timerRowHeight: CGFloat = 28
     /// The air above and below the hairline between the two rows.
     static let ruleGap: CGFloat = 8
+    /// Between one thing on the timer row and the next.
+    static let timerRowSpacing: CGFloat = 8
+    /// The timer glyph at the head of the row, drawn this wide so it hangs from the column
+    /// the header does. It takes its clicks in `IslandHit.minimum`, a few points out either
+    /// side — into the panel's margin and the gap before the first preset — so nothing on the
+    /// row moves to make room for the target.
+    static let timerGlyphWidth: CGFloat = 16
+
+    /// Every word the stopwatch's pill can say. The pill keeps the width of the longest of
+    /// them whichever it is showing: it sits at the far end of the row, so a pill that shrank
+    /// from "Stopwatch" to "Stop" pulled its left edge 35 points out from under the pointer,
+    /// and the click that was meant to stop the watch landed on nothing.
+    static let stopwatchTitles = ["Stopwatch", "Stop", "Reset"]
+
+    /// Stopwatch to start one, Stop while it runs, Reset once it has stopped — never Reset
+    /// straight away, which used to take the laps with it. `isRunning` is nil with no
+    /// stopwatch at all.
+    static func stopwatchTitle(isRunning: Bool?) -> String {
+        guard let isRunning else { return "Stopwatch" }
+        return isRunning ? "Stop" : "Reset"
+    }
 
     /// Whether the timer entry is up: the find, on this section.
     private var entryOpen: Bool { center.findQuery != nil && PanelFind.takesEntry(center.openSection) }
 
     private var timerRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Self.timerRowSpacing) {
             // The way in for a pointer, as the glass is on a list: typing a number is the other.
             Button(action: { ActivityCenter.shared.beginFind() }) {
                 Image(systemName: "timer")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(entryOpen ? 0.3 : 0.55))
-                    .frame(width: 16, height: Self.timerRowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .frame(width: Self.timerGlyphWidth, height: Self.timerRowHeight, alignment: .leading)
+                    // 16 across was 8 short of what the pointer is owed.
+                    .hitOutset(horizontal: IslandHit.outset(drawn: Self.timerGlyphWidth), vertical: 0)
             }
             .buttonStyle(IslandButtonStyle())
             .disabled(entryOpen)
@@ -143,20 +189,49 @@ struct ActionsSectionView: View {
                 alarmPill(soonest, others: timers.alarms.count - 1)
             }
             Spacer(minLength: 0)
-            // Stop means stop: it used to reset, and took the laps with it. Stopped, the same
-            // button clears it, and says so.
-            let running = stopwatch.state?.isRunning == true
-            PillButton(title: stopwatch.state == nil ? "Stopwatch" : (running ? "Stop" : "Reset"),
-                       symbol: "stopwatch.fill") {
-                if stopwatch.state == nil {
-                    stopwatch.start()
-                } else if stopwatch.state?.isRunning == true {
-                    stopwatch.stop()
-                } else {
-                    stopwatch.reset()
+            stopwatchPill
+        }
+    }
+
+    /// Stop means stop: it used to reset, and took the laps with it. Stopped, the same button
+    /// clears it, and says so.
+    ///
+    /// Drawn here rather than as a `PillButton`, the way the alarm's capsule beside it is, and
+    /// to the same measure as one — the same type, the same glyph, the same padding and fill —
+    /// because it has to hold its width while its word changes: every word it can say is laid
+    /// in the same place and only one of them shows, so the capsule is as wide as the longest
+    /// whichever it is showing.
+    private var stopwatchPill: some View {
+        let title = Self.stopwatchTitle(isRunning: stopwatch.state?.isRunning)
+        return Button(action: {
+            if stopwatch.state == nil {
+                stopwatch.start()
+            } else if stopwatch.state?.isRunning == true {
+                stopwatch.stop()
+            } else {
+                stopwatch.reset()
+            }
+        }) {
+            HStack(spacing: 5) {
+                Image(systemName: "stopwatch.fill")
+                    .font(.system(size: 11, weight: .bold))
+                ZStack {
+                    ForEach(Self.stopwatchTitles, id: \.self) { word in
+                        Text(word)
+                            .font(.system(size: 12, weight: .semibold))
+                            .opacity(word == title ? 1 : 0)
+                    }
                 }
             }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(Color.white.opacity(0.18)))
+            .contentShape(Capsule())
         }
+        .buttonStyle(IslandButtonStyle())
+        // The words laid underneath are for the width only; this is what it says.
+        .accessibilityLabel(title)
     }
 
     /// The next alarm, by the time it will ring, with a cross to take it back — and how many

@@ -230,6 +230,50 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertLessThanOrEqual(row, ShelfItemView.column, "and the outer two stay inside the tile")
     }
 
+    // MARK: - Controls that stay under the pointer
+
+    /// The timer glyph at the head of the Actions row is drawn 16 pt wide and takes its clicks
+    /// in 24, reaching no further than the gap before the first preset.
+    func testTheTimerGlyphIsATargetThePointerIsOwed() {
+        let reach = IslandHit.outset(drawn: ActionsSectionView.timerGlyphWidth)
+        XCTAssertEqual(ActionsSectionView.timerGlyphWidth + 2 * reach, IslandHit.minimum)
+        XCTAssertLessThanOrEqual(reach, ActionsSectionView.timerRowSpacing,
+                                 "the target stops short of the first preset's")
+        XCTAssertGreaterThanOrEqual(ActionsSectionView.timerRowHeight, IslandHit.minimum)
+    }
+
+    /// The stopwatch's pill keeps the width of its longest word, which only works if every
+    /// word it can show is one of the words it is measured by.
+    func testTheStopwatchPillIsMeasuredByEveryWordItCanSay() {
+        let said = [ActionsSectionView.stopwatchTitle(isRunning: nil),
+                    ActionsSectionView.stopwatchTitle(isRunning: true),
+                    ActionsSectionView.stopwatchTitle(isRunning: false)]
+        XCTAssertEqual(said, ["Stopwatch", "Stop", "Reset"], "start, then stop, and only then reset")
+        for word in said {
+            XCTAssertTrue(ActionsSectionView.stopwatchTitles.contains(word), "\(word) would change the pill's width")
+        }
+    }
+
+    /// The three lists' Clear says how many it is about to take whenever a find has narrowed
+    /// what is showing, and nothing more when it has not.
+    func testTheClearPillCountsWhatAFindHasNarrowedItTo() {
+        XCTAssertEqual(ClearPill.title(clearing: 10, query: nil), "Clear")
+        XCTAssertEqual(ClearPill.title(clearing: 10, query: ""), "Clear", "an empty field narrows nothing")
+        XCTAssertEqual(ClearPill.title(clearing: 10, query: "  "), "Clear")
+        XCTAssertEqual(ClearPill.title(clearing: 2, query: "pdf"), "Clear 2")
+    }
+
+    /// The rail's sliders take their clicks in 24 pt and draw the same 4 pt track they always
+    /// did, inside a row the rail already had room for.
+    func testTheRailSlidersTakeTheirClicksInTwentyFourPoints() {
+        XCTAssertGreaterThanOrEqual(IslandSlider.hitHeight, IslandHit.minimum)
+        XCTAssertEqual(IslandSlider.restingTrack, 4)
+        XCTAssertEqual(IslandSlider.activeTrack, 7)
+        XCTAssertLessThan(IslandSlider.activeTrack, IslandSlider.hitHeight)
+        XCTAssertLessThanOrEqual(IslandSlider.hitHeight, RailMetrics.button,
+                                 "no taller than the discs beside it, so the rail does not grow")
+    }
+
     func testTheSevenButtonsTheRailHasAlwaysHadStillFitAtItsWidest() {
         // A Mac with a brightness slider, a second output and something on the shelf has the
         // widest fixed end there is, and the rail still holds everything it held before it had

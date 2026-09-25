@@ -37,6 +37,14 @@ struct IslandSlider: View {
     /// number of its own would leave the same control answering to two ideas of a notch.
     static let adjustStep: Double = GestureRouter.keyStep
 
+    /// The track as it is drawn: a hairline at rest, and thicker under the pointer.
+    static let restingTrack: CGFloat = 4
+    static let activeTrack: CGFloat = 7
+    /// The height it takes its clicks in, with the track drawn across the middle of it. It was
+    /// 20, four short of what the pointer is owed; the rail's row is taller than either, so
+    /// the extra comes out of air that was already there and nothing beside it moves.
+    static let hitHeight: CGFloat = IslandHit.minimum
+
     private var shown: Double { min(1, max(0, held ?? value)) }
     private var active: Bool { hovering || dragging }
 
@@ -47,9 +55,9 @@ struct IslandSlider: View {
                 Capsule().fill(Color.white.opacity(active ? 0.95 : 0.85))
                     .frame(width: max(0, geo.size.width * shown))
             }
-            .frame(height: active ? 7 : 4)
+            .frame(height: active ? Self.activeTrack : Self.restingTrack)
             .frame(maxHeight: .infinity, alignment: .center)
-            // The whole 20 pt row takes the click, not just the 4 pt of track in the middle.
+            // The whole row takes the click, not just the 4 pt of track in the middle.
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -71,7 +79,7 @@ struct IslandSlider: View {
                 releaseWork = nil
             }
         }
-        .frame(height: 20)
+        .frame(height: Self.hitHeight)
         .onHover { hovering = $0 }
         // The track is drawn from shapes, which say nothing to a screen reader, and the rail
         // hangs the label and the value on this view from outside; one element is what both

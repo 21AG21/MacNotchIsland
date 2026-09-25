@@ -37,8 +37,19 @@ struct NotificationsSectionView: View {
                 if !inbox.entries.isEmpty || center.findQuery != nil {
                     FindField(matches: matches.count)
                 }
-                if !inbox.entries.isEmpty {
-                    PillButton(title: "Clear", tint: .white.opacity(0.85)) { inbox.clear() }
+                // What the list is showing, and no more: with a find up the pill counts the
+                // matches it will take, and the rows the find is hiding stay.
+                let clearable = NotificationInbox.clearing(inbox.entries, query: center.findQuery)
+                if inbox.clearedEntries != nil {
+                    // Where the Clear was, for the moment the offer stands. A banner arriving
+                    // in the meantime must not turn the pill back into a Clear under the
+                    // pointer.
+                    PillButton(title: "Undo Clear", tint: .white.opacity(0.85)) { inbox.undoClear() }
+                } else if !clearable.isEmpty {
+                    PillButton(title: ClearPill.title(clearing: clearable.count, query: center.findQuery),
+                               tint: .white.opacity(0.85)) {
+                        inbox.clear(matching: center.findQuery)
+                    }
                 }
             }
             content
