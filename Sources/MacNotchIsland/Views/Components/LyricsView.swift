@@ -5,6 +5,9 @@ import SwiftUI
 /// Renders nothing at all (zero height) when there is no line for the current moment, so a
 /// track without lyrics, an instrumental break, or a paused-before-the-first-line state never
 /// leaves an empty row behind. Callers that need a stable layout give it a fixed frame.
+///
+/// Counted as a viewer while it is on screen: the service works out the line only while one
+/// is (`LyricsService.ticks`).
 struct LyricsView: View {
     @ObservedObject private var lyrics = LyricsService.shared
 
@@ -38,5 +41,7 @@ struct LyricsView: View {
         }
         .clipped()
         .animation(IslandMotion.fade, value: line)
+        .onAppear { lyrics.viewerAppeared() }
+        .onDisappear { lyrics.viewerDisappeared() }
     }
 }

@@ -188,6 +188,10 @@ the unreleased section is what the next tag will ship.
   the sections' is.
 
 ### Changed
+- **The island wakes about a quarter as often at idle.** The Now Playing tick is off while the helper answers, its watchdog looks every six seconds instead of two, Caps Lock is event-driven with Accessibility granted, the menu poll slows once a menu is found, the rail's switches and the media-key checks follow the energy policy, and capabilities are re-probed when the output or the displays change rather than every five seconds.
+- **A locked, dark, screen-saver or switched-away Mac counts as unattended**: pollers slow eight times and animation stops, as they do in sleep, and everything comes back on unlock, wake or return.
+- **Timers ring on the second** instead of up to 1.15 s late, with no wakeups while one runs.
+- **Lyrics and the system audio tap run only while something on screen shows them**, and a paused title no longer scrolls.
 - **Launch draws the island before starting its services**, which used to walk the cameras, the audio devices, the Downloads folder and the helper before the first frame.
 - **Windows retakes only the pictures that changed**, and Focus reads its database once per burst of changes.
 - **The clipboard history lasts until Notch Island quits, unless you keep it.** It is still on
@@ -274,6 +278,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Lyrics follow along again after the Mac wakes.** The ticker read the sleep flag before the new value was stored, so going to sleep left it running and waking stopped it until the next track report.
+- **A player that refused Automation shows as not answering in Settings**, and the Now Playing buttons' tooltips say why. The rail no longer asks for Bluetooth before the tour, and a Mac without a Bluetooth radio shows no Bluetooth switch.
 - **Nothing asks before the tour.** Bluetooth waited for nobody and was the first thing a new Mac saw; it now waits for the welcome tour like the calendar, and Settings > Privacy lists it, with the Downloads and screenshots folders and which player allowed or refused Automation.
 - **A shortcut that works.** Where macOS already uses ⌃⌥Space to switch input sources, the island ships on ⌃⌥I, the tour names whichever it got, and the shortcut recorder says when macOS has the combination.
 - **Nothing asks because you looked.** A peek no longer asks for Reminders (Home and Today hold the agenda only on a panel pinned open until both questions have been put), Controls asks for Location only from a "Show names" pill, and the mirror checks for a camera first and is left off a Mac with none.

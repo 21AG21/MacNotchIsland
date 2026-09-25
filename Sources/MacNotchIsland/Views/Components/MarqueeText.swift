@@ -8,6 +8,10 @@ struct MarqueeText: View {
     var speed: Double = 28       // points per second
     var pause: Double = 1.6      // seconds before scrolling starts
     var gap: CGFloat = 36
+    /// Whether what the text names is playing. A paused track's title holds still: it scrolled
+    /// on, a frame every thirtieth of a second, for as long as the card showed a track nobody
+    /// was listening to — five minutes at a time with "Keep paused music for" as it ships.
+    var isPlaying: Bool = true
 
     @ObservedObject private var energy = EnergyPolicy.shared
     @State private var textWidth: CGFloat = 0
@@ -20,8 +24,9 @@ struct MarqueeText: View {
     var body: some View {
         GeometryReader { geo in
             let overflow = textWidth > geo.size.width + 1
-            // Energy policy can pause scrolling even when the text doesn't fit.
-            let scrolling = overflow && !energy.animationsPaused
+            // Energy policy can pause scrolling even when the text doesn't fit, and so can the
+            // music stopping.
+            let scrolling = overflow && isPlaying && !energy.animationsPaused
             let distance = Double(textWidth + gap)
             TimelineView(.animation(minimumInterval: energy.animationInterval, paused: !scrolling)) { context in
                 let t = max(0, context.date.timeIntervalSince(epoch))
@@ -60,6 +65,9 @@ struct MarqueeText: View {
         }
         .frame(height: lineHeight)
         .onChange(of: text) { _, _ in epoch = Date() }
+        // Played again, the title holds for its pause and sets off from its first letter, the
+        // way a new one does, rather than jumping to wherever the clock has got to meanwhile.
+        .onChange(of: isPlaying) { _, playing in if playing { epoch = Date() } }
         .background(
             label.fixedSize().hidden().background(
                 GeometryReader { g in

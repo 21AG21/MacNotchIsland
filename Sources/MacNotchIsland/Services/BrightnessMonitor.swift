@@ -2,9 +2,10 @@ import AppKit
 import Combine
 
 /// Brightness HUD. There is no public change notification, so the built-in display's
-/// brightness is sampled a few times a second through DisplayServices (cheap call).
-/// The same private symbols also let the media-key interceptor set the brightness when
-/// it replaces the system bezel.
+/// brightness is sampled through DisplayServices (cheap call) — every two seconds while the
+/// island answers the brightness keys, which announce themselves, and four times a second
+/// while it does not (`pollInterval`). The same private symbols also let the media-key
+/// interceptor set the brightness when it replaces the system bezel.
 final class BrightnessMonitor {
     private typealias GetBrightnessFn = @convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32
     private typealias SetBrightnessFn = @convention(c) (CGDirectDisplayID, Float) -> Int32
@@ -35,32 +36,73 @@ final class BrightnessMonitor {
     /// Last value reported to the island. Shared so a value we set ourselves is not
     /// announced twice (once by the setter, once by the poll). Main thread only.
     private static var lastSeen: Float = -1
+    /// How many monitors are sampling, see `lastSample`. Main thread only.
+    private static var sampling = 0
+
+    /// The panel's brightness as last read here, 0...1 — by the poll, or by the key tap as it
+    /// set it — or nil while no monitor is running, when nothing keeps it current. For the
+    /// rail's slider, which can follow this rather than read the display on a timer of its
+    /// own. Main thread only.
+    static var lastSample: Float? { sampling > 0 && lastSeen >= 0 ? lastSeen : nil }
 
     private var timer: Timer?
+    private var running = false
 
-    private var energyCancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
 
-    func start() {
-        guard timer == nil, Self.symbols.get != nil else { return }
-        Self.lastSeen = read() ?? -1
-        scheduleTimer()
-        energyCancellable = EnergyPolicy.shared.objectWillChange
-            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in self?.scheduleTimer() }
+    /// How often the panel is read. Pure, so it is tested.
+    ///
+    /// While the island answers the brightness keys (`answersKeys`), every press is already
+    /// announced the moment it is applied (`MediaKeyInterceptor.adjustBrightness`, through
+    /// `notifyChange`), and the poll has only Control Centre's slider and the light sensor
+    /// left to catch — neither of which needs catching four times a second. It polled at 4 Hz
+    /// anyway, on the main thread, for as long as the app ran. While the island does not
+    /// answer them, macOS takes the keys and says nothing, and looking often is the only way
+    /// anything here follows them.
+    static func pollInterval(answersKeys: Bool, multiplier: Double) -> TimeInterval {
+        (answersKeys ? 2 : 0.25) * max(1, multiplier)
     }
 
-    /// 4 Hz on mains power (brightness keys repeat quickly), slower on battery / Low Power / asleep.
+    func start() {
+        guard !running, Self.symbols.get != nil else { return }
+        running = true
+        Self.sampling += 1
+        Self.lastSeen = read() ?? -1
+        scheduleTimer()
+        EnergyPolicy.shared.objectWillChange
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
+            .store(in: &cancellables)
+        // The tap coming up or going down changes who announces a key. Hopped through the main
+        // queue: `@Published` announces a value before it is stored, and the rule reads it.
+        // What the tap can answer changes with no announcement at all, and is picked up at
+        // the next reading instead (`tick`).
+        SystemHUDReplacement.shared.$isActive
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
+            .store(in: &cancellables)
+    }
+
+    /// Rebuilds the timer when the interval it should run at has changed, and only then: a
+    /// rebuild pushes the next reading back by a whole interval.
     private func scheduleTimer() {
+        guard running else { return }
+        let interval = Self.pollInterval(answersKeys: SystemHUDReplacement.shared.answersBrightness,
+                                         multiplier: EnergyPolicy.shared.pollingMultiplier)
+        if let timer, abs(timer.timeInterval - interval) < 0.01 { return }
         timer?.invalidate()
-        let interval = 0.25 * EnergyPolicy.shared.pollingMultiplier
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
         timer?.tolerance = interval * 0.2
     }
 
     func stop() {
+        guard running else { return }
+        running = false
+        Self.sampling = max(0, Self.sampling - 1)
         timer?.invalidate()
         timer = nil
-        energyCancellable = nil
+        cancellables.removeAll()
     }
 
     // MARK: Reading / writing
@@ -132,6 +174,7 @@ final class BrightnessMonitor {
     }
 
     private func tick() {
+        scheduleTimer()
         guard let v = read() else { return }
         if Self.lastSeen < 0 { Self.lastSeen = v; return }
         let previous = Self.lastSeen

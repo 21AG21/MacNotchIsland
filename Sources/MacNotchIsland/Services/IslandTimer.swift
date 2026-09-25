@@ -110,6 +110,8 @@ final class IslandTimer: ObservableObject {
     static let rowHeight: CGFloat = 24
 
     private var ticker: Timer?
+    /// What makes the ticker look again straight away, see `watchTheClockForTimers`.
+    private var tickerObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var lastDuration: TimeInterval = 300
     private var lastLabel = "Timer"
     /// Which timer (if any) the Pomodoro run is driving.
@@ -729,26 +731,71 @@ final class IslandTimer: ObservableObject {
 
     // MARK: - Ticking
 
-    /// One shared ticker for every timer, and none at all while they are all paused or done.
-    /// 1 Hz with a generous tolerance: the digits redraw from a `TimelineView`, so this only
-    /// has to notice the moment a countdown reaches zero.
-    private func syncTicker() {
-        let running = timers.contains { !$0.state.isPaused && !$0.state.isFinished }
-        if running {
-            guard ticker == nil else { return }
-            // Always 1 Hz: a countdown that rings late is a fidelity bug, and one timer per
-            // second while a timer runs is well inside the energy budget. Added in the common
-            // modes, like the alarm check: a timer in the default mode alone does not fire while
-            // a menu is held open or a slider dragged, so a countdown that ran out then rang
-            // only when the menu closed.
-            let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
-            t.tolerance = 0.15
-            RunLoop.main.add(t, forMode: .common)
-            ticker = t
-        } else {
-            ticker?.invalidate()
-            ticker = nil
+    /// One shared look for every timer, set for the next moment one of them has something to
+    /// happen, and none at all while they are all paused or done (`nextTick`).
+    ///
+    /// It was a 1 Hz ticker with 0.15 s of tolerance, which woke every second a timer ran —
+    /// a twenty-five-minute Pomodoro phase is fifteen hundred wakeups to notice one moment —
+    /// and rang up to 1.15 s after the countdown reached zero. The digits never came from it:
+    /// every view that shows a countdown draws it from a `TimelineView` of its own, which runs
+    /// only while it is on screen. So the look is a one-shot at the soonest end, the way the
+    /// alarm check is, and it rings on time. Added in the common modes, like the alarm check:
+    /// a timer in the default mode alone does not fire while a menu is held open or a slider
+    /// dragged, so a countdown that ran out then rang only when the menu closed.
+    private func syncTicker(now: Date = Date()) {
+        ticker?.invalidate()
+        ticker = nil
+        guard let next = Self.nextTick(for: timers, now: now) else {
+            stopWatchingTheClockForTimers()
+            return
         }
+        watchTheClockForTimers()
+        let t = Timer(timeInterval: max(0, next.timeIntervalSince(now)), repeats: false) { [weak self] _ in self?.tick() }
+        t.tolerance = 0.05
+        RunLoop.main.add(t, forMode: .common)
+        ticker = t
+    }
+
+    /// When the ticker next has something to do: the soonest a running timer reaches zero, or,
+    /// if sooner, the moment a running timer's time left falls below a paused one's, which
+    /// changes which of them has the island (`reprioritize`). The overtaking is looked at a
+    /// hair after the moment, so the look finds the order already changed. Nil with nothing
+    /// running, which is no look at all. Pure, so it is tested.
+    static func nextTick(for timers: [TimerEntry], now: Date) -> Date? {
+        let running = timers.filter { !$0.state.isFinished && !$0.state.isPaused }
+        guard var next = running.map(\.state.endDate).min() else { return nil }
+        let paused = timers.compactMap { $0.state.isFinished ? nil : $0.state.pausedRemaining }
+        for timer in running {
+            for waiting in paused {
+                let overtakes = timer.state.endDate.addingTimeInterval(-waiting + overtakeMargin)
+                if overtakes > now, overtakes < next { next = overtakes }
+            }
+        }
+        return next
+    }
+
+    static let overtakeMargin: TimeInterval = 0.05
+
+    /// A timer's clock stops while the Mac sleeps, and knows nothing of the wall clock being
+    /// set, and a one-shot set for a countdown's end would ring as late as the sleep was long.
+    /// Both are heard here instead, for as long as a timer runs, and each is a look straight
+    /// away — as the alarm check does for alarms (`watchTheClock`).
+    private func watchTheClockForTimers() {
+        guard tickerObservers.isEmpty else { return }
+        let workspace = NSWorkspace.shared.notificationCenter
+        tickerObservers.append((workspace, workspace.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.tick() }))
+        let local = NotificationCenter.default
+        for name in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
+            tickerObservers.append((local, local.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.tick()
+            }))
+        }
+    }
+
+    private func stopWatchingTheClockForTimers() {
+        for (center, token) in tickerObservers { center.removeObserver(token) }
+        tickerObservers.removeAll()
     }
 
     private func tick() {
@@ -762,12 +809,9 @@ final class IslandTimer: ObservableObject {
         // A paused timer can be overtaken by a running one, so the island order is worth
         // re-checking even when nothing has finished.
         let reordered = reprioritize()
-        guard !justFinished.isEmpty else {
-            if reordered { publishAll() }
-            return
-        }
-        publishAll()
+        if reordered || !justFinished.isEmpty { publishAll() }
         for entry in justFinished { finish(entry) }
+        // The look is spent: the next one, if anything is still running.
         syncTicker()
     }
 

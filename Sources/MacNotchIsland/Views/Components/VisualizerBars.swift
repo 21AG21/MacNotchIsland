@@ -5,7 +5,8 @@ import SwiftUI
 /// Two sources drive the bars. When `AudioLevelTap` has a live system-audio tap the measured
 /// level dominates and the bars really follow the music; otherwise they fall back to the
 /// synthetic sine pattern, which is what every Mac before 14.2 (and everyone who leaves the
-/// reactive visualizer off) sees.
+/// reactive visualizer off) sees. The tap is there only while a set of bars is on screen to
+/// use it, which each one says as it comes and goes (`AudioLevelTap.viewerAppeared`).
 struct VisualizerBars: View {
     @ObservedObject private var energy = EnergyPolicy.shared
     @ObservedObject private var tap = AudioLevelTap.shared
@@ -30,6 +31,8 @@ struct VisualizerBars: View {
             .animation(IslandMotion.fade, value: isPlaying)
         }
         .frame(height: maxHeight)
+        .onAppear { tap.viewerAppeared() }
+        .onDisappear { tap.viewerDisappeared() }
     }
 
     private func height(index: Int, time t: Double) -> CGFloat {

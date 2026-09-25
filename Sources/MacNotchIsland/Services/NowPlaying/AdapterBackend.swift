@@ -5,11 +5,23 @@ import AppKit
 /// every app, not just Music and Spotify.
 final class AdapterBackend {
     var onUpdate: ((NowPlayingInfo?) -> Void)?
+    /// Called on the main queue whenever `isAnswering` may have changed: the helper spoke, was
+    /// started, died or was killed, the Mac woke, or the watchdog looked. What the service
+    /// switches its own tick on and off by, see `NowPlayingService.needsTick`.
+    var onHealthChange: (() -> Void)?
 
     /// The helper speaks every five seconds whether or not anything is playing, so silence for
     /// longer than two of those beats means the helper has stopped talking — not that the Mac
     /// has gone quiet. Everything above this class turns on that difference.
     static let silence: TimeInterval = 12
+
+    /// How often the watchdog looks for that silence: twice in the window, so a helper that
+    /// stops talking is caught within half a window of running out of it. It looked every two
+    /// seconds, six times per window, to catch a silence of twelve; the looks in between found
+    /// nothing they could act on. The tolerance keeps the latest look well inside the window,
+    /// which `missedItsLooks` reads a gap longer than as a sleep.
+    static let watchdogInterval: TimeInterval = silence / 2
+    static let watchdogTolerance: TimeInterval = 1
 
     /// Deaths are counted as a rate rather than as a lifetime total, see `BackendHealth`.
     static let restartBudget = 5
@@ -76,6 +88,20 @@ final class AdapterBackend {
     /// The helper is alive and still talking to us. This is what the lower-ranked backends are
     /// gated on: while it holds, nobody else needs to go and ask the Mac what is playing.
     var isAnswering: Bool { !Self.isOverdue(lastMessage: lastMessage, wokeAt: wokeAt, now: Date(), within: Self.silence) }
+
+    /// When `isAnswering` runs out if nothing more is heard, or nil for a helper never heard
+    /// from, which is not answering now. The service sets its one look at the backends by this
+    /// rather than asking every second whether the moment has come.
+    var answeringUntil: Date? { Self.answeringUntil(lastMessage: lastMessage, wokeAt: wokeAt, within: Self.silence) }
+
+    /// The last moment `isOverdue` is false, from the same two facts: the window, counted from
+    /// the later of the last message and the last wake. Pure, and tested against `isOverdue`,
+    /// so the two cannot come to disagree about when the helper stops counting.
+    static func answeringUntil(lastMessage: Date?, wokeAt: Date?, within window: TimeInterval) -> Date? {
+        guard let lastMessage else { return nil }
+        let from = wokeAt.map { max($0, lastMessage) } ?? lastMessage
+        return from.addingTimeInterval(window)
+    }
 
     /// Whether a helper last heard from at `lastMessage` has been silent for longer than it may
     /// be. Pure, so the sleep can be tested without one.
@@ -220,6 +246,7 @@ final class AdapterBackend {
         // have no reason to wake up in the meantime.
         lastMessage = Date()
         lastMessageWasTrack = false
+        onHealthChange?()
     }
 
     /// Nothing else notices a helper that stops writing without exiting — a main queue wedged by
@@ -228,8 +255,8 @@ final class AdapterBackend {
     /// while saying nothing at all: a blank island, music playing, and no way to know why.
     private func startWatchdog() {
         watchdog?.invalidate()
-        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.checkForSilence() }
-        timer.tolerance = 0.5
+        let timer = Timer(timeInterval: Self.watchdogInterval, repeats: true) { [weak self] _ in self?.checkForSilence() }
+        timer.tolerance = Self.watchdogTolerance
         // .common: a menu the user is holding open must not pause the one thing that is watching.
         RunLoop.main.add(timer, forMode: .common)
         watchdog = timer
@@ -245,6 +272,7 @@ final class AdapterBackend {
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
             wakeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.wokeAt = Date()
+                self?.onHealthChange?()
             })
         }
     }
@@ -253,7 +281,11 @@ final class AdapterBackend {
         let now = Date()
         if Self.missedItsLooks(lastCheck: lastCheck, now: now, window: Self.silence) { wokeAt = now }
         lastCheck = now
-        guard !stopped, let p = process, !isAnswering else { return }
+        guard !stopped, let p = process, !isAnswering else {
+            // Awake anyway, so the service's look at the backends rides on this one.
+            if !stopped { onHealthChange?() }
+            return
+        }
         IslandLog.media.error("the adapter helper has gone quiet; restarting it")
         // This death is ours to handle, so the process must not report it a second time.
         p.terminationHandler = nil
@@ -289,6 +321,8 @@ final class AdapterBackend {
         // Hand the island straight back to MediaRemote or AppleScript rather than leave the card
         // frozen on whatever was playing when the helper stopped.
         if wasDeliveringTrack { onUpdate?(nil) }
+        // And the fallbacks their tick: a helper that is gone is not answering.
+        onHealthChange?()
         guard let dylib = Self.dylibURL else { return }
 
         let now = Date()
@@ -390,5 +424,6 @@ final class AdapterBackend {
     private func noteMessage(carryingTrack: Bool) {
         lastMessage = Date()
         lastMessageWasTrack = carryingTrack
+        onHealthChange?()
     }
 }

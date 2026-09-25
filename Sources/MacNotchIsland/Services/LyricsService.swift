@@ -11,7 +11,8 @@ struct LyricLine: Equatable, Codable {
 ///
 /// Work only happens when it has to: one fetch per track (memory + disk cached, misses
 /// included, so a track without lyrics is never asked for twice), and a 0.25 s ticker that
-/// runs only while a *synced* track is actually playing and the Mac is awake.
+/// runs only while a *synced* track is actually playing, a `LyricsView` is on screen to show
+/// it, and somebody is at the Mac to see it (`ticks`).
 final class LyricsService: ObservableObject {
     static let shared = LyricsService()
 
@@ -30,6 +31,8 @@ final class LyricsService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var running = false
     private var timer: Timer?
+    /// How many `LyricsView`s are on screen, see `viewerAppeared`.
+    private var viewers = 0
     private var task: URLSessionDataTask?
 
     private var latest: NowPlayingInfo?
@@ -50,8 +53,11 @@ final class LyricsService: ObservableObject {
         NowPlayingService.shared.$info
             .sink { [weak self] info in self?.handle(info) }
             .store(in: &cancellables)
-        EnergyPolicy.shared.$isAsleep
-            .removeDuplicates()
+        // Hopped through the main queue: `@Published` announces a value before it is stored,
+        // and `updateTimer` reads the stored one. Read in the same turn, the Mac going to sleep
+        // left the ticker running and waking stopped it.
+        EnergyPolicy.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateTimer() }
             .store(in: &cancellables)
         handle(NowPlayingService.shared.info)
@@ -115,11 +121,40 @@ final class LyricsService: ObservableObject {
         updateTimer()
     }
 
+    // MARK: - Viewers
+
+    /// A `LyricsView` came on screen. The line is worked out now, not at the next tick, so
+    /// the view never opens on the line that was current when the last one closed.
+    func viewerAppeared() {
+        viewers += 1
+        guard viewers == 1 else { return }
+        updateTimer()
+    }
+
+    func viewerDisappeared() {
+        viewers = max(0, viewers - 1)
+        guard viewers == 0 else { return }
+        updateTimer()
+    }
+
     // MARK: - Ticking
+
+    /// Whether the line has to be worked out four times a second. Pure, so it is tested.
+    ///
+    /// It ran whenever a synced track played, and the only thing that shows a line is the
+    /// music section's `LyricsView` — so for all but the moments the panel was open on Now
+    /// Playing it worked out a line for nobody, four times a second, for the length of every
+    /// song. Not for Reduce Motion or Low Power, which `animationsPaused` also covers: the
+    /// next line of a song is what the view is for rather than motion, and a ticker stopped
+    /// under a view that is on screen leaves an old line standing over the times.
+    static func ticks(running: Bool, playing: Bool, hasSyncedLines: Bool, viewers: Int, nobodyLooking: Bool) -> Bool {
+        running && playing && hasSyncedLines && viewers > 0 && !nobodyLooking
+    }
 
     private func updateTimer() {
         let playing = latest?.isPlaying ?? false
-        let wanted = running && playing && !lines.isEmpty && !EnergyPolicy.shared.isAsleep
+        let wanted = Self.ticks(running: running, playing: playing, hasSyncedLines: !lines.isEmpty,
+                                viewers: viewers, nobodyLooking: EnergyPolicy.shared.nobodyLooking)
         if wanted {
             if timer == nil {
                 let t = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in self?.refresh() }

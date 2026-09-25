@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreWLAN
 import IOBluetooth
 
@@ -22,6 +23,7 @@ final class SystemToggles: ObservableObject {
 
     private var viewers = 0
     private var timer: Timer?
+    private var energyCancellable: AnyCancellable?
     /// A switch the system has not caught up with yet: until then the rail shows what the user
     /// asked for, so a toggle never appears to bounce back.
     private var pending: [String: Pending] = [:]
@@ -32,6 +34,15 @@ final class SystemToggles: ObservableObject {
 
     static let pollInterval: TimeInterval = 1.5
     static let writeSettle: TimeInterval = 2.5
+
+    /// The poll's interval at a given energy multiplier. Pure, so it is tested.
+    ///
+    /// It was the one poller in the rail the policy did not reach: a panel pinned open on
+    /// battery, or left open when the Mac locked, asked both radios over XPC every second and
+    /// a half regardless.
+    static func scaledPollInterval(multiplier: Double) -> TimeInterval {
+        pollInterval * max(1, multiplier)
+    }
 
     private init() {
         refresh()
@@ -51,10 +62,10 @@ final class SystemToggles: ObservableObject {
         viewers += 1
         guard viewers == 1 else { return }
         refresh()
-        let t = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in self?.refresh() }
-        t.tolerance = Self.pollInterval / 2
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
     }
 
     func viewerDisappeared() {
@@ -62,6 +73,19 @@ final class SystemToggles: ObservableObject {
         guard viewers == 0 else { return }
         timer?.invalidate()
         timer = nil
+        energyCancellable = nil
+    }
+
+    /// The poll at the policy's current interval, rebuilt only when that has changed.
+    private func scheduleTimer() {
+        guard viewers > 0 else { return }
+        let interval = Self.scaledPollInterval(multiplier: EnergyPolicy.shared.pollingMultiplier)
+        if let timer, abs(timer.timeInterval - interval) < 0.01 { return }
+        timer?.invalidate()
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.refresh() }
+        t.tolerance = interval / 2
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     // MARK: - Reading
@@ -78,13 +102,20 @@ final class SystemToggles: ObservableObject {
 
     /// The appearance is AppKit's own answer about this process and costs nothing, so it is
     /// read where it is shown. The two radios are asked on the queue, one pass at a time.
+    ///
+    /// Bluetooth is not asked until the tour has been through: asking is what puts up macOS's
+    /// Bluetooth sheet, and the rail is mounted by a peek at the island as readily as by the
+    /// panel, which before the tour made that sheet a new Mac's first sight of the app — the
+    /// wait `ServiceHub.wantsBluetooth` makes for the monitor, made here for the switch. Read
+    /// on the main thread, where the preference lives, and carried to the queue.
     func refresh() {
         read(.appearance, as: Self.systemIsDark())
         guard pass.start() else { return }
+        let ask = Preferences.shared.hasSeenWelcome
         queue.async { [weak self] in
             let interface = CWWiFiClient.shared().interface()
             let wifi = interface.map { $0.powerOn() }
-            let bluetooth = Self.bluetoothPower()
+            let bluetooth = Self.bluetoothReading(ask: ask)
             DispatchQueue.main.async {
                 guard let self else { return }
                 let asked = self.pass.finish()
@@ -232,6 +263,15 @@ final class SystemToggles: ObservableObject {
         .map { unsafeBitCast($0, to: GetPower.self) }
     private static let putPower: SetPower? = dlsym(rtldDefault, "IOBluetoothPreferenceSetControllerPowerState")
         .map { unsafeBitCast($0, to: SetPower.self) }
+
+    /// The radio's power for the rail, or nil for no switch at all: before the tour (see
+    /// `refresh`), and on a Mac with no Bluetooth controller. The private symbol answers on
+    /// any Mac whose framework carries it, radio or none, so it said a Mac without one had a
+    /// switch; the controller is asked first. On the queue, like the reading it guards.
+    static func bluetoothReading(ask: Bool) -> Bool? {
+        guard ask, IOBluetoothHostController.default() != nil else { return nil }
+        return bluetoothPower()
+    }
 
     /// Both of these wait on the controller, so both belong on a queue.
     static func bluetoothPower() -> Bool? {

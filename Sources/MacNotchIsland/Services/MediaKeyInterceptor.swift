@@ -219,10 +219,23 @@ final class MediaKeyInterceptor {
     /// island claiming the keys within a few seconds, rarely enough to cost nothing.
     static let watchInterval: TimeInterval = 5
 
+    /// How long after an output becomes the default it is asked about a second time. A device
+    /// is announced before it has finished arriving, and an answer of "no level" taken then
+    /// would otherwise stand until the next change of output, with every key for it handed
+    /// back to macOS.
+    static let arrivalSettle: TimeInterval = 2
+
     // Main thread only.
     private var running = false
     private var promptedForTrust = false
     private var trustTimer: Timer?
+    private var energyCancellable: AnyCancellable?
+    /// What announces a change in what the Mac can answer, see `watchForChanges`.
+    private var changeObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+    private var outputListener: AudioObjectPropertyListenerBlock?
+    private var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                           mScope: kAudioObjectPropertyScopeGlobal,
+                                                           mElement: kAudioObjectPropertyElementMain)
     private var tapThread: Thread?
     private var tapFailures = 0
     /// How many times the tap has been switched back on since it was last found carrying the
@@ -299,6 +312,15 @@ final class MediaKeyInterceptor {
         // Kept running either way: on the way in it waits for access to be granted, and
         // afterwards it notices access being taken away.
         pollForTrust()
+        watchForChanges()
+        // The interval the doc of `pollForTrust` promises follows the policy, and it was read
+        // once, at start: a Mac that went on battery, or was locked, kept the daytime rate.
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.running else { return }
+                self.pollForTrust()
+            }
     }
 
     func stop() {
@@ -307,6 +329,8 @@ final class MediaKeyInterceptor {
         SystemHUDReplacement.shared.forgetCapabilities()
         trustTimer?.invalidate()
         trustTimer = nil
+        energyCancellable = nil
+        stopWatchingForChanges()
         lastVolume = nil
         lastMuted = nil
         lastBrightness = nil
@@ -346,8 +370,10 @@ final class MediaKeyInterceptor {
     /// arrangement exists to prevent. The interval follows the energy policy, so a forgotten
     /// prompt costs nothing on battery.
     private func pollForTrust() {
-        trustTimer?.invalidate()
         let interval = Self.watchInterval * EnergyPolicy.shared.pollingMultiplier
+        // Left alone when the policy changed something else: a rebuild puts the next look back.
+        if let trustTimer, abs(trustTimer.timeInterval - interval) < 0.01 { return }
+        trustTimer?.invalidate()
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self, self.running else { return }
             guard Self.isTrusted else {
@@ -356,13 +382,70 @@ final class MediaKeyInterceptor {
             }
             self.installTap()
             self.verifyTap()
-            // Not only after a key: a key we have handed back to macOS never reaches `apply`,
-            // so refreshing there alone would latch the answer off for the session the moment
-            // an output with no level of its own became the default.
-            self.refreshCapabilities()
+            // What the Mac can answer is no longer asked here: it changes when the output or
+            // the displays do, and those are announced (`watchForChanges`). Asking every five
+            // seconds was a dozen round trips to coreaudiod and DisplayServices each time, for
+            // as long as the feature was on, to learn nothing had changed.
         }
         timer.tolerance = 1
         trustTimer = timer
+    }
+
+    /// The announcements that can change what the Mac can answer, each followed by a fresh
+    /// probe (`refreshCapabilities`).
+    ///
+    /// Not only after a key: a key we have handed back to macOS never reaches `apply`, so
+    /// refreshing there alone would latch the answer off for the session the moment an output
+    /// with no level of its own became the default. So the default output changing is heard
+    /// here — and asked about twice, see `arrivalSettle` — and so are the displays, which is
+    /// where a built-in panel's brightness comes and goes: the lid shut on an external display,
+    /// or opened again, and the displays waking, whose brightness cannot be read while they
+    /// sleep.
+    private func watchForChanges() {
+        guard changeObservers.isEmpty else { return }
+        let local = NotificationCenter.default
+        let screens = local.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                        object: nil, queue: .main) { [weak self] _ in
+            self?.refreshCapabilitiesIfRunning()
+        }
+        changeObservers.append((local, screens))
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
+            let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshCapabilitiesIfRunning()
+            }
+            changeObservers.append((workspace, token))
+        }
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            guard let self else { return }
+            self.refreshCapabilitiesIfRunning()
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.arrivalSettle) { [weak self] in
+                self?.refreshCapabilitiesIfRunning()
+            }
+        }
+        let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &outputAddress,
+                                                         DispatchQueue.main, listener)
+        if status == noErr {
+            outputListener = listener
+        } else {
+            IslandLog.keys.error("could not listen for the default output changing (status \(status, privacy: .public)); an output's keys are asked about only when one is pressed")
+        }
+    }
+
+    private func stopWatchingForChanges() {
+        for (center, token) in changeObservers { center.removeObserver(token) }
+        changeObservers.removeAll()
+        if let outputListener {
+            _ = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &outputAddress,
+                                                       DispatchQueue.main, outputListener)
+        }
+        outputListener = nil
+    }
+
+    /// A probe for a tap that is up, or on its way: without trust there is nothing to answer.
+    private func refreshCapabilitiesIfRunning() {
+        guard running, Self.isTrusted else { return }
+        refreshCapabilities()
     }
 
     /// Access was taken away: let the tap go and stop claiming the keys.
@@ -624,11 +707,11 @@ final class MediaKeyInterceptor {
     /// reads it through; `finished` runs on the main thread once it has.
     ///
     /// Every value is probed every time. Caching them against the device they were read from
-    /// saved a dozen round trips every five seconds, off the main thread, and cost two
-    /// separate latches: an answer of "no" kept for a device that had merely not finished
+    /// saved a dozen round trips a probe, off the main thread, and cost two separate latches: an answer of "no" kept for a device that had merely not finished
     /// arriving, and a cache that outlived the capabilities being cleared when the tap went
     /// down — so the same output came back permanently unanswerable. A whole answer, written
-    /// once, cannot be half-stale.
+    /// once, cannot be half-stale. What asks is a new tap, a preference change, a key the
+    /// island took, and the announcements in `watchForChanges`.
     private func refreshCapabilities(then finished: (() -> Void)? = nil) {
         // What the user asked for, read here on the main thread and carried in. A display the
         // user has switched off is not a key the island should be taking: swallowing it would
@@ -700,8 +783,8 @@ final class MediaKeyInterceptor {
         default: break
         }
         // A single press picks up a change at once; an auto-repeat does not, because these
-        // are blocking hardware reads and a held key repeats twenty times a second. The watch
-        // timer covers everything in between.
+        // are blocking hardware reads and a held key repeats twenty times a second. The
+        // announcements in `watchForChanges` cover everything in between.
         if !isRepeat { refreshCapabilities() }
     }
 

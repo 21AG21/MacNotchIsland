@@ -11,9 +11,10 @@ import AudioToolbox
 /// single RMS number the Now Playing bars can dance to. Nothing is recorded, nothing is
 /// written to disk, and the tap is `.unmuted` so playback is untouched.
 ///
-/// Cheapness rules the lifetime: the tap only exists while something is actually playing
-/// *and* `EnergyPolicy` still allows animation, so the resting state is "no tap at all".
-/// Below macOS 14.2 every method is a no-op and `isRunning` stays false.
+/// Cheapness rules the lifetime: the tap only exists while something is actually playing,
+/// `EnergyPolicy` still allows animation, *and* a `VisualizerBars` is on screen to dance to it
+/// (`shouldRun`), so the resting state is "no tap at all". Below macOS 14.2 every method is a
+/// no-op and `isRunning` stays false.
 final class AudioLevelTap: ObservableObject {
     static let shared = AudioLevelTap()
 
@@ -37,6 +38,10 @@ final class AudioLevelTap: ObservableObject {
 
     /// True between `start()` and `stop()`; the tap itself may still be down.
     private var wanted = false
+    /// How many visualizers are on screen, see `viewerAppeared`.
+    private var viewers = 0
+    /// The teardown waiting out `viewerGrace` after the last visualizer went.
+    private var lingering: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
     private var loggedFailure = false
     private var settingUp = false
@@ -91,16 +96,58 @@ final class AudioLevelTap: ObservableObject {
     /// Stop observing and tear the tap down. Safe to call when nothing was ever started.
     func stop() {
         wanted = false
+        lingering?.cancel()
+        lingering = nil
         cancellables.removeAll()
         stopListeningForOutputDeviceChanges()
         attempts = 0
         teardown()
     }
 
+    // MARK: Viewers
+
+    /// How long the tap outlives the last visualizer. The pill's bars give way to the panel's
+    /// as the island opens, and to a volume display for a second and a half at a time; tearing
+    /// the tap and its aggregate device down for each, and building them again a moment later,
+    /// would cost more than the listening it saved.
+    static let viewerGrace: TimeInterval = 3
+
+    /// A `VisualizerBars` came on screen.
+    func viewerAppeared() {
+        viewers += 1
+        lingering?.cancel()
+        lingering = nil
+        guard viewers == 1 else { return }
+        evaluate()
+    }
+
+    func viewerDisappeared() {
+        viewers = max(0, viewers - 1)
+        guard viewers == 0, lingering == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.lingering = nil
+            self?.evaluate()
+        }
+        lingering = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.viewerGrace, execute: work)
+    }
+
+    /// Whether a tap should be live. Pure, so it is tested.
+    ///
+    /// The system tap, its aggregate device and twenty dispatches a second to the main thread
+    /// ran whenever something played with the feature on — with the island hidden under a
+    /// full-screen app, or showing a timer, or closed on a Mac nobody was at. Nothing reads
+    /// the level but the bars, so without bars on screen (`viewers`, or the last ones only
+    /// just gone: `lingering`) there is no tap.
+    static func shouldRun(wanted: Bool, playing: Bool, animationsPaused: Bool, viewers: Int, lingering: Bool = false) -> Bool {
+        wanted && playing && !animationsPaused && (viewers > 0 || lingering)
+    }
+
     /// Decides whether a tap should be live right now, and makes it so.
     private func evaluate() {
         let playing = NowPlayingService.shared.info?.isPlaying == true
-        if wanted && playing && !EnergyPolicy.shared.animationsPaused {
+        if Self.shouldRun(wanted: wanted, playing: playing, animationsPaused: EnergyPolicy.shared.animationsPaused,
+                          viewers: viewers, lingering: lingering != nil) {
             setUp()
         } else {
             teardown()

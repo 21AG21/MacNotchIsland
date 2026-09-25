@@ -101,7 +101,10 @@ final class IslandSpace {
     private(set) var isShown = false
     /// Looks for a tracking menu's windows, see `menuBegan`.
     private var menuPoll: Timer?
-    private var menuPollIdleTicks = 0
+    /// Whether this tracking has found any of its windows yet, see `menuPollInterval(found:)`.
+    private var menuPollFound = false
+    /// How long the look has gone on finding nothing, see `menuPollGiveUp`.
+    private var menuPollIdle: TimeInterval = 0
 
     private init() {
         let center = DistributedNotificationCenter.default()
@@ -272,9 +275,20 @@ final class IslandSpace {
         bridge.remove(bridge.connection, [number] as CFArray, [space] as CFArray)
     }
 
-    /// How often a tracking menu's windows are looked for: a submenu opens whenever the pointer
-    /// reaches its item, and a window that joins late is drawn under the island until it does.
-    static let menuPollInterval: TimeInterval = 0.05
+    /// How often a tracking menu's windows are looked for. Every frame or so until the menu's
+    /// own window is found: it is not on screen yet when tracking begins, and until it joins it
+    /// is drawn under the island it opened from. Four times a second after that, for the
+    /// submenus, which open whenever the pointer reaches their item.
+    ///
+    /// Each look reads the whole window list, and it went on at 20 Hz for as long as any menu
+    /// stayed open — a menu somebody is reading is open for seconds. Once the menu is up the
+    /// look only has submenus left to find, and a submenu a moment late under the island's
+    /// edge is the price of not reading every window on the Mac twenty times a second. Pure,
+    /// so it is tested.
+    static func menuPollInterval(found: Bool) -> TimeInterval {
+        found ? 0.25 : 0.05
+    }
+
     /// How long the look goes on with nothing to find. A menu is on screen for as long as it
     /// tracks, so this only ends a look whose end of tracking never came.
     static let menuPollGiveUp: TimeInterval = 1
@@ -287,20 +301,32 @@ final class IslandSpace {
     /// frames rather than once. Cheap for as long as a menu is open, and nothing otherwise.
     private func menuBegan() {
         guard space != 0 else { return }
-        menuPollIdleTicks = 0
-        syncMenuWindows()
+        menuPollIdle = 0
+        // Tracking that begins while a look is already going keeps the pace that look has.
+        if menuPoll == nil { menuPollFound = false }
+        if syncMenuWindows() { menuPollFound = true }
         guard menuPoll == nil else { return }
-        // Common modes: a menu tracks in the event-tracking mode, where a default-mode timer
-        // never fires.
-        let timer = Timer(timeInterval: Self.menuPollInterval, repeats: true) { [weak self] _ in self?.menuPollTick() }
+        scheduleMenuPoll()
+    }
+
+    /// One look at a time, each set at the pace the last one left (`menuPollInterval`), so the
+    /// pace can change from one look to the next. Common modes: a menu tracks in the
+    /// event-tracking mode, where a default-mode timer never fires.
+    private func scheduleMenuPoll() {
+        let interval = Self.menuPollInterval(found: menuPollFound)
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in self?.menuPollTick(after: interval) }
+        timer.tolerance = interval / 5
         RunLoop.main.add(timer, forMode: .common)
         menuPoll = timer
     }
 
-    private func menuPollTick() {
+    private func menuPollTick(after interval: TimeInterval) {
+        menuPoll = nil
         let found = syncMenuWindows()
-        menuPollIdleTicks = found ? 0 : menuPollIdleTicks + 1
-        if Double(menuPollIdleTicks) * Self.menuPollInterval >= Self.menuPollGiveUp { stopMenuPoll() }
+        if found { menuPollFound = true }
+        menuPollIdle = found ? 0 : menuPollIdle + interval
+        guard menuPollIdle < Self.menuPollGiveUp else { return }
+        scheduleMenuPoll()
     }
 
     private func menuEnded() {

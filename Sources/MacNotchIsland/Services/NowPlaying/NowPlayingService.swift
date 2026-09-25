@@ -38,17 +38,25 @@ final class NowPlayingService: ObservableObject {
 
     @Published private(set) var info: NowPlayingInfo?
 
-    /// The word for each backend, see `Health`. Refreshed on every tick, and empty while Now
-    /// Playing is switched off: nothing honest can be said about backends that have not been
-    /// asked. Written on the main queue only, like everything else this class publishes.
+    /// The word for each backend, see `Health`. Refreshed whenever a backend reports, the
+    /// helper's watchdog looks, or the tick comes round, and empty while Now Playing is switched
+    /// off: nothing honest can be said about backends that have not been asked. Written on the
+    /// main queue only, like everything else this class publishes.
     @Published private(set) var health: [Backend: Health] = [:]
 
     private let adapter = AdapterBackend()
     private let mediaRemote = MediaRemoteBackend()
     private let appleScript = AppleScriptBackend()
     private var running = false
+    /// The one-second tick, only while it has work, see `needsTick`.
     private var pollTimer: Timer?
+    /// While the tick is off: one look at the moment every backend answering now would have
+    /// run out of time to answer again, see `recheckDate`.
+    private var recheck: Timer?
     private var pausedSince: Date?
+    /// "Keep paused music for", as one look at the moment it runs out, see `pausedTrackDue`.
+    private var pausedClear: Timer?
+    private var keepPausedObserver: AnyCancellable?
     /// The paused track "Keep paused music for" last took off the island, see `staysDismissed`.
     private var dismissedPaused: NowPlayingInfo?
     private var ticks = 0
@@ -114,14 +122,20 @@ final class NowPlayingService: ObservableObject {
             return
         }
         adapter.onUpdate = { [weak self] info in self?.handle(info, from: .adapter) }
+        adapter.onHealthChange = { [weak self] in self?.updateTick() }
         adapter.start()
         mediaRemote.onUpdate = { [weak self] info in
             DispatchQueue.main.async { self?.handle(info, from: .mediaRemote) }
         }
         mediaRemote.start()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.tick() }
-        pollTimer?.tolerance = 0.2
-        refreshHealth()
+        // The limit read afresh when it is changed, as the tick used to read it every second.
+        // Hopped through the main queue: `@Published` announces a value before it is stored.
+        keepPausedObserver = Preferences.shared.$keepPausedMinutes
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.schedulePausedClear() }
+        updateTick()
     }
 
     func stop() {
@@ -129,6 +143,11 @@ final class NowPlayingService: ObservableObject {
         running = false
         pollTimer?.invalidate()
         pollTimer = nil
+        recheck?.invalidate()
+        recheck = nil
+        pausedClear?.invalidate()
+        pausedClear = nil
+        keepPausedObserver = nil
         appleScript.cancel()
         adapter.stop()
         mediaRemote.stop()
@@ -151,14 +170,19 @@ final class NowPlayingService: ObservableObject {
         IslandLog.media.notice("restarting the adapter helper at the user's request")
         adapter.stop()
         adapter.start()
-        refreshHealth()
+        updateTick()
     }
 
     /// Read afresh from the backends' own flags rather than kept up as they change. Health is
     /// a fact about the last few seconds, and the only way for the pane to lag behind it is to
     /// be told by something that forgot to say.
     private func refreshHealth() {
-        let fresh: [Backend: Health] = running ? [
+        guard running else {
+            if !health.isEmpty { health = [:] }
+            return
+        }
+        let appleScriptOutranked = adapter.isAnswering || mediaRemote.isAnswering
+        let fresh: [Backend: Health] = [
             .adapter: Self.backendHealth(available: adapter.isAvailable, answering: adapter.isAnswering,
                                          deliveringTrack: adapter.isDeliveringTrack, outranked: false),
             // MediaRemote ships with every macOS; a copy that would not load is one that never
@@ -167,12 +191,17 @@ final class NowPlayingService: ObservableObject {
             .mediaRemote: Self.backendHealth(available: true, answering: mediaRemote.isAnswering,
                                              deliveringTrack: mediaRemote.isHealthy, outranked: adapter.isAnswering),
             // AppleScript has no health of its own: a poll always comes back, with a track or
-            // with nothing, so it is answering whenever it is asked — and it is asked only
-            // while neither of the others answers, the same gate `tick` polls it behind.
-            .appleScript: Self.backendHealth(available: true, answering: true,
+            // with nothing, so it is answering whenever it is asked — unless every player it
+            // would ask has refused it under Automation (`AppleScriptBackend.isRefused`), which
+            // is a backend switched on, asked, and never able to say anything. It is asked only
+            // while neither of the others answers, the same gate `tick` polls it behind, and
+            // the refusal is only looked up then: it walks the running applications, and an
+            // outranked backend is standing by whatever it would say.
+            .appleScript: Self.backendHealth(available: true,
+                                             answering: appleScriptOutranked || !appleScript.isRefused,
                                              deliveringTrack: activeBackend == .appleScript,
-                                             outranked: adapter.isAnswering || mediaRemote.isAnswering),
-        ] : [:]
+                                             outranked: appleScriptOutranked),
+        ]
         if health != fresh { health = fresh }
     }
 
@@ -189,6 +218,75 @@ final class NowPlayingService: ObservableObject {
         guard !outranked else { return .standingBy }
         guard answering else { return .givenUp }
         return deliveringTrack ? .live : .idle
+    }
+
+    /// Whether the one-second tick has anything to do. Two things only: asking AppleScript,
+    /// which it does while neither of the others is answering (`handle` holds its reports back
+    /// otherwise), and keeping MediaRemote's clock from drifting while MediaRemote is the one
+    /// showing the track. On a Mac where the helper answers, neither holds, and the tick fired
+    /// every second for as long as Now Playing was on with nothing to do but look at the
+    /// paused-track limit — which is a look of its own now, at the one moment it can matter
+    /// (`pausedTrackDue`). Pure, so the gate is tested.
+    static func needsTick(adapterAnswering: Bool, mediaRemoteAnswering: Bool, activeBackend: Backend) -> Bool {
+        (!adapterAnswering && !mediaRemoteAnswering) || activeBackend == .mediaRemote
+    }
+
+    /// When a tick that is off should be looked at again, with no report to prompt it: just
+    /// after the last of the backends answering now would stop counting as answering, which is
+    /// the first moment `needsTick` could say yes on its own. The helper's moment is known
+    /// (`AdapterBackend.answeringUntil`); MediaRemote's is no later than its whole freshness
+    /// window from now, so the look is never late, and one that finds MediaRemote answered
+    /// again in the meantime is simply set again. Nil with neither answering, which is a tick
+    /// that is on. The helper speaks every five seconds and each word sets this afresh, so on a
+    /// working Mac it never fires at all. Pure, so it is tested.
+    static func recheckDate(adapterAnsweringUntil: Date?, mediaRemoteAnswering: Bool, now: Date) -> Date? {
+        var last = adapterAnsweringUntil
+        if mediaRemoteAnswering {
+            let bound = now.addingTimeInterval(MediaRemoteBackend.staleAfter)
+            last = max(last ?? bound, bound)
+        }
+        return last.map { $0.addingTimeInterval(recheckMargin) }
+    }
+
+    /// A little past the moment itself, so the look finds it passed rather than exactly on it.
+    static let recheckMargin: TimeInterval = 0.5
+
+    /// The tick on while it has work and off otherwise (`needsTick`), and the health the
+    /// Settings pane shows read afresh. Called wherever what the tick turns on can have
+    /// changed: a report, the helper speaking, starting, dying or being looked at by its
+    /// watchdog, the card ending, and the tick itself.
+    private func updateTick() {
+        guard running, !Self.fakesTrack else { return }
+        refreshHealth()
+        let adapterAnswering = adapter.isAnswering
+        let mediaRemoteAnswering = mediaRemote.isAnswering
+        if Self.needsTick(adapterAnswering: adapterAnswering, mediaRemoteAnswering: mediaRemoteAnswering,
+                          activeBackend: activeBackend) {
+            recheck?.invalidate()
+            recheck = nil
+            guard pollTimer == nil else { return }
+            let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.tick() }
+            timer.tolerance = 0.2
+            pollTimer = timer
+            return
+        }
+        pollTimer?.invalidate()
+        pollTimer = nil
+        scheduleRecheck(at: Self.recheckDate(adapterAnsweringUntil: adapterAnswering ? adapter.answeringUntil : nil,
+                                             mediaRemoteAnswering: mediaRemoteAnswering, now: Date()))
+    }
+
+    private func scheduleRecheck(at date: Date?) {
+        recheck?.invalidate()
+        recheck = nil
+        guard let date else { return }
+        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in
+            self?.recheck = nil
+            self?.updateTick()
+        }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        recheck = timer
     }
 
     private func tick() {
@@ -210,16 +308,51 @@ final class NowPlayingService: ObservableObject {
             // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
             mediaRemote.refreshIfStale()
         }
-        if let info, !info.isPlaying, let since = pausedSince, !ActivityCenter.shared.isPanelShowing {
-            // 0 means "clear as soon as playback pauses"; otherwise keep the paused track around.
-            // Never while the user has the card open in front of them.
-            let limit = Preferences.shared.keepPausedMinutes * 60
-            if limit <= 0 || Date().timeIntervalSince(since) > limit {
-                dismissedPaused = info
-                clear()
-            }
-        }
-        refreshHealth()
+        // Which also stops the tick, once there is nothing left for it to do.
+        updateTick()
+    }
+
+    /// When a paused track comes off the island: "Keep paused music for" after it paused
+    /// (`keepMinutes`), and no sooner than `pausedGrace` after, which is about when the
+    /// per-second tick this replaced got round to it with the setting at "Not at all". Nil for
+    /// a track that is playing, or one not known to have paused. Pure, so it is tested.
+    static func pausedTrackDue(pausedSince: Date?, playing: Bool, keepMinutes: Double) -> Date? {
+        guard let pausedSince, !playing else { return nil }
+        let keep = keepMinutes.isFinite ? keepMinutes * 60 : 0
+        return pausedSince.addingTimeInterval(max(pausedGrace, keep))
+    }
+
+    static let pausedGrace: TimeInterval = 1
+
+    /// Sets the one look at the paused track for the moment it is due, or none. Called when
+    /// the track pauses or plays, when the card ends, and when the setting changes.
+    private func schedulePausedClear() {
+        pausedClear?.invalidate()
+        pausedClear = nil
+        guard running, let due = Self.pausedTrackDue(pausedSince: pausedSince, playing: info?.isPlaying ?? true,
+                                                     keepMinutes: Preferences.shared.keepPausedMinutes) else { return }
+        armPausedClear(at: max(due, Date()))
+    }
+
+    private func armPausedClear(at date: Date) {
+        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in self?.pausedClearFired() }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        pausedClear = timer
+    }
+
+    private func pausedClearFired() {
+        pausedClear = nil
+        guard running, let info,
+              let due = Self.pausedTrackDue(pausedSince: pausedSince, playing: info.isPlaying,
+                                            keepMinutes: Preferences.shared.keepPausedMinutes) else { return }
+        let now = Date()
+        guard now >= due else { return armPausedClear(at: due) }
+        // Never while the user has the card open in front of them: looked at again a second
+        // later, as the tick used to, for as long as it stays open.
+        guard !ActivityCenter.shared.isPanelShowing else { return armPausedClear(at: now.addingTimeInterval(1)) }
+        dismissedPaused = info
+        clear()
     }
 
     private func handle(_ new: NowPlayingInfo?, from backend: Backend) {
@@ -258,6 +391,8 @@ final class NowPlayingService: ObservableObject {
         publish()
         lookUpArtworkIfMissing(for: reconciled)
         if Self.isNewTrack(reconciled, after: previous) { peek(reconciled) }
+        schedulePausedClear()
+        updateTick()
     }
 
     /// Fills in a cover the player did not give us, see `ArtworkFetcher`. A track that already
@@ -389,6 +524,8 @@ final class NowPlayingService: ObservableObject {
         pausedSince = nil
         activeBackend = .inactive
         ActivityCenter.shared.end(id: "nowplaying")
+        schedulePausedClear()
+        updateTick()
     }
 
     private func publish() {
@@ -471,6 +608,9 @@ final class NowPlayingService: ObservableObject {
         optimistic = Optimistic(isPlaying: i.isPlaying, elapsed: nil, at: now, until: now + Self.optimisticWindow,
                                 shuffle: pending?.shuffle, repeatMode: pending?.repeatMode)
         publish()
+        // Paused again before the player said it was playing, the pause it is still in keeps
+        // its clock, and its look has to be set again.
+        schedulePausedClear()
     }
 
     /// What is still pending of the last request, for a new one that must not forget it: a

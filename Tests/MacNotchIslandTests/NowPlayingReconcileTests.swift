@@ -210,6 +210,98 @@ final class NowPlayingReconcileTests: XCTestCase {
                        "not standing by either: there is nothing to stand by for")
     }
 
+    // MARK: - The tick, only while it has work
+
+    func testTheTickSleepsWhileTheHelperAnswers() {
+        // The Mac nearly every copy runs on: the helper answering, whether or not anything is
+        // playing. The tick used to fire every second there regardless.
+        XCTAssertFalse(NowPlayingService.needsTick(adapterAnswering: true, mediaRemoteAnswering: false, activeBackend: .adapter))
+        XCTAssertFalse(NowPlayingService.needsTick(adapterAnswering: true, mediaRemoteAnswering: true, activeBackend: .inactive),
+                       "nothing playing, and both saying so")
+        XCTAssertFalse(NowPlayingService.needsTick(adapterAnswering: false, mediaRemoteAnswering: true, activeBackend: .inactive),
+                       "MediaRemote answering with nothing to show holds AppleScript back just the same")
+    }
+
+    func testTheTickRunsWhileAppleScriptIsTheOneToAsk() {
+        XCTAssertTrue(NowPlayingService.needsTick(adapterAnswering: false, mediaRemoteAnswering: false, activeBackend: .inactive))
+        XCTAssertTrue(NowPlayingService.needsTick(adapterAnswering: false, mediaRemoteAnswering: false, activeBackend: .appleScript))
+        XCTAssertTrue(NowPlayingService.needsTick(adapterAnswering: false, mediaRemoteAnswering: false, activeBackend: .adapter),
+                      "a helper gone quiet with its track still up is AppleScript's to take over")
+    }
+
+    func testTheTickRunsWhileMediaRemoteShowsTheTrack() {
+        // MediaRemote answers questions and never reports in, so its clock drifts after a
+        // seek made elsewhere unless it is asked again now and then.
+        XCTAssertTrue(NowPlayingService.needsTick(adapterAnswering: false, mediaRemoteAnswering: true, activeBackend: .mediaRemote))
+    }
+
+    func testAnIdleTickIsLookedAtAgainOnceTheLastAnswerRunsOut() {
+        let helperUntil = t0.addingTimeInterval(9)
+        XCTAssertEqual(NowPlayingService.recheckDate(adapterAnsweringUntil: helperUntil, mediaRemoteAnswering: false, now: t0),
+                       helperUntil.addingTimeInterval(NowPlayingService.recheckMargin),
+                       "the helper's moment is known to the second")
+        XCTAssertEqual(NowPlayingService.recheckDate(adapterAnsweringUntil: helperUntil, mediaRemoteAnswering: true, now: t0),
+                       t0.addingTimeInterval(MediaRemoteBackend.staleAfter + NowPlayingService.recheckMargin),
+                       "both must have run out before AppleScript is wanted, so the later of the two")
+        XCTAssertEqual(NowPlayingService.recheckDate(adapterAnsweringUntil: nil, mediaRemoteAnswering: true, now: t0),
+                       t0.addingTimeInterval(MediaRemoteBackend.staleAfter + NowPlayingService.recheckMargin),
+                       "MediaRemote's moment is not known, and its whole window is the latest it can be")
+        XCTAssertNil(NowPlayingService.recheckDate(adapterAnsweringUntil: nil, mediaRemoteAnswering: false, now: t0),
+                     "with nothing answering the tick is on, and there is nothing to look out for")
+    }
+
+    func testTheHelpersDeadlineIsTheLastMomentItCountsAsAnswering() {
+        // The one-shot is set by `answeringUntil` and the gate is read from `isOverdue`; the
+        // two have to agree about the moment, or the look finds nothing changed and the
+        // fallback waits for the next one.
+        let lastMessage = t0.addingTimeInterval(-4)
+        for wokeAt in [nil, t0.addingTimeInterval(-20), t0.addingTimeInterval(-1)] as [Date?] {
+            guard let until = AdapterBackend.answeringUntil(lastMessage: lastMessage, wokeAt: wokeAt, within: 12) else {
+                return XCTFail("a helper that has spoken has a deadline")
+            }
+            XCTAssertFalse(AdapterBackend.isOverdue(lastMessage: lastMessage, wokeAt: wokeAt, now: until, within: 12))
+            XCTAssertTrue(AdapterBackend.isOverdue(lastMessage: lastMessage, wokeAt: wokeAt,
+                                                   now: until.addingTimeInterval(NowPlayingService.recheckMargin), within: 12))
+        }
+        XCTAssertEqual(AdapterBackend.answeringUntil(lastMessage: lastMessage, wokeAt: t0.addingTimeInterval(-1), within: 12),
+                       t0.addingTimeInterval(11), "a wake starts the window again")
+        XCTAssertNil(AdapterBackend.answeringUntil(lastMessage: nil, wokeAt: t0, within: 12),
+                     "a helper never heard from is not answering, wake or none")
+    }
+
+    func testTheWatchdogLooksTwiceAWindowAndNeverSoLateItThinksItSlept() {
+        XCTAssertEqual(AdapterBackend.watchdogInterval, AdapterBackend.silence / 2)
+        // A look that comes later than a whole window after the last is read as a sleep, and a
+        // sleep forgives the helper its silence: the latest a look may come must be inside it.
+        XCTAssertLessThan(AdapterBackend.watchdogInterval + AdapterBackend.watchdogTolerance, AdapterBackend.silence)
+        let now = t0
+        XCTAssertFalse(AdapterBackend.missedItsLooks(lastCheck: now.addingTimeInterval(-(AdapterBackend.watchdogInterval + AdapterBackend.watchdogTolerance)),
+                                                     now: now, window: AdapterBackend.silence))
+    }
+
+    // MARK: - Keep paused music for
+
+    func testAPausedTrackIsDueWhenItsTimeIsUp() {
+        let paused = t0
+        XCTAssertEqual(NowPlayingService.pausedTrackDue(pausedSince: paused, playing: false, keepMinutes: 5),
+                       paused.addingTimeInterval(300))
+        XCTAssertNil(NowPlayingService.pausedTrackDue(pausedSince: paused, playing: true, keepMinutes: 5),
+                     "a track playing again, before its report has cleared the pause, is not due")
+        XCTAssertNil(NowPlayingService.pausedTrackDue(pausedSince: nil, playing: false, keepMinutes: 5),
+                     "nor is one not known to have paused: the button's own flip is not the player's word")
+    }
+
+    func testNotAtAllIsAMomentAfterThePauseRatherThanOnIt() {
+        // "Not at all" cleared on the tick after the pause, which was up to a second later; a
+        // look set for the pause itself would clear the card in the same turn it paused.
+        XCTAssertEqual(NowPlayingService.pausedTrackDue(pausedSince: t0, playing: false, keepMinutes: 0),
+                       t0.addingTimeInterval(NowPlayingService.pausedGrace))
+        XCTAssertEqual(NowPlayingService.pausedTrackDue(pausedSince: t0, playing: false, keepMinutes: -3),
+                       t0.addingTimeInterval(NowPlayingService.pausedGrace))
+        XCTAssertEqual(NowPlayingService.pausedTrackDue(pausedSince: t0, playing: false, keepMinutes: .nan),
+                       t0.addingTimeInterval(NowPlayingService.pausedGrace), "a setting that is not a number is no time")
+    }
+
     // MARK: - Whether a wake has to rebuild the island
     //
     // Not a Now Playing rule. It lives here because the complaint it answers is the one the

@@ -8,7 +8,6 @@ struct MusicSectionView: View {
     let geometry: NotchGeometry
     @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var outputs = AudioOutputs.shared
-    @ObservedObject private var lyrics = LyricsService.shared
     @ObservedObject private var energy = EnergyPolicy.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
@@ -66,9 +65,10 @@ struct MusicSectionView: View {
                     .accessibilityLabel("Open \(info.appName)")
                 VStack(alignment: .leading, spacing: 2) {
                     MarqueeText(text: info.title.isEmpty ? "Unknown track" : info.title,
-                                font: .system(size: 15, weight: .semibold), color: .white)
+                                font: .system(size: 15, weight: .semibold), color: .white, isPlaying: info.isPlaying)
                     MarqueeText(text: info.artist.isEmpty ? info.appName : info.artist,
-                                font: .system(size: 13, weight: .regular), color: .white.opacity(0.55))
+                                font: .system(size: 13, weight: .regular), color: .white.opacity(0.55),
+                                isPlaying: info.isPlaying)
                 }
                 .padding(.top, 9)
                 // The output picker used to stand here. It is on the control rail now, where
@@ -97,21 +97,7 @@ struct MusicSectionView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Playback position")
                     .accessibilityValue(IslandAccessibility.playbackValue(position: position, duration: duration))
-                    ZStack {
-                        HStack {
-                            Text(position.mmss)
-                            Spacer()
-                            Text(duration > 0 ? "-" + max(0, duration - position).mmss : "")
-                        }
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.45))
-                        .opacity(lyricLine == nil ? 1 : 0)
-                        if prefs.lyricsEnabled {
-                            LyricsView(font: .system(size: 12, weight: .semibold), color: .white.opacity(0.85), lineHeight: 14)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .frame(height: 14)
+                    TimesOrLyric(position: position, duration: duration, showsLyrics: prefs.lyricsEnabled)
                 }
             }
             .padding(.top, 8)
@@ -144,11 +130,6 @@ struct MusicSectionView: View {
         // into the black and masked off towards the bottom, the way the phone tints its card —
         // and on the island it read as a smear beside the artwork rather than as a colour.
         // The island is black; the cover is the only colour in it, and it is enough.
-    }
-
-    private var lyricLine: String? {
-        guard prefs.lyricsEnabled, let line = lyrics.currentLine?.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { return nil }
-        return line
     }
 
     /// One of the places beside play. An empty one is a blank square that keeps play in the
@@ -201,6 +182,11 @@ struct MusicSectionView: View {
     private func helpText(for slot: TransportSlot, supported: Bool, settled: Bool, info: NowPlayingInfo) -> String {
         if !supported { return "\(slot.title) — \(info.appName) does not offer this" }
         if settled { return "Favourited — take it back in \(info.appName)" }
+        // The player has refused the island under Automation, so a press this row sends it by
+        // script goes nowhere; the tooltip is where that can be said, and where to change it.
+        if AppleScriptBackend.hasRefused(info.bundleID) {
+            return "\(slot.title) — \(info.appName) refused Notch Island under Automation in Privacy & Security"
+        }
         return slot.title
     }
 
@@ -222,5 +208,40 @@ struct MusicSectionView: View {
         } else {
             OpenAction.app(bundleID: "com.apple.Music").perform()
         }
+    }
+}
+
+/// The times under the scrubber, or the line of the song in their place when there is one.
+///
+/// The one part of the section that reads the lyrics. The section read them itself, so every
+/// new line redrew all of it — the artwork, both marquees and the transport — to change one
+/// row; here a line redraws the row.
+private struct TimesOrLyric: View {
+    let position: TimeInterval
+    let duration: TimeInterval
+    let showsLyrics: Bool
+    @ObservedObject private var lyrics = LyricsService.shared
+
+    private var hasLine: Bool {
+        guard showsLyrics, let line = lyrics.currentLine?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        return !line.isEmpty
+    }
+
+    var body: some View {
+        ZStack {
+            HStack {
+                Text(position.mmss)
+                Spacer()
+                Text(duration > 0 ? "-" + max(0, duration - position).mmss : "")
+            }
+            .font(.system(size: 11, weight: .medium).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.45))
+            .opacity(hasLine ? 0 : 1)
+            if showsLyrics {
+                LyricsView(font: .system(size: 12, weight: .semibold), color: .white.opacity(0.85), lineHeight: 14)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: 14)
     }
 }
