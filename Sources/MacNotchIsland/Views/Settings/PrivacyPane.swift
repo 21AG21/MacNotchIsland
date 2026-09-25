@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreBluetooth
 import CoreGraphics
 import CoreLocation
 import EventKit
@@ -18,6 +19,12 @@ struct PrivacyPane: View {
     /// Read asynchronously, unlike every other status on this pane, so it is held rather than
     /// asked for while the body is being built.
     @State private var notificationStatus = "Not asked yet"
+    /// Asked of macOS off the main thread, like the notifications, see `refreshAutomation`.
+    @State private var automationStatus = "Asked when needed"
+    /// The two guarded folders the watchers read, probed off the main thread: a listing of a
+    /// folder whose question is on screen waits for the answer. See `refreshFolders`.
+    @State private var downloadsStatus = FolderAccess.status(watching: false, readable: false)
+    @State private var screenshotsStatus = FolderAccess.status(watching: false, readable: false)
     /// Held, not built inside `onReceive`: a publisher made there is a new publisher on every
     /// pass of the body, and this body runs on every beat of it.
     private let ticker = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
@@ -55,6 +62,14 @@ struct PrivacyPane: View {
                     status: locationStatus,
                     pane: .location
                 )
+                // Asked for once the tour is done, by the monitor that follows devices connecting;
+                // the rail's switch and the paired list in Controls read the same radio.
+                permission(
+                    "Bluetooth",
+                    detail: "Used to show AirPods and other devices as they connect, with their battery, and for the Bluetooth switch and paired list in Controls. Refused, none of those can see the radio.",
+                    status: Self.bluetoothStatus,
+                    pane: .bluetooth
+                )
                 permission(
                     "Calendars",
                     detail: "Used for your events in the Today section, and for the card before a meeting with its Join button.",
@@ -76,12 +91,29 @@ struct PrivacyPane: View {
                     status: notificationStatus,
                     pane: .notifications
                 )
-                permission(
-                    "Automation",
-                    detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet, and switch shuffle, repeat and favourite there when the system player does not.",
-                    status: "Asked when needed",
-                    pane: .automation
-                )
+                // One row each, since each is its own question: the watchers ask for them the
+                // moment the tour is done, and a refusal left their cards dead with nothing here.
+                // Grouped with Automation only to keep the section to ten children.
+                Group {
+                    permission(
+                        "Downloads folder",
+                        detail: "Watched for a download as it finishes, for its card and the shelf. Asked for once the welcome tour is done, while Downloads is on in Activities.",
+                        status: downloadsStatus,
+                        pane: .filesAndFolders
+                    )
+                    permission(
+                        "Screenshots folder",
+                        detail: "Watched for a new screenshot or recording, for its card and the shelf — \(FolderAccess.name(of: ScreenshotMonitor.currentDirectory())), where macOS saves them. Asked for once the welcome tour is done, while Screenshots is on in Activities.",
+                        status: screenshotsStatus,
+                        pane: .filesAndFolders
+                    )
+                    permission(
+                        "Automation",
+                        detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet, and switch shuffle, repeat and favourite there when the system player does not.",
+                        status: automationStatus,
+                        pane: .automation
+                    )
+                }
             } header: {
                 Text("Permissions")
             } footer: {
@@ -151,10 +183,16 @@ struct PrivacyPane: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear(perform: refreshNotifications)
+        .onAppear {
+            refreshNotifications()
+            refreshAutomation()
+            refreshFolders()
+        }
         .onReceive(ticker) { _ in
             tick += 1
             refreshNotifications()
+            refreshAutomation()
+            refreshFolders()
         }
     }
 
@@ -216,6 +254,54 @@ struct PrivacyPane: View {
         }
     }
 
+    /// Music always, Spotify where it is installed, each asked without a prompt and filled in
+    /// with this session's refusals — see `AutomationConsent`.
+    private func refreshAutomation() {
+        let players = [(name: "Music", id: AppleScriptBackend.musicID), (name: "Spotify", id: AppleScriptBackend.spotifyID)]
+            .filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.id) != nil }
+        DispatchQueue.global(qos: .utility).async {
+            let answers = players.map { player in
+                (name: player.name,
+                 consent: AutomationConsent.merged(AutomationConsent.asking(player.id),
+                                                   refusedThisSession: AppleScriptBackend.hasRefused(player.id)))
+            }
+            let text = AutomationConsent.summary(answers)
+            DispatchQueue.main.async {
+                if self.automationStatus != text { self.automationStatus = text }
+            }
+        }
+    }
+
+    /// Each folder is listed only while its watcher is wanted — which is when it has already
+    /// asked. A listing is itself the question, so probing a folder nobody watches would put
+    /// the very prompt this pane is here to explain on screen because somebody looked at it.
+    private func refreshFolders() {
+        let downloads = ServiceHub.wantsDownloads(prefs)
+        let screenshots = ServiceHub.wantsScreenshots(prefs)
+        DispatchQueue.global(qos: .utility).async {
+            let d = FolderAccess.status(watching: downloads,
+                                        readable: downloads && FolderAccess.isReadable(FolderAccess.downloads))
+            let s = FolderAccess.status(watching: screenshots,
+                                        readable: screenshots && FolderAccess.isReadable(ScreenshotMonitor.currentDirectory()))
+            DispatchQueue.main.async {
+                if self.downloadsStatus != d { self.downloadsStatus = d }
+                if self.screenshotsStatus != s { self.screenshotsStatus = s }
+            }
+        }
+    }
+
+    /// Read, never asked: only CoreBluetooth says where the Bluetooth answer stands, and its
+    /// class property asks nothing of anybody.
+    private static var bluetoothStatus: String {
+        switch CBManager.authorization {
+        case .allowedAlways: return "Granted"
+        case .denied: return "Denied"
+        case .restricted: return "Restricted"
+        case .notDetermined: return "Not asked yet"
+        @unknown default: return "Unknown"
+        }
+    }
+
     private static func captureStatus(for type: AVMediaType) -> String {
         switch AVCaptureDevice.authorizationStatus(for: type) {
         case .authorized: return "Granted"
@@ -270,5 +356,36 @@ enum ScreenSharingSwitches {
     static func stored(hide: Bool, onlyDuringCalls: Bool) -> (hidden: Bool, duringCalls: Bool) {
         guard hide else { return (hidden: false, duringCalls: false) }
         return onlyDuringCalls ? (hidden: false, duringCalls: true) : (hidden: true, duringCalls: false)
+    }
+}
+
+/// What the Privacy pane says of a folder macOS guards, and the probe that finds out.
+///
+/// macOS has no call that says whether an app may read Downloads or the Desktop; the only
+/// answer is a read that comes back with something, as with the Focus database
+/// (`FocusMonitor.isReadable`). A folder whose watcher is not running is not probed at all —
+/// see `PrivacyPane.refreshFolders` — so it says so rather than guessing.
+enum FolderAccess {
+    static func status(watching: Bool, readable: Bool) -> String {
+        guard watching else { return "Not in use" }
+        return readable ? "Granted" : "Not granted"
+    }
+
+    /// Whether a listing of the folder comes back. Off the main thread: while the question is
+    /// on screen, it waits for the answer.
+    static func isReadable(_ folder: URL) -> Bool {
+        (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) != nil
+    }
+
+    /// The Downloads folder, as `DownloadMonitor` finds it.
+    static var downloads: URL {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+    }
+
+    /// The name Finder shows for a folder: "Desktop", not a path.
+    static func name(of folder: URL) -> String {
+        let shown = FileManager.default.displayName(atPath: folder.path)
+        return shown.isEmpty ? folder.lastPathComponent : shown
     }
 }

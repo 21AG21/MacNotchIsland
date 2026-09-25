@@ -94,11 +94,13 @@ final class CameraPreview: ObservableObject {
     // MARK: - Session
 
     private func beginSession() {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
+        switch Self.firstStep(hasCamera: Self.anyCamera(), access: AVCaptureDevice.authorizationStatus(for: .video)) {
+        case .unavailable:
+            state = .unavailable
+        case .start:
             state = .starting
             configureAndStart()
-        case .notDetermined:
+        case .ask:
             state = .starting
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
@@ -106,11 +108,32 @@ final class CameraPreview: ObservableObject {
                     if granted { self.configureAndStart() } else { self.state = .denied }
                 }
             }
-        case .denied, .restricted:
-            state = .denied
-        @unknown default:
+        case .denied:
             state = .denied
         }
+    }
+
+    /// What opening the mirror does first.
+    enum FirstStep: Equatable { case unavailable, start, ask, denied }
+
+    /// Looks for a camera before asking for one. The question came first, and the device was
+    /// looked for only once it was answered — so a Mac mini with nothing plugged in asked for
+    /// the camera, and then said there was none. Nothing to look through is said without
+    /// asking anybody anything. Pure, so the order can be held.
+    static func firstStep(hasCamera: Bool, access: AVAuthorizationStatus) -> FirstStep {
+        guard hasCamera else { return .unavailable }
+        switch access {
+        case .authorized: return .start
+        case .notDetermined: return .ask
+        case .denied, .restricted: return .denied
+        @unknown default: return .denied
+        }
+    }
+
+    /// Whether there is any camera to look through. Listing them asks nothing of anybody; only
+    /// opening one does.
+    static func anyCamera() -> Bool {
+        !discoveredDevices().isEmpty
     }
 
     private func endSession() {
@@ -224,5 +247,32 @@ final class CameraPreview: ObservableObject {
 
     private func onMain(_ work: @escaping () -> Void) {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
+}
+
+/// Whether this Mac has a camera at all, for the rail's mirror disc (`RailControl.Presence`).
+///
+/// The mirror was on the rail by default on every Mac, cameras or none, and a click on it
+/// asked for the camera before looking for one. Read once, then kept current by the system's
+/// own notices of cameras coming and going — a Continuity Camera or a webcam plugged in brings
+/// the disc back. Listing devices needs no permission. Main thread.
+final class CameraPresence: ObservableObject {
+    static let shared = CameraPresence()
+
+    @Published private(set) var hasCamera: Bool
+    private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        hasCamera = CameraPreview.anyCamera()
+        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.reread()
+            })
+        }
+    }
+
+    private func reread() {
+        let has = CameraPreview.anyCamera()
+        if hasCamera != has { hasCamera = has }
     }
 }

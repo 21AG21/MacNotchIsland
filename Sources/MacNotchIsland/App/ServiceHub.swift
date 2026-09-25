@@ -32,15 +32,14 @@ final class ServiceHub {
 
     private var cancellables = Set<AnyCancellable>()
     private var requestedShortcuts = false
+    private var warmedToggles = false
 
     func start() {
         energy.start()
-        // Warmed here rather than the first time the panel opens. Its first reading builds a
-        // CoreWLAN client and talks to the Wi-Fi daemon, and the first time anything asks for
-        // it is when the rail is mounted — which is during the spring that opens the panel.
-        _ = SystemToggles.shared
-        // The same for the keyboard's backlight: opening CoreBrightness and asking its client
-        // which keyboards it has is a one-time cost, and the rail asks whether there is one.
+        // The keyboard's backlight is warmed here rather than the first time the panel opens:
+        // opening CoreBrightness and asking its client which keyboards it has is a one-time
+        // cost, and the rail asks whether there is one. The rail's radio switches are warmed
+        // in `apply()`, once the tour is done, see `warmsToggles`.
         _ = KeyboardLight.shared
         apply()
         LiveActivityAPI.shared.start()
@@ -71,8 +70,32 @@ final class ServiceHub {
     /// away from "Battery and charging", and stayed live with it off: a figure on the screen
     /// that nothing read. Activities greys the menu out by this, the same rule that starts the
     /// monitor, so the two cannot disagree.
-    static func wantsBattery(_ p: Preferences) -> Bool {
-        p.batteryEnabled
+    ///
+    /// And only where there is a battery. On a Mac mini or an iMac both stayed live — a switch
+    /// and a menu for a charge nobody has — so the pane greys them out by the same answer.
+    /// `hasBattery` is passed in by the tests; everywhere else it is this Mac's.
+    static func wantsBattery(_ p: Preferences, hasBattery: Bool = ServiceHub.hasBattery) -> Bool {
+        p.batteryEnabled && hasBattery
+    }
+
+    /// Whether this Mac has an internal battery. Read once: nobody adds one to a running Mac.
+    static let hasBattery = BatteryMonitor.internalBatteryDescription() != nil
+
+    /// Whether the Bluetooth monitor may run, which is the same as whether macOS may be asked
+    /// for Bluetooth.
+    ///
+    /// Held until the tour has been through, for the calendar's reason. It ships on, and the
+    /// first thing it does is register with IOBluetooth, which is what asks — so the Bluetooth
+    /// sheet was a new Mac's first sight of the app, ahead of the window that says what it is.
+    static func wantsBluetooth(_ p: Preferences) -> Bool {
+        p.bluetoothEnabled && p.hasSeenWelcome
+    }
+
+    /// Whether the rail's switches may be read ahead of the panel opening. Reading them asks
+    /// IOBluetooth whether the radio is on, and that asks macOS for Bluetooth — so the same
+    /// wait as the monitor, and for the same reason. Pure, beside the rule it follows.
+    static func warmsToggles(_ p: Preferences) -> Bool {
+        p.hasSeenWelcome
     }
 
     /// Whether the calendar may run, which is the same as whether macOS may be asked for it.
@@ -140,7 +163,15 @@ final class ServiceHub {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
         Self.wantsBattery(p) ? battery.start() : battery.stop()
-        p.bluetoothEnabled ? bluetooth.start() : bluetooth.stop()
+        Self.wantsBluetooth(p) ? bluetooth.start() : bluetooth.stop()
+        // Warmed once, after the tour, rather than the first time the panel opens. Its first
+        // reading builds a CoreWLAN client and talks to the Wi-Fi daemon, and the first time
+        // anything asks for it is when the rail is mounted — during the spring that opens the
+        // panel. It used to be warmed at launch, which put its Bluetooth question ahead of the tour.
+        if Self.warmsToggles(p), !warmedToggles {
+            warmedToggles = true
+            _ = SystemToggles.shared
+        }
         // The audio monitor feeds the volume display, the silent-mode alert, the microphone
         // indicator and call detection — but the first two only exist while the island is the
         // one answering the media keys, so on their own they are not a reason to listen.

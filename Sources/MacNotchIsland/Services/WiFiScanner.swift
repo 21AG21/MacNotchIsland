@@ -51,6 +51,13 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// sitting on a perfectly good network. Published so the column can say what is actually
     /// wrong, and offer the pane that puts it right.
     @Published private(set) var needsLocation = false
+    /// Whether the names are being kept from us because Location has never been asked for.
+    ///
+    /// The list used to ask the moment Controls appeared — so arriving on the section, even on
+    /// a Mac with no Wi-Fi to list, put a Location prompt on screen because somebody looked.
+    /// Now the column says the names need Location and offers a "Show names" pill, and the
+    /// question is asked from that, see `askForLocation`.
+    @Published private(set) var locationUnasked = false
 
     /// How often the list is refreshed while somebody is looking at it.
     static let refreshInterval: TimeInterval = 12
@@ -65,8 +72,8 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var viewers = 0
     private var timer: Timer?
     /// Held for as long as the app runs: a manager let go before macOS has answered takes its
-    /// question with it. Made the first time the list is looked at, so a Mac whose owner never
-    /// opens Controls is never asked. Main queue only, where its delegate calls arrive.
+    /// question with it. Made the first time the list is looked at, which asks nothing — only
+    /// the pill does. Main queue only, where its delegate calls arrive.
     private var location: CLLocationManager?
 
     private override init() {
@@ -85,7 +92,7 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
-        askForLocationIfNeeded()
+        noteLocation(locationManager().authorizationStatus)
         refresh(scan: true)
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(scan: true)
@@ -101,24 +108,39 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // MARK: - Location, for the names
 
-    /// Asks once, the first time anybody looks, and otherwise only reads where things stand:
-    /// a refusal is System Settings' to undo, and the column offers the way there.
-    private func askForLocationIfNeeded() {
-        let manager: CLLocationManager
-        if let location {
-            manager = location
+    /// The manager, made the first time it is needed. Making one and reading its status asks
+    /// nothing of anybody.
+    private func locationManager() -> CLLocationManager {
+        if let location { return location }
+        let manager = CLLocationManager()
+        manager.delegate = self
+        location = manager
+        return manager
+    }
+
+    /// The column's "Show names": the one place Location is asked for. Never asked, it asks;
+    /// otherwise the answer is System Settings' to change, and that is where it goes.
+    func askForLocation() {
+        let manager = locationManager()
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
         } else {
-            manager = CLLocationManager()
-            manager.delegate = self
-            location = manager
+            SystemSettingsPane.location.open()
         }
-        if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
         noteLocation(manager.authorizationStatus)
     }
 
     private func noteLocation(_ status: CLAuthorizationStatus) {
         let withheld = Self.namesWithheld(status)
         if needsLocation != withheld { needsLocation = withheld }
+        let unasked = Self.namesUnasked(status)
+        if locationUnasked != unasked { locationUnasked = unasked }
+    }
+
+    /// Whether the names are kept from us only because nobody has asked yet, which the column
+    /// offers to do rather than doing it because the section appeared.
+    static func namesUnasked(_ status: CLAuthorizationStatus) -> Bool {
+        status == .notDetermined
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -129,7 +151,7 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     /// Whether Location's answer is one that keeps the names from us. Not yet asked is not a
-    /// refusal: the question is on screen, and the list is read again the moment it is answered.
+    /// refusal — see `namesUnasked` — and the list is read again the moment it is answered.
     static func namesWithheld(_ status: CLAuthorizationStatus) -> Bool {
         status == .denied || status == .restricted
     }

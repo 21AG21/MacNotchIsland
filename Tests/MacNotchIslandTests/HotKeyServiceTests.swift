@@ -25,6 +25,76 @@ final class HotKeyServiceTests: XCTestCase {
                        "⌃⌥Space")
     }
 
+    // MARK: - macOS's own shortcuts
+
+    /// One entry of `CopySymbolicHotKeys`'s list, as the rule reads it.
+    private func symbolic(_ code: Int, _ modifiers: Int, enabled: Bool) -> [String: Any] {
+        [HotKeyService.symbolicCodeKey: code,
+         HotKeyService.symbolicModifiersKey: modifiers,
+         HotKeyService.symbolicEnabledKey: enabled]
+    }
+
+    /// With two input sources, ⌃⌥Space is "Select next source in Input menu". Registration
+    /// said yes to it, so nothing ever said the shipping shortcut was macOS's.
+    func testTheInputMenuShortcutIsSeenAsTaken() {
+        let inputMenu = [symbolic(49, control | option, enabled: true)]
+        XCTAssertTrue(HotKeyService.systemConflict(keyCode: 49, modifiers: control | option, symbolic: inputMenu))
+        XCTAssertFalse(HotKeyService.systemConflict(keyCode: 49, modifiers: control, symbolic: inputMenu),
+                       "a different set of modifiers is a different shortcut")
+        XCTAssertFalse(HotKeyService.systemConflict(keyCode: 34, modifiers: control | option, symbolic: inputMenu),
+                       "and so is a different key")
+        XCTAssertFalse(HotKeyService.systemConflict(keyCode: 49, modifiers: control | option, symbolic: []),
+                       "a Mac with one input source has nothing there")
+    }
+
+    func testASystemShortcutThatIsSwitchedOffTakesNothing() {
+        let off = [symbolic(49, control | option, enabled: false)]
+        XCTAssertFalse(HotKeyService.systemConflict(keyCode: 49, modifiers: control | option, symbolic: off))
+        let unreadable: [[String: Any]] = [[HotKeyService.symbolicCodeKey: 49]]
+        XCTAssertFalse(HotKeyService.systemConflict(keyCode: 49, modifiers: control | option, symbolic: unreadable),
+                       "an entry that does not say it is on is not counted as on")
+    }
+
+    func testSymbolicModifiersAreReadInEitherSpelling() {
+        // Carbon's masks as they are, and AppKit's device-independent flags turned into them:
+        // ⌃ is 1 << 18 and ⌥ is 1 << 19 there. Caps Lock and Fn are not part of a combination.
+        XCTAssertEqual(HotKeyService.carbonModifiers(symbolic: control | option), control | option)
+        XCTAssertEqual(HotKeyService.carbonModifiers(symbolic: (1 << 18) | (1 << 19)), control | option)
+        XCTAssertEqual(HotKeyService.carbonModifiers(symbolic: (1 << 17) | (1 << 20)), shift | cmd)
+        XCTAssertEqual(HotKeyService.carbonModifiers(symbolic: (1 << 18) | (1 << 23)), control, "Fn is dropped")
+        let appKitSpelling = [symbolic(49, (1 << 18) | (1 << 19), enabled: true)]
+        XCTAssertTrue(HotKeyService.systemConflict(keyCode: 49, modifiers: control | option, symbolic: appKitSpelling))
+    }
+
+    /// A Mac where macOS has ⌃⌥Space starts on ⌃⌥I, which the tour then names.
+    func testTheShippingShortcutStepsAsideForTheSystem() {
+        let free = HotKeyService.shippingDefault(symbolic: [])
+        XCTAssertEqual(free.keyCode, HotKeyService.defaultKeyCode)
+        XCTAssertEqual(free.modifiers, HotKeyService.defaultModifiers)
+
+        let taken = HotKeyService.shippingDefault(symbolic: [symbolic(49, control | option, enabled: true)])
+        XCTAssertEqual(taken.keyCode, HotKeyService.fallbackKeyCode)
+        XCTAssertEqual(taken.modifiers, HotKeyService.fallbackModifiers)
+        XCTAssertEqual(HotKeyService.displayString(keyCode: taken.keyCode, carbonModifiers: taken.modifiers), "⌃⌥I")
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: taken.keyCode, modifiers: taken.modifiers),
+                     "and the fallback is one the recorder would have taken")
+
+        let both = [symbolic(49, control | option, enabled: true), symbolic(34, control | option, enabled: true)]
+        XCTAssertEqual(HotKeyService.shippingDefault(symbolic: both).keyCode, HotKeyService.fallbackKeyCode,
+                       "the fallback is not second-guessed: it is the one default there is")
+    }
+
+    func testTheRecorderSaysWhoHasTheShortcut() {
+        XCTAssertNil(ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: false))
+        XCTAssertTrue(ShortcutRecorderView.conflictNote(registrationFailed: true, takenBySystem: false)?
+            .contains("Another app") == true)
+        let system = ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: true)
+        XCTAssertTrue(system?.contains("macOS") == true, "the system is named, not some other app")
+        XCTAssertTrue(system?.contains("Keyboard Shortcuts") == true, "with where to turn its own one off")
+        XCTAssertTrue(ShortcutRecorderView.conflictNote(registrationFailed: true, takenBySystem: true)?
+            .contains("Another app") == true, "a refusal is the harder fact, and is said first")
+    }
+
     func testModifiersUseApplesCanonicalOrder() {
         XCTAssertEqual(HotKeyService.displayString(keyCode: 40, carbonModifiers: shift | cmd), "⇧⌘K")
         XCTAssertEqual(HotKeyService.displayString(keyCode: 0, carbonModifiers: cmd | shift | option | control), "⌃⌥⇧⌘A")

@@ -141,15 +141,20 @@ enum RailControl: String, CaseIterable, Codable {
         var hasKeyboardLight = true
         /// The shelf is switched on and has something on it to send.
         var shelfHasFiles = true
+        /// There is a camera for the mirror to look through, built in or plugged in.
+        var hasCamera = true
     }
 
     /// Whether the control has anything to do on this Mac right now: Wi-Fi and Bluetooth with the
-    /// radio, the keyboard's light with a backlight, AirDrop with something on the shelf.
+    /// radio, the keyboard's light with a backlight, AirDrop with something on the shelf, the
+    /// mirror with a camera. The mirror ships on, and on a Mac with no camera it was a disc that
+    /// asked for the camera and then said there was none.
     func isPresent(_ presence: Presence) -> Bool {
         switch self {
         case .wifi: return presence.hasWiFi
         case .bluetooth: return presence.hasBluetooth
         case .keyboardLight: return presence.hasKeyboardLight
+        case .mirror: return presence.hasCamera
         case .airDrop: return presence.shelfHasFiles
         default: return true
         }
@@ -166,7 +171,10 @@ enum RailControl: String, CaseIterable, Codable {
         let presence = Presence(hasWiFi: SystemToggles.shared.hasWiFi,
                                 hasBluetooth: SystemToggles.shared.hasBluetooth,
                                 hasKeyboardLight: KeyboardLight.shared.isAvailable,
-                                shelfHasFiles: prefs.shelfEnabled && !ShelfStore.shared.items.isEmpty)
+                                shelfHasFiles: prefs.shelfEnabled && !ShelfStore.shared.items.isEmpty,
+                                // The gallery is drawn on a machine with no camera, and shows
+                                // the rail as a Mac that has one.
+                                hasCamera: RenderMode.isGallery || CameraPresence.shared.hasCamera)
         return available(order: ordered(prefs), isEnabled: { $0.isEnabled(prefs) }, presence: presence)
     }
 

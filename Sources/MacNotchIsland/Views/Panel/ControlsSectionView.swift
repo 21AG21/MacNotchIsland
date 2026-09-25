@@ -133,7 +133,7 @@ struct ControlsSectionView: View {
             wifi.viewerAppeared()
             sound.viewerAppeared()
             airPods.viewerAppeared()
-            devices = BluetoothMonitor.paired()
+            devices = pairedDevices
         }
         .onDisappear {
             toggles.viewerDisappeared()
@@ -143,8 +143,15 @@ struct ControlsSectionView: View {
         }
         // The radio answers in its own time; the list catches up when it does.
         .onReceive(devicesTicker) { _ in
-            devices = BluetoothMonitor.paired()
+            devices = pairedDevices
         }
+    }
+
+    /// The paired list, read only once the tour is done. Reading it is a Bluetooth question,
+    /// and before the tour that question is held back with the monitor's
+    /// (`ServiceHub.wantsBluetooth`), so arriving here early does not put it on screen.
+    private var pairedDevices: [BluetoothMonitor.Paired] {
+        prefs.hasSeenWelcome ? BluetoothMonitor.paired() : []
     }
 
     // MARK: - A column
@@ -199,6 +206,19 @@ struct ControlsSectionView: View {
                 }
                 .environment(\.islandCompactControls, true)
                 .accessibilityLabel(Text("Wi-Fi network names need your location. Open Location Services."))
+            }
+        } else if wifi.networks.isEmpty, wifi.locationUnasked {
+            // Never asked: the question is this pill's to put, not the section's for having
+            // been arrived on. See `WiFiScanner.locationUnasked`.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Network names need Location")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.white.opacity(0.35))
+                PillButton(title: "Show names", tint: .white.opacity(0.85)) {
+                    wifi.askForLocation()
+                }
+                .environment(\.islandCompactControls, true)
+                .accessibilityLabel(Text("Wi-Fi network names need your location. Ask for Location."))
             }
         } else if wifi.networks.isEmpty {
             Text(wifi.isScanning ? "Looking…" : "Nothing in range")

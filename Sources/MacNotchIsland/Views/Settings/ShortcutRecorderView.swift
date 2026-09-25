@@ -24,7 +24,7 @@ struct ShortcutRecorderView: View {
                     }
                     .help("Record a new shortcut.")
                     Button("Reset") { reset() }
-                        .help("Go back to the shipping shortcut.")
+                        .help("Go back to the shipping shortcut: ⌃⌥Space, or ⌃⌥I where macOS uses that.")
                 }
             }
             if let note {
@@ -48,7 +48,19 @@ struct ShortcutRecorderView: View {
     /// The small grey line under the row: a nudge while recording, otherwise the conflict warning.
     private var note: String? {
         if let hint = hint { return hint }
-        if hotkey.registrationFailed { return "Another app is already using this shortcut." }
+        return Self.conflictNote(registrationFailed: hotkey.registrationFailed, takenBySystem: hotkey.takenBySystem)
+    }
+
+    /// What is said about a combination somebody else has. Two different somebodies: another
+    /// app refuses the registration outright, while macOS lets it through and then answers the
+    /// keys itself first — so the second was never said at all, on any Mac with two input
+    /// sources and the shortcut as it shipped. Pure, so a test holds each to its sentence.
+    static func conflictNote(registrationFailed: Bool, takenBySystem: Bool) -> String? {
+        if registrationFailed { return "Another app is already using this shortcut." }
+        if takenBySystem {
+            return "macOS uses this for one of its own shortcuts and answers it first — with two input sources, "
+                + "switching between them. Choose another, or turn that one off in System Settings, under Keyboard Shortcuts."
+        }
         return nil
     }
 
@@ -94,11 +106,14 @@ struct ShortcutRecorderView: View {
         return nil
     }
 
+    /// Back to what this Mac ships with, which is ⌃⌥I where macOS has ⌃⌥Space: resetting to
+    /// a combination the system answers first would reset to a shortcut that does nothing.
     private func reset() {
         endRecording()
         hint = nil
-        Preferences.shared.hotkeyKeyCode = Double(HotKeyService.defaultKeyCode)
-        Preferences.shared.hotkeyModifiers = Double(HotKeyService.defaultModifiers)
+        let shipping = HotKeyService.shippingDefaultOnThisMac
+        Preferences.shared.hotkeyKeyCode = Double(shipping.keyCode)
+        Preferences.shared.hotkeyModifiers = Double(shipping.modifiers)
     }
 
     // MARK: The rule

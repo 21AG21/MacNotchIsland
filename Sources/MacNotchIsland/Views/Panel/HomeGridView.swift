@@ -84,10 +84,28 @@ struct HomeGridView: View {
         // The Today tile's line is read from the agenda, and the agenda only reads the day
         // while somebody is looking at it: unregistered, the tile said "Nothing today" after
         // a fresh launch and, later on, named a meeting that had ended hours before. Held on
-        // the same terms as the calendar itself, so the tile never asks for it ahead of the tour.
-        .onAppear { holdAgenda(ServiceHub.wantsCalendar(prefs)) }
+        // the same terms as the calendar itself, so the tile never asks for it ahead of the
+        // tour — and, while holding it would still ask, only on a panel somebody opened.
+        .onAppear { holdAgenda(holdsAgendaNow) }
         .onDisappear { holdAgenda(false) }
-        .onChange(of: ServiceHub.wantsCalendar(prefs)) { _, wanted in holdAgenda(wanted) }
+        .onChange(of: holdsAgendaNow) { _, wanted in holdAgenda(wanted) }
+    }
+
+    /// Whether this grid should be one of the agenda's viewers at this moment, see `holdsAgenda`.
+    private var holdsAgendaNow: Bool {
+        Self.holdsAgenda(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen,
+                         wouldAsk: agenda.wouldAsk)
+    }
+
+    /// Whether the grid holds the agenda.
+    ///
+    /// The first viewer is what asks macOS for Reminders, and the grid is also the peek that
+    /// opens under a pointer resting on the bare notch — so the Reminders sheet came up because
+    /// somebody's pointer had crossed the top of the screen. While holding it would ask, it is
+    /// held only on a panel pinned open, which somebody chose to open; once both questions have
+    /// been put, a peek holds it too, so its Today tile is as fresh as the pinned one. Pure.
+    static func holdsAgenda(wantsCalendar: Bool, pinnedOpen: Bool, wouldAsk: Bool) -> Bool {
+        wantsCalendar && (pinnedOpen || !wouldAsk)
     }
 
     /// Takes or gives back this view's place among the agenda's viewers — what it gave back on

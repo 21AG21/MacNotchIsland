@@ -8,7 +8,9 @@ struct TodaySectionView: View {
     @ObservedObject private var weather = WeatherService.shared
     @EnvironmentObject private var prefs: Preferences
     /// Whether this view holds one of the weather's claims, see `holdWeather`.
+    @EnvironmentObject private var center: ActivityCenter
     @State private var holdsWeather = false
+    @State private var holdsAgenda = false
 
     private static let eventRow: CGFloat = 36
     static let reminderRow: CGFloat = 28
@@ -161,13 +163,14 @@ struct TodaySectionView: View {
             if showsHours { hourly }
         }
         .onAppear {
-            agenda.viewerAppeared()
+            holdAgenda(holdsAgendaNow)
             holdWeather(prefs.weatherEnabled)
         }
         .onDisappear {
-            agenda.viewerDisappeared()
+            holdAgenda(false)
             holdWeather(false)
         }
+        .onChange(of: holdsAgendaNow) { _, wanted in holdAgenda(wanted) }
         .onChange(of: prefs.weatherEnabled) { _, on in holdWeather(on) }
     }
 
@@ -175,6 +178,21 @@ struct TodaySectionView: View {
     /// is what it took, rather than what the switch says by then: turning Weather off with
     /// Today on screen skipped the `stop()`, and the service went on polling with its switch
     /// off for the rest of the session.
+    /// Whether this section holds the agenda: the same rule as the Home grid's Today tile, so
+    /// a peek that lands here does not put up the Reminders sheet because a pointer crossed
+    /// the top of the screen. See `HomeGridView.holdsAgenda`.
+    private var holdsAgendaNow: Bool {
+        HomeGridView.holdsAgenda(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen,
+                                 wouldAsk: agenda.wouldAsk)
+    }
+
+    /// What it gave back on the way out is what it took, whatever the rule says by then.
+    private func holdAgenda(_ wanted: Bool) {
+        guard wanted != holdsAgenda else { return }
+        holdsAgenda = wanted
+        if wanted { agenda.viewerAppeared() } else { agenda.viewerDisappeared() }
+    }
+
     private func holdWeather(_ wanted: Bool) {
         guard wanted != holdsWeather else { return }
         holdsWeather = wanted

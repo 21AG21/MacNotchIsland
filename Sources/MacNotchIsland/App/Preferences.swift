@@ -145,16 +145,40 @@ final class Preferences: ObservableObject {
     /// SMAppService only makes sense for a real .app bundle (not `swift run` or the test host).
     private static var isBundledApp: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 
+    /// Whether the checkbox is ticked. What is registered is macOS's to say, not this: after
+    /// every change the box is set again from `SMAppService.mainApp.status`, see
+    /// `settleLoginItem`.
     @Published var launchAtLogin: Bool {
         didSet {
-            guard oldValue != launchAtLogin, Self.isBundledApp else { return }
+            guard oldValue != launchAtLogin, Self.isBundledApp, !settlingLoginItem else { return }
             do {
                 if launchAtLogin { try SMAppService.mainApp.register() }
                 else { try SMAppService.mainApp.unregister() }
             } catch {
                 IslandLog.island.error("launch at login change failed: \(String(describing: error), privacy: .public)")
             }
+            // A refused register used to leave the tick in place with nothing registered, and
+            // one waiting on approval was not told apart from one that worked. Settled on the
+            // next turn of the run loop, out of the view update the checkbox wrote this in.
+            DispatchQueue.main.async { [weak self] in self?.settleLoginItem() }
         }
+    }
+
+    /// The line under "Open at login" when the tick is not the whole story, see `LoginItemRule`.
+    @Published private(set) var loginItemNote: String? = nil
+    /// Set while the box is being put back to what macOS says, so that doing so asks nothing.
+    private var settlingLoginItem = false
+
+    /// Sets the checkbox and its note from what macOS says is registered. Called after every
+    /// change, and by the two places the box is shown whenever they are looked at: approval
+    /// is given in System Settings, which tells nobody.
+    func settleLoginItem() {
+        guard Self.isBundledApp else { return }
+        let shown = LoginItemRule.shown(status: SMAppService.mainApp.status)
+        settlingLoginItem = true
+        if launchAtLogin != shown.checked { launchAtLogin = shown.checked }
+        settlingLoginItem = false
+        if loginItemNote != shown.note { loginItemNote = shown.note }
     }
 
     private init() {
@@ -229,8 +253,14 @@ final class Preferences: ObservableObject {
         weatherEnabled = bool("weatherEnabled", false)
         hideInFullscreen = bool("hideInFullscreen", false)
         reactiveVisualizerEnabled = bool("reactiveVisualizerEnabled", false)
-        hotkeyKeyCode = double("hotkeyKeyCode", 49)          // kVK_Space
-        hotkeyModifiers = double("hotkeyModifiers", 6144)     // controlKey | optionKey
+        // ⌃⌥Space, unless macOS already uses it — see `HotKeyService.shippingDefault`. Asked
+        // only while nothing has been recorded, and not written down: the combination follows
+        // the Mac's own list until somebody chooses one.
+        let shipping = d.object(forKey: "hotkeyKeyCode") == nil
+            ? HotKeyService.shippingDefaultOnThisMac
+            : (keyCode: HotKeyService.defaultKeyCode, modifiers: HotKeyService.defaultModifiers)
+        hotkeyKeyCode = double("hotkeyKeyCode", Double(shipping.keyCode))
+        hotkeyModifiers = double("hotkeyModifiers", Double(shipping.modifiers))
         pausedUntil = double("pausedUntil", 0)
         hiddenAppBundleIDs = UserDefaults.standard.stringArray(forKey: "hiddenAppBundleIDs") ?? []
         sectionOrder = UserDefaults.standard.stringArray(forKey: "sectionOrder") ?? []
@@ -246,6 +276,38 @@ final class Preferences: ObservableObject {
         motionDuration = motion.duration
         motionBounce = motion.bounce
 
-        launchAtLogin = Self.isBundledApp && SMAppService.mainApp.status == .enabled
+        // The same reading `settleLoginItem` makes, so an item waiting on approval starts
+        // ticked with its note rather than unticked and silent.
+        let login: (checked: Bool, note: String?) = Self.isBundledApp
+            ? LoginItemRule.shown(status: SMAppService.mainApp.status)
+            : (checked: false, note: nil)
+        launchAtLogin = login.checked
+        loginItemNote = login.note
     }
+}
+
+/// What "Open at login" shows for what macOS says is registered.
+///
+/// The box used to be the preference and nothing else: a `register()` that threw was logged
+/// and the tick stayed, so a Mac could show "Open at login" ticked with nothing registered at
+/// all; and an item waiting for approval in Login Items read as unticked, with nothing to say
+/// what it was waiting for. Pure, so each status can be held to its answer.
+enum LoginItemRule {
+    static let approvalNote = "Waiting for your approval in System Settings, under Login Items."
+    static let notFoundNote = "macOS cannot find this copy of the app to open at login. Move it to Applications and try again."
+
+    static func shown(status: SMAppService.Status) -> (checked: Bool, note: String?) {
+        switch status {
+        case .enabled: return (true, nil)
+        // Registered, and not yet in effect: ticked, since unticking it is how to take the
+        // registration back, with the note saying where the rest of it is done.
+        case .requiresApproval: return (true, approvalNote)
+        case .notRegistered: return (false, nil)
+        case .notFound: return (false, notFoundNote)
+        @unknown default: return (false, nil)
+        }
+    }
+
+    /// Whether the note is one the Login Items pane answers, and so comes with a way there.
+    static func offersLoginItems(_ note: String?) -> Bool { note == approvalNote }
 }

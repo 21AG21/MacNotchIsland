@@ -111,6 +111,9 @@ enum SystemSettingsPane: String {
     case reminders = "Privacy_Reminders"
     case automation = "Privacy_Automation"
     case screenRecording = "Privacy_ScreenCapture"
+    case bluetooth = "Privacy_Bluetooth"
+    /// Where Downloads and the Desktop are allowed, one folder at a time.
+    case filesAndFolders = "Privacy_FilesAndFolders"
     /// What the Focus database is read under, on a macOS that guards it.
     case fullDiskAccess = "Privacy_AllFiles"
     /// Notifications is not under Privacy & Security; it is a pane of its own.

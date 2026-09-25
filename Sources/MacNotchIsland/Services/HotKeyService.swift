@@ -4,7 +4,8 @@ import Combine
 import Foundation
 
 /// Global shortcuts that drive the island without touching the trackpad. The main combo lives
-/// in preferences (⌃⌥Space out of the box) and toggles the island; the same modifiers with Tab
+/// in preferences (⌃⌥Space out of the box, or ⌃⌥I where macOS has Space, see
+/// `shippingDefault`) and toggles the island; the same modifiers with Tab
 /// step forward through every view, with Shift+Tab backward; Escape closes whatever is open,
 /// and the modifiers with the arrow keys step sideways; those are only registered while
 /// something is open. Uses Carbon's RegisterEventHotKey, which works for
@@ -16,10 +17,24 @@ final class HotKeyService: ObservableObject {
     /// True when the last registration attempt was refused — almost always because another
     /// app already owns the combo. Settings surfaces this next to the recorder.
     @Published private(set) var registrationFailed = false
+    /// True when macOS itself uses the combo for one of its own shortcuts, see `systemConflict`.
+    /// Registration still succeeds for those, which is why this is a second flag rather than
+    /// the first one saying yes.
+    @Published private(set) var takenBySystem = false
 
-    /// ⌃⌥Space: the shipping default, and what the recorder's "Reset" button restores.
+    /// ⌃⌥Space: the shipping default, and what the recorder's "Reset" button restores on a Mac
+    /// where macOS leaves it free.
     static let defaultKeyCode = kVK_Space
     static let defaultModifiers = controlKey | optionKey
+
+    /// ⌃⌥I: what a Mac gets instead where ⌃⌥Space is already macOS's.
+    ///
+    /// With two input sources, ⌃⌥Space is "Select next source in Input menu", and macOS takes
+    /// it before any app sees it — while `RegisterEventHotKey` still says yes, so nothing said
+    /// the shortcut the tour had just taught was dead. I is in none of the system's lists, and
+    /// clear of the island's own steps, which ride on Tab and the arrows.
+    static let fallbackKeyCode = kVK_ANSI_I
+    static let fallbackModifiers = controlKey | optionKey
 
     private enum Slot: UInt32 {
         case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6
@@ -117,6 +132,7 @@ final class HotKeyService: ObservableObject {
         if let handlerRef { RemoveEventHandler(handlerRef) }
         handlerRef = nil
         registrationFailed = false
+        if takenBySystem { takenBySystem = false }
     }
 
     // MARK: - Registration
@@ -150,6 +166,11 @@ final class HotKeyService: ObservableObject {
         if Preferences.shared.hotkeyEnabled {
             let modifiers = Self.currentModifiers
             registrationFailed = !register(.toggle, keyCode: Self.currentKeyCode, modifiers: modifiers)
+            // Asked every time the combination is registered, which is every time it changes:
+            // the list is macOS's, and somebody may have switched one of its entries off since.
+            let taken = Self.systemConflict(keyCode: Self.currentKeyCode, modifiers: modifiers,
+                                            symbolic: Self.systemHotKeys())
+            if takenBySystem != taken { takenBySystem = taken }
             // Tab with the same modifiers cycles views; adding Shift reverses. When the main
             // combo already holds Shift the two coincide, and only the forward step registers.
             register(.next, keyCode: kVK_Tab, modifiers: modifiers)
@@ -157,6 +178,7 @@ final class HotKeyService: ObservableObject {
         } else {
             // Nothing was asked of the system, so nothing was refused.
             registrationFailed = false
+            if takenBySystem { takenBySystem = false }
         }
         if escapeArmed { registerEscape() }
         if stepKeysArmed { registerStepKeys() }
@@ -377,6 +399,68 @@ final class HotKeyService: ObservableObject {
         guard value.isFinite, value >= 0, value <= Double(UInt16.max) else { return fallback }
         return Int(value)
     }
+
+    // MARK: - macOS's own shortcuts
+
+    /// Whether macOS itself uses a combination for one of its own shortcuts that is switched
+    /// on: the input menu, Spotlight, Mission Control and the rest of Keyboard Shortcuts.
+    ///
+    /// `RegisterEventHotKey` knows nothing of these. It says yes to a combination the system
+    /// will take first, so "Another app is already using this shortcut" never showed for the
+    /// one that mattered most — the shipping ⌃⌥Space on any Mac with two input sources.
+    /// `symbolic` is what `CopySymbolicHotKeys` hands back, passed in so the rule can be put a
+    /// fixture; an entry that is switched off takes nothing from anyone, so only the enabled
+    /// ones count.
+    static func systemConflict(keyCode: Int, modifiers: Int, symbolic: [[String: Any]]) -> Bool {
+        let wanted = carbonModifiers(symbolic: modifiers)
+        return symbolic.contains { entry in
+            guard (entry[symbolicEnabledKey] as? Bool) == true,
+                  let code = entry[symbolicCodeKey] as? Int,
+                  let mask = entry[symbolicModifiersKey] as? Int else { return false }
+            return code == keyCode && carbonModifiers(symbolic: mask) == wanted
+        }
+    }
+
+    /// The four modifiers a symbolic hot key holds, as Carbon masks. `CopySymbolicHotKeys`
+    /// writes Carbon's; the same shortcuts as System Settings stores them carry AppKit's
+    /// device-independent flags instead, so those are read too rather than trusted to be
+    /// absent. Caps Lock, the Fn key and the numeric-pad bit are not part of a combination.
+    static func carbonModifiers(symbolic value: Int) -> Int {
+        var mask = value & (cmdKey | shiftKey | optionKey | controlKey)
+        if value & (1 << 17) != 0 { mask |= shiftKey }
+        if value & (1 << 18) != 0 { mask |= controlKey }
+        if value & (1 << 19) != 0 { mask |= optionKey }
+        if value & (1 << 20) != 0 { mask |= cmdKey }
+        return mask
+    }
+
+    /// The combination this Mac gets while nobody has recorded one: ⌃⌥Space, or ⌃⌥I where
+    /// macOS already uses ⌃⌥Space — see `fallbackKeyCode`. Pure over `symbolic`.
+    static func shippingDefault(symbolic: [[String: Any]]) -> (keyCode: Int, modifiers: Int) {
+        systemConflict(keyCode: defaultKeyCode, modifiers: defaultModifiers, symbolic: symbolic)
+            ? (fallbackKeyCode, fallbackModifiers)
+            : (defaultKeyCode, defaultModifiers)
+    }
+
+    /// The same, from this Mac's own list. What Preferences starts from while the shortcut has
+    /// never been recorded, and what the recorder's Reset goes back to.
+    static var shippingDefaultOnThisMac: (keyCode: Int, modifiers: Int) {
+        shippingDefault(symbolic: systemHotKeys())
+    }
+
+    /// macOS's own shortcuts, as `CopySymbolicHotKeys` lists them; none where it will not say,
+    /// which is read as nothing being taken rather than as everything.
+    static func systemHotKeys() -> [[String: Any]] {
+        var list: Unmanaged<CFArray>?
+        guard CopySymbolicHotKeys(&list) == noErr,
+              let entries = list?.takeRetainedValue() as? [[String: Any]] else { return [] }
+        return entries
+    }
+
+    /// The keys each entry of that list is read by.
+    static let symbolicCodeKey = kHISymbolicHotKeyCode as String
+    static let symbolicModifiersKey = kHISymbolicHotKeyModifiers as String
+    static let symbolicEnabledKey = kHISymbolicHotKeyEnabled as String
 
     // MARK: - Actions
 

@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -19,6 +20,21 @@ struct GeneralPane: View {
             Section {
                 Toggle("Open at login", isOn: $prefs.launchAtLogin)
                     .help("Start Notch Island automatically when you log in.")
+                // The tick is what macOS says is registered, and this is what it cannot say
+                // on its own: waiting for approval, or not registrable from where it is.
+                if let note = prefs.loginItemNote {
+                    LabeledContent {
+                        if LoginItemRule.offersLoginItems(note) {
+                            Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
+                                .help("Open Login Items in System Settings.")
+                        }
+                    } label: {
+                        Text(note)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Toggle("Check for updates automatically", isOn: $prefs.updateChecksEnabled)
                     .help("Look for a newer release once a day.")
             } header: {
@@ -66,6 +82,9 @@ struct GeneralPane: View {
             .onReceive(permissionTicker) { _ in
                 let trusted = MediaKeyInterceptor.isTrusted
                 if accessibilityTrusted != trusted { accessibilityTrusted = trusted }
+                // Approval is given in System Settings, which tells nobody; only while there
+                // is a note is there anything to catch up with.
+                if prefs.loginItemNote != nil { prefs.settleLoginItem() }
             }
 
             Section {
@@ -105,6 +124,7 @@ struct GeneralPane: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { prefs.settleLoginItem() }
     }
 
     /// Whether hiding in full screen is on, a display has a notch, and Accessibility has not

@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import MacNotchIsland
 
@@ -98,6 +99,29 @@ final class RailControlTests: XCTestCase {
         let full = RailControl.Presence()
         XCTAssertEqual(RailControl.available(order: RailControl.defaultOrder, isEnabled: { _ in true }, presence: full),
                        RailControl.defaultOrder)
+    }
+
+    /// The mirror ships on, and on a Mac with no camera it was a disc that asked for the camera
+    /// and then said there was none.
+    func testTheMirrorNeedsACamera() {
+        let noCamera = RailControl.Presence(hasCamera: false)
+        let shown = RailControl.available(order: RailControl.defaultOrder, isEnabled: { _ in true }, presence: noCamera)
+        XCTAssertFalse(shown.contains(.mirror))
+        XCTAssertTrue(shown.contains(.wifi), "nothing else goes with it")
+        XCTAssertTrue(RailControl.available(order: RailControl.defaultOrder, isEnabled: { _ in true },
+                                            presence: RailControl.Presence()).contains(.mirror),
+                      "a camera, built in or plugged in, brings it back")
+    }
+
+    /// Looking for a camera comes before asking for one, see `CameraPreview.firstStep`.
+    func testTheMirrorLooksForACameraBeforeAskingForIt() {
+        XCTAssertEqual(CameraPreview.firstStep(hasCamera: false, access: .notDetermined), .unavailable,
+                       "nothing to look through is said without a question")
+        XCTAssertEqual(CameraPreview.firstStep(hasCamera: false, access: .authorized), .unavailable)
+        XCTAssertEqual(CameraPreview.firstStep(hasCamera: true, access: .notDetermined), .ask)
+        XCTAssertEqual(CameraPreview.firstStep(hasCamera: true, access: .authorized), .start)
+        XCTAssertEqual(CameraPreview.firstStep(hasCamera: true, access: .denied), .denied)
+        XCTAssertEqual(CameraPreview.firstStep(hasCamera: true, access: .restricted), .denied)
     }
 
     func testOnlyTheControlsSwitchedOnAreOfferedInTheUsersOrder() {

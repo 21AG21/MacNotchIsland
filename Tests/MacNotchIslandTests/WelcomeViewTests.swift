@@ -1,20 +1,70 @@
 import XCTest
 @testable import MacNotchIsland
 
-/// The tour's second page offers seven things, and all seven have to be on the screen at
+/// The tour's second page offers eight things, and all eight have to be on the screen at
 /// once. They only are while the line under each name is a single line.
 final class WelcomeViewTests: XCTestCase {
     func testEveryChoiceIsOfferedOnPageTwo() {
-        XCTAssertEqual(WelcomeView.ChoiceLine.all.count, 7)
-        XCTAssertEqual(Set(WelcomeView.ChoiceLine.all).count, 7, "two choices are explained the same way")
+        XCTAssertEqual(WelcomeView.ChoiceLine.all.count, 8)
+        XCTAssertEqual(Set(WelcomeView.ChoiceLine.all).count, 8, "two choices are explained the same way")
     }
 
     func testTheChoicesThatAskMacOSForSomethingSaySo() {
-        // Today asks for the calendar and the last one asks for Accessibility, both the
-        // moment the tour is done: the tour is where a person is told that, or nowhere.
+        // Today asks for the calendar, the folders for Downloads and the Desktop, and the last
+        // one for Accessibility, all the moment the tour is done: the tour is where a person
+        // is told that, or nowhere.
         XCTAssertTrue(WelcomeView.ChoiceLine.today.hasSuffix("Asks for access."))
+        XCTAssertTrue(WelcomeView.ChoiceLine.folders.hasSuffix("Asks for access to those folders."),
+                      "two folder prompts arrived beside the calendar's, and neither was announced")
         XCTAssertTrue(WelcomeView.ChoiceLine.keys.hasSuffix("Asks for access."),
                       "the volume and brightness keys are answered by an event tap, which needs Accessibility")
+    }
+
+    // MARK: - Things the tour said that were not so
+
+    func testTheHeadlineOnlyPromisesANotchWhereThereIsOne() {
+        XCTAssertTrue(WelcomeView.headline(hasNotch: true).contains("notch"))
+        XCTAssertFalse(WelcomeView.headline(hasNotch: false).contains("notch"), "a Mac without one was told it had one")
+    }
+
+    func testTheShelfSaysHowLongItKeepsThings() {
+        // Out of the box the shelf lets go after a day; "until you drag it out again" was true
+        // only of the Never setting.
+        let shipping = WelcomeView.shelfDetail(expiryHours: 24)
+        XCTAssertTrue(shipping.contains("a day"))
+        XCTAssertFalse(shipping.contains("until you drag it out"))
+        XCTAssertTrue(WelcomeView.shelfDetail(expiryHours: 0).contains("until you drag it out"), "Never keeps it")
+        XCTAssertEqual(WelcomeView.span(hours: 1), "an hour")
+        XCTAssertEqual(WelcomeView.span(hours: 6), "six hours")
+        XCTAssertEqual(WelcomeView.span(hours: 72), "three days")
+        XCTAssertEqual(WelcomeView.span(hours: 168), "a week")
+    }
+
+    func testTheKeyboardRowNamesOnlyAShortcutThatWorks() {
+        let working = WelcomeView.keyboardRow(shortcut: "⌃⌥I", tab: "⌃⌥Tab")
+        XCTAssertEqual(working.title, "Press ⌃⌥I", "whichever combination this Mac got")
+        XCTAssertTrue(working.detail.contains("⌃⌥Tab"))
+        let none = WelcomeView.keyboardRow(shortcut: nil, tab: "⌃⌥Tab")
+        XCTAssertFalse(none.title.contains("Press"), "a combination that does nothing is not taught")
+        XCTAssertTrue(none.detail.contains("Settings"), "it says where to choose one")
+    }
+
+    func testPageTwoNamesEverySectionItHasNoSwitchFor() {
+        // "Everything else is up to you" sat over a list without Controls, Actions or
+        // Notifications on it.
+        let covered = Set(WelcomeView.offered + WelcomeView.notOffered + [.home, .music])
+        XCTAssertEqual(covered, Set(HomeSection.allCases), "every section is offered, always there, or named")
+        XCTAssertEqual(WelcomeView.offered.count, WelcomeView.ChoiceLine.all.count - 2,
+                       "the folders and the keys are the two choices that are not sections")
+        let titles = WelcomeView.notOffered.map(\.title)
+        let line = WelcomeView.subtitle(on: Array(titles.dropLast()), off: [titles.last ?? ""])
+        for title in titles { XCTAssertTrue(line.contains(title), "\(title) is not named") }
+        XCTAssertFalse(line.contains("up to you"))
+        XCTAssertEqual(WelcomeView.subtitle(on: ["Controls", "Actions"], off: ["Notifications"]),
+                       "Now Playing is always there, and so are Controls and Actions. "
+                       + "Change any of it later in Settings, where Notifications is too.")
+        XCTAssertEqual(WelcomeView.subtitle(on: [], off: []),
+                       "Now Playing is always there. Change any of it later in Settings.")
     }
 
     func testEveryChoiceFitsOnOneLine() {

@@ -1,4 +1,5 @@
 import Carbon.HIToolbox
+import ServiceManagement
 import SwiftUI
 
 /// First-launch welcome, laid out the way Apple's own apps introduce themselves:
@@ -6,10 +7,13 @@ import SwiftUI
 /// and one prominent Continue button. Flat ground, system type, no boxes.
 struct WelcomeView: View {
     /// The tour's one size, and the size its window is built at — see `SettingsView.windowSize`
-    /// for why the window is told rather than left to ask.
-    static let windowSize = CGSize(width: 500, height: 600)
+    /// for why the window is told rather than left to ask. Forty points taller than it was, for
+    /// the eighth choice and the second line the subtitle needs to name what it leaves out.
+    static let windowSize = CGSize(width: 500, height: 640)
 
     @EnvironmentObject private var prefs: Preferences
+    /// Watched so the keyboard row names the shortcut only while pressing it will do something.
+    @ObservedObject private var hotkey = HotKeyService.shared
     var dismiss: () -> Void
     /// The last switch's answer, held back until the window closes — see `Draft`.
     @ObservedObject var draft: Draft
@@ -17,8 +21,9 @@ struct WelcomeView: View {
 
     /// The tour's last switch, held back until the tour is done.
     ///
-    /// The other six write straight to Preferences, and may: nothing runs off them that asks
-    /// macOS for anything. This one starts the media-key interceptor, which asks for
+    /// The others write straight to Preferences, and may: nothing runs off them that asks macOS
+    /// for anything before the tour is marked seen (`ServiceHub.wantsCalendar`,
+    /// `wantsDownloads`, `wantsScreenshots`). This one starts the media-key interceptor, which asks for
     /// Accessibility with a modal sheet — and did so over the tour, within a moment of the
     /// switch being flipped, before Done had been pressed. The calendar keeps the right order
     /// by having `ServiceHub.wantsCalendar` hold it until `hasSeenWelcome`; the hub reads this
@@ -38,9 +43,13 @@ struct WelcomeView: View {
         }
     }
 
-    private var shortcut: String {
-        HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
-                                    carbonModifiers: HotKeyService.currentModifiers)
+    /// The shortcut, while pressing it opens the panel: switched on, registered, and not one of
+    /// macOS's own — see `HotKeyService.takenBySystem`. Nil otherwise, and the row says where
+    /// to choose one instead of teaching a combination that does nothing.
+    private var shortcut: String? {
+        guard prefs.hotkeyEnabled, !hotkey.registrationFailed, !hotkey.takenBySystem else { return nil }
+        return HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
+                                           carbonModifiers: HotKeyService.currentModifiers)
     }
 
     private var tabShortcut: String {
@@ -77,7 +86,7 @@ struct WelcomeView: View {
             Text("Welcome to Notch Island")
                 .font(.system(size: 26, weight: .bold))
                 .padding(.top, 14)
-            Text("Your notch is now a Dynamic Island.")
+            Text(Self.headline(hasNotch: NSScreen.screens.contains { $0.safeAreaInsets.top > 0 }))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .padding(.top, 4)
@@ -88,9 +97,9 @@ struct WelcomeView: View {
                 row("rectangle.split.3x1", "One panel for everything",
                     "Music, today's agenda, your open windows, the shelf, clipboard, notes and stats, with volume, brightness, Wi-Fi and Bluetooth under them. Step between them beside the notch or with a swipe.")
                 row("tray.and.arrow.down", "Drop files on the shelf",
-                    "Drag anything onto the island and it waits there until you drag it out again, or AirDrop it from the rail.")
-                row("keyboard", "Press \(shortcut)",
-                    "Opens the panel from anywhere. \(tabShortcut) steps through every section; Escape closes.")
+                    Self.shelfDetail(expiryHours: prefs.shelfExpiryHours))
+                let keys = Self.keyboardRow(shortcut: shortcut, tab: tabShortcut)
+                row("keyboard", keys.title, keys.detail)
             }
             .frame(maxWidth: 400, alignment: .leading)
             .padding(.top, 32)
@@ -119,12 +128,52 @@ struct WelcomeView: View {
         }
     }
 
+    // MARK: - What page one says, as rules
+
+    /// The line under the app's name. "Your notch" on a Mac without one was the first thing
+    /// the tour got wrong, a line under the word Welcome.
+    static func headline(hasNotch: Bool) -> String {
+        hasNotch ? "Your notch is now a Dynamic Island." : "The top of your screen now has a Dynamic Island."
+    }
+
+    /// What the shelf keeps, and for how long. It said a file waited "until you drag it out
+    /// again", and out of the box the shelf lets go of it after a day.
+    static func shelfDetail(expiryHours: Double) -> String {
+        guard expiryHours > 0 else {
+            return "Drag anything onto the island and it waits there until you drag it out again, or AirDrop it from the rail."
+        }
+        return "Drag anything onto the island and it waits there for \(span(hours: expiryHours)), to drag out again or AirDrop from the rail."
+    }
+
+    /// "an hour", "six hours", "a day", "three days", "a week": the shelf's choices, in words.
+    static func span(hours: Double) -> String {
+        let h = max(1, Int(hours.rounded()))
+        let words = [2: "two", 3: "three", 4: "four", 5: "five", 6: "six"]
+        func counted(_ n: Int, _ one: String, _ many: String) -> String {
+            n == 1 ? one : "\(words[n] ?? String(n)) \(many)"
+        }
+        if h % 168 == 0 { return counted(h / 168, "a week", "weeks") }
+        if h % 24 == 0 { return counted(h / 24, "a day", "days") }
+        return counted(h, "an hour", "hours")
+    }
+
+    /// The keyboard row. It named ⌃⌥Space on every Mac, including the ones where macOS takes
+    /// ⌃⌥Space first for the input menu — the tour's one instruction, and it did nothing. It
+    /// names the shortcut only when there is one that works, and otherwise where to set one.
+    static func keyboardRow(shortcut: String?, tab: String) -> (title: String, detail: String) {
+        guard let shortcut else {
+            return ("Choose a shortcut",
+                    "Pick a key combination in Settings, under Island, and it opens the panel from anywhere. Escape closes.")
+        }
+        return ("Press \(shortcut)", "Opens the panel from anywhere. \(tab) steps through every section; Escape closes.")
+    }
+
     // MARK: - Page two: what it shows
 
     /// The one line under each choice's name.
     ///
-    /// Seven of them have to be on the screen at once, and they only are while each is a
-    /// single line: three of these used to run to two, which pushed the seventh — the volume
+    /// Eight of them have to be on the screen at once, and they only are while each is a
+    /// single line: three of these used to run to two, which pushed the last — the volume
     /// and brightness keys, the choice that changes the most — under the bottom of the list.
     /// The list scrolls, but a Mac with overlay scrollbars shows nothing there until somebody
     /// scrolls, so the seventh choice was, in practice, not offered at all.
@@ -132,26 +181,68 @@ struct WelcomeView: View {
     /// They live here rather than inline so a test can hold them to their one line. The
     /// fuller explanation of each is in Settings, which is where there is room for it.
     enum ChoiceLine {
-        // The two that ask macOS for something the moment the tour is finished — this one
-        // for the calendar, the last one for Accessibility — so the tour is where they say so.
+        // The three that ask macOS for something the moment the tour is finished — this one
+        // for the calendar, the folders for Downloads and the Desktop, the last one for
+        // Accessibility — so the tour is where they say so.
         static let today = "Your events and reminders. Asks for access."
         // What is on this desktop, not every window there is: the list is the window
         // server's on-screen one.
         static let windows = "This desktop's windows, as tiles to snap."
         static let shelf = "Files you drop on the island wait here."
+        // Two questions, one for each folder, and they used to arrive unannounced beside the
+        // calendar's the moment Done was pressed. Both watchers ship on, under one switch here.
+        static let folders = "New files. Asks for access to those folders."
         static let clipboard = "Recent copies, pinned ones first."
         static let notes = "A scratchpad that keeps what you type."
         // "CPU", as the section itself labels it: with the disk, "Processor" ran past the line.
         static let stats = "CPU, memory, disk, network and battery."
         static let keys = "Answered in the island. Asks for access."
-        static let all = [today, windows, shelf, clipboard, notes, stats, keys]
+        static let all = [today, windows, shelf, folders, clipboard, notes, stats, keys]
         /// About as much as fits on one line at the width the tour gives these.
         static let limit = 44
     }
 
+    /// The sections page two has a switch for. With Home and Now Playing, which have none,
+    /// every section that is not here is named in the subtitle — see `subtitle(on:off:)`.
+    static let offered: [HomeSection] = [.today, .windows, .shelf, .clipboard, .notes, .stats]
+
+    /// The sections the page has no switch for, Home and Now Playing aside.
+    static var notOffered: [HomeSection] {
+        HomeSection.allCases.filter { $0 != .home && $0 != .music && !offered.contains($0) }
+    }
+
+    /// The line under the page's title. It said "Everything else is up to you" above a list
+    /// that left out Controls and Actions — both on — and Notifications, which is off: three
+    /// sections nobody was offered. `on` and `off` are their titles, as they are now.
+    static func subtitle(on: [String], off: [String]) -> String {
+        var text = "Now Playing is always there"
+        if !on.isEmpty { text += ", and so \(on.count == 1 ? "is" : "are") \(spoken(on))" }
+        text += ". Change any of it later in Settings"
+        if !off.isEmpty { text += ", where \(spoken(off)) \(off.count == 1 ? "is" : "are") too" }
+        return text + "."
+    }
+
+    /// "A", "A and B", "A, B and C".
+    static func spoken(_ names: [String]) -> String {
+        guard names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
+    }
+
+    /// Downloads and screenshots, as the one choice the tour offers for both watchers.
+    private var folders: Binding<Bool> {
+        Binding(
+            get: { prefs.downloadsEnabled || prefs.screenshotsEnabled },
+            set: { on in
+                prefs.downloadsEnabled = on
+                prefs.screenshotsEnabled = on
+            }
+        )
+    }
+
     private var picker: some View {
-        VStack(spacing: 0) {
-            // Smaller than page one's app icon on purpose: this page has seven things to say
+        let elsewhere = Self.notOffered
+        return VStack(spacing: 0) {
+            // Smaller than page one's app icon on purpose: this page has eight things to say
             // and that one has a name to introduce. The points come off the picture rather
             // than off the bottom of the list.
             Image(systemName: "slider.horizontal.3")
@@ -165,23 +256,26 @@ struct WelcomeView: View {
             Text("Choose What It Shows")
                 .font(.system(size: 26, weight: .bold))
                 .padding(.top, 14)
-            Text("Now Playing is always there. Everything else is up to you, and can change later in Settings.")
+            Text(Self.subtitle(on: elsewhere.filter { $0.isEnabled(prefs) }.map(\.title),
+                               off: elsewhere.filter { !$0.isEnabled(prefs) }.map(\.title)))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 4)
 
-            // All seven fit without scrolling. It scrolls anyway, because a fixed height can
-            // promise nothing at larger text sizes or if an eighth is ever added — and the
+            // All eight fit without scrolling. It scrolls anyway, because a fixed height can
+            // promise nothing at larger text sizes or if a ninth is ever added — and the
             // button that dismisses this window is not allowed to be the thing that falls off
             // the bottom of it. Which is what it was doing: "Done" and "Open at login" were
             // both under the edge, on the first window a new Mac shows.
             ScrollView {
-                VStack(alignment: .leading, spacing: 11) {
+                // Nine points apart rather than eleven: the eighth row costs the rest a little air.
+                VStack(alignment: .leading, spacing: 9) {
                     choice("calendar", "Today", ChoiceLine.today, $prefs.calendarEnabled)
                     choice("macwindow.on.rectangle", "Windows", ChoiceLine.windows, $prefs.windowsEnabled)
                     choice("tray.full", "Shelf", ChoiceLine.shelf, $prefs.shelfEnabled)
+                    choice("arrow.down.circle", "Downloads and screenshots", ChoiceLine.folders, folders)
                     choice("doc.on.clipboard", "Clipboard", ChoiceLine.clipboard, $prefs.clipboardEnabled)
                     choice("note.text", "Notes", ChoiceLine.notes, $prefs.notesEnabled)
                     choice("gauge.with.dots.needle.bottom.50percent", "Stats", ChoiceLine.stats, $prefs.statsEnabled)
@@ -211,9 +305,26 @@ struct WelcomeView: View {
                 Toggle("Open at login", isOn: $prefs.launchAtLogin)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
+                // What the tick cannot say on its own: waiting for approval, or refused.
+                if let note = prefs.loginItemNote {
+                    HStack(spacing: 6) {
+                        Text(note)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if LoginItemRule.offersLoginItems(note) {
+                            Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
+                                .buttonStyle(.link)
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .frame(maxWidth: 420)
+                }
             }
             .padding(.top, 20)
         }
+        .onAppear { prefs.settleLoginItem() }
     }
 
     private func row(_ symbol: String, _ title: String, _ detail: String) -> some View {
@@ -277,18 +388,21 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         if let window {
-            // The switch is read afresh: Settings may have changed it since the tour was last up.
-            draft?.answersKeys = Preferences.shared.hudReplacementEnabled
+            // A tour that is up stays on the page it is on. One that was closed starts again
+            // from the first page: the window was kept, and with it the view's `page`, so the
+            // tour reopened from the menu bar on its second page, with no welcome and no way
+            // back to it. A fresh view is a fresh page and a fresh draft — the switch read
+            // afresh, since Settings may have changed it since the tour was last up.
+            if !window.isVisible {
+                window.contentViewController = makeContent()
+                window.setContentSize(WelcomeView.windowSize)
+                window.center()
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let answers = WelcomeView.Draft(answersKeys: Preferences.shared.hudReplacementEnabled)
-        draft = answers
-        let view = WelcomeView(dismiss: { [weak self] in self?.close() }, draft: answers)
-            .environmentObject(Preferences.shared)
-        let host = NSHostingController(rootView: view)
-        let w = NSWindow(contentViewController: host)
+        let w = NSWindow(contentViewController: makeContent())
         w.styleMask = [.titled, .closable, .fullSizeContentView]
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
@@ -309,6 +423,15 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         // leaves nothing behind to look at otherwise, and the smoke test found exactly that.
         IslandLog.island.notice("welcome window opened \(NSStringFromRect(w.frame), privacy: .public)")
         SettingsWindow.reportWindows()
+    }
+
+    /// The tour's view and the draft behind its last switch, both new.
+    private func makeContent() -> NSViewController {
+        let answers = WelcomeView.Draft(answersKeys: Preferences.shared.hudReplacementEnabled)
+        draft = answers
+        let view = WelcomeView(dismiss: { [weak self] in self?.close() }, draft: answers)
+            .environmentObject(Preferences.shared)
+        return NSHostingController(rootView: view)
     }
 
     private func close() {

@@ -6,6 +6,11 @@ struct ActivitiesPane: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var hud = SystemHUDReplacement.shared
     @ObservedObject private var keyboard = KeyboardLight.shared
+    /// Whether the Focus database can be read, read again while the pane is open: Full Disk
+    /// Access is granted in System Settings, which tells nobody.
+    @State private var focusReadable = FocusMonitor.isReadable
+    /// Held in `@State`, not built in `onReceive`, for `GeneralPane.permissionTicker`'s reason.
+    @State private var focusTicker = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     /// Why the island is or is not answering the volume and brightness keys.
     ///
@@ -71,6 +76,9 @@ struct ActivitiesPane: View {
 
             Section {
                 Toggle("Battery and charging", isOn: $prefs.batteryEnabled)
+                    .help(ServiceHub.hasBattery ? "Plugging in, unplugging, a low battery and a full one."
+                                                : "This Mac has no battery.")
+                    .disabled(!ServiceHub.hasBattery)
                 // Under the switch it hangs on. It used to sit under Downloads, a section away,
                 // and stayed live with the battery off, when nothing reads the mark at all.
                 Picker("Tell me at", selection: chargeAlert) {
@@ -93,7 +101,7 @@ struct ActivitiesPane: View {
             } header: {
                 Text("System")
             } footer: {
-                Text(Self.systemFooter(watchingBattery: ServiceHub.wantsBattery(prefs)))
+                Text(Self.systemFooter(watchingBattery: ServiceHub.wantsBattery(prefs), hasBattery: ServiceHub.hasBattery))
             }
 
             Section {
@@ -151,6 +159,19 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Focus", isOn: $prefs.focusEnabled)
                     .help("Show the current Focus, including Do Not Disturb.")
+                // Both switches here ship on, and both do nothing on a Mac that keeps the
+                // database from the app — which nothing on this pane used to say.
+                if let note = FocusNote.text(enabled: prefs.focusEnabled, readable: focusReadable) {
+                    LabeledContent {
+                        Button("Open Full Disk Access") { SystemSettingsPane.fullDiskAccess.open() }
+                            .help("Open the Full Disk Access pane in System Settings.")
+                    } label: {
+                        Text(note)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Toggle("Quieten alerts during a Focus", isOn: $prefs.quietDuringFocus)
                     .disabled(!prefs.focusEnabled)
                     .help("While a Focus is on, the island holds back the alerts that arrive on their own.")
@@ -181,6 +202,11 @@ struct ActivitiesPane: View {
         .onAppear {
             SettingsFormat.snap(&prefs.chargeAlertPercent, to: Self.chargeOptions)
             SettingsFormat.snap(&prefs.keepPausedMinutes, to: Self.keepPausedOptions)
+            focusReadable = FocusMonitor.isReadable
+        }
+        .onReceive(focusTicker) { _ in
+            let readable = FocusMonitor.isReadable
+            if focusReadable != readable { focusReadable = readable }
         }
     }
 
@@ -188,7 +214,12 @@ struct ActivitiesPane: View {
     /// charging" is off, why it is greyed out — the mark is read by the battery monitor and by
     /// nothing else, so with that off it is a figure nobody reads. Pure, so a test holds the
     /// reason to the switch.
-    static func systemFooter(watchingBattery: Bool) -> String {
+    ///
+    /// On a Mac with no battery there is no mark to explain, only why the two are greyed out.
+    static func systemFooter(watchingBattery: Bool, hasBattery: Bool = true) -> String {
+        guard hasBattery else {
+            return "This Mac has no battery, so there is no charge for Battery and charging or Tell me at to follow."
+        }
         let mark = "A laptop that lives on its charger sits at a hundred per cent, which is where a "
             + "lithium battery ages fastest. Choose a figure under Tell me at and the island says when "
             + "it has had enough, once per charge."
@@ -212,5 +243,19 @@ struct ActivitiesPane: View {
             get: { SettingsFormat.nearest(prefs.keepPausedMinutes, in: Self.keepPausedOptions) },
             set: { prefs.keepPausedMinutes = $0 }
         )
+    }
+}
+
+/// The line under the Focus switch while the Focus database cannot be read.
+///
+/// Focus alerts and "Quieten alerts during a Focus" both ship on, and both are read from a file
+/// macOS may keep from the app without Full Disk Access. Without it no Focus is ever seen, so
+/// neither switch does anything — and the pane showed both live, with the one place that said
+/// so a pane away, in Privacy. Pure, so the rule can be held to the two readings.
+enum FocusNote {
+    static func text(enabled: Bool, readable: Bool) -> String? {
+        guard enabled, !readable else { return nil }
+        return "macOS is keeping the Focus database from Notch Island, so no Focus is seen: neither the "
+            + "Focus alert nor holding alerts back during one works until Full Disk Access is allowed."
     }
 }

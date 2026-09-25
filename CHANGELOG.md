@@ -274,6 +274,11 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Nothing asks before the tour.** Bluetooth waited for nobody and was the first thing a new Mac saw; it now waits for the welcome tour like the calendar, and Settings > Privacy lists it, with the Downloads and screenshots folders and which player allowed or refused Automation.
+- **A shortcut that works.** Where macOS already uses ⌃⌥Space to switch input sources, the island ships on ⌃⌥I, the tour names whichever it got, and the shortcut recorder says when macOS has the combination.
+- **Nothing asks because you looked.** A peek no longer asks for Reminders (Home and Today hold the agenda only on a panel pinned open until both questions have been put), Controls asks for Location only from a "Show names" pill, and the mirror checks for a camera first and is left off a Mac with none.
+- **Settings tell the truth.** "Open at login" shows what macOS registered and says when it waits for approval, Focus says when Full Disk Access is missing, and the battery settings grey out on a Mac without one.
+- **The tour tells the truth.** No notch is promised on a Mac without one, the shelf's real expiry is given, the folder prompts are announced, the sections page two leaves out are named, and a reopened tour starts on page one.
 - **The calendar card stops waiting on somebody's mail server.** The next-event check ran on the main thread every minute and on every calendar change, a network fetch for a CalDAV or Exchange account; it reads on a queue now, like Today.
 - **A hung app cannot freeze the island.** Accessibility questions get half a second instead of six, and raising, snapping, minimising and closing a window happen off the main thread.
 - **Downloads is no longer listed on the main thread.** That included once a second while a download ran. Only the partial files are ever looked at.

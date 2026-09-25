@@ -135,6 +135,22 @@ final class AgendaStore: ObservableObject {
         }
     }
 
+    /// Whether the next viewer to appear would put a question on screen: nothing asked yet this
+    /// session, and one of the two permissions never answered. Read live rather than from the
+    /// published pair, which are only brought up to date by a reading — and the calendar's is
+    /// usually answered by `CalendarMonitor`, while nothing here was looking. Main thread.
+    var wouldAsk: Bool {
+        Self.wouldAsk(requested: requested,
+                      events: EKEventStore.authorizationStatus(for: .event),
+                      reminders: EKEventStore.authorizationStatus(for: .reminder))
+    }
+
+    /// Pure: `requestAccessIfNeeded` asks once a session, and only for a permission not yet
+    /// answered either way.
+    static func wouldAsk(requested: Bool, events: EKAuthorizationStatus, reminders: EKAuthorizationStatus) -> Bool {
+        !requested && (events == .notDetermined || reminders == .notDetermined)
+    }
+
     var canReadEvents: Bool { eventsAccess == .fullAccess }
     var canReadReminders: Bool { remindersAccess == .fullAccess }
 
