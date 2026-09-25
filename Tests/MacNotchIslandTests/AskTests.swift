@@ -259,8 +259,10 @@ final class AskTests: XCTestCase {
     func testTheCardsButtonAnswersIt() throws {
         let path = try replyPath()
         ask(path)
-        guard let url = card?.actions.first?.url else { return XCTFail("no button") }
-        LiveActivityAPI.shared.handle(url)
+        // The buttons are commands, not links: a link went out through Launch Services and
+        // came back, and the card flashed to a pill on the way.
+        guard let command = card?.actions.first?.command else { return XCTFail("no button") }
+        command.perform()
         XCTAssertEqual(contents(path), "yes\n")
         XCTAssertFalse(IslandAsk.shared.isAsking)
         XCTAssertNil(center.activity(id: IslandAsk.activityID))
@@ -270,8 +272,8 @@ final class AskTests: XCTestCase {
     func testTheSecondButtonIsNo() throws {
         let path = try replyPath()
         ask(path)
-        guard let url = card?.actions.last?.url else { return XCTFail("no button") }
-        LiveActivityAPI.shared.handle(url)
+        guard let command = card?.actions.last?.command else { return XCTFail("no button") }
+        command.perform()
         XCTAssertEqual(contents(path), "no\n")
     }
 
@@ -297,13 +299,13 @@ final class AskTests: XCTestCase {
     func testASecondQuestionAnswersTheFirstTimeoutAndTakesItsPlace() throws {
         let first = try replyPath(), second = try replyPath()
         ask(first)
-        guard let stale = card?.actions.first?.url else { return XCTFail("no button") }
+        guard let stale = card?.actions.first?.command else { return XCTFail("no button") }
         handle("notchisland://ask?title=Restart%3F&reply=\(encoded(second))")
         XCTAssertEqual(contents(first), "timeout\n")
         XCTAssertEqual(card?.title, "Restart?")
         XCTAssertEqual(center.activities.filter { $0.id == IslandAsk.activityID }.count, 1)
         XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID)
-        LiveActivityAPI.shared.handle(stale)
+        stale.perform()
         XCTAssertTrue(IslandAsk.shared.isAsking, "the first card's button does not answer the second")
         IslandAsk.shared.answer(.yes)
         XCTAssertEqual(contents(second), "yes\n")
