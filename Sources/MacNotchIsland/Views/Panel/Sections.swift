@@ -280,9 +280,28 @@ struct NotesSectionView: View {
     /// What `TextEditor` insets its text by on macOS.
     private static let editorInset: CGFloat = 5
 
+    /// What the empty scratchpad says. Where a scratchpad that could not be read at launch
+    /// went, when one was moved aside, for as long as this one is empty: an empty Notes where
+    /// a week of notes used to be is the moment somebody needs telling they are not gone.
+    private var invitation: String {
+        guard let name = notes.setAsideName else { return "Jot something down. It stays here, on this Mac." }
+        return "Your old notes could not be read and were kept as \(name) in Application Support."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Notes") {
+                // First, and in orange: the one thing on this line that is not a tool. What
+                // was typed is still on screen and not on disk, so it says so where the notes
+                // are rather than only in the log; a click tries the write again.
+                if let reason = notes.saveFailed {
+                    PillButton(title: "Not saved", symbol: "exclamationmark.triangle.fill", tint: .orange) {
+                        notes.flush()
+                    }
+                    .help("Your notes could not be saved: \(reason). They are still here. Click to try again.")
+                    .accessibilityLabel("Notes not saved, \(reason)")
+                    .accessibilityHint("Tries to save again")
+                }
                 if !notes.text.isEmpty {
                     PillButton(title: "Copy", tint: .white.opacity(0.85)) { notes.copyAll() }
                     PillButton(title: "Clear", tint: .white.opacity(0.85)) { notes.clear() }
@@ -317,7 +336,7 @@ struct NotesSectionView: View {
                     // 0.4, like every other line of small print in the panel. At 0.3 this was
                     // the one piece of running text in the app under the contrast a 13 pt line
                     // needs — and it is the line that tells you the section is for typing in.
-                    Text("Jot something down. It stays here, on this Mac.")
+                    Text(invitation)
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.4))
                         .padding(.top, 1)

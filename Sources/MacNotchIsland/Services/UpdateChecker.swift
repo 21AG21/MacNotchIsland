@@ -129,7 +129,7 @@ final class UpdateChecker: ObservableObject {
             stampCheck()
             let current = Self.currentVersion
             latestVersion = release.version
-            let newer = Self.isNewer(release.version, than: current)
+            let newer = Self.isNewer(tag: release.version, installed: current)
             updateAvailable = newer
             self.status = newer ? .available(release.version) : .upToDate
             guard newer else {
@@ -149,6 +149,9 @@ final class UpdateChecker: ObservableObject {
         UserDefaults.standard.set(Date(), forKey: Self.lastCheckKey)
     }
 
+    /// What this build says it is. A release's is its tag, written into the bundle by
+    /// `Scripts/build.sh` from `VERSION`; a build made without one keeps what
+    /// Resources/Info.plist says, which is behind every release there has been.
     static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
     }
@@ -275,33 +278,63 @@ final class UpdateChecker: ObservableObject {
         return t
     }
 
-    /// Dotted-numeric version comparison ("v" prefixes are stripped first). Missing trailing
-    /// components count as 0, so "1.2" equals "1.2.0"; a pre-release suffix ("2.0.0-beta")
-    /// sorts lower than the plain release it precedes ("2.0.0").
-    static func isNewer(_ candidate: String, than current: String) -> Bool {
-        let candidate = normalize(tag: candidate)
-        let current = normalize(tag: current)
-        let (candidateBase, candidatePre) = splitPreRelease(candidate)
-        let (currentBase, currentPre) = splitPreRelease(current)
-        let candidateParts = numericComponents(candidateBase)
-        let currentParts = numericComponents(currentBase)
-        let count = max(candidateParts.count, currentParts.count)
-        for i in 0..<count {
-            let c = i < candidateParts.count ? candidateParts[i] : 0
-            let d = i < currentParts.count ? currentParts[i] : 0
-            if c != d { return c > d }
+    /// Whether the release tagged `tag` is one to offer the build that says it is `installed`.
+    ///
+    /// Only a strictly newer one is. The same version under another spelling ("v1.0.0" and
+    /// "1.0.0", "1.2" and "1.2.0") is up to date, and so is an older tag — a build made ahead of
+    /// its release, or a release pulled back to the one before. Numbers compare as numbers, so
+    /// 1.10.0 is newer than 1.9.0; a pre-release ("2.0.0-beta.2") sorts below the release it
+    /// leads up to, and two of them compare the way semantic versioning orders them, so beta.10
+    /// comes after beta.9. Build metadata ("+7") says which build, not which version, and is
+    /// ignored.
+    ///
+    /// This rule was never the bug on its own: a fresh install of 1.2.0 was told to update to
+    /// 1.2.0 because the bundle said 1.0.0, whatever the tag. `Scripts/build.sh` now writes the
+    /// tag into the bundle; this is what keeps "same" and "older" from ever reading as newer.
+    static func isNewer(tag: String, installed: String) -> Bool {
+        let (tagBase, tagPre) = splitPreRelease(normalize(tag: tag))
+        let (installedBase, installedPre) = splitPreRelease(normalize(tag: installed))
+        let tagParts = numericComponents(tagBase)
+        let installedParts = numericComponents(installedBase)
+        for i in 0..<max(tagParts.count, installedParts.count) {
+            let t = i < tagParts.count ? tagParts[i] : 0
+            let n = i < installedParts.count ? installedParts[i] : 0
+            if t != n { return t > n }
         }
-        if candidatePre == nil && currentPre != nil { return true }
-        if candidatePre != nil && currentPre == nil { return false }
-        if let candidatePre, let currentPre, candidatePre != currentPre { return candidatePre > currentPre }
-        return false
+        switch (tagPre, installedPre) {
+        case (nil, nil): return false
+        // The release a pre-release was leading up to.
+        case (nil, .some): return true
+        // A pre-release of what is already installed is behind it.
+        case (.some, nil): return false
+        case let (t?, n?): return preReleaseIsNewer(t, than: n)
+        }
     }
 
-    /// Splits "2.0.0-beta" into ("2.0.0", "beta"); a version with no "-" has no pre-release.
+    /// Splits "2.0.0-beta+7" into ("2.0.0", "beta"): the build metadata goes first, and a
+    /// version with no "-" has no pre-release.
     private static func splitPreRelease(_ version: String) -> (base: String, pre: String?) {
-        guard let dash = version.firstIndex(of: "-") else { return (version, nil) }
-        let pre = String(version[version.index(after: dash)...])
-        return (String(version[..<dash]), pre.isEmpty ? nil : pre)
+        let plain = version.firstIndex(of: "+").map { String(version[..<$0]) } ?? version
+        guard let dash = plain.firstIndex(of: "-") else { return (plain, nil) }
+        let pre = String(plain[plain.index(after: dash)...])
+        return (String(plain[..<dash]), pre.isEmpty ? nil : pre)
+    }
+
+    /// Semantic versioning's order for two pre-releases of one version: identifier by
+    /// identifier, a number against a number as numbers, a word always above a number, and
+    /// where one list is the start of the other, the longer one above.
+    private static func preReleaseIsNewer(_ tag: String, than installed: String) -> Bool {
+        let tagIDs = tag.split(separator: ".")
+        let installedIDs = installed.split(separator: ".")
+        for (t, n) in zip(tagIDs, installedIDs) where t != n {
+            switch (Int(t), Int(n)) {
+            case let (a?, b?): return a > b
+            case (nil, .some): return true
+            case (.some, nil): return false
+            case (nil, nil): return t > n
+            }
+        }
+        return tagIDs.count > installedIDs.count
     }
 
     private static func numericComponents(_ base: String) -> [Int] {

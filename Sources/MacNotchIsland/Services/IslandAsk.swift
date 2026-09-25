@@ -177,6 +177,11 @@ final class IslandAsk {
     /// Past its own timeout, the activity also expires on its own. The timeout ends it first;
     /// this is for a timer that somehow never fired, which would otherwise leave a card up.
     static let expiryGrace: TimeInterval = 5
+    /// How often, and how many times, a question whose keys were not the island's when it went
+    /// up asks again: four seconds in all, which covers an older copy's two to quit and the
+    /// services starting after it on a cold launch.
+    static let keyRecheckInterval: TimeInterval = 0.25
+    static let keyRechecks = 16
 
     private struct Pending {
         let request: AskRequest
@@ -234,6 +239,7 @@ final class IslandAsk {
         center.upsert(activity)
         center.forceExpanded(id: Self.activityID, for: request.timeout)
         watchCard()
+        if !keysHeld { recheckKeys(token: token, left: Self.keyRechecks) }
 
         let work = DispatchWorkItem { [weak self] in self?.answer(.timeout, token: token) }
         timeoutWork = work
@@ -251,6 +257,36 @@ final class IslandAsk {
             return
         }
         settle(answer, endCard: true)
+    }
+
+    /// A cold launch by `open -g "notchisland://ask?…"` hands the app the question before it has
+    /// finished starting, and the hot keys are installed with the rest of its services a moment
+    /// later — so the keys were armed and worked, but the card had already been drawn without
+    /// the line that says so. Asking again is `setAskKeysArmed(true)` once more: the keys are
+    /// armed already, so it claims nothing new and only says whether they are the island's now.
+    /// It stops as soon as they are, when the question is answered or replaced, or when it has
+    /// asked `keyRechecks` times: keys another app holds are not worth waiting out, and the
+    /// card without the line is still the truth then.
+    private func recheckKeys(token: String, left: Int) {
+        guard left > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyRecheckInterval) { [weak self] in
+            guard let self, self.pending?.token == token else { return }
+            if HotKeyService.shared.setAskKeysArmed(true) {
+                self.showKeyHint()
+            } else {
+                self.recheckKeys(token: token, left: left - 1)
+            }
+        }
+    }
+
+    /// Redraws the question's card with the line that names its keys, once they are the
+    /// island's: the same activity with one more line — the same buttons and token, the same
+    /// expiry and hold — rather than a new question. Nothing when no question is up, or its
+    /// card has already gone: a hint is no reason to put a card back.
+    func showKeyHint() {
+        guard let pending, var activity = ActivityCenter.shared.activity(id: Self.activityID) else { return }
+        activity.content = .custom(Self.card(for: pending.request, token: pending.token, keysHeld: true))
+        ActivityCenter.shared.upsert(activity)
     }
 
     /// The card, from the question: the question, the detail under it, the keys that answer it,

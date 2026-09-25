@@ -21,7 +21,27 @@
 #   notchctl ask "Deploy to production?" [--detail "main at 4f2c1"] [--yes Deploy] [--no Wait] [--timeout 60]
 #                                        (answered on the island, or with Control-Y / Control-N;
 #                                         prints yes, no or timeout and exits 0, 1 or 2)
+#   notchctl --help                             (this, on standard output, exiting 0)
+#
+# Exit status. Only `ask` has answers, and only a yes is success, so `if notchctl ask …; then`
+# means what it says; nothing that goes wrong before a question is asked exits 1 or 2.
+#     0    sent; for ask, answered yes
+#     1    ask: answered no
+#     2    ask: nobody answered in time, or the island never wrote an answer
+#    64    bad usage: a missing argument, or an unknown command or flag; nothing was sent
+#    66    shelf add: no such file
+#    69    Notch Island could not be reached: `open` refused the notchisland:// URL
+#   130    ask: interrupted with Control-C while waiting for the answer
+#   143    ask: terminated (SIGTERM) while waiting for the answer
 set -euo pipefail
+
+# Bad usage, said the one way everywhere: what was wrong, then the command's own usage line
+# when it has one, and 64 — never 1 or 2, which `ask` uses for its answers.
+usage() {
+  local line
+  for line in "$@"; do echo "$line" >&2; done
+  exit 64
+}
 
 # Percent-encodes a query value one byte at a time. In a UTF-8 locale bash counts and slices
 # characters, and printf "'c" gives a character's code point rather than its bytes, so "é"
@@ -49,59 +69,80 @@ add() { query+=("$1=$(urlencode "$2")"); }
 open_url() {
   local base="$1" q=""
   if (( ${#query[@]} )); then q="?$(IFS='&'; echo "${query[*]}")"; fi
-  open -g "notchisland://${base}${q}"
+  if ! open -g "notchisland://${base}${q}"; then
+    echo "notchctl: could not reach Notch Island (is it installed?)" >&2
+    exit 69
+  fi
 }
 
 parse_flags() {
+  local flag value have key
   while (( $# )); do
-    case "$1" in
-      --title) add title "$2"; shift 2 ;;
-      --subtitle) add subtitle "$2"; shift 2 ;;
-      --symbol|--icon) add symbol "$2"; shift 2 ;;
-      --tint|--color) add tint "$2"; shift 2 ;;
-      --progress) add progress "$2"; shift 2 ;;
-      --trailing) add trailing "$2"; shift 2 ;;
-      --body) add body "$2"; shift 2 ;;
-      --url) add url "$2"; shift 2 ;;
-      --ttl) add ttl "$2"; shift 2 ;;
-      --duration) add duration "$2"; shift 2 ;;
-      --priority) add priority "$2"; shift 2 ;;
-      --label) add label "$2"; shift 2 ;;
-      --work) add work "$2"; shift 2 ;;
-      --rest) add rest "$2"; shift 2 ;;
-      --cycles) add cycles "$2"; shift 2 ;;
-      --long) add long "$2"; shift 2 ;;
-      --expanded) add expanded 1; shift ;;
-      --ring) add ring 1; shift ;;
-      # Buttons. Each takes a name and one of a link or a Shortcut, and there are two slots.
-      --action) add action "$2"; shift 2 ;;
-      --action-url) add action_url "$2"; shift 2 ;;
-      --action-shortcut) add action_shortcut "$2"; shift 2 ;;
-      --action-symbol) add action_symbol "$2"; shift 2 ;;
-      --action2) add action2 "$2"; shift 2 ;;
-      --action2-url) add action2_url "$2"; shift 2 ;;
-      --action2-shortcut) add action2_shortcut "$2"; shift 2 ;;
-      --action2-symbol) add action2_symbol "$2"; shift 2 ;;
-      *) echo "unknown flag: $1" >&2; exit 2 ;;
+    flag="$1"; value="${2-}"; have=$(( $# >= 2 )); shift
+    case "$flag" in
+      --expanded) add expanded 1; continue ;;
+      --ring) add ring 1; continue ;;
     esac
+    # Every other flag takes a value. Which flag is checked first and the value second, so a
+    # flag left as the last word on the line — which used to die on bash's "unbound
+    # variable" — is told it needs one, and one that is not a flag at all is told that.
+    case "$flag" in
+      --title) key=title ;;
+      --subtitle) key=subtitle ;;
+      --symbol|--icon) key=symbol ;;
+      --tint|--color) key=tint ;;
+      --progress) key=progress ;;
+      --trailing) key=trailing ;;
+      --body) key=body ;;
+      --url) key=url ;;
+      --ttl) key=ttl ;;
+      --duration) key=duration ;;
+      --priority) key=priority ;;
+      --label) key=label ;;
+      --work) key=work ;;
+      --rest) key=rest ;;
+      --cycles) key=cycles ;;
+      --long) key=long ;;
+      # Buttons. Each takes a name and one of a link or a Shortcut, and there are two slots.
+      --action) key=action ;;
+      --action-url) key=action_url ;;
+      --action-shortcut) key=action_shortcut ;;
+      --action-symbol) key=action_symbol ;;
+      --action2) key=action2 ;;
+      --action2-url) key=action2_url ;;
+      --action2-shortcut) key=action2_shortcut ;;
+      --action2-symbol) key=action2_symbol ;;
+      *) usage "notchctl: unknown flag: $flag" ;;
+    esac
+    if (( ! have )); then usage "notchctl: $flag needs a value"; fi
+    add "$key" "$value"; shift
   done
+}
+
+# The comment block at the top, however long it grows: a fixed line range is a usage message
+# that goes quietly out of date the first time a command is added.
+help_text() {
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
 }
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
   activity)
-    id="${1:?activity id required}"; shift
-    add id "$id"; parse_flags "$@"; open_url "activity" ;;
+    if [ -z "${1:-}" ]; then usage "notchctl activity: an id is required" "usage: notchctl activity <id> --title TEXT [flags]"; fi
+    add id "$1"; shift; parse_flags "$@"; open_url "activity" ;;
   end)
-    add id "${1:?activity id required}"; open_url "activity/end" ;;
+    if [ -z "${1:-}" ]; then usage "usage: notchctl end <id>"; fi
+    add id "$1"; open_url "activity/end" ;;
   alert)
-    add title "${1:?alert title required}"; shift; parse_flags "$@"; open_url "alert" ;;
+    if [ -z "${1:-}" ]; then usage "usage: notchctl alert TITLE [flags]"; fi
+    add title "$1"; shift; parse_flags "$@"; open_url "alert" ;;
   timer)
     case "${1:-}" in
       cancel|stop|pause|resume) open_url "timer/$1" ;;
       add) shift; add minutes "${1:-1}"; open_url "timer/add" ;;
       pomodoro) shift; parse_flags "$@"; open_url "timer/pomodoro" ;;
-      *) add minutes "${1:?minutes required}"; shift; parse_flags "$@"; open_url "timer" ;;
+      "") usage "usage: notchctl timer <minutes> [--label TEXT] | add [minutes] | cancel | pause | resume | pomodoro" ;;
+      *) add minutes "$1"; shift; parse_flags "$@"; open_url "timer" ;;
     esac ;;
   # The URL scheme has had these since the stopwatch did; this wrapper had not.
   sleep)
@@ -115,7 +156,7 @@ case "$cmd" in
   alarm)
     case "${1:-}" in
       cancel|stop) shift; if [ -n "${1:-}" ]; then add at "$1"; fi; open_url "alarm/cancel" ;;
-      "") echo "usage: notchctl alarm <time> [label] | cancel [time]" >&2; exit 2 ;;
+      "") usage "usage: notchctl alarm <time> [label] | cancel [time]" ;;
       *)
         add at "$1"; shift
         if [[ "${1:-}" == --* ]]; then parse_flags "$@"; elif (( $# )); then add label "$*"; fi
@@ -125,13 +166,18 @@ case "$cmd" in
     case "${1:-}" in
       ""|start) open_url "stopwatch" ;;
       lap|stop|pause|reset|cancel) open_url "stopwatch/$1" ;;
-      *) echo "usage: notchctl stopwatch [lap|stop|reset]" >&2; exit 2 ;;
+      *) usage "usage: notchctl stopwatch [lap|stop|reset]" ;;
     esac ;;
   shelf)
     case "${1:-}" in
-      add) add path "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; open_url "shelf/add" ;;
+      add)
+        # With no path this died on bash's "unbound variable"; with one that is not there, `cd`
+        # failed quietly inside the substitution and "/name" went to the island instead.
+        if [ -z "${2:-}" ]; then usage "usage: notchctl shelf add <path>"; fi
+        if [ ! -e "$2" ]; then echo "notchctl shelf add: no such file: $2" >&2; exit 66; fi
+        add path "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; open_url "shelf/add" ;;
       clear) open_url "shelf/clear" ;;
-      *) echo "usage: notchctl shelf add <path> | clear" >&2; exit 2 ;;
+      *) usage "usage: notchctl shelf add <path> | clear" ;;
     esac ;;
   home)
     if [ -n "${1:-}" ]; then open_url "home/$1"; else open_url "home"; fi ;;
@@ -141,28 +187,26 @@ case "$cmd" in
     if [ -n "${1:-}" ]; then open_url "settings/$1"; else open_url "settings"; fi ;;
   # A question on the island, held there until it is answered with a click or Control-Y /
   # Control-N, or until its time is up. The island writes the answer to a file in a folder of
-  # our own, and we wait for the file. Only a yes exits 0, so `if notchctl ask "Deploy?"; then`
-  # means what it says, and a question nobody answered is never taken for one. Anything that
-  # goes wrong before the question is asked exits 64 or 69, never 1 or 2, which are answers.
+  # our own, and we wait for the file. What it exits with is the table at the top.
   ask)
     ask_usage='usage: notchctl ask "Question" [--detail TEXT] [--yes LABEL] [--no LABEL] [--timeout SECONDS]'
-    if [ -z "${1:-}" ] || [[ "$1" == --* ]]; then echo "$ask_usage" >&2; exit 64; fi
+    if [ -z "${1:-}" ] || [[ "$1" == --* ]]; then usage "$ask_usage"; fi
     add title "$1"; shift
     wait_for=60
     while (( $# )); do
       case "$1" in
         --detail|--yes|--no|--timeout)
-          if (( $# < 2 )); then echo "notchctl ask: $1 needs a value" >&2; exit 64; fi
+          if (( $# < 2 )); then usage "notchctl ask: $1 needs a value"; fi
           case "$1" in
             --detail) add detail "$2" ;;
             --yes) add yes "$2" ;;
             --no) add no "$2" ;;
             --timeout)
-              if ! [[ "$2" =~ ^[0-9]{1,6}$ ]]; then echo "notchctl ask: --timeout takes whole seconds" >&2; exit 64; fi
+              if ! [[ "$2" =~ ^[0-9]{1,6}$ ]]; then usage "notchctl ask: --timeout takes whole seconds"; fi
               wait_for=$(( 10#$2 )) ;;
           esac
           shift 2 ;;
-        *) echo "notchctl ask: unknown flag: $1" >&2; echo "$ask_usage" >&2; exit 64 ;;
+        *) usage "notchctl ask: unknown flag: $1" "$ask_usage" ;;
       esac
     done
     # The island's own limits, so the two ends count to the same second.
@@ -178,7 +222,7 @@ case "$cmd" in
     trap 'exit 143' TERM
     reply="$ask_dir/answer"
     add reply "$reply"
-    if ! open_url "ask"; then echo "notchctl ask: could not reach Notch Island" >&2; exit 69; fi
+    open_url "ask"
     # Every fifth of a second until the answer is there, or until a few seconds past the
     # island's own timeout — an island that was quit, or never got the question, never writes.
     answer=timeout
@@ -192,8 +236,12 @@ case "$cmd" in
       no) echo no; exit 1 ;;
       *) echo timeout; exit 2 ;;
     esac ;;
+  # Asked for, it is the answer, on standard output, and success. Not asked for — no command,
+  # or one this does not know — it is the reason nothing happened, and bad usage.
+  -h|--help|help)
+    help_text; exit 0 ;;
+  "")
+    help_text >&2; exit 64 ;;
   *)
-    # The comment block at the top, however long it grows: a fixed line range is a usage
-    # message that goes quietly out of date the first time a command is added.
-    awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 2 ;;
+    echo "notchctl: unknown command: $cmd" >&2; help_text >&2; exit 64 ;;
 esac

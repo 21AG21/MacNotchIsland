@@ -336,6 +336,32 @@ final class AskTests: XCTestCase {
         XCTAssertTrue(IslandAsk.shared.isAsking, "and the question is still waiting under it")
     }
 
+    /// A cold launch by `open -g`: the question arrives before the hot keys are installed, so
+    /// the card goes up without the line that names them, and the keys are the island's a
+    /// moment later. The suite never installs them, which is that moment held still.
+    func testTheHintArrivesWhenTheKeysDo() throws {
+        let path = try replyPath()
+        ask(path)
+        if card?.body != nil { throw XCTSkip("the keys were already the island's in this run") }
+        IslandAsk.shared.showKeyHint()
+        XCTAssertEqual(card?.body, "Control-Y for Deploy, Control-N for Wait")
+        XCTAssertEqual(card?.title, "Deploy?", "the same card otherwise")
+        XCTAssertEqual(card?.actions.map(\.title), ["Deploy", "Wait"])
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID, "and still holding the island")
+        guard let command = card?.actions.first?.command else { return XCTFail("no button") }
+        command.perform()
+        XCTAssertEqual(contents(path), "yes\n", "its buttons still answer it")
+    }
+
+    func testAHintIsNoReasonToPutACardBack() throws {
+        let path = try replyPath()
+        ask(path)
+        IslandAsk.shared.answer(.no)
+        IslandAsk.shared.showKeyHint()
+        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertEqual(contents(path), "no\n")
+    }
+
     func testAReplyFileTheIslandWillNotWriteMeansNoQuestion() {
         handle("notchisland://ask?title=Deploy%3F&reply=%2Fetc%2Fanswer")
         handle("notchisland://ask?title=Deploy%3F&reply=relative")

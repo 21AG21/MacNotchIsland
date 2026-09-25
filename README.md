@@ -133,22 +133,31 @@ them; that needs a paid Developer ID.
 ## Permissions
 
 Nothing is required up front. macOS asks for each of these when the feature that needs it
-first runs, and the calendar and the Downloads and screenshot folders not before the welcome
-tour is done. Settings > Privacy lists every one of them but system audio, with whether it is
-granted and a way straight to its pane in System Settings.
+first runs, and Bluetooth, the calendar and the Downloads and screenshot folders not before
+the welcome tour is done; the tour says which of its choices will ask. Nothing is asked
+because the pointer crossed the notch or a section was looked at. Settings > Privacy lists
+every one of them but system audio, with whether it is granted and a way straight to its
+pane in System Settings.
 
+- **Bluetooth**: for AirPods and other devices as they connect, with their battery, and for
+  the Bluetooth switch and paired list in Controls. On out of the box, so it is asked for as
+  soon as the tour is done.
 - **Calendars and Reminders**: for Today and the card before a meeting. Today is on out of
   the box, so the calendar is asked for as soon as the tour is done, and reminders the first
-  time the panel opens on Today or on Home.
+  time you open the panel on Home or Today (a peek under a resting pointer does not ask).
+- **Files and Folders (Downloads, and the screenshots folder)**: for the download and
+  screenshot cards and the shelf. Both are on out of the box, so each folder is asked for as
+  soon as the tour is done. The screenshots folder is the Desktop unless you have moved it.
 - **Location**: for the weather in Today (off out of the box) and for the names of the
   networks in the Controls section's Wi-Fi list, which macOS keeps from an app until
-  Location allows it.
+  Location allows it. The list asks only when you press Show names there.
 - **Accessibility**: answering the volume and brightness keys, pasting a clipboard item where
   you were typing, moving windows, telling a full-screen app from a zoomed window on the
   display with the notch, keeping clear of app menus, and reading the banners the
   Notifications section keeps.
 - **Screen Recording**: the pictures of windows in the Windows section, and Record Screen.
-- **Camera**: the mirror on the control rail, the first time it is opened.
+- **Camera**: the mirror on the control rail, the first time it is opened. A Mac with no
+  camera has no mirror on the rail, and is never asked.
 - **Notifications**: a banner when a timer or an alarm goes off, or an alarm was missed, while
   the island cannot be seen.
 - **System audio**: the audio-reactive visualizer, off out of the box, which follows the level
@@ -160,7 +169,10 @@ granted and a way straight to its pane in System Settings.
   ever fails, Notch Island falls back to asking Music and Spotify directly with AppleScript,
   which prompts once per app. The same prompt can come the first time you press shuffle,
   repeat or favourite beside play in Music or Spotify, when MediaRemote has not said whether
-  the player takes it.
+  the player takes it. Settings > Privacy says which player has allowed or refused it.
+- **Full Disk Access** (optional): macOS may keep the Focus database from the app without
+  it, and then Focus alerts and holding alerts back during a Focus do nothing. Activities
+  says so under the Focus switch, with a way to the pane.
 
 The microphone and camera indicators read the devices' *in-use* state; no audio or video is
 ever captured.
@@ -195,6 +207,15 @@ notchisland://shelf/add?path=…             notchisland://shelf/clear
 notchisland://ask?title=…&detail=…&yes=Yes&no=No&timeout=5–600&reply=/tmp/…/answer   (the answer is written to reply)
 notchisland://home[/music|today|windows|shelf|controls|clipboard|actions|notes|stats|notifications] | collapse | settings[/pane]
 ```
+
+`reply` has to be a file the island may create: an absolute path with no `.`, `..` or `~` in
+it, to a file that is not there yet (the island never writes over one), in a folder that, once
+its links are followed, is inside your home folder or `/tmp`. macOS's `$TMPDIR`
+(`/var/folders/…`) is neither, so `reply=$TMPDIR/answer` is refused, and a refused `reply`
+means no question goes up at all; the refusal is only logged (`log stream --predicate
+'subsystem == "com.macnotchisland.app"'`). Make the folder with `mktemp -d /tmp/ask.XXXXXX`, as
+`notchctl ask` does. `Scripts/notchctl --help` lists every exit status, including 64 for bad
+usage and 69 when Notch Island could not be reached.
 
 `tint` accepts the iOS system colour names (red, orange, yellow, green, mint, teal, cyan,
 blue, indigo, purple, pink, brown, gray, white) or a hex value. `symbol` is any SF Symbol.

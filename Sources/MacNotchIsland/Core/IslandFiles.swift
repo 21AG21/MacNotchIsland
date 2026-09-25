@@ -32,13 +32,30 @@ enum IslandFiles {
     }
 
     /// The folder, made if it is not there and shut to everyone else either way — a folder
-    /// left behind by an older build kept whatever it was given.
+    /// left behind by an older build kept whatever it was given. Nil when it could not be
+    /// made; `prepareFolder` says why.
     @discardableResult
     static func makeFolder(_ subdirectory: String? = nil) -> URL? {
-        guard let folder else { return nil }
+        do {
+            return try prepareFolder(subdirectory)
+        } catch {
+            IslandLog.store.error("could not make the support folder: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// `makeFolder`, with the reason when the folder cannot be made. It used to swallow that
+    /// and hand back the path anyway, so the write that followed failed with "no such file" —
+    /// or, to a caller that did not write straight away, looked like success — when what had
+    /// actually happened was a full disk or an Application Support nobody may write in.
+    @discardableResult
+    static func prepareFolder(_ subdirectory: String? = nil) throws -> URL {
+        guard let folder else { throw CocoaError(.fileNoSuchFile) }
         let target = subdirectory.map { folder.appendingPathComponent($0, isDirectory: true) } ?? folder
-        try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: ownerOnlyFolder])
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: ownerOnlyFolder])
+        // Shutting it is best effort: a folder that is there but cannot be re-permissioned is
+        // still a folder the write can go in, and the write says so if it is not.
         try? FileManager.default.setAttributes([.posixPermissions: ownerOnlyFolder], ofItemAtPath: folder.path)
         if target != folder {
             try? FileManager.default.setAttributes([.posixPermissions: ownerOnlyFolder], ofItemAtPath: target.path)
@@ -46,11 +63,10 @@ enum IslandFiles {
         return target
     }
 
-    /// Writes to a file in the folder and shuts it to everyone else.
+    /// Writes to a file in the folder and shuts it to everyone else. Throws the real reason —
+    /// the folder's, when it is the folder that could not be made — so a caller can say it.
     static func write(_ data: Data, to name: String, in subdirectory: String? = nil) throws {
-        guard let target = makeFolder(subdirectory) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
+        let target = try prepareFolder(subdirectory)
         let url = target.appendingPathComponent(name)
         try data.write(to: url, options: .atomic)
         // After the write, never before: an atomic write puts a new file in place of the old

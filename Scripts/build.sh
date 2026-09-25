@@ -3,12 +3,28 @@
 #   Scripts/build.sh            # release build -> build/MacNotchIsland.app
 #   Scripts/build.sh --run      # build and launch
 #   Scripts/build.sh --install  # build and copy into /Applications
+#   VERSION=1.2.0 [BUILD_NUMBER=57] Scripts/build.sh
+#                               # a release: the bundle says 1.2.0 (build 57, or the commit count)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP="MacNotchIsland"
 OUT="build/$APP.app"
 CONFIG="release"
+
+# --- Version -----------------------------------------------------------------
+# Resources/Info.plist says 1.0.0 for ever; a release says what its tag says. Without this a
+# fresh install of v1.2.0 read 1.0.0 out of its own bundle, asked GitHub for the latest
+# release, heard 1.2.0, and offered itself as the update. Checked here, before anything is
+# compiled, so a bad tag costs seconds rather than a whole build. MAJOR.MINOR.PATCH with an
+# optional pre-release ("-beta.1"), which is what UpdateChecker knows how to order; build
+# metadata ("+7") is refused, since the build number is CFBundleVersion's to carry.
+SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+VERSION="${VERSION:-}"
+if [[ -n "$VERSION" ]] && ! [[ "$VERSION" =~ $SEMVER ]]; then
+  echo "VERSION must be a semantic version such as 1.2.0 or 1.2.0-beta.1, not \"$VERSION\"." >&2
+  exit 1
+fi
 
 # --- Toolchain ---------------------------------------------------------------
 # On current SDKs SwiftUI implements @State as a compiler macro (SwiftUIMacros), and the
@@ -89,6 +105,15 @@ rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/$APP"
 cp Resources/Info.plist "$OUT/Contents/Info.plist"
+# Into the bundle's copy, never the one in Resources, and before anything is signed: the
+# signature seals Info.plist, and a change after it is a broken seal.
+if [[ -n "$VERSION" ]]; then
+  # CI passes its run number, which only goes up; a shallow checkout has one commit to count.
+  BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
+  plutil -replace CFBundleShortVersionString -string "$VERSION" "$OUT/Contents/Info.plist"
+  plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$OUT/Contents/Info.plist"
+  echo "Version $VERSION ($BUILD_NUMBER)"
+fi
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
 

@@ -19,37 +19,82 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(UpdateChecker.normalize(tag: "  v1.2.3  "), "1.2.3")
     }
 
-    // MARK: - isNewer
+    // MARK: - isNewer(tag:installed:)
 
     func testIsNewerComparesNumericallyNotLexically() {
-        // "1.10.0" is numerically newer than "1.2.0" even though "1" < "2" as a string.
-        XCTAssertTrue(UpdateChecker.isNewer("1.10.0", than: "1.2.0"))
-        XCTAssertFalse(UpdateChecker.isNewer("1.2.0", than: "1.10.0"))
+        // "1.10.0" is numerically newer than "1.9.0" even though "1" < "9" as a string.
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.10.0", installed: "1.9.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.9.0", installed: "1.10.0"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.10.0", installed: "1.2.0"))
     }
 
     func testIsNewerTreatsMissingComponentsAsZero() {
-        XCTAssertFalse(UpdateChecker.isNewer("1.2", than: "1.2.0"))
-        XCTAssertFalse(UpdateChecker.isNewer("1.2.0", than: "1.2"))
-        XCTAssertTrue(UpdateChecker.isNewer("1.3", than: "1.2.0"))
-    }
-
-    func testIsNewerPreReleaseSortsBelowPlainVersion() {
-        XCTAssertFalse(UpdateChecker.isNewer("2.0.0-beta", than: "2.0.0"))
-        XCTAssertTrue(UpdateChecker.isNewer("2.0.0", than: "2.0.0-beta"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.2", installed: "1.2.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.2.0", installed: "1.2"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.3", installed: "1.2.0"))
     }
 
     func testIsNewerHandlesVPrefixOnEitherSide() {
-        XCTAssertTrue(UpdateChecker.isNewer("v1.3.0", than: "1.2.0"))
-        XCTAssertFalse(UpdateChecker.isNewer("1.2.0", than: "v1.3.0"))
-    }
-
-    func testIsNewerFalseWhenEqual() {
-        XCTAssertFalse(UpdateChecker.isNewer("1.2.3", than: "1.2.3"))
-        XCTAssertFalse(UpdateChecker.isNewer("v1.2.3", than: "1.2.3"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "v1.3.0", installed: "1.2.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.2.0", installed: "v1.3.0"))
     }
 
     func testIsNewerFalseWhenCurrentIsAheadOnAnEarlierComponent() {
-        XCTAssertFalse(UpdateChecker.isNewer("1.9.9", than: "2.0.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.9.9", installed: "2.0.0"))
+    }
+
+    /// The first launch of a fresh install: GitHub's latest tag is the version it is. Told to
+    /// update to itself was the bug; this is the rule half of the fix, and the stamp in
+    /// `Scripts/build.sh` is the other.
+    func testTheReleaseYouAreRunningIsUpToDate() {
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "v1.0.0", installed: "1.0.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.0.0", installed: "1.0.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "V1.0.0", installed: "v1.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: " v1.2.3\n", installed: "1.2.3"))
+    }
+
+    func testAnOlderTagIsUpToDate() {
+        // A build made ahead of its release, or a release pulled back to the one before.
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "v1.9.0", installed: "1.10.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "v0.9.0", installed: "1.0.0"))
+    }
+
+    func testAPreReleaseSortsBelowTheReleaseItLeadsUpTo() {
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "2.0.0-beta", installed: "2.0.0"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "2.0.0", installed: "2.0.0-beta"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "v2.0.0", installed: "2.0.0-rc.1"))
+        // But above the release before it.
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "v1.1.0-beta.1", installed: "1.0.0"))
+    }
+
+    func testPreReleasesCompareTheWaySemanticVersioningOrdersThem() {
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.1.0-beta.10", installed: "1.1.0-beta.9"), "as numbers")
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.1.0-beta.9", installed: "1.1.0-beta.10"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.1.0-rc.1", installed: "1.1.0-beta.3"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.1.0-beta.1", installed: "1.1.0-beta"), "the longer list")
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.1.0-alpha", installed: "1.1.0-1"), "a word above a number")
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "v1.1.0-beta.2", installed: "1.1.0-beta.2"))
+    }
+
+    func testBuildMetadataIsNotAVersion() {
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.0.0+7", installed: "1.0.0"))
+        XCTAssertFalse(UpdateChecker.isNewer(tag: "1.0.0", installed: "1.0.0+7"))
+        XCTAssertTrue(UpdateChecker.isNewer(tag: "1.0.1+2", installed: "1.0.0+9"))
+    }
+
+    /// The other half: a release is built with its tag written into its own Info.plist, and a
+    /// tag that is not a version stops the release rather than shipping one that cannot tell
+    /// itself from its own tag. Read from the files, the way `AskTests` holds `notchctl`'s
+    /// exit table to the app's.
+    func testAReleaseIsBuiltWithItsOwnVersion() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let build = try String(contentsOf: root.appendingPathComponent("Scripts/build.sh"), encoding: .utf8)
+        XCTAssertTrue(build.contains("plutil -replace CFBundleShortVersionString -string \"$VERSION\""))
+        XCTAssertTrue(build.contains("plutil -replace CFBundleVersion -string \"$BUILD_NUMBER\""))
+        let release = try String(contentsOf: root.appendingPathComponent(".github/workflows/release.yml"),
+                                 encoding: .utf8)
+        XCTAssertTrue(release.contains("${GITHUB_REF_NAME#v}"), "the version comes from the tag")
     }
 
     // MARK: - parse

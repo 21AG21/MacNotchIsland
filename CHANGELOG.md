@@ -272,6 +272,9 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A release carries its own version.** Every bundle said 1.0.0 whatever its tag, so a fresh install of a new release was told to update to itself. The build stamps the tag's version and a build number into the bundle, a tag that is not a version stops the release, and pre-releases are ordered properly.
+- **Notes that cannot be saved say so.** A failed write only went to the log, and a relaunch brought back the old text. The Notes header shows "Not saved" with the reason, a click tries again, and a notes file that cannot be read is set aside as `notes.txt.unreadable-…` instead of being written over.
+- **`notchctl --help` lists every exit status and exits 0.** Bad usage exits 64 everywhere, a command that cannot reach the island exits 69, and `shelf add` without a path says how to use it. A question asked while the app is still starting shows its Control-Y / Control-N hint once the keys are ready.
 - **The island no longer wakes every second.** Expiries and the end of a pause are timed to the moment they fall due, instead of a clock that looked once a second, forever.
 - **A timer's ring no longer redraws at display rate for movement you cannot see.** On a long timer it steps once a second like the digits beside it, while short timers still sweep; it also stops sweeping while animations are paused and under Reduce Motion. Adding a minute, repeating a timer or moving to the next Pomodoro phase moves the ring with a short spring instead of a one-second sweep.
 - **Moving the pointer near the island no longer rebuilds its outline two or three times per move.** The outline is built once for each layout and kept.
