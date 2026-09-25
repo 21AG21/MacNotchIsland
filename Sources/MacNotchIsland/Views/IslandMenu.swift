@@ -57,11 +57,13 @@ struct IslandMenu: View {
         Button("Lock Screen") { SystemActions.lockScreen() }
         Button("Sleep Display") { SystemActions.sleepDisplay() }
         Divider()
-        // The same pair of states the menu bar shows, said the same way.
+        // The same pair of states the menu bar shows, in the menu bar's words. This menu used
+        // to say "Hide the Island for an Hour" for the command the menu bar calls "Hide Island
+        // for 1 Hour", while claiming to say it the same way. See `hideTitle`.
         if Self.isPaused(until: prefs.pausedUntil) {
-            Button("Show the Island") { ActivityCenter.shared.pause(for: 0) }
+            Button(Self.showTitle) { ActivityCenter.shared.pause(for: 0) }
         } else {
-            Button("Hide the Island for an Hour") { ActivityCenter.shared.pause(for: 3600) }
+            Button(Self.hideTitle) { ActivityCenter.shared.pause(for: 3600) }
         }
         Button("Settings…") { SettingsWindow.open() }
         Divider()
@@ -92,7 +94,8 @@ struct IslandMenu: View {
                 Button("Stop Alarm") { IslandTimer.shared.cancel(id: activity.id) }
             } else {
                 if state.isFinished {
-                    Button("Repeat") { IslandTimer.shared.repeatLast() }
+                    // The timer that rang, not the last one started, see `repeatTimer(id:)`.
+                    Button("Repeat") { IslandTimer.shared.repeatTimer(id: activity.id) }
                 } else {
                     Button(state.isPaused ? "Resume Timer" : "Pause Timer") {
                         state.isPaused ? IslandTimer.shared.resume(id: activity.id)
@@ -213,6 +216,12 @@ struct IslandMenu: View {
             }
         }
     }
+
+    /// The two ways to put the island away and bring it back, in the words the status item's
+    /// menu has always used for them. Kept here so the menu bar can say them from the same
+    /// place (`StatusItemController.refreshDynamicItems` still spells them out).
+    static let hideTitle = "Hide Island for 1 Hour"
+    static let showTitle = "Show Island"
 
     /// Whether the island is hidden by the clock rather than by an app in front. Pure, so the
     /// menu and the menu bar cannot disagree about which of the two words to show.

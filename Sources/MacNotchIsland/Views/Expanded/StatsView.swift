@@ -212,12 +212,13 @@ struct StatsView: View {
         return SystemStats.memoryText(used: stats.sample.memoryUsedBytes, total: stats.sample.memoryTotalBytes)
     }
 
-    /// "412 GB free", or nothing at all when the volume did not answer.
+    /// "412 GB free", or nothing at all when the volume did not answer. In Finder's
+    /// gigabytes, not memory's, see `SystemStats.diskSize`.
     private var diskDetail: String? {
         let total = stats.sample.diskTotalBytes
         guard total > 0 else { return nil }
         let free = total - min(total, stats.sample.diskUsedBytes)
-        return "\(SystemStats.gigabytes(free)) GB free"
+        return "\(SystemStats.diskSize(free)) free"
     }
 
     private func fraction(_ part: UInt64, of whole: UInt64) -> Double {

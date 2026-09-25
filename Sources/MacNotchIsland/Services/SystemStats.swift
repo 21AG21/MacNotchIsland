@@ -448,13 +448,32 @@ final class SystemStats: ObservableObject {
         "\(gigabytes(used)) / \(gigabytes(total)) GB"
     }
 
-    /// Gigabytes as a bare number: whole above 100, one decimal below it, and never a
-    /// trailing ".0".
+    /// Memory's gigabytes, as a bare number, see `shortNumber`. Memory is counted in powers of
+    /// two, the way Activity Monitor and About This Mac count it: 17,179,869,184 bytes is the
+    /// 16 GB the Mac was sold with.
     static func gigabytes(_ bytes: UInt64) -> String {
-        let gb = Double(bytes) / 1_073_741_824
-        guard gb.isFinite else { return "0" }
-        if gb >= 100 { return String(Int(gb.rounded())) }
-        let rounded = (gb * 10).rounded() / 10
+        shortNumber(Double(bytes) / 1_073_741_824)
+    }
+
+    /// "412 GB", "38.5 GB", "1.2 TB": room on a disk, in the units Finder counts it in.
+    ///
+    /// A disk is not counted like memory. Finder, Disk Utility, the Drive card and the box
+    /// the Mac came in all make a gigabyte a thousand million bytes (`ByteCountFormatter`'s
+    /// `.file` style); the Stats cell divided by memory's 1,073,741,824 and said "GB" anyway,
+    /// and read about 7% under Finder — "384 GB free" beside Finder's 412 GB available.
+    /// A thousand gigabytes and more is terabytes, as Finder says it. Pure, so it is tested.
+    static func diskSize(_ bytes: UInt64) -> String {
+        let gb = Double(bytes) / 1_000_000_000
+        if gb.rounded() >= 1000 { return "\(shortNumber(gb / 1000)) TB" }
+        return "\(shortNumber(gb)) GB"
+    }
+
+    /// A reading as a bare number: whole above 100, one decimal below it, and never a
+    /// trailing ".0".
+    static func shortNumber(_ value: Double) -> String {
+        guard value.isFinite else { return "0" }
+        if value >= 100 { return String(Int(value.rounded())) }
+        let rounded = (value * 10).rounded() / 10
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
     }
 }

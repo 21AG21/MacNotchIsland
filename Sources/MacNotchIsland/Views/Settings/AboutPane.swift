@@ -59,7 +59,9 @@ struct AboutPane: View {
             } header: {
                 Text("Help")
             } footer: {
-                Text("Updates are never installed automatically. Checking opens the release page so you can download it yourself.")
+                // Not "checking opens the release page": the answer is a card on the island, and
+                // the page opens only if you click a new version's card.
+                Text("Updates are never installed automatically. A check answers on the island; click a new version's card to open its release page and download it yourself.")
             }
 
             Section {

@@ -135,11 +135,14 @@ struct WelcomeView: View {
         // The two that ask macOS for something the moment the tour is finished — this one
         // for the calendar, the last one for Accessibility — so the tour is where they say so.
         static let today = "Your events and reminders. Asks for access."
-        static let windows = "Every open window as a tile you can snap."
+        // What is on this desktop, not every window there is: the list is the window
+        // server's on-screen one.
+        static let windows = "This desktop's windows, as tiles to snap."
         static let shelf = "Files you drop on the island wait here."
         static let clipboard = "Recent copies, pinned ones first."
         static let notes = "A scratchpad that keeps what you type."
-        static let stats = "Processor, memory, network and battery."
+        // "CPU", as the section itself labels it: with the disk, "Processor" ran past the line.
+        static let stats = "CPU, memory, disk, network and battery."
         static let keys = "Answered in the island. Asks for access."
         static let all = [today, windows, shelf, clipboard, notes, stats, keys]
         /// About as much as fits on one line at the width the tour gives these.

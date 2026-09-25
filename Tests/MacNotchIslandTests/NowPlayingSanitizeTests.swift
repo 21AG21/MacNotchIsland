@@ -29,6 +29,24 @@ final class NowPlayingSanitizeTests: XCTestCase {
         XCTAssertEqual(track.timestamp, t0)
     }
 
+    func testAStreamWithNoLengthHasNowhereToSeek() {
+        // A click on its bar asked for that fraction of nothing, and the stream went to 0:00.
+        let stream = NowPlayingService.sanitized(info(duration: .infinity, elapsed: 600))
+        XCTAssertFalse(stream.canSeek)
+        XCTAssertFalse(NowPlayingService.sanitized(info(duration: .nan, elapsed: 0)).canSeek)
+        XCTAssertFalse(NowPlayingService.sanitized(info(duration: -1, elapsed: 0)).canSeek)
+        XCTAssertTrue(NowPlayingService.sanitized(info(duration: 214, elapsed: 61)).canSeek)
+    }
+
+    func testTheScrubberAndTheSkipsAskTheSameQuestion() {
+        for duration in [TimeInterval.infinity, 0, 214] {
+            let report = NowPlayingService.sanitized(info(duration: duration, elapsed: 0))
+            XCTAssertEqual(report.supports.contains(.forward15), report.canSeek, "duration \(duration)")
+            XCTAssertEqual(report.supports.contains(.back15), report.canSeek, "duration \(duration)")
+        }
+        XCTAssertFalse(NowPlayingInfo.canSeek(duration: .infinity), "the rule holds before sanitising too")
+    }
+
     func testBrokenTimestampIsReplaced() {
         let broken = NowPlayingService.sanitized(info(duration: 200, elapsed: 1, timestamp: Date(timeIntervalSinceReferenceDate: .nan)))
         XCTAssertTrue(broken.timestamp.timeIntervalSinceReferenceDate.isFinite)

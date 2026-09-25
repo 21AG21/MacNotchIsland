@@ -88,9 +88,12 @@ struct MusicSectionView: View {
                 let position = info.position(at: context.date)
                 let duration = info.duration
                 VStack(spacing: 4) {
+                    // A stream has no length and nowhere to seek to: the bar is a line, and a
+                    // click on it is not a seek to 0:00. See `NowPlayingInfo.canSeek`.
                     ScrubberView(progress: duration > 0 ? position / duration : 0) { fraction in
                         service.seek(to: fraction * duration)
                     }
+                    .disabled(!info.canSeek)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Playback position")
                     .accessibilityValue(IslandAccessibility.playbackValue(position: position, duration: duration))
@@ -154,6 +157,10 @@ struct MusicSectionView: View {
     /// says the button is there for the players that do. A lit one — shuffle on, a repeat, a
     /// favourite — takes the cover's colour, with a dot under it for the covers whose colour
     /// is nearly white.
+    ///
+    /// A lit heart the player cannot be asked to empty (`NowPlayingService.heartPress`) keeps
+    /// its colour at half strength and does not take the click: the track is still a
+    /// favourite, and the tooltip says where to take it back.
     @ViewBuilder
     private func slotButton(_ slot: TransportSlot, info: NowPlayingInfo) -> some View {
         if slot == .empty {
@@ -164,7 +171,10 @@ struct MusicSectionView: View {
             let liked = service.isLiked(info)
             let supported = slot.isSupported(by: info)
             let on = supported && slot.isOn(in: info, liked: liked)
-            let lit = Color(nsColor: info.accent.blended(withFraction: 0.35, of: .white) ?? info.accent)
+            let settled = on && slot == .favourite
+                && NowPlayingService.heartPress(liked: liked, active: service.activeBackend, info: info) == .settled
+            let fullLit = Color(nsColor: info.accent.blended(withFraction: 0.35, of: .white) ?? info.accent)
+            let lit = settled ? fullLit.opacity(0.5) : fullLit
             GlyphButton(symbol: slot.symbol(in: info, liked: liked), size: Self.transportGlyph,
                         tint: !supported ? Color.white.opacity(0.25) : (on ? lit : Color.white),
                         weight: .medium, label: slot.spokenName, hit: Self.transportRow) {
@@ -180,11 +190,18 @@ struct MusicSectionView: View {
                         .accessibilityHidden(true)
                 }
             }
-            .disabled(!supported)
+            .disabled(!supported || settled)
             .accessibilityValue(slot.spokenValue(in: info, liked: liked) ?? "")
-            .help(supported ? slot.title : "\(slot.title) — \(info.appName) does not offer this")
+            .help(helpText(for: slot, supported: supported, settled: settled, info: info))
             .animation(IslandMotion.fade, value: on)
         }
+    }
+
+    /// The tooltip: what the button is, or why it will not take the click.
+    private func helpText(for slot: TransportSlot, supported: Bool, settled: Bool, info: NowPlayingInfo) -> String {
+        if !supported { return "\(slot.title) — \(info.appName) does not offer this" }
+        if settled { return "Favourited — take it back in \(info.appName)" }
+        return slot.title
     }
 
     private func perform(_ slot: TransportSlot) {
@@ -192,7 +209,7 @@ struct MusicSectionView: View {
         case .empty: break
         case .shuffle: service.toggleShuffle()
         case .cycleRepeat: service.cycleRepeat()
-        case .favourite: service.like()
+        case .favourite: service.toggleFavourite()
         case .back15: service.skip(by: -15)
         case .forward15: service.skip(by: 15)
         }

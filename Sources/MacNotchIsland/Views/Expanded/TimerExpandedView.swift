@@ -6,12 +6,16 @@ import SwiftUI
 struct TimerExpandedView: View {
     let state: TimerState
     let geometry: NotchGeometry
+    /// The live activity this card is drawn for, where the caller knows it. Without it the
+    /// card finds its timer by its state, see `shownID`.
+    let activityID: String?
     @ObservedObject private var store = IslandTimer.shared
     @Environment(\.insidePanel) private var insidePanel
 
-    init(state: TimerState, geometry: NotchGeometry) {
+    init(state: TimerState, geometry: NotchGeometry, activityID: String? = nil) {
         self.state = state
         self.geometry = geometry
+        self.activityID = activityID
     }
 
     /// At most two extra rows fit inside the expanded height.
@@ -54,24 +58,36 @@ struct TimerExpandedView: View {
                 Spacer(minLength: 0)
                 // Circles of the same weight, told apart by colour rather than by shape: the
                 // timer's own orange for what it does next, white for the rest.
+                //
+                // Every one of them names the timer on the card. They used to call the forms
+                // that name none and act on the primary timer, so with the 25-minute timer
+                // swapped onto the card, Cancel cancelled the 5-minute one underneath, Pause
+                // paused it, and Resume asked a running timer to resume and did nothing.
                 HStack(spacing: 10) {
-                    if state.isAlarm, let id = shownID {
+                    if state.isAlarm {
                         // Repeat means nothing to an alarm. Nine minutes more does.
-                        CircleActionButton(symbol: "zzz", tint: .orange, label: "Snooze") { IslandTimer.shared.snooze(id: id) }
+                        CircleActionButton(symbol: "zzz", tint: .orange, label: "Snooze") {
+                            onShown { IslandTimer.shared.snooze(id: $0) }
+                        }
                     } else if state.isFinished {
-                        CircleActionButton(symbol: "arrow.counterclockwise", tint: .orange, label: "Repeat") { IslandTimer.shared.repeatLast() }
+                        CircleActionButton(symbol: "arrow.counterclockwise", tint: .orange, label: "Repeat") {
+                            onShown { IslandTimer.shared.repeatTimer(id: $0) }
+                        }
                     } else {
                         CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .orange,
                                            label: state.isPaused ? "Resume" : "Pause") {
-                            state.isPaused ? IslandTimer.shared.resume() : IslandTimer.shared.pause()
+                            let paused = state.isPaused
+                            onShown { paused ? IslandTimer.shared.resume(id: $0) : IslandTimer.shared.pause(id: $0) }
                         }
                         // The thing everybody asks a smart speaker for, and the one thing a
                         // countdown could not be told. Nothing to add to once it has rung.
                         CircleActionButton(symbol: "plus", tint: .white, label: "Add a minute") {
-                            IslandTimer.shared.add(seconds: IslandTimer.addStep)
+                            onShown { IslandTimer.shared.add(seconds: IslandTimer.addStep, id: $0) }
                         }
                     }
-                    CircleActionButton(symbol: "xmark", tint: .white, label: "Cancel") { IslandTimer.shared.cancel() }
+                    CircleActionButton(symbol: "xmark", tint: .white, label: "Cancel") {
+                        onShown { IslandTimer.shared.cancel(id: $0) }
+                    }
                 }
             }
             .islandContentColumn()
@@ -180,10 +196,23 @@ struct TimerExpandedView: View {
 
     // MARK: - The other timers
 
-    /// Which timer this view is showing. The expanded view is handed a state, not an id, so
-    /// match it back to its entry and fall back to the primary timer.
+    /// Which timer this view is showing: the activity it was drawn for, when it was told, and
+    /// otherwise the timer whose state it was handed, see `shownID(for:in:primary:)`.
     private var shownID: String? {
-        store.timers.first(where: { $0.state == state })?.id ?? store.primary?.id
+        activityID ?? Self.shownID(for: state, in: store.timers, primary: store.primary?.id)
+    }
+
+    /// Runs a control on the timer this card shows, and on nothing when that timer has gone.
+    private func onShown(_ act: (String) -> Void) {
+        guard let id = shownID else { return }
+        act(id)
+    }
+
+    /// The timer a card handed `state` is about: the one whose state it is, and the primary
+    /// timer only when none matches — the island's own card, drawn a moment before the list
+    /// caught up. Pure, so the matching is tested.
+    static func shownID(for state: TimerState, in timers: [TimerEntry], primary: String?) -> String? {
+        timers.first(where: { $0.state == state })?.id ?? primary
     }
 
     private var others: [TimerEntry] {

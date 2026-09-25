@@ -59,6 +59,23 @@ final class AccessibilityLabelTests: XCTestCase {
                        "Beats disconnected")
     }
 
+    func testTheAirPodsCardKeepsItsButtonWhereVoiceOverCanReachIt() {
+        // The row was one ignored element, with Connect / Disconnect folded into it.
+        let pods = BluetoothState(name: "AirPods Pro", address: "a", symbol: "airpods", batteryLeft: 92, batteryRight: 88)
+        XCTAssertTrue(BluetoothExpandedView.offersConnection(pods))
+        XCTAssertFalse(BluetoothExpandedView.readsAsOneElement(pods), "a container, so the button inside is its own element")
+        XCTAssertEqual(BluetoothExpandedView.connectionLabel(for: pods), "Disconnect AirPods Pro")
+        XCTAssertEqual(BluetoothExpandedView.accessibilitySummary(for: pods), "AirPods Pro connected, left 92 percent, right 88 percent",
+                       "and the sentence is the container's label, without the button's words in it")
+
+        let beats = BluetoothState(name: "Beats", address: "c", symbol: "headphones", isConnected: false)
+        XCTAssertEqual(BluetoothExpandedView.connectionLabel(for: beats), "Connect Beats")
+
+        let unknown = BluetoothState(name: "Speaker", address: "", symbol: "hifispeaker")
+        XCTAssertFalse(BluetoothExpandedView.offersConnection(unknown), "no address, no button")
+        XCTAssertTrue(BluetoothExpandedView.readsAsOneElement(unknown), "and nothing in the sentence to lose")
+    }
+
     func testHUDFocusAndSimpleStates() {
         XCTAssertEqual(label(.hud(LevelHUD(kind: .volume, level: 0.4))), "Volume, 40 percent")
         XCTAssertEqual(label(.hud(LevelHUD(kind: .volume, level: 0.4, isMuted: true))), "Volume muted")

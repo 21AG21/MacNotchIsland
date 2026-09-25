@@ -60,18 +60,20 @@ struct BluetoothExpandedView: View {
                 // Reconnecting a pair of AirPods is a trip to System Settings, and the island
                 // already knows they are there. Only where the address is known, which is
                 // everything the radio itself told us about.
-                if !state.address.isEmpty {
+                if Self.offersConnection(state) {
                     CircleActionButton(symbol: state.isConnected ? "xmark" : "link",
                                        tint: state.isConnected ? .white : Color.named("blue"),
-                                       label: state.isConnected ? "Disconnect \(state.name)" : "Connect \(state.name)") {
+                                       label: Self.connectionLabel(for: state)) {
                         BluetoothMonitor.setConnected(!state.isConnected, address: state.address)
                     }
                 }
             }
             .islandContentColumn()
             .padding(.bottom, insidePanel || showsModes ? 0 : 16)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(accessibilitySummary)
+            // One sentence for the name and the batteries, and the button left where VoiceOver
+            // can reach it, see `readsAsOneElement`.
+            .accessibilityElement(children: Self.readsAsOneElement(state) ? .ignore : .contain)
+            .accessibilityLabel(Self.accessibilitySummary(for: state))
             // Noise control, under the name it belongs to, the way Control Centre hangs it
             // under a pair of AirPods: the pills, and what the lit one is called.
             if showsModes {
@@ -121,12 +123,31 @@ struct BluetoothExpandedView: View {
     /// Only the emptiest battery goes red, and only once it is genuinely low.
     private func valueTint(_ percent: Int) -> Color {
         let lowest = readings.map({ $0.percent }).min()
-        return (percent <= 20 && percent == lowest) ? Color.named("red") : Color.white
+        return (BluetoothState.isLow(percent) && percent == lowest) ? Color.named("red") : Color.white
     }
+
+    /// Whether the card can connect or disconnect the device: wherever the radio told us its
+    /// address.
+    static func offersConnection(_ state: BluetoothState) -> Bool { !state.address.isEmpty }
+
+    /// "Connect Beats", "Disconnect AirPods Pro".
+    static func connectionLabel(for state: BluetoothState) -> String {
+        state.isConnected ? "Disconnect \(state.name)" : "Connect \(state.name)"
+    }
+
+    /// Whether the card's row can be read as one sentence and nothing else. Pure, so the rule
+    /// is tested.
+    ///
+    /// Only while there is no button in it. The row was `.ignore`d whole, which folded the
+    /// Connect / Disconnect button into the sentence with everything else: VoiceOver read the
+    /// name and the batteries, and had no way to press the one thing on the card that does
+    /// anything. With the button there the row is a container, as the Download and Calendar
+    /// cards are — the sentence as its label, the button inside it.
+    static func readsAsOneElement(_ state: BluetoothState) -> Bool { !offersConnection(state) }
 
     /// "AirPods Pro connected, left 92 percent, right 88 percent, case 64 percent", built from
     /// whichever batteries the device actually reports.
-    private var accessibilitySummary: String {
+    static func accessibilitySummary(for state: BluetoothState) -> String {
         var parts = [state.isConnected ? "\(state.name) connected" : "\(state.name) disconnected"]
         if let l = state.batteryLeft { parts.append("left \(l) percent") }
         if let r = state.batteryRight { parts.append("right \(r) percent") }
@@ -136,4 +157,15 @@ struct BluetoothExpandedView: View {
         }
         return parts.joined(separator: ", ")
     }
+}
+
+extension BluetoothState {
+    /// The level a device's battery turns red at, on the AirPods card and in the Controls
+    /// list alike. It was 20 on the card and 10 in the list, so the same pair of AirPods at
+    /// 15% was red in one and grey in the other. 20 is where the Mac's own battery warns, and
+    /// where a phone's goes red.
+    static let lowBattery = 20
+
+    /// Whether `percent` is low enough to be drawn in red. Pure, so the one threshold is tested.
+    static func isLow(_ percent: Int) -> Bool { percent <= lowBattery }
 }

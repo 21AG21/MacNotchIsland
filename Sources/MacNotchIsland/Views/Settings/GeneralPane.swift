@@ -75,19 +75,22 @@ struct GeneralPane: View {
             }
 
             Section {
-                // Starts at the width the island already has. An override can only widen it —
-                // anything narrower would put the island's contents under glass that is not
+                // Each starts at the size the island already has. An override can only enlarge
+                // it — anything smaller would put the island's contents under glass that is not
                 // there — so the stretch of slider below that offered figures that did nothing.
-                let automatic = Self.automaticWidth
-                SettingsSlider("Width", value: widthOverride(automatic: automatic),
-                               range: min(automatic, Self.widestNotch - 1)...Self.widestNotch,
+                // Width was put right first, and Height sat under it still running from nothing.
+                let automaticWidth = Self.automaticWidth
+                SettingsSlider("Width", value: widthOverride(automatic: automaticWidth),
+                               range: min(automaticWidth, Self.widestNotch - 1)...Self.widestNotch,
                                unit: "pt", zeroLabel: "Automatic")
-                SettingsSlider("Height", value: $prefs.notchHeightOverride,
-                               range: 0...60, unit: "pt", zeroLabel: "Automatic")
+                let automaticHeight = Self.automaticHeight
+                SettingsSlider("Height", value: heightOverride(automatic: automaticHeight),
+                               range: min(automaticHeight, Self.tallestNotch - 1)...Self.tallestNotch,
+                               unit: "pt", zeroLabel: "Automatic")
             } header: {
                 Text("Notch size")
             } footer: {
-                Text("Leave both automatic unless the island sits slightly off your notch. Either can only make the island bigger than it measures on its own.")
+                Text("Leave both automatic unless the island sits slightly off your notch. Each starts at the size the island measures on its own, since either can only make it bigger.")
             }
 
             Section {
@@ -114,21 +117,41 @@ struct GeneralPane: View {
         return base + " On the display with the notch, a full-screen window is the same size as one zoomed under the menu bar, and telling them apart for certain takes Accessibility. Without it the island goes by whether that display's menu bar has gone — so with the menu bar set to hide automatically, a zoomed window there hides the island too."
     }
 
-    /// The widest the Width slider goes.
+    /// The widest the Width slider goes, and the tallest the Height slider does.
     private static let widestNotch: Double = 320
+    private static let tallestNotch: Double = 60
 
-    /// The width the island has with no override, on the display with the notch, or the main
-    /// display where none has one.
-    private static var automaticWidth: Double {
-        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
-        return screen.map { Double(NotchGeometry.automaticWidth(on: $0)) } ?? 0
+    /// The display the two sliders measure: the one with the notch, or the main display where
+    /// none has one.
+    private static var measuredScreen: NSScreen? {
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
     }
 
-    /// The slider's end at that width is Automatic, and is stored as that.
+    /// The width the island has with no override, on that display.
+    private static var automaticWidth: Double {
+        measuredScreen.map { Double(NotchGeometry.automaticWidth(on: $0)) } ?? 0
+    }
+
+    /// The height the island has with no override, on that display.
+    private static var automaticHeight: Double {
+        measuredScreen.map { Double(NotchGeometry.automaticHeight(on: $0)) } ?? 0
+    }
+
+    /// The slider's end at that width is Automatic, and is stored as that. Read back through
+    /// the same rule, so a figure an older build stored under the notch's width — which does
+    /// nothing — shows as the Automatic it behaves as, not as a number at the slider's end.
     private func widthOverride(automatic: Double) -> Binding<Double> {
         Binding(
-            get: { prefs.notchWidthOverride },
+            get: { NotchGeometry.widthOverride(prefs.notchWidthOverride, automatic: automatic) },
             set: { prefs.notchWidthOverride = NotchGeometry.widthOverride($0, automatic: automatic) }
+        )
+    }
+
+    /// The same for the height.
+    private func heightOverride(automatic: Double) -> Binding<Double> {
+        Binding(
+            get: { NotchGeometry.heightOverride(prefs.notchHeightOverride, automatic: automatic) },
+            set: { prefs.notchHeightOverride = NotchGeometry.heightOverride($0, automatic: automatic) }
         )
     }
 }

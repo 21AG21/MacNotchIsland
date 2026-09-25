@@ -433,8 +433,12 @@ final class NowPlayingService: ObservableObject {
         }
     }
 
+    /// Moves the playhead of a track with a length. A stream has nowhere to move it to, see
+    /// `NowPlayingInfo.canSeek`: the scrubber is switched off for one, and this says no as well,
+    /// so nothing that computes a position from a length of zero can send it to the start.
     func seek(to seconds: TimeInterval) {
         guard seconds.isFinite, seconds >= 0 else { return }
+        if let info, !info.canSeek { return }
         switch activeBackend {
         case .appleScript: appleScript.seek(to: seconds, bundleID: info?.bundleID)
         case .adapter: adapter.send("seek \(Int(seconds))")
@@ -614,16 +618,77 @@ final class NowPlayingService: ObservableObject {
         return mode.next
     }
 
-    /// Favourite the track: "like" to MediaRemote, the heart in Music through AppleScript.
-    func like() {
-        guard let current = info else { return }
-        switch Self.route(.like, active: activeBackend, info: current) {
-        case .appleScript: appleScript.like(bundleID: current.bundleID)
-        case .adapter: adapter.send("like")
-        default: mediaRemote.send(.likeTrack)
-        }
-        likedTrackKey = Self.trackKey(current)
+    /// What a press of the heart does, and where it goes.
+    enum HeartPress: Equatable {
+        /// Favourite the track, through this backend.
+        case favourite(Backend)
+        /// Take the favourite back, through this backend.
+        case unfavourite(Backend)
+        /// Nothing: the heart is lit, and this player cannot be asked to empty it.
+        case settled
     }
+
+    /// The heart's rule. Pure, so it is tested.
+    ///
+    /// An empty heart favourites the track, by `route` like every other button beside play. A
+    /// lit one used to favourite it again: the heart could be filled and never emptied. Now it
+    /// takes the favourite back where that can be asked for, which is Music, by script, see
+    /// `NowPlayingInfo.canTakeBackFavourite`; everywhere else it is settled, drawn dimmed, and
+    /// left for the player's own button.
+    static func heartPress(liked: Bool, active: Backend, info: NowPlayingInfo) -> HeartPress {
+        guard liked else { return .favourite(route(.like, active: active, info: info)) }
+        return NowPlayingInfo.canTakeBackFavourite(bundleID: info.bundleID) ? .unfavourite(.appleScript) : .settled
+    }
+
+    /// The heart: favourite the track, or, pressed again, take the favourite back. "Like" to
+    /// MediaRemote or the heart in Music through AppleScript on the way in; Music's heart
+    /// through AppleScript on the way out, see `heartPress`.
+    func toggleFavourite() {
+        guard let current = info else { return }
+        switch Self.heartPress(liked: isLiked(current), active: activeBackend, info: current) {
+        case .favourite(let backend):
+            switch backend {
+            case .appleScript: appleScript.like(bundleID: current.bundleID)
+            case .adapter: adapter.send("like")
+            default: mediaRemote.send(.likeTrack)
+            }
+            likedTrackKey = Self.trackKey(current)
+        case .unfavourite:
+            unfavouriteInMusic()
+            likedTrackKey = nil
+        case .settled:
+            break
+        }
+    }
+
+    /// Music's heart, emptied: the other half of `AppleScriptBackend.like`, said the same two
+    /// ways — `favorited`, and `loved` from before Apple renamed the button. Off the main
+    /// queue, like every script the island runs, because Music answers in its own time. It
+    /// belongs beside `like` in the backend, which keeps its script runner to itself.
+    private func unfavouriteInMusic() {
+        let source = """
+        tell application "Music"
+            try
+                set favorited of current track to false
+            on error
+                set loved of current track to false
+            end try
+        end tell
+        """
+        Self.favouriteQueue.async {
+            var error: NSDictionary?
+            _ = NSAppleScript(source: source)?.executeAndReturnError(&error)
+            guard let error else { return }
+            // -1743 is Automation refused and -600 Music not running: both are silent, as they
+            // are for every other script.
+            let code = (error[NSAppleScript.errorNumber] as? Int) ?? 0
+            if code != -1743 && code != -600 {
+                IslandLog.media.error("AppleScript error: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private static let favouriteQueue = DispatchQueue(label: "com.macnotchisland.nowplaying.favourite", qos: .userInitiated)
 
     /// Fifteen seconds back or on, as a seek from where the playhead is now — the same seek the
     /// scrubber makes, through whichever backend is showing the track. A player's own skip

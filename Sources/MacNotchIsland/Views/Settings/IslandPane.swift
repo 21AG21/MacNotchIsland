@@ -24,7 +24,7 @@ struct IslandPane: View {
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("The shortcut opens the panel on what is playing or running, or on the section you last had open when nothing is; press it again to close. Tab steps through the live activities and every section in the order the switcher shows them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
+                Text("The shortcut opens the panel on what is playing or running, or on the section you last had open when nothing is; press it again to close. Tab steps through the live activities and then every section, in the order Home Panel lists them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
             }
 
             // The keys that need nothing held down. Listed only while they are on, for the
@@ -47,7 +47,10 @@ struct IslandPane: View {
             } header: {
                 Text("While the panel is open")
             } footer: {
-                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes is showing, where every key is yours to type. The digits count the switcher's slots from the left, and Space is Quick Look while the shelf is the section on screen. On Actions the digits type a timer's minutes or an alarm's time instead; Tab and the arrows still step. The letters are claimed only on Windows, the Clipboard and the Shelf, which are the sections that are lists of things: typing on one of them narrows it, the vertical arrows walk what is left, Return takes the one you are on, and Escape leaves the find without closing the panel.")
+                // The digits are not the band's slots counted from the left: they follow the
+                // ring Tab walks, and the band draws the sections it has no room for on the far
+                // side of the cutout. Where somebody wants a slot's digit, the band shows it.
+                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes is showing, where every key is yours to type. The digits go in Tab's order: the live activities, then the sections, so a running timer takes 1 and moves every section along by one, and anything past the ninth has none. Rest the pointer on a button beside the notch to see its digit. Space is Quick Look while the shelf is the section on screen. On Actions the digits type a timer's minutes or an alarm's time instead; Tab and the arrows still step. The letters are claimed only on \(Self.findSections), which are the sections that are lists of things: typing on one of them narrows it, the vertical arrows walk what is left, Return takes the one you are on, and Escape leaves the find without closing the panel.")
             }
 
             Section {
@@ -110,10 +113,20 @@ struct IslandPane: View {
             } header: {
                 Text("Vertical swipe")
             } footer: {
-                Text("Volume is how the island has always read a scroll. With Open and close, swipe down on the island to open the panel on whatever it is showing, and up on the panel to close it again — once for each swipe, however far the fingers go on. The sensitivity is how far a swipe has to travel: higher is a shorter one. Option and Control still move the brightness and the keyboard's backlight either way, and a section that scrolls by itself keeps its scroll. On a running timer's pill a small scroll up gives it another minute for every step, and in Open and close a swipe down long enough still opens the panel.")
+                Text("Volume is how the island has always read a scroll. With Open and close, swipe down on the island to open the panel on whatever it is showing, and up on the panel to close it again — once for each swipe, however far the fingers go on. The sensitivity is how far a swipe has to travel: higher is a shorter one. Option and Control still move the brightness and the keyboard's backlight either way, and a section that scrolls by itself keeps its scroll. On a running timer's pill a small scroll moves it a minute a step — up adds one, down takes one off — and in Open and close a swipe down long enough still opens the panel, with the timer put back as it was.")
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The sections that take the letters, named from `PanelFind.sections` itself in the order
+    /// the panel ships them, so a list that gains a find is named here without anybody having
+    /// to remember this sentence. Written out by hand it had already missed Notifications.
+    static var findSections: String {
+        let names = HomeSection.allCases.filter { PanelFind.sections.contains($0) }.map(\.title)
+        guard let last = names.last else { return "no section" }
+        guard names.count > 1 else { return last }
+        return names.dropLast().joined(separator: ", ") + " and " + last
     }
 
     /// The stored choice, read back through `VerticalSwipe` so that a value this build does not

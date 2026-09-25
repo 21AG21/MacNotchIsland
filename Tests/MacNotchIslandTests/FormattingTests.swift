@@ -111,4 +111,28 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchWidth, NotchGeometry.automaticWidth(on: screen),
                        "with no override the island is the width the slider starts at")
     }
+
+    /// The Height slider ran from nothing, and every figure under the notch's own height did
+    /// nothing at all — Width's fault, left behind on the slider under it. It gets Width's rule.
+    func testTheHeightSliderStartsAtTheHeightTheIslandAlreadyHas() {
+        XCTAssertEqual(NotchGeometry.heightOverride(32, automatic: 32), 0, "the slider's end is Automatic")
+        XCTAssertEqual(NotchGeometry.heightOverride(12, automatic: 32), 0, "shorter than the notch changes nothing")
+        XCTAssertEqual(NotchGeometry.heightOverride(0, automatic: 32), 0, "and Automatic stays Automatic")
+        XCTAssertEqual(NotchGeometry.heightOverride(40, automatic: 32), 40)
+
+        guard let screen = NSScreen.main else { return }
+        let prefs = Preferences.shared
+        let saved = prefs.notchHeightOverride
+        defer { prefs.notchHeightOverride = saved }
+        let automatic = NotchGeometry.automaticHeight(on: screen)
+        prefs.notchHeightOverride = 0
+        XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchHeight, automatic,
+                       "with no override the island is the height the slider starts at")
+        prefs.notchHeightOverride = Double(automatic) - 10
+        XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchHeight, automatic,
+                       "a figure under it, stored by an older build, leaves the island as it is")
+        prefs.notchHeightOverride = Double(automatic) + 6
+        XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchHeight, automatic + 6,
+                       "and one over it makes the island taller")
+    }
 }

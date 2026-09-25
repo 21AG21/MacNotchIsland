@@ -24,20 +24,13 @@ struct NotchGeometry: Equatable {
         if top == 0, simulatesNotch { top = 32 }
         let hasNotch = top > 0
         var width = automaticWidth(on: screen)
-        var height: CGFloat = 32
+        var height = automaticHeight(on: screen)
         let menuBar = max(NSStatusBar.system.thickness, 24)
         // Which displays carry a menu bar is a system setting: every one of them with
         // "Displays have separate Spaces", the primary alone without it. A pill that hung
         // a menu bar's height below the top of a display that has no menu bar floated
         // twenty-eight points down with nothing above it.
         let hasMenuBar = NSScreen.screensHaveSeparateSpaces || isPrimary(screen)
-
-        if hasNotch {
-            height = top
-        } else {
-            // Simulated island on external displays: menu-bar height, iPhone-like proportions.
-            height = max(menuBar, 30)
-        }
 
         // An override exists for a notch the system under-reports. It may only enlarge the
         // island: a value below the measured cutout would put content under glass that is
@@ -71,6 +64,25 @@ struct NotchGeometry: Equatable {
     /// an override would change nothing — it can only widen — so it is stored as Automatic,
     /// which is what it is.
     static func widthOverride(_ value: Double, automatic: Double) -> Double {
+        value <= automatic ? 0 : value
+    }
+
+    /// The height the island takes on a screen before any override: the cutout's where there
+    /// is one, and the simulated island's where there is not — the menu bar's height, and
+    /// never under 30. It is also where the Height slider in Settings starts, for the Width
+    /// slider's reason: an override can only ever make the island taller.
+    static func automaticHeight(on screen: NSScreen) -> CGFloat {
+        var top = screen.safeAreaInsets.top
+        if top == 0, simulatesNotch { top = 32 }
+        guard top > 0 else { return max(max(NSStatusBar.system.thickness, 24), 30) }
+        return top
+    }
+
+    /// What a value on the Height slider stores, by the Width slider's rule. The slider ran
+    /// from nothing, and everything under the notch's own height did nothing at all — the
+    /// fault Width had, left behind on the slider under it. At or under the height the
+    /// island already has it is Automatic, which is what it is.
+    static func heightOverride(_ value: Double, automatic: Double) -> Double {
         value <= automatic ? 0 : value
     }
 

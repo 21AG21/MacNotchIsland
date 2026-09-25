@@ -158,8 +158,44 @@ final class IslandTimer: ObservableObject {
         _ = add(seconds: seconds, label: label)
     }
 
+    /// The last timer started, started again as another one. Nothing on screen asks for this
+    /// any more: a card or a menu is always about one timer, and repeats that one, see
+    /// `repeatTimer(id:)`.
     func repeatLast() {
         start(seconds: lastDuration, label: lastLabel)
+    }
+
+    /// This timer again from the top: its own name and its own length, in its own place on
+    /// the island.
+    ///
+    /// Repeat on a card used to be `repeatLast`, the last timer *started* — with two running,
+    /// as often as not the other one. The pasta rang, Repeat set the tea going a second time,
+    /// and the card went on saying the pasta was done, because a timer that has rung sorts
+    /// first. It restarts where it is instead, under the same id, so the card that rang is the
+    /// card that counts down again. The length is the one the ring was measuring, a minute
+    /// added included.
+    ///
+    /// A phase of a Pomodoro run goes again as that phase, and the run carries on after it;
+    /// the change to the next phase that was waiting is dropped. An alarm has no length to
+    /// repeat — Snooze is its second go — and is left alone.
+    func repeatTimer(id: String, now: Date = Date()) {
+        guard let i = index(of: id), !timers[i].state.isAlarm else { return }
+        if id == pomodoroTimerID, let phase = pomodoro {
+            pomodoroGeneration &+= 1
+            begin(phase)
+            return
+        }
+        let label = timers[i].label
+        let total = max(timers[i].state.total, Self.minimumRemaining)
+        timers[i].state = TimerState(label: label, total: total, endDate: now.addingTimeInterval(total))
+        // A new start, so the tidy-up queued for the ring that came before finds a different
+        // timer here and leaves it alone.
+        timers[i].createdAt = now
+        lastDuration = total
+        lastLabel = label
+        reprioritize()
+        publishAll()
+        syncTicker()
     }
 
     /// The label a sleep timer wears, and the one the card shows.
@@ -215,6 +251,9 @@ final class IslandTimer: ObservableObject {
 
     // MARK: - Primary-timer controls
 
+    /// For scripts, the URL scheme and the menu bar, which name no timer. Anything drawn for
+    /// one timer — its card, its menu — uses the `id:` forms below, or it acts on whichever
+    /// timer happens to be first while showing another.
     func pause() {
         guard let id = primary?.id else { return }
         pause(id: id)

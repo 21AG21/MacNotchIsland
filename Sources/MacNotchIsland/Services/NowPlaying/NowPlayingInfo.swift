@@ -122,6 +122,15 @@ struct NowPlayingInfo: Equatable {
         }
     }
 
+    /// Whether a favourite, once given, can be taken back from the island. In Music alone:
+    /// its `favorited` (once `loved`) is a property a script can set to false as readily as
+    /// to true, and Music answers AppleScript whatever MediaRemote makes of it. MediaRemote has
+    /// a command to like a track and none to unlike one, and Spotify's dictionary has no way
+    /// to save a track, let alone to unsave one.
+    static func canTakeBackFavourite(bundleID: String?) -> Bool {
+        bundleID == musicID
+    }
+
     /// The buttons beside play that this player will honour. Pure, so the rule is tested.
     ///
     /// The fifteen-second skips are a seek from where the playhead is, the thing the scrubber
@@ -133,7 +142,7 @@ struct NowPlayingInfo: Equatable {
     static func supportedCommands(remote: Set<Command>?, shuffle: Bool?, repeatMode: RepeatMode?,
                                   bundleID: String?, duration: TimeInterval) -> Set<Command> {
         var result: Set<Command> = []
-        if duration.isFinite, duration > 0 { result.formUnion([.back15, .forward15]) }
+        if canSeek(duration: duration) { result.formUnion([.back15, .forward15]) }
         for command in [Command.shuffle, .cycleRepeat, .like] {
             let listed = remote?.contains(command) ?? false
             let reported: Bool
@@ -146,6 +155,19 @@ struct NowPlayingInfo: Equatable {
         }
         return result
     }
+
+    /// Whether there is anywhere to seek to: a track with a length. Pure, so it is tested.
+    ///
+    /// A live radio stream has no length, nor does a podcast in a browser that has not
+    /// measured one, and `NowPlayingService.sanitized` writes that down as zero. The
+    /// fifteen-second skips always knew it; the scrubber did not, and a click anywhere on it
+    /// asked for that fraction of nothing — a seek to 0:00, the start of an hour-long stream.
+    /// The scrubber, the skips and `seek` itself all ask this one question now.
+    static func canSeek(duration: TimeInterval) -> Bool {
+        duration.isFinite && duration > 0
+    }
+
+    var canSeek: Bool { Self.canSeek(duration: duration) }
 
     /// Interpolated position using the elapsed value captured at `timestamp`.
     func position(at date: Date) -> TimeInterval {

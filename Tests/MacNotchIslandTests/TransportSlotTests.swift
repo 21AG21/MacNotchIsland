@@ -209,6 +209,36 @@ final class TransportSlotTests: XCTestCase {
         XCTAssertEqual(NowPlayingService.route(.forward15, active: .adapter, info: silent), .adapter)
     }
 
+    // MARK: - The heart, both ways
+
+    func testAnEmptyHeartFavouritesWhereEveryOtherPressGoes() {
+        let music = track(bundle: "com.apple.Music")
+        XCTAssertEqual(NowPlayingService.heartPress(liked: false, active: .adapter, info: music), .favourite(.appleScript))
+        let listed = track(bundle: "com.apple.Music", remote: [.like])
+        XCTAssertEqual(NowPlayingService.heartPress(liked: false, active: .adapter, info: listed), .favourite(.adapter))
+        let spotify = track(bundle: "com.spotify.client", remote: [.like])
+        XCTAssertEqual(NowPlayingService.heartPress(liked: false, active: .mediaRemote, info: spotify), .favourite(.mediaRemote))
+    }
+
+    func testALitHeartInMusicIsTakenBack() {
+        // It could be filled and never emptied: a second press favourited the track again.
+        let music = track(bundle: "com.apple.Music")
+        XCTAssertEqual(NowPlayingService.heartPress(liked: true, active: .adapter, info: music), .unfavourite(.appleScript))
+        let listed = track(bundle: "com.apple.Music", remote: [.like])
+        XCTAssertEqual(NowPlayingService.heartPress(liked: true, active: .adapter, info: listed), .unfavourite(.appleScript),
+                       "MediaRemote can like a track and cannot unlike one, so the way back is Music's own")
+        XCTAssertTrue(NowPlayingInfo.canTakeBackFavourite(bundleID: "com.apple.Music"))
+    }
+
+    func testALitHeartNothingCanEmptyIsSettledRatherThanPressedAgain() {
+        let spotify = track(bundle: "com.spotify.client", remote: [.like])
+        XCTAssertEqual(NowPlayingService.heartPress(liked: true, active: .adapter, info: spotify), .settled,
+                       "Spotify's dictionary cannot unsave a track")
+        let podcasts = track(bundle: "com.apple.podcasts", remote: [.like])
+        XCTAssertEqual(NowPlayingService.heartPress(liked: true, active: .mediaRemote, info: podcasts), .settled)
+        XCTAssertFalse(NowPlayingInfo.canTakeBackFavourite(bundleID: nil))
+    }
+
     // MARK: - A mode set by script
 
     func testAShuffleSetByScriptCanBeSwitchedOffAgain() {

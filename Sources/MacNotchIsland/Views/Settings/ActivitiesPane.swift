@@ -71,6 +71,18 @@ struct ActivitiesPane: View {
 
             Section {
                 Toggle("Battery and charging", isOn: $prefs.batteryEnabled)
+                // Under the switch it hangs on. It used to sit under Downloads, a section away,
+                // and stayed live with the battery off, when nothing reads the mark at all.
+                Picker("Tell me at", selection: chargeAlert) {
+                    Text("Never").tag(0.0)
+                    Text("70%").tag(70.0)
+                    Text("80%").tag(80.0)
+                    Text("85%").tag(85.0)
+                    Text("90%").tag(90.0)
+                }
+                .pickerStyle(.menu)
+                .help("A laptop that lives on its charger sits at a hundred per cent, which is where a lithium battery ages fastest. Said once per charge.")
+                .disabled(!ServiceHub.wantsBattery(prefs))
                 Toggle("Bluetooth devices", isOn: $prefs.bluetoothEnabled)
                     .help("AirPods and other Bluetooth devices, with their battery level, as they connect.")
                 Toggle("Low Power Mode", isOn: $prefs.lowPowerEnabled)
@@ -80,6 +92,8 @@ struct ActivitiesPane: View {
                     .help("A welcome back pill when you unlock your Mac.")
             } header: {
                 Text("System")
+            } footer: {
+                Text(Self.systemFooter(watchingBattery: ServiceHub.wantsBattery(prefs)))
             }
 
             Section {
@@ -92,7 +106,8 @@ struct ActivitiesPane: View {
                 // way to change the brightness — while an Option-scroll on it did exactly that,
                 // and the rail carried a slider for it. The master switch ships off, so out of
                 // the box the only control over that display was one nobody could reach.
-                Toggle("Volume and silent mode", isOn: $prefs.volumeHUDEnabled)
+                // A Mac has mute, not the phone's silent switch, and the switch is named for it.
+                Toggle("Volume and mute", isOn: $prefs.volumeHUDEnabled)
                     .help("With the switch above on, this is every volume and mute change. With "
                           + "it off, it is only the one a scroll on the island makes itself.")
                 Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
@@ -150,15 +165,6 @@ struct ActivitiesPane: View {
             Section {
                 Toggle("Downloads", isOn: $prefs.downloadsEnabled)
                     .help("Safari, Chrome and Firefox downloads in your Downloads folder, with a progress ring.")
-                Picker("Tell me at", selection: chargeAlert) {
-                    Text("Never").tag(0.0)
-                    Text("70%").tag(70.0)
-                    Text("80%").tag(80.0)
-                    Text("85%").tag(85.0)
-                    Text("90%").tag(90.0)
-                }
-                .pickerStyle(.menu)
-                .help("A laptop that lives on its charger sits at a hundred per cent, which is where a lithium battery ages fastest. Said once per charge.")
                 Toggle("Screenshots", isOn: $prefs.screenshotsEnabled)
                     .help("The picture you just took, with Copy, Copy Text and Open on it — and draggable straight into a message.")
                 Toggle("External disks", isOn: $prefs.drivesEnabled)
@@ -168,7 +174,7 @@ struct ActivitiesPane: View {
             } header: {
                 Text("Downloads, disks and timers")
             } footer: {
-                Text("A laptop that lives on its charger sits at a hundred per cent, which is where a lithium battery ages fastest; the island can say when it has had enough, once per charge. A capture's card shows the picture itself: drag it from there into a message without it ever touching the Desktop, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots can also land on the shelf — turn that on in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
+                Text("A capture's card shows the picture itself: drag it from there into a message without it ever touching the Desktop, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots also land on the shelf, unless you turn that off in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
             }
         }
         .formStyle(.grouped)
@@ -176,6 +182,18 @@ struct ActivitiesPane: View {
             SettingsFormat.snap(&prefs.chargeAlertPercent, to: Self.chargeOptions)
             SettingsFormat.snap(&prefs.keepPausedMinutes, to: Self.keepPausedOptions)
         }
+    }
+
+    /// The System section's footer: what "Tell me at" is for, and, while "Battery and
+    /// charging" is off, why it is greyed out — the mark is read by the battery monitor and by
+    /// nothing else, so with that off it is a figure nobody reads. Pure, so a test holds the
+    /// reason to the switch.
+    static func systemFooter(watchingBattery: Bool) -> String {
+        let mark = "A laptop that lives on its charger sits at a hundred per cent, which is where a "
+            + "lithium battery ages fastest. Choose a figure under Tell me at and the island says when "
+            + "it has had enough, once per charge."
+        guard !watchingBattery else { return mark }
+        return mark + " It needs Battery and charging: with that off, nothing is watching the charge."
     }
 
     /// The charge mark, snapped to one of the offered figures.

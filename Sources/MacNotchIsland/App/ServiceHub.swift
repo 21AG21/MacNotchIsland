@@ -64,6 +64,17 @@ final class ServiceHub {
             .store(in: &cancellables)
     }
 
+    /// Whether the battery monitor runs — and so whether "Tell me at" can say anything, since
+    /// the charge mark is read by that monitor as the level climbs and by nothing else.
+    ///
+    /// Here rather than inline for that second half. The menu sat under Downloads, a section
+    /// away from "Battery and charging", and stayed live with it off: a figure on the screen
+    /// that nothing read. Activities greys the menu out by this, the same rule that starts the
+    /// monitor, so the two cannot disagree.
+    static func wantsBattery(_ p: Preferences) -> Bool {
+        p.batteryEnabled
+    }
+
     /// Whether the calendar may run, which is the same as whether macOS may be asked for it.
     ///
     /// Held until the tour has been through. Starting it asks for the calendar, and that sheet
@@ -128,7 +139,7 @@ final class ServiceHub {
     private func apply() {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
-        p.batteryEnabled ? battery.start() : battery.stop()
+        Self.wantsBattery(p) ? battery.start() : battery.stop()
         p.bluetoothEnabled ? bluetooth.start() : bluetooth.stop()
         // The audio monitor feeds the volume display, the silent-mode alert, the microphone
         // indicator and call detection — but the first two only exist while the island is the

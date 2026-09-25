@@ -14,7 +14,9 @@ struct ExpandedContentView: View {
                     .islandContentColumn()
                     .padding(.top, insidePanel ? 0 : IslandLayout.cardTopBand(geometry) + 12)
             case .timer(let t):
-                TimerExpandedView(state: t, geometry: geometry)
+                // The card names its own timer: matched by state, a second timer with the
+                // same reading could have been taken for it.
+                TimerExpandedView(state: t, geometry: geometry, activityID: activity.id)
             case .stopwatch(let s):
                 StopwatchExpandedView(state: s, geometry: geometry)
             case .call(let c):

@@ -139,15 +139,15 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         let paused = IslandMenu.isPaused(until: until)
         if paused {
             header.title = "Hidden until " + timeFormatter.string(from: Date(timeIntervalSince1970: until))
-            visibility.title = "Show Island"
+            visibility.title = IslandMenu.showTitle
             visibility.action = #selector(showNow)
         } else if center.isSuppressed {
             header.title = "Hidden while this app is in front"
-            visibility.title = "Hide Island for 1 Hour"
+            visibility.title = IslandMenu.hideTitle
             visibility.action = #selector(hideForHour)
         } else {
             header.title = "Notch Island"
-            visibility.title = "Hide Island for 1 Hour"
+            visibility.title = IslandMenu.hideTitle
             visibility.action = #selector(hideForHour)
         }
         stopwatch.title = IslandStopwatch.shared.state == nil ? "Start Stopwatch" : "Reset Stopwatch"

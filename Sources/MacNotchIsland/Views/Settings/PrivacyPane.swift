@@ -27,13 +27,13 @@ struct PrivacyPane: View {
             Section {
                 permission(
                     "Accessibility",
-                    detail: "Moves windows from the Windows section, replaces the system volume and brightness bezel, and is what lets the Notifications section read the banners it keeps — without it that section stays empty.",
+                    detail: "Answers the volume and brightness keys, pastes a clipboard item where you were typing, moves windows from the Windows section, tells a full-screen app from a zoomed window on the display with the notch, and keeps the island clear of app menus. It is also what lets the Notifications section read the banners it keeps — without it that section stays empty.",
                     status: MediaKeyInterceptor.isTrusted ? "Granted" : "Not granted",
                     pane: .accessibility
                 )
                 permission(
                     "Screen Recording",
-                    detail: "Draws the picture of each window in the Windows section. Nothing is ever recorded or sent.",
+                    detail: "Draws the picture of each window in the Windows section, and is what Record Screen records with. Nothing is recorded unless you start a recording, and nothing is sent.",
                     status: CGPreflightScreenCaptureAccess() ? "Granted" : "Not granted",
                     pane: .screenRecording
                 )
@@ -57,7 +57,7 @@ struct PrivacyPane: View {
                 )
                 permission(
                     "Calendars",
-                    detail: "Used to show your next event shortly before it starts.",
+                    detail: "Used for your events in the Today section, and for the card before a meeting with its Join button.",
                     status: Self.calendarStatus,
                     pane: .calendars
                 )
@@ -72,13 +72,13 @@ struct PrivacyPane: View {
                 )
                 permission(
                     "Notifications",
-                    detail: "A banner when a timer goes off while the island is hidden or an app is full screen.",
+                    detail: "A banner when a timer or an alarm goes off, or an alarm was missed, while the island cannot be seen: hidden, under a full-screen app, or behind the lock screen.",
                     status: notificationStatus,
                     pane: .notifications
                 )
                 permission(
                     "Automation",
-                    detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet.",
+                    detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet, and switch shuffle, repeat and favourite there when the system player does not.",
                     status: "Asked when needed",
                     pane: .automation
                 )

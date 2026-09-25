@@ -100,6 +100,86 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertEqual(timer.timers.map { $0.label }, ["Tea", "Tea"])
     }
 
+    // MARK: - The card acts on the timer it shows
+
+    /// Five minutes, then twenty-five: the five owns the island, and the twenty-five is the
+    /// one swapped onto the card through the bubble, a switcher slot or Tab.
+    private func twoTimers() -> (five: String, twentyFive: String)? {
+        timer.start(seconds: 5 * 60, label: "Tea")
+        timer.start(seconds: 25 * 60, label: "Focus")
+        guard let five = timer.timers.first(where: { $0.label == "Tea" })?.id,
+              let twentyFive = timer.timers.first(where: { $0.label == "Focus" })?.id else { return nil }
+        return (five, twentyFive)
+    }
+
+    func testTheCardFindsTheTimerItWasHandedNotThePrimary() {
+        guard let ids = twoTimers(), let shown = timer.entry(id: ids.twentyFive) else { return XCTFail("no timers") }
+        XCTAssertEqual(timer.primary?.id, ids.five, "the soonest owns the island")
+        XCTAssertEqual(TimerExpandedView.shownID(for: shown.state, in: timer.timers, primary: timer.primary?.id),
+                       ids.twentyFive, "the card is about the timer it was handed")
+        let stranger = TimerState(label: "Gone", total: 60, endDate: Date(timeIntervalSinceReferenceDate: 0))
+        XCTAssertEqual(TimerExpandedView.shownID(for: stranger, in: timer.timers, primary: timer.primary?.id),
+                       ids.five, "a state nothing matches falls back to the island's own timer")
+    }
+
+    func testPausingAndCancellingTheShownTimerLeavesTheOtherRunning() {
+        guard let ids = twoTimers() else { return XCTFail("no timers") }
+        timer.pause(id: ids.twentyFive)
+        XCTAssertTrue(timer.entry(id: ids.twentyFive)?.state.isPaused ?? false)
+        XCTAssertFalse(timer.entry(id: ids.five)?.state.isPaused ?? true, "the five minutes keep running")
+
+        // Resume on the paused card resumes it, rather than asking the running timer to.
+        timer.resume(id: ids.twentyFive)
+        XCTAssertFalse(timer.entry(id: ids.twentyFive)?.state.isPaused ?? true)
+
+        let before = timer.entry(id: ids.five)?.state.total
+        timer.add(seconds: IslandTimer.addStep, id: ids.twentyFive)
+        XCTAssertEqual(timer.entry(id: ids.twentyFive)?.state.total ?? 0, 26 * 60, accuracy: 0.01)
+        XCTAssertEqual(timer.entry(id: ids.five)?.state.total, before, "the minute went to the card's timer")
+
+        timer.cancel(id: ids.twentyFive)
+        XCTAssertEqual(timer.timers.map(\.id), [ids.five], "the five minutes are still there")
+    }
+
+    func testRepeatRestartsTheTimerThatRangNotTheLastOneStarted() {
+        guard let ids = twoTimers() else { return XCTFail("no timers") }
+        timer.finishForTesting(id: ids.five)
+        let now = Date()
+        timer.repeatTimer(id: ids.five, now: now)
+
+        XCTAssertEqual(timer.timers.count, 2, "repeated in place, not started as a third timer")
+        guard let tea = timer.entry(id: ids.five) else { return XCTFail("the timer that rang is gone") }
+        XCTAssertEqual(tea.label, "Tea")
+        XCTAssertFalse(tea.state.isFinished)
+        XCTAssertEqual(tea.state.total, 5 * 60, accuracy: 0.01)
+        XCTAssertEqual(tea.state.remaining(at: now), 5 * 60, accuracy: 0.01, "from the top")
+        XCTAssertEqual(timer.entry(id: ids.twentyFive)?.state.total ?? 0, 25 * 60, accuracy: 0.01,
+                       "the last timer started is left alone")
+        guard case .timer(let shown)? = center.activity(id: ids.five)?.content else { return XCTFail("no card") }
+        XCTAssertFalse(shown.isFinished, "the card that rang is the card that counts down again")
+    }
+
+    func testRepeatUsesTheLengthTheRingWasMeasuring() {
+        timer.start(seconds: 5 * 60, label: "Pasta")
+        guard let id = timer.primary?.id else { return XCTFail("no timer") }
+        timer.add(seconds: IslandTimer.addStep, id: id)
+        timer.finishForTesting(id: id)
+        timer.repeatTimer(id: id)
+        XCTAssertEqual(timer.entry(id: id)?.state.total ?? 0, 6 * 60, accuracy: 0.01)
+    }
+
+    func testRepeatingAPomodoroPhaseKeepsTheRunGoing() {
+        timer.startPomodoro(work: 60, rest: 30, cycles: 2)
+        guard let id = timer.pomodoroTimerID else { return XCTFail("no Pomodoro") }
+        timer.finishForTesting(id: id)
+        timer.repeatTimer(id: id)
+        XCTAssertTrue(timer.isPomodoroRunning, "the run carries on after the phase")
+        XCTAssertEqual(timer.pomodoroTimerID, id)
+        XCTAssertEqual(timer.state?.label, "Focus 1/2")
+        XCTAssertFalse(timer.state?.isFinished ?? true)
+        XCTAssertEqual(timer.timers.count, 1)
+    }
+
     func testExpandedHeightGrowsPerExtraTimerUpToTwoRows() {
         let content = ActivityContent.timer(TimerState(label: "Tea", total: 60, endDate: Date()))
         let base = content.cardHeight

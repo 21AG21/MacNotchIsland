@@ -749,6 +749,19 @@ final class WindowsAndControlsTests: XCTestCase {
                      "a case on its own is not the level of the thing you are wearing")
     }
 
+    func testTheRowAndTheCardGoRedAtTheSameLevel() {
+        // 10 in the list and 20 on the AirPods card: the same pair at 15% was grey in one and
+        // red in the other.
+        XCTAssertEqual(BluetoothState.lowBattery, 20)
+        XCTAssertTrue(BluetoothState.isLow(15))
+        XCTAssertTrue(BluetoothState.isLow(20))
+        XCTAssertFalse(BluetoothState.isLow(21))
+        XCTAssertNotEqual(ControlsSectionView.batteryTint(15), ControlsSectionView.batteryTint(80),
+                          "the list's row is red at 15 as well")
+        XCTAssertNotEqual(ControlsSectionView.batteryTint(20), ControlsSectionView.batteryTint(21),
+                          "and turns at the card's level, not its own")
+    }
+
     // MARK: - Asking the radios without stopping the panel
 
     func testASecondPassOverTheRadioWhileOneIsRunningStandsDown() {

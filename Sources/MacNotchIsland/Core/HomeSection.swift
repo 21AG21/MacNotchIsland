@@ -9,8 +9,8 @@ enum HomeSection: String, CaseIterable {
     case home
     case music, today, windows, shelf, controls, clipboard, actions, notes, stats
     /// What came past on a banner, kept. Last in the list because it is last to arrive:
-    /// the digits count the sections from the left, and a section wedged into the middle
-    /// would move every one of them under somebody's fingers.
+    /// the digits follow the ring's order, and a section wedged into the middle would move
+    /// every one of them under somebody's fingers.
     case notifications
 
     var title: String {

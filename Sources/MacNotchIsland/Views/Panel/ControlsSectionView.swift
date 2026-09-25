@@ -31,6 +31,12 @@ struct ControlsSectionView: View {
     @State private var expandedAirPods: String?
     /// The route picker on the Sound column's last row, so the whole row can open it.
     @State private var routePicker = AirPlayRouteHandle()
+    /// The paired list's four-second look, made once for the life of the view. It was built in
+    /// `onReceive` in the body — the mistake `HomePanelPane` warns against — so every pass of a
+    /// body that redraws for Wi-Fi, sound, the rail and the AirPods alike was a new timer, and
+    /// the four seconds started over each time; on a busy panel the list hardly refreshed.
+    /// Held in `@State` rather than a `let`, which the panel's own redraws would build anew.
+    @State private var devicesTicker = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
 
     /// Three columns with a gutter between them, filling the section's width.
     static let gutter: CGFloat = 18
@@ -89,10 +95,7 @@ struct ControlsSectionView: View {
                    note: toggles.hasWiFi ? (toggles.wifiOn ? nil : "Off") : "Not on this Mac",
                    trailing: {
                        if toggles.hasWiFi {
-                           PillButton(title: toggles.wifiOn ? "On" : "Off",
-                                      tint: toggles.wifiOn ? Color.accentColor : .white.opacity(0.7),
-                                      prominent: toggles.wifiOn) { toggles.toggleWiFi() }
-                               .environment(\.islandCompactControls, true)
+                           HeaderSwitch(isOn: toggles.wifiOn) { toggles.toggleWiFi() }
                        }
                    }) {
                 wifiList
@@ -103,10 +106,7 @@ struct ControlsSectionView: View {
                    note: toggles.hasBluetooth ? (toggles.bluetoothOn ? nil : "Off") : "Not on this Mac",
                    trailing: {
                        if toggles.hasBluetooth {
-                           PillButton(title: toggles.bluetoothOn ? "On" : "Off",
-                                      tint: toggles.bluetoothOn ? Color.accentColor : .white.opacity(0.7),
-                                      prominent: toggles.bluetoothOn) { toggles.toggleBluetooth() }
-                               .environment(\.islandCompactControls, true)
+                           HeaderSwitch(isOn: toggles.bluetoothOn) { toggles.toggleBluetooth() }
                        }
                    }) {
                 bluetoothList
@@ -121,10 +121,7 @@ struct ControlsSectionView: View {
                        if sound.hasMute {
                            // Control Centre has no mute at all — you drag the slider to nothing
                            // and drag it back afterwards, guessing where it was.
-                           PillButton(title: sound.isMuted ? "Muted" : "On",
-                                      tint: sound.isMuted ? .white.opacity(0.7) : Color.accentColor,
-                                      prominent: !sound.isMuted) { sound.setMuted(!sound.isMuted) }
-                               .environment(\.islandCompactControls, true)
+                           HeaderSwitch(isOn: !sound.isMuted, offTitle: "Muted") { sound.setMuted(!sound.isMuted) }
                        }
                    }) {
                 soundList
@@ -145,7 +142,7 @@ struct ControlsSectionView: View {
             airPods.viewerDisappeared()
         }
         // The radio answers in its own time; the list catches up when it does.
-        .onReceive(Timer.publish(every: 4, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(devicesTicker) { _ in
             devices = BluetoothMonitor.paired()
         }
     }
@@ -322,9 +319,10 @@ struct ControlsSectionView: View {
     }
 
     /// Quiet grey for a level nobody needs to act on, and a warm red for the one that wants
-    /// catching — the keyboard that will die mid-sentence this afternoon.
+    /// catching — the keyboard that will die mid-sentence this afternoon. Red from the level
+    /// the AirPods card turns red at, see `BluetoothState.isLow`.
     static func batteryTint(_ percent: Int) -> Color {
-        percent <= 10 ? Color(red: 1, green: 0.42, blue: 0.4) : Color.white.opacity(0.45)
+        BluetoothState.isLow(percent) ? Color(red: 1, green: 0.42, blue: 0.4) : Color.white.opacity(0.45)
     }
 
     // MARK: - Where the sound goes, and comes from
@@ -446,6 +444,44 @@ struct ControlsSectionView: View {
         }
         .buttonStyle(IslandButtonStyle())
         .accessibilityLabel(label)
+    }
+}
+
+/// A column's switch: a pill on the header line that says what state the thing is in, lit
+/// when it is on, and flips it on a click. `PillButton` at its compact size, but as wide as
+/// the longer of its two words whichever it is showing.
+///
+/// The pills were only as wide as the word on them, and they sit against the column's right
+/// edge, so their left edge moved with the state: "Muted" is half as wide again as "On", and a
+/// second click where the first had landed fell short of the pill and did nothing. The two
+/// words are laid out on top of each other, the one not showing hidden, so the capsule and
+/// the click it takes keep one size.
+private struct HeaderSwitch: View {
+    let isOn: Bool
+    var onTitle = "On"
+    var offTitle = "Off"
+    let action: () -> Void
+
+    var body: some View {
+        let tint = isOn ? Color.accentColor : Color.white.opacity(0.7)
+        // Drawn at the header line's 22 pt and taking its click in 24, as `PillButton` does.
+        let reach = IslandHit.outset(drawn: SectionMetrics.headerHeight)
+        return Button(action: action) {
+            ZStack {
+                Text(onTitle).opacity(isOn ? 1 : 0)
+                Text(offTitle).opacity(isOn ? 0 : 1)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isOn ? PillButton.ink(on: tint) : tint)
+            .padding(.horizontal, 9)
+            .frame(height: SectionMetrics.headerHeight)
+            .background(Capsule().fill(isOn ? tint : tint.opacity(0.18)))
+            .padding(.vertical, reach)
+            .contentShape(Capsule())
+            .padding(.vertical, -reach)
+        }
+        .buttonStyle(IslandButtonStyle())
+        .accessibilityLabel(isOn ? onTitle : offTitle)
     }
 }
 
