@@ -24,6 +24,10 @@ final class ScreenRecorder: ObservableObject {
     /// True from the moment `screencapture` starts until it has exited — including the second
     /// or two it spends finishing the file after Stop.
     @Published private(set) var isRecording = false
+    /// True from Stop until `screencapture` has exited: the movie is being finished, and there
+    /// is nothing left to stop — `stop()` does nothing meanwhile. Published so a menu or a
+    /// button says "Saving" rather than offering a Stop that cannot do anything.
+    @Published private(set) var isSaving = false
     @Published private(set) var startedAt: Date?
 
     /// The live activity's id, and the alert's.
@@ -44,7 +48,6 @@ final class ScreenRecorder: ObservableObject {
     /// would read at once and take for a key. Closing this is the second way to stop it.
     private var input: Pipe?
     private var file: URL?
-    private var stopping = false
     private var escalation: [DispatchWorkItem] = []
     private var quitObserver: NSObjectProtocol?
 
@@ -112,7 +115,7 @@ final class ScreenRecorder: ObservableObject {
         self.process = process
         self.input = input
         self.file = file
-        stopping = false
+        isSaving = false
         startedAt = now
         isRecording = true
         showActivity()
@@ -121,8 +124,8 @@ final class ScreenRecorder: ObservableObject {
     /// Control-C, as the tool asks, then a wait for the movie to be finished. The card says it
     /// is saving meanwhile, since a long recording takes a moment to close.
     func stop() {
-        guard let process, process.isRunning, !stopping else { return }
-        stopping = true
+        guard let process, process.isRunning, !isSaving else { return }
+        isSaving = true
         showActivity()
         process.interrupt()
         // And if it does not go: its input closed, which is the "any character" it also
@@ -147,7 +150,7 @@ final class ScreenRecorder: ObservableObject {
     /// outlives the app that started it. What was recorded stays where it was written.
     private func stopForQuit() {
         guard let process, process.isRunning else { return }
-        if !stopping { process.interrupt() }
+        if !isSaving { process.interrupt() }
         let deadline = Date().addingTimeInterval(Self.quitGrace)
         while process.isRunning, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
         if process.isRunning { process.terminate() }
@@ -161,7 +164,7 @@ final class ScreenRecorder: ObservableObject {
         process = nil
         input = nil
         self.file = nil
-        stopping = false
+        isSaving = false
         startedAt = nil
         isRecording = false
         ActivityCenter.shared.end(id: Self.activityID)
@@ -183,7 +186,7 @@ final class ScreenRecorder: ObservableObject {
     private func showActivity() {
         guard let since = startedAt, let file else { return }
         let folder = FileManager.default.displayName(atPath: file.deletingLastPathComponent().path)
-        let custom = Self.activity(since: since, saving: stopping, folder: folder)
+        let custom = Self.activity(since: since, saving: isSaving, folder: folder)
         ActivityCenter.shared.upsert(IslandActivity(id: Self.activityID, kind: .custom, content: .custom(custom), priority: 90))
     }
 

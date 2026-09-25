@@ -113,22 +113,31 @@ final class ScreenshotMonitor {
                                                                         includingPropertiesForKeys: Array(keys),
                                                                         options: [.skipsHiddenFiles]) else { return [] }
         var found: [URL] = []
-        for url in items {
-            let path = url.path
-            guard !seen.contains(path), !settling.contains(path), !Self.isClaimed(path) else { continue }
-            let name = url.lastPathComponent
-            // The name is read first and then again inside the whole rule: a name costs
-            // nothing to look at, and it spares the entries that are plainly not captures —
-            // most of a Desktop — the trip to the file system below.
-            guard Self.isCandidate(name: name) else { continue }
+        for url in Self.unhandled(items, seen: seen, settling: settling) {
             guard let values = try? url.resourceValues(forKeys: keys) else { continue }
-            guard Self.isNewCapture(name: name,
+            guard Self.isNewCapture(name: url.lastPathComponent,
                                     isRegularFile: values.isRegularFile == true,
                                     creation: values.creationDate ?? values.contentModificationDate,
                                     now: now) else { continue }
             found.append(url)
         }
         return found
+    }
+
+    /// The entries worth asking the file system about: not handled already, not waiting to
+    /// settle, not claimed by something else in the app — the screen recorder's movie while it
+    /// is being written — and named like a capture. Pure, and the very filter the watcher's
+    /// walk runs, so what it walks past can be read back without a folder to watch.
+    ///
+    /// The name is read here and then again inside the whole rule: a name costs nothing to
+    /// look at, and it spares the entries that are plainly not captures — most of a Desktop —
+    /// the trip to the file system after it.
+    static func unhandled(_ items: [URL], seen: Set<String>, settling: Set<String>) -> [URL] {
+        items.filter { url in
+            let path = url.path
+            guard !seen.contains(path), !settling.contains(path), !isClaimed(path) else { return false }
+            return isCandidate(name: url.lastPathComponent)
+        }
     }
 
     /// macOS writes captures atomically, but a third-party tool might not: publish only once

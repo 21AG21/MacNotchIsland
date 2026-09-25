@@ -44,7 +44,21 @@ final class ServiceHub {
         _ = KeyboardLight.shared
         apply()
         LiveActivityAPI.shared.start()
+        // The alarms the last run left waiting. Here, with the other things kept between
+        // launches, once the copy being replaced has gone and cannot write over them.
+        IslandTimer.shared.restoreAlarms()
         Preferences.shared.objectWillChange
+            .debounce(for: .milliseconds(150), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.apply() }
+            .store(in: &cancellables)
+        // Whether there is a backlight decides whether its keys are a reason for the tap, so a
+        // change in it is re-applied the way a preference change is. Only a change: the value
+        // it starts with is the one `apply()` above has already read. Debounced onto the main
+        // run loop for the same reason as the preferences — `@Published` announces a value
+        // before it is stored, and `apply()` reads the stored one.
+        KeyboardLight.shared.$isAvailable
+            .removeDuplicates()
+            .dropFirst()
             .debounce(for: .milliseconds(150), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.apply() }
             .store(in: &cancellables)
@@ -89,9 +103,14 @@ final class ServiceHub {
 
     /// Whether the media-key tap is worth having: the bezel is being replaced and at least one
     /// of the displays it would raise is switched on. The keyboard's counts, so a Mac that wants
-    /// only the backlight keys answered still gets them.
-    static func wantsMediaKeys(_ p: Preferences) -> Bool {
-        p.hudReplacementEnabled && (p.volumeHUDEnabled || p.brightnessHUDEnabled || p.keyboardLightHUDEnabled)
+    /// only the backlight keys answered still gets them — but only on a Mac that has a backlight
+    /// to set. Without one its keys stay macOS's and its switch is greyed out, so it cannot be
+    /// the reason for a tap, or for an Accessibility prompt, that nobody could switch off.
+    /// `backlightAvailable` is `KeyboardLight.shared.isAvailable`, passed in so the rule stays
+    /// pure.
+    static func wantsMediaKeys(_ p: Preferences, backlightAvailable: Bool) -> Bool {
+        p.hudReplacementEnabled
+            && (p.volumeHUDEnabled || p.brightnessHUDEnabled || (p.keyboardLightHUDEnabled && backlightAvailable))
     }
 
     private func apply() {
@@ -110,7 +129,12 @@ final class ServiceHub {
         (p.hudReplacementEnabled && p.brightnessHUDEnabled) ? brightness.start() : brightness.stop()
         p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
         p.callDetectionEnabled ? calls.start() : calls.stop()
-        p.focusEnabled ? focus.start() : focus.stop()
+        // Always watching, whatever the Focus switch says: whether a Focus is on is read by
+        // more than its alerts — the rail's Focus button, the queue that holds alerts back —
+        // and a watch on one folder costs nothing until it changes. The switch decides only
+        // whether a change is announced; turning it off no longer makes a Focus read as off.
+        focus.alertsEnabled = p.focusEnabled
+        focus.start()
         Self.wantsCalendar(p) ? calendar.start() : calendar.stop()
         p.unlockEnabled ? screenLock.start() : screenLock.stop()
         Self.wantsDownloads(p) ? downloads.start() : downloads.stop()
@@ -135,7 +159,7 @@ final class ServiceHub {
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
         // With every display switched off there is no key left for the island to take, and
         // an event tap that swallows nothing is not worth asking anyone for Accessibility.
-        Self.wantsMediaKeys(p) ? mediaKeys.start() : mediaKeys.stop()
+        Self.wantsMediaKeys(p, backlightAvailable: KeyboardLight.shared.isAvailable) ? mediaKeys.start() : mediaKeys.stop()
         p.capsLockEnabled ? capsLock.start() : capsLock.stop()
         if p.quickActionsEnabled && !requestedShortcuts {
             requestedShortcuts = true

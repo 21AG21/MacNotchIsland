@@ -44,8 +44,26 @@ final class KeyboardLightTests: XCTestCase {
 
     func testTheKeyboardDrivenIsTheOneTheClientNames() {
         XCTAssertEqual(KeyboardLight.keyboard(from: [3, 7]), 3)
-        XCTAssertEqual(KeyboardLight.keyboard(from: nil), 1, "a client that cannot be asked gets the built-in keyboard")
-        XCTAssertNil(KeyboardLight.keyboard(from: []), "one that was asked and named none has no backlight to set")
+        let answer: [NSNumber] = [NSNumber(value: 3), NSNumber(value: 7)]
+        let named = KeyboardLight.backlightIDs(answer: answer)
+        XCTAssertEqual(named, [3, 7])
+        XCTAssertEqual(KeyboardLight.keyboard(from: named), 3)
+    }
+
+    /// The method that lists the keyboards has gone, so nothing was asked: the built-in
+    /// keyboard's number is the best guess there is.
+    func testAClientThatCannotBeAskedGetsTheBuiltInKeyboard() {
+        XCTAssertEqual(KeyboardLight.keyboard(from: nil), 1)
+    }
+
+    /// The method is there and answered nothing. That is an answer — no backlit keyboard — and
+    /// not the same thing as a method that has gone: no slider and no display for it.
+    func testAClientThatAnswersNothingHasNoBacklight() {
+        let ids = KeyboardLight.backlightIDs(answer: nil)
+        XCTAssertEqual(ids, [], "a nil answer is an empty list, not a client that could not be asked")
+        XCTAssertNil(KeyboardLight.keyboard(from: ids), "and an empty list is no backlight to set")
+        XCTAssertEqual(KeyboardLight.backlightIDs(answer: "not a list"), [], "nor is an answer that cannot be read")
+        XCTAssertNil(KeyboardLight.keyboard(from: []))
     }
 
     func testAControlScrollMovesTheBacklight() {

@@ -1,16 +1,46 @@
+import Combine
 import Foundation
 
-/// Focus (Do Not Disturb, Work, Sleep…) on/off alerts. macOS keeps the active Focus
-/// assertions in ~/Library/DoNotDisturb/DB; the folder is watched for changes.
+/// Whether a Focus is on right now, as the island last saw it — something a view can watch.
+///
+/// Its own object rather than a flag on the monitor, for two reasons. A plain flag changed
+/// under everything that showed it, so the rail's Focus button stayed lit or dark until
+/// something else happened to redraw it. And the monitor's switch is the Focus *alerts*
+/// switch: whether a Focus is on is true whatever that says, so switching the alerts off no
+/// longer makes it read as off. Main thread only.
+final class FocusStatus: ObservableObject {
+    static let shared = FocusStatus()
+
+    @Published private(set) var isOn = false
+
+    private init() {}
+
+    /// Announced only when it has changed: the monitor reads the file on every change to the
+    /// folder, and most of those are not a Focus turning on or off.
+    fileprivate func publish(_ on: Bool) {
+        if isOn != on { isOn = on }
+    }
+}
+
+/// Focus (Do Not Disturb, Work, Sleep…): whether one is on, and the on/off alerts. macOS keeps
+/// the active Focus assertions in ~/Library/DoNotDisturb/DB; the folder is watched for changes.
+///
+/// Watching and alerting are separate. The watch keeps `FocusStatus` current, which the rail
+/// and the alert queue read, and runs whatever the alerts switch says; `alertsEnabled` decides
+/// only whether a change is also announced in the island.
 final class FocusMonitor {
     private var source: DispatchSourceFileSystemObject?
     private var fd: Int32 = -1
     private var lastMode: String?
     private var started = false
 
+    /// Whether a Focus turning on or off is announced in the island: the Focus switch.
+    var alertsEnabled = false
+
     /// Whether a Focus is on right now, as the island last saw it. Read by the alert queue,
-    /// which holds back what can wait while one is on.
-    private(set) static var isOn = false
+    /// which holds back what can wait while one is on. Forwarded from `FocusStatus`, which is
+    /// what a view that shows it should observe.
+    static var isOn: Bool { FocusStatus.shared.isOn }
 
     private var dbDirectory: URL { Self.dbDirectory }
 
@@ -35,7 +65,7 @@ final class FocusMonitor {
         lastMode = mode?.identifier
         // Read once at the start as well as on every change: a Mac that was already in a
         // Focus when the island launched is still in one.
-        Self.isOn = mode != nil
+        FocusStatus.shared.publish(mode != nil)
         fd = open(dbDirectory.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: .main)
@@ -56,8 +86,8 @@ final class FocusMonitor {
         source?.cancel()
         source = nil
         // Nothing is watching any more, so nothing may be held back on the strength of what
-        // this last saw.
-        Self.isOn = false
+        // this last saw. Only a stop does this — the alerts switch going off does not.
+        FocusStatus.shared.publish(false)
     }
 
     private struct Mode {
@@ -69,10 +99,14 @@ final class FocusMonitor {
 
     private func check() {
         let mode = currentMode()
+        FocusStatus.shared.publish(mode != nil)
         let id = mode?.identifier
         guard id != lastMode else { return }
         let previous = lastMode
+        // Kept current with the alerts off too, so switching them on later does not announce
+        // a change that happened while they were off.
         lastMode = id
+        guard alertsEnabled else { return }
 
         if let mode {
             show(FocusState(name: mode.name, symbol: mode.symbol, isOn: true, tint: mode.tint))
@@ -82,7 +116,6 @@ final class FocusMonitor {
     }
 
     private func show(_ state: FocusState) {
-        Self.isOn = state.isOn
         let activity = IslandActivity(id: "focus", kind: .focus, content: .focus(state), priority: 85)
         ActivityCenter.shared.showAlert(activity)
     }

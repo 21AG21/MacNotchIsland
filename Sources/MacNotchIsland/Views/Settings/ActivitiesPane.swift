@@ -109,8 +109,9 @@ struct ActivitiesPane: View {
                           : "This Mac has no keyboard backlight the island can set.")
                     .disabled(!keyboard.isAvailable)
                 // With every display off there is no key left to take, so the island is not
-                // asking for Accessibility and must not offer to send anyone looking for it.
-                if ServiceHub.wantsMediaKeys(prefs), !hud.isActive {
+                // asking for Accessibility and must not offer to send anyone looking for it. The
+                // backlight's switch counts only where there is a backlight, as in the hub.
+                if ServiceHub.wantsMediaKeys(prefs, backlightAvailable: keyboard.isAvailable), !hud.isActive {
                     Button("Open Accessibility Settings…") {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                             NSWorkspace.shared.open(url)

@@ -191,6 +191,25 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertTrue(ScreenshotMonitor.isClaimed(file.path))
     }
 
+    /// The claim is only worth anything if the watcher's walk reads it. This is the filter the
+    /// walk runs on a folder's entries, before it asks the file system about any of them.
+    func testTheWatchersCandidateListSkipsAClaimedFile() {
+        let folder = URL(fileURLWithPath: "/tmp/claimed-\(UUID().uuidString)", isDirectory: true)
+        let movie = folder.appendingPathComponent("Screen Recording 2026-09-21 at 14.13.20.mov")
+        let shot = folder.appendingPathComponent("Screenshot 2026-09-21 at 14.13.21.png")
+        let notes = folder.appendingPathComponent("Notes.txt")
+        let items = [movie, shot, notes]
+
+        XCTAssertEqual(ScreenshotMonitor.unhandled(items, seen: [], settling: []), [movie, shot],
+                       "unclaimed, a half-made movie looks exactly like a capture that has just landed")
+        ScreenshotMonitor.claim(movie)
+        XCTAssertEqual(ScreenshotMonitor.unhandled(items, seen: [], settling: []), [shot],
+                       "claimed, it is walked past, and the screenshot beside it is not")
+        // And the two other reasons to walk past an entry are still the watcher's own.
+        XCTAssertEqual(ScreenshotMonitor.unhandled(items, seen: [shot.path], settling: []), [])
+        XCTAssertEqual(ScreenshotMonitor.unhandled(items, seen: [], settling: [shot.path]), [])
+    }
+
     // MARK: - The system's own keystrokes
 
     func testTheLockIsControlCommandQ() {

@@ -27,6 +27,8 @@ struct IslandMenu: View {
             Divider()
         }
         Button(keepAwake.isOn ? "Let the Mac Sleep" : "Keep Awake") { keepAwake.toggle() }
+        // Beside Keep Awake, since an alarm rings only on a Mac that is awake.
+        pendingAlarms
         if !shelf.items.isEmpty {
             Button("Clear Shelf") { ShelfStore.shared.clear() }
         }
@@ -43,7 +45,15 @@ struct IslandMenu: View {
         // keystroke macOS has always had and hardly anybody remembers.
         MicrophoneMenuItem()
         Button("Screenshot") { SystemActions.openScreenshotToolbar() }
-        Button(recorder.isRecording ? "Stop Recording" : "Record Screen") { ScreenRecorder.shared.toggle() }
+        // While the movie is being finished the recording is still running and Stop has
+        // already been pressed; a second Stop would do nothing, so the menu says what is
+        // happening instead of offering it.
+        if recorder.isSaving {
+            Button("Saving Recording…") {}
+                .disabled(true)
+        } else {
+            Button(recorder.isRecording ? "Stop Recording" : "Record Screen") { ScreenRecorder.shared.toggle() }
+        }
         Button("Lock Screen") { SystemActions.lockScreen() }
         Button("Sleep Display") { SystemActions.sleepDisplay() }
         Divider()
@@ -77,16 +87,21 @@ struct IslandMenu: View {
             Button("Previous Track") { NowPlayingService.shared.previous() }
             sleepMenu
         case .timer(let state):
-            if state.isFinished {
-                Button("Repeat") { IslandTimer.shared.repeatLast() }
+            if state.isAlarm {
+                Button("Snooze") { IslandTimer.shared.snooze(id: activity.id) }
+                Button("Stop Alarm") { IslandTimer.shared.cancel(id: activity.id) }
             } else {
-                Button(state.isPaused ? "Resume Timer" : "Pause Timer") {
-                    state.isPaused ? IslandTimer.shared.resume(id: activity.id)
-                                   : IslandTimer.shared.pause(id: activity.id)
+                if state.isFinished {
+                    Button("Repeat") { IslandTimer.shared.repeatLast() }
+                } else {
+                    Button(state.isPaused ? "Resume Timer" : "Pause Timer") {
+                        state.isPaused ? IslandTimer.shared.resume(id: activity.id)
+                                       : IslandTimer.shared.pause(id: activity.id)
+                    }
+                    Button("Add a Minute") { IslandTimer.shared.add(seconds: IslandTimer.addStep, id: activity.id) }
                 }
-                Button("Add a Minute") { IslandTimer.shared.add(seconds: IslandTimer.addStep, id: activity.id) }
+                Button("Cancel Timer") { IslandTimer.shared.cancel(id: activity.id) }
             }
-            Button("Cancel Timer") { IslandTimer.shared.cancel(id: activity.id) }
         case .stopwatch(let state):
             if state.isRunning {
                 Button("Lap") { IslandStopwatch.shared.lap() }
@@ -108,6 +123,24 @@ struct IslandMenu: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// The alarms waiting to ring, each one a way to take it back. Nothing at all when there
+    /// are none; one alarm is a command of its own rather than a submenu holding one thing.
+    @ViewBuilder
+    private var pendingAlarms: some View {
+        let alarms = timers.alarms
+        if alarms.count == 1, let alarm = alarms.first {
+            Button("Cancel Alarm, \(alarm.menuTitle())") { IslandTimer.shared.cancelAlarm(id: alarm.id) }
+        } else if alarms.count > 1 {
+            Menu("Alarms") {
+                ForEach(alarms) { alarm in
+                    Button("Cancel \(alarm.menuTitle())") { IslandTimer.shared.cancelAlarm(id: alarm.id) }
+                }
+                Divider()
+                Button("Cancel All Alarms") { IslandTimer.shared.cancelAllAlarms() }
+            }
         }
     }
 

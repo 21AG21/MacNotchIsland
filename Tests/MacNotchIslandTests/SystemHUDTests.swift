@@ -131,8 +131,10 @@ final class SystemHUDTests: XCTestCase {
         XCTAssertEqual(LevelHUD(kind: .volume, level: 0.4).kindName, "Volume")
     }
 
-    /// Only the keyboard's switch on is still a reason to have the tap: those keys are the
-    /// island's to take as well.
+    /// Only the keyboard's switch on is still a reason to have the tap, on a Mac with a
+    /// backlight: those keys are the island's to take as well. On one without, its switch is
+    /// greyed out and cannot be turned off, so it is no reason for a tap or for asking anyone
+    /// for Accessibility.
     func testTheKeyTapIsWantedForTheBacklightAlone() {
         let prefs = Preferences.shared
         let saved = (prefs.hudReplacementEnabled, prefs.volumeHUDEnabled, prefs.brightnessHUDEnabled,
@@ -145,12 +147,18 @@ final class SystemHUDTests: XCTestCase {
         prefs.volumeHUDEnabled = false
         prefs.brightnessHUDEnabled = false
         prefs.keyboardLightHUDEnabled = true
-        XCTAssertTrue(ServiceHub.wantsMediaKeys(prefs))
+        XCTAssertTrue(ServiceHub.wantsMediaKeys(prefs, backlightAvailable: true), "a backlight to answer the keys of")
+        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs, backlightAvailable: false),
+                       "a switch for a backlight this Mac does not have is no reason to take the keys")
+        prefs.volumeHUDEnabled = true
+        XCTAssertTrue(ServiceHub.wantsMediaKeys(prefs, backlightAvailable: false),
+                      "while the other displays still are, with or without one")
+        prefs.volumeHUDEnabled = false
         prefs.keyboardLightHUDEnabled = false
-        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs), "with every display off there is nothing to take")
+        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs, backlightAvailable: true), "with every display off there is nothing to take")
         prefs.keyboardLightHUDEnabled = true
         prefs.hudReplacementEnabled = false
-        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs), "and nothing at all while the bezel is macOS's")
+        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs, backlightAvailable: true), "and nothing at all while the bezel is macOS's")
     }
 
     func testShiftWithOptionIsAQuarterStepRatherThanAskingForSilence() {

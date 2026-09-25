@@ -103,17 +103,22 @@ final class KeyboardLight: ObservableObject {
                 IslandLog.display.notice("the keyboard brightness client names no backlit keyboard")
                 return nil
             }
+            // The setter is `- (BOOL)enableAutoBrightness:(BOOL)arg1 forKeyboard:(unsigned long long)arg2`,
+            // as the class-dumped `KeyboardBrightnessClient.h` that Lunar and mac-brightnessctl
+            // build against declares it. There is no `setAutoBrightnessEnabled:forKeyboard:`, and
+            // asking for one left automatic permanently unswitchable.
             return Bridge(client: client, keyboard: keyboard, read: read, write: write,
                           readAuto: CoreBrightness.method(client, "isAutoBrightnessEnabledForKeyboard:", as: ReadAuto.self),
-                          writeAuto: CoreBrightness.method(client, "setAutoBrightnessEnabled:forKeyboard:", as: WriteAuto.self))
+                          writeAuto: CoreBrightness.method(client, "enableAutoBrightness:forKeyboard:", as: WriteAuto.self))
         }
 
-        /// What the client says the backlit keyboards are, or nil when it cannot be asked.
+        /// What the client says the backlit keyboards are, or nil when it cannot be asked — the
+        /// method has gone. A client that has the method is asked, and whatever it answers is
+        /// taken as its answer, nothing included: see `KeyboardLight.backlightIDs(answer:)`.
         private static func backlightIDs(_ client: NSObject) -> [UInt64]? {
-            guard let copy = CoreBrightness.method(client, "copyKeyboardBacklightIDs", as: CopyIDs.self),
-                  let raw = copy.function(client, copy.selector) else { return nil }
-            let list = Unmanaged<AnyObject>.fromOpaque(raw).takeRetainedValue()
-            return (list as? [NSNumber])?.map(\.uint64Value)
+            guard let copy = CoreBrightness.method(client, "copyKeyboardBacklightIDs", as: CopyIDs.self) else { return nil }
+            let answer = copy.function(client, copy.selector).map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() }
+            return KeyboardLight.backlightIDs(answer: answer)
         }
     }
 
@@ -139,6 +144,14 @@ final class KeyboardLight: ObservableObject {
     static func keyboard(from ids: [UInt64]?) -> UInt64? {
         guard let ids else { return 1 }
         return ids.first
+    }
+
+    /// The keyboards a client that was asked named. An answer of nothing — or of something that
+    /// is not a list of numbers — is no backlit keyboard, never "could not ask": only a missing
+    /// method is that, and it never gets this far. Mistaking the one for the other gave a Mac
+    /// with no backlight a slider and a display for a light it does not have.
+    static func backlightIDs(answer: Any?) -> [UInt64] {
+        (answer as? [NSNumber])?.map(\.uint64Value) ?? []
     }
 
     /// Held to 0...1, with anything that is not a number read as off.
