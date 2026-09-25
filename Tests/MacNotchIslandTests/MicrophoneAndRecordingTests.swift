@@ -54,6 +54,37 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertLessThan(MicrophoneControl.defaultLevel, 1)
     }
 
+    // MARK: - A mute carried from one microphone to the next
+
+    private let builtIn = "BuiltInMicrophoneDevice"
+    private let airPods = "AA-BB-CC-DD-EE-FF:input"
+
+    /// Mute on the Mac's own microphone, the AirPods connect and inherit it, unmute: the built-in
+    /// one stayed silent, to be found muted the moment the AirPods went.
+    func testUnmutingGivesBackEveryMicrophoneTheMuteWasCarriedTo() {
+        var mute = MicrophoneControl.HeldMute()
+        XCTAssertFalse(mute.isHeld, "nothing muted from here yet")
+        mute.muted(builtIn)
+        XCTAssertTrue(mute.isHeld, "so the AirPods inherit it when they connect")
+        mute.muted(airPods)
+        mute.muted(airPods)
+        XCTAssertEqual(mute.devices, [builtIn, airPods], "each once, in the order the mute reached it")
+        XCTAssertEqual(mute.release(except: airPods), [builtIn],
+                       "unmuted on the AirPods, and the microphone they took over from comes back too")
+        XCTAssertFalse(mute.isHeld, "the next microphone inherits nothing")
+        XCTAssertEqual(mute.release(except: nil), [], "and nothing is given back twice")
+    }
+
+    func testALiveMicrophoneTheMuteNeverReachedDoesNotEndIt() {
+        var mute = MicrophoneControl.HeldMute()
+        mute.muted(builtIn)
+        XCTAssertFalse(mute.endsWhenUnmuted("USB-Interface-With-Neither"),
+                       "a microphone that could not be muted was never muted, and its being live ends nothing")
+        XCTAssertTrue(mute.endsWhenUnmuted(builtIn), "the one the mute is on, unmuted from anywhere, ends it")
+        XCTAssertFalse(mute.endsWhenUnmuted(nil))
+        XCTAssertTrue(mute.isHeld)
+    }
+
     // MARK: - The call card and pill
 
     func testTheCallCardIsTallEnoughForItsControls() {
@@ -90,6 +121,36 @@ final class MicrophoneAndRecordingTests: XCTestCase {
                                NSWindow.SharingType.none, "hidden always is hidden always")
             }
         }
+    }
+
+    /// "Only during calls" rode on the Calls switch in Activities: with that off nothing watched
+    /// for a call, so the island hid during nothing.
+    func testOnlyDuringCallsFollowsCallsWithTheCallsSwitchOff() {
+        let prefs = Preferences.shared
+        let saved = (prefs.callDetectionEnabled, prefs.hiddenFromScreenSharing, prefs.hideFromScreenSharingDuringCalls)
+        defer { (prefs.callDetectionEnabled, prefs.hiddenFromScreenSharing, prefs.hideFromScreenSharingDuringCalls) = saved }
+
+        prefs.callDetectionEnabled = false
+        (prefs.hiddenFromScreenSharing, prefs.hideFromScreenSharingDuringCalls) = (false, true)
+        XCTAssertTrue(ServiceHub.wantsCallDetector(prefs), "hidden during calls has to know when there is one")
+        (prefs.hiddenFromScreenSharing, prefs.hideFromScreenSharingDuringCalls) = (true, false)
+        XCTAssertFalse(ServiceHub.wantsCallDetector(prefs), "hidden always needs no call to hide for")
+        (prefs.hiddenFromScreenSharing, prefs.hideFromScreenSharingDuringCalls) = (false, false)
+        XCTAssertFalse(ServiceHub.wantsCallDetector(prefs), "and shown always none either")
+        prefs.callDetectionEnabled = true
+        XCTAssertTrue(ServiceHub.wantsCallDetector(prefs), "the card is reason enough")
+    }
+
+    func testWithTheCallsSwitchOffACallHasNoCard() {
+        let call = CallState(appName: "Zoom", bundleID: "us.zoom.xos", startedAt: now)
+        XCTAssertNil(CallDetector.card(for: call, showsCard: false),
+                     "followed for the screen share, and not put on the island")
+        let card = CallDetector.card(for: call, showsCard: true)
+        XCTAssertEqual(card?.id, "call")
+        XCTAssertEqual(card?.kind, .call)
+        XCTAssertEqual(card?.content, .call(call))
+        XCTAssertEqual(card?.openAction, .app(bundleID: "us.zoom.xos"))
+        XCTAssertNil(CallDetector.card(for: nil, showsCard: true))
     }
 
     func testTheShippingChoiceReadsAsBothSwitchesOn() {

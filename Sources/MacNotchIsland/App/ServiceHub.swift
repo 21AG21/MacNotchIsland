@@ -9,7 +9,7 @@ final class ServiceHub {
     let audio = AudioMonitor()
     let brightness = BrightnessMonitor()
     let camera = CameraMonitor()
-    let calls = CallDetector()
+    let calls = CallDetector.shared
     let focus = FocusMonitor()
     let calendar = CalendarMonitor()
     let screenLock = ScreenLockMonitor()
@@ -113,6 +113,18 @@ final class ServiceHub {
             && (p.volumeHUDEnabled || p.brightnessHUDEnabled || (p.keyboardLightHUDEnabled && backlightAvailable))
     }
 
+    /// Whether calls are followed at all: for the call card, or for "Only during calls" in
+    /// Privacy, which hides the island from a screen share for the length of one.
+    ///
+    /// Two switches in two panes, and the second used to ride on the first: with Calls off in
+    /// Activities nothing watched for a call, so the promise to hide the island during one hid it
+    /// during nothing, and said nothing about it. The screen-sharing half counts only in the one
+    /// arrangement where `NotchPanel.sharesScreen` asks whether there is a call — hidden during
+    /// calls and not always. The card stays the Calls switch's alone: `CallDetector.showsCard`.
+    static func wantsCallDetector(_ p: Preferences) -> Bool {
+        p.callDetectionEnabled || (p.hideFromScreenSharingDuringCalls && !p.hiddenFromScreenSharing)
+    }
+
     private func apply() {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
@@ -122,13 +134,14 @@ final class ServiceHub {
         // indicator and call detection — but the first two only exist while the island is the
         // one answering the media keys, so on their own they are not a reason to listen.
         let showsVolume = p.hudReplacementEnabled && p.volumeHUDEnabled
-        (showsVolume || p.privacyIndicatorsEnabled || p.callDetectionEnabled) ? audio.start() : audio.stop()
+        (showsVolume || p.privacyIndicatorsEnabled || Self.wantsCallDetector(p)) ? audio.start() : audio.stop()
         // The brightness monitor exists only to raise that display, and polls a private
         // display call four times a second to do it. With the island not answering the keys
         // there is nothing for it to raise, so it does not run at all.
         (p.hudReplacementEnabled && p.brightnessHUDEnabled) ? brightness.start() : brightness.stop()
         p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
-        p.callDetectionEnabled ? calls.start() : calls.stop()
+        calls.showsCard = p.callDetectionEnabled
+        Self.wantsCallDetector(p) ? calls.start(following: audio) : calls.stop()
         // Always watching, whatever the Focus switch says: whether a Focus is on is read by
         // more than its alerts — the rail's Focus button, the queue that holds alerts back —
         // and a watch on one folder costs nothing until it changes. The switch decides only

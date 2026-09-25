@@ -394,17 +394,25 @@ private struct DisplayRailButton: View {
     }
 }
 
-/// Mutes the microphone and says so: lit while it is muted, the way a mute key's light is. The
-/// state is taken from the microphone service's published value alone.
+/// Mutes the microphone and says so: lit while it is muted, the way a mute key's light is.
+/// Dimmed and deaf to a click while there is no microphone the island can reach — none at all,
+/// or one with neither a mute nor a level to turn down — as the menu's item and the call card's
+/// button already were: a press there did nothing and said nothing. The state is taken from the
+/// microphone service's published values alone, the availability seeded from it so the disc is
+/// not drawn dimmed for a frame on a Mac that has a microphone.
 private struct MicrophoneRailButton: View {
     @State private var muted = false
+    @State private var available = MicrophoneControl.shared.isAvailable
 
     var body: some View {
         RailDisc(symbol: muted ? "mic.slash.fill" : "mic.fill",
                  label: muted ? "Unmute the microphone" : "Mute the microphone", active: muted) {
             MicrophoneControl.shared.toggle()
         }
+        .disabled(!available)
+        .opacity(available ? 1 : 0.4)
         .onReceive(MicrophoneControl.shared.$isMuted) { muted = $0 }
+        .onReceive(MicrophoneControl.shared.$isAvailable) { available = $0 }
     }
 }
 

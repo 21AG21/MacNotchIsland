@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import CoreAudio
 
 /// Turns "a call app has the microphone" into a call Live Activity with the green phone glyph
 /// and running duration, like a FaceTime call in the iPhone's island.
@@ -10,7 +9,14 @@ import CoreAudio
 /// Dictation, a voice memo or a call in a browser tab into a card saying "Slack", at the
 /// highest priority the island has. macOS 14.2 can say which processes are recording, so the
 /// card goes to the one that is; see `callApp(_:running:)`.
-final class CallDetector {
+///
+/// It follows the call whether or not there is a card for it. The card is the Calls switch in
+/// Activities; "Only during calls" in Privacy hides the island from a screen share for the
+/// length of a call, and has to know there is one with that switch off too. `call` is that
+/// answer.
+final class CallDetector: ObservableObject {
+    static let shared = CallDetector()
+
     private static let callApps: [String: String] = [
         "com.apple.FaceTime": "FaceTime",
         "us.zoom.xos": "Zoom",
@@ -32,47 +38,123 @@ final class CallDetector {
         "com.apple.avconferenced": "com.apple.FaceTime",
     ]
 
+    /// The call going on right now, card or no card. Nil while the detector is not running.
+    @Published private(set) var call: CallState?
+
+    /// Whether a call is put on the island as a card: the Calls switch. Off, calls are still
+    /// followed while the detector runs, and only the card is left out.
+    var showsCard = true {
+        didSet { if showsCard != oldValue { present(expanding: false) } }
+    }
+
     private var cancellable: AnyCancellable?
     private var running = false
 
-    func start() {
+    private init() {}
+
+    /// Follows `audio`'s microphone from now until `stop()`. The current reading arrives at
+    /// once, so a detector started in the middle of a call finds it.
+    func start(following audio: AudioMonitor) {
         guard !running else { return }
         running = true
-        cancellable = ActivityCenter.shared.$micInUse
-            .removeDuplicates()
+        cancellable = audio.$microphone
+            .removeDuplicates { !Self.reexamines(from: $0, to: $1) }
             .debounce(for: .milliseconds(600), scheduler: RunLoop.main)
-            .sink { [weak self] inUse in self?.evaluate(micInUse: inUse) }
+            .sink { [weak self] microphone in self?.evaluate(microphone) }
     }
 
     func stop() {
         guard running else { return }
         running = false
         cancellable = nil
+        call = nil
         ActivityCenter.shared.end(id: "call")
     }
 
-    private func evaluate(micInUse: Bool) {
-        guard micInUse else {
+    private func evaluate(_ microphone: AudioMonitor.Microphone) {
+        guard running else { return }
+        let apps = NSWorkspace.shared.runningApplications
+        let step = Self.step(inUse: microphone.inUse, evidence: Self.evidence(microphone.recorders),
+                             running: apps.compactMap(\.bundleIdentifier), current: call?.bundleID)
+        switch step {
+        case .keep:
+            return
+        case .end:
+            call = nil
+            present(expanding: false)
+        case .begin(let bundle):
+            let app = apps.first { $0.bundleIdentifier == bundle }
+            let name = Self.callApps[bundle] ?? app?.localizedName ?? "Call"
+            call = CallState(appName: name, bundleID: bundle, startedAt: Date())
+            present(expanding: true)
+        }
+    }
+
+    /// Puts the call on the island, or takes it off, as the call and the switch say.
+    private func present(expanding: Bool) {
+        guard let card = Self.card(for: call, showsCard: showsCard) else {
             ActivityCenter.shared.end(id: "call")
             return
         }
-        guard ActivityCenter.shared.activity(id: "call") == nil else { return }
-        let apps = NSWorkspace.shared.runningApplications
-        guard let bundle = Self.callApp(Self.evidence(), running: apps.compactMap(\.bundleIdentifier)) else { return }
-        let app = apps.first { $0.bundleIdentifier == bundle }
-        let name = Self.callApps[bundle] ?? app?.localizedName ?? "Call"
-        let state = CallState(appName: name, bundleID: bundle, startedAt: Date())
-        let activity = IslandActivity(id: "call", kind: .call, content: .call(state), priority: 100,
-                                      presentation: .expanded, openAction: .app(bundleID: bundle))
-        ActivityCenter.shared.upsert(activity)
-        ActivityCenter.shared.forceExpanded(id: "call", for: 3)
+        ActivityCenter.shared.upsert(card)
+        if expanding { ActivityCenter.shared.forceExpanded(id: "call", for: 3) }
+    }
+
+    /// The card for a call, or none: no call, or the Calls switch off.
+    static func card(for call: CallState?, showsCard: Bool) -> IslandActivity? {
+        guard showsCard, let call else { return nil }
+        return IslandActivity(id: "call", kind: .call, content: .call(call), priority: 100,
+                              presentation: .expanded, openAction: .app(bundleID: call.bundleID))
+    }
+
+    // MARK: - When to look again
+
+    /// Whether a change in the microphone is worth looking at who has it again.
+    ///
+    /// Any change at all, the recorders as much as the Bool. The Bool alone was the old key, and
+    /// a microphone that was already on — Dictation left running, a voice memo, or, before the
+    /// recorders were asked, a headset playing music — did not move when a call started on it,
+    /// so the call was never looked at. The same recorders in another order are the same
+    /// recorders.
+    static func reexamines(from old: AudioMonitor.Microphone, to new: AudioMonitor.Microphone) -> Bool {
+        old != new
+    }
+
+    /// What a fresh look does to the call.
+    enum Step: Equatable {
+        /// Nothing: no call and none begun, or the call still going.
+        case keep
+        /// The call is over.
+        case end
+        /// A call in this app has begun, or has taken over from the one there was.
+        case begin(String)
+    }
+
+    /// The call after a change in the microphone.
+    ///
+    /// A microphone that has gone off ends any call. One that is on keeps the call there is for
+    /// as long as its app is still among the recorders; where they cannot be known, on 14.0 and
+    /// 14.1, it keeps it for as long as the microphone is on, since nothing could say otherwise.
+    /// A call app no longer recording has finished its call even while something else still
+    /// records — a card used to outlive its call for as long as a headset went on playing.
+    /// Without a call, one begins wherever `callApp(_:running:)` finds one.
+    ///
+    /// Pure, so the rule can be read back without a microphone or a call.
+    static func step(inUse: Bool, evidence: Evidence, running: [String], current: String?) -> Step {
+        guard inUse else { return current == nil ? .keep : .end }
+        let found = callApp(evidence, running: running)
+        guard let current else { return found.map { Step.begin($0) } ?? .keep }
+        guard case .recording(let processes) = evidence else { return .keep }
+        if processes.contains(where: { callApp(recordedBy: $0, running: running) == current }) { return .keep }
+        return found.map { Step.begin($0) } ?? .end
     }
 
     // MARK: - Whose microphone it is
 
     /// What can be known about who has the microphone.
     enum Evidence: Equatable {
-        /// The bundle identifiers of the processes recording right now: macOS 14.2 and later.
+        /// The bundle identifiers of the processes recording right now — a pid for one with no
+        /// bundle, which no call app will match: macOS 14.2 and later.
         case recording([String])
         /// Only which app is in front: macOS 14.0 and 14.1 cannot say who is recording.
         case frontmost(String?)
@@ -80,7 +162,7 @@ final class CallDetector {
         case unknown
     }
 
-    /// The call app a microphone that has just come on belongs to, or nothing.
+    /// The call app the microphone belongs to, or nothing.
     ///
     /// With the recorders known, only a call app among them — or one of its helpers, or the
     /// daemon recording for it — gets a card, and a call app merely running gets nothing.
@@ -117,56 +199,14 @@ final class CallDetector {
         return running.first { callApps[$0] != nil && $0.hasPrefix(browser + ".app.") }
     }
 
-    /// Asks macOS who is recording where it can say, and otherwise which app is in front.
-    private static func evidence() -> Evidence {
+    /// Who is recording, from the audio monitor's last reading where macOS can say, and
+    /// otherwise which app is in front.
+    private static func evidence(_ recorders: Set<String>?) -> Evidence {
         guard #available(macOS 14.2, *) else {
             return .frontmost(NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         }
-        return recordingProcesses().map { Evidence.recording($0) } ?? .unknown
-    }
-
-    /// The bundle identifiers of every process Core Audio says is taking input, or nil when
-    /// the list itself could not be read.
-    @available(macOS 14.2, *)
-    private static func recordingProcesses() -> [String]? {
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
-                                                 mElement: kAudioObjectPropertyElementMain)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
-        let each = MemoryLayout<AudioObjectID>.stride
-        var processes = [AudioObjectID](repeating: AudioObjectID(kAudioObjectUnknown), count: Int(size) / each)
-        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &processes) == noErr else { return nil }
-        // The list can shrink between asking its size and reading it.
-        return processes.prefix(Int(size) / each).compactMap { process in
-            isRecording(process) ? bundleID(of: process) : nil
-        }
-    }
-
-    @available(macOS 14.2, *)
-    private static func isRecording(_ process: AudioObjectID) -> Bool {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyIsRunningInput,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
-                                                 mElement: kAudioObjectPropertyElementMain)
-        var running: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(process, &address, 0, nil, &size, &running) == noErr else { return false }
-        return running != 0
-    }
-
-    @available(macOS 14.2, *)
-    private static func bundleID(of process: AudioObjectID) -> String? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyBundleID,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
-                                                 mElement: kAudioObjectPropertyElementMain)
-        var id: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        let status = withUnsafeMutablePointer(to: &id) { pointer -> OSStatus in
-            AudioObjectGetPropertyData(process, &address, 0, nil, &size, pointer)
-        }
-        guard status == noErr, let id else { return nil }
-        let value = id.takeRetainedValue() as String
-        return value.isEmpty ? nil : value
+        // Sorted, so which of two call apps recording at once gets the card does not depend on
+        // the order a set happens to hold them in.
+        return recorders.map { Evidence.recording($0.sorted()) } ?? .unknown
     }
 }

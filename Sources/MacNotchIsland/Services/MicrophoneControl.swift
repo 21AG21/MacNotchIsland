@@ -76,6 +76,47 @@ final class MicrophoneControl: ObservableObject {
     /// What an unmuted microphone comes back at when its own level is not known.
     static let defaultLevel: Float32 = 0.75
 
+    /// The island's own mute, kept by device: every microphone it has silenced and not yet
+    /// given back.
+    ///
+    /// A new default microphone — the AirPods connecting halfway through a call — inherits the
+    /// mute, because somebody who pressed mute did not mean "until the headphones change". It
+    /// used to be one Bool, which knew that a mute was in force and not where: unmuting reached
+    /// only the microphone in use by then, and the one the mute had been carried from stayed
+    /// silent, to be found muted again the moment the AirPods went. Now every microphone the
+    /// mute was put on is remembered by UID, which outlives the device's numeric id, and each is
+    /// given back when it ends.
+    struct HeldMute: Equatable {
+        /// UIDs, in the order the mute reached them.
+        private(set) var devices: [String] = []
+
+        /// Whether the island's mute is in force, which is whether a new microphone inherits it.
+        var isHeld: Bool { !devices.isEmpty }
+
+        /// The mute has reached this microphone: the island muted it, or found it already silent
+        /// when it became the one in use.
+        mutating func muted(_ uid: String) {
+            if !devices.contains(uid) { devices.append(uid) }
+        }
+
+        /// Whether the microphone in use reading unmuted ends the mute: only if the mute is on
+        /// it. One the mute could not reach — a USB microphone with neither a mute nor a level —
+        /// was never silenced, and its being live ends nothing: the mute is still on the
+        /// microphone it was left on, and comes back with it.
+        func endsWhenUnmuted(_ uid: String?) -> Bool {
+            guard let uid else { return false }
+            return devices.contains(uid)
+        }
+
+        /// The mute is over — unmuted from the island, or from anywhere on the microphone in use.
+        /// Forgets every device and returns the ones to unmute: all of them but `current`, which
+        /// whoever ended the mute has already dealt with.
+        mutating func release(except current: String?) -> [String] {
+            defer { devices.removeAll() }
+            return devices.filter { $0 != current }
+        }
+    }
+
     private struct Registration {
         let object: AudioObjectID
         var address: AudioObjectPropertyAddress
@@ -85,11 +126,9 @@ final class MicrophoneControl: ObservableObject {
     private var systemRegistration: Registration?
     private var deviceRegistrations: [Registration] = []
     private var device = AudioDeviceID(0)
-    /// Whether the mute in force is one the island put there. A new default microphone — the
-    /// AirPods connecting halfway through a call — inherits it, because somebody who pressed
-    /// mute did not mean "until the headphones change". Cleared the moment the device reads
-    /// unmuted, whoever unmuted it.
-    private var mutedHere = false
+    /// The mute the island put there, and every microphone it is on. Released the moment the
+    /// microphone in use reads unmuted, whoever unmuted it.
+    private var held = HeldMute()
     private let queue = DispatchQueue.main
     /// Levels saved before a mute by level, per device UID, kept across relaunches so that a
     /// microphone muted yesterday still comes back where it was.
@@ -119,7 +158,11 @@ final class MicrophoneControl: ObservableObject {
             return
         }
         if write(muted, to: device) {
-            mutedHere = muted
+            if muted {
+                if let uid = Self.uid(of: device) { held.muted(uid) }
+            } else {
+                giveBack(held.release(except: Self.uid(of: device)))
+            }
         } else {
             IslandLog.audio.error("could not \(muted ? "mute" : "unmute", privacy: .public) input \(self.device, privacy: .public)")
         }
@@ -155,7 +198,7 @@ final class MicrophoneControl: ObservableObject {
     private func bind() {
         let next = AudioOutputs.defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
         guard next != device else { return reload() }
-        let carry = mutedHere
+        let carry = held.isHeld
         remove(&deviceRegistrations)
         device = next
         if next != 0 {
@@ -165,8 +208,12 @@ final class MicrophoneControl: ObservableObject {
                 var level = Self.levelAddress(element: element)
                 deviceRegistrations.append(listen(next, address: &level) { [weak self] in self?.reload() })
             }
-            if carry, !Self.readsMuted(next), !write(true, to: next) {
-                IslandLog.audio.error("the new microphone \(next, privacy: .public) could not be muted")
+            if carry {
+                if Self.readsMuted(next) || write(true, to: next) {
+                    if let uid = Self.uid(of: next) { held.muted(uid) }
+                } else {
+                    IslandLog.audio.error("the new microphone \(next, privacy: .public) could not be muted")
+                }
             }
         }
         reload()
@@ -177,10 +224,26 @@ final class MicrophoneControl: ObservableObject {
         let available = route != .unavailable
         let muted = device != 0 && Self.readsMuted(device, route: route)
         // Somebody unmuted it — the Sound pane, the call app, a key on the headset. The
-        // island's mute is over, and a later change of device must not bring it back.
-        if !muted { mutedHere = false }
+        // island's mute is over: a later change of device must not bring it back, and the
+        // microphones it was carried from are given back too. Not on no device at all, which
+        // is only the moment between one default and the next.
+        if device != 0, !muted, held.isHeld, let uid = Self.uid(of: device), held.endsWhenUnmuted(uid) {
+            giveBack(held.release(except: uid))
+        }
         if available != isAvailable { isAvailable = available }
         if muted != isMuted { isMuted = muted }
+    }
+
+    /// Unmutes microphones the island muted and has since moved on from. Only the ones still
+    /// connected and still silent: one that has gone cannot be reached, and one somebody has
+    /// turned back on is left as it is.
+    private func giveBack(_ uids: [String]) {
+        for uid in uids {
+            guard let other = Self.connectedDevice(uid: uid), other != device, Self.readsMuted(other) else { continue }
+            if !write(false, to: other) {
+                IslandLog.audio.error("could not give back the microphone \(other, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - CoreAudio
@@ -320,6 +383,20 @@ final class MicrophoneControl: ObservableObject {
         guard status == noErr, let uid else { return nil }
         let value = uid.takeRetainedValue() as String
         return value.isEmpty ? nil : value
+    }
+
+    /// The device a UID names right now, or nil when it is not connected.
+    private static func connectedDevice(uid: String) -> AudioDeviceID? {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr, size > 0 else { return nil }
+        let each = MemoryLayout<AudioDeviceID>.stride
+        var devices = [AudioDeviceID](repeating: 0, count: Int(size) / each)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &devices) == noErr else { return nil }
+        return devices.prefix(Int(size) / each).first { Self.uid(of: $0) == uid }
     }
 
     private static func savedLevel(device: AudioDeviceID) -> Float32? {
