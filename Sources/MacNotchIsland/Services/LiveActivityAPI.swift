@@ -240,8 +240,9 @@ final class LiveActivityAPI {
             // A section the user has switched off is not in the switcher, so opening the
             // panel on it would leave the band with nothing lit and the arrows stepping out
             // of a view they cannot step back into. The panel opens where it usually does,
-            // and the log says why, since nothing else here can.
-            if let section = HomeSection(rawValue: wanted), section.isEnabled(Preferences.shared) {
+            // and the log says why, since nothing else here can. The switcher's own rule, so a
+            // Controls section kept for the rail's overflow can be reached here too.
+            if let section = HomeSection(rawValue: wanted), section.isShown(Preferences.shared) {
                 center.open(.home(tab: wanted))
             } else {
                 if !wanted.isEmpty {

@@ -243,6 +243,103 @@ final class VerticalSwipeTests: XCTestCase {
                               "at \(sensitivity)")
         }
     }
+
+    // MARK: - Minutes off, and minutes put back
+
+    /// A timer with `remaining` to go, moved by the same rule the real one is.
+    private func fakeTimer(_ remaining: TimeInterval) -> (move: Router.TimerNudge.Move, remaining: () -> TimeInterval) {
+        var left = remaining
+        let move: Router.TimerNudge.Move = { _, seconds in
+            let change = IslandTimer.adjustment(seconds, remaining: left)
+            left += change
+            return change
+        }
+        return (move, { left })
+    }
+
+    func testAScrollDownTakesMinutesOffARunningTimer() {
+        let timer = IslandTimer.shared
+        timer.cancelAll()
+        defer { timer.cancelAll() }
+        timer.start(seconds: 600, label: "Tea")
+        guard let id = timer.primary?.id else { return XCTFail("no timer") }
+        XCTAssertEqual(Router.moveTimer(id: id, seconds: -2 * IslandTimer.addStep), -120, accuracy: 0.01,
+                       "a scroll down is minutes off, not a scroll that does nothing")
+        XCTAssertEqual(timer.entry(id: id)?.state.remaining(at: Date()) ?? 0, 480, accuracy: 1)
+        XCTAssertEqual(Router.moveTimer(id: id, seconds: IslandTimer.addStep), 60, accuracy: 0.01)
+        XCTAssertEqual(timer.entry(id: id)?.state.remaining(at: Date()) ?? 0, 540, accuracy: 1)
+        // More than is left stops at the last second, and says how far it really went.
+        let moved = Router.moveTimer(id: id, seconds: -20 * IslandTimer.addStep)
+        XCTAssertEqual(moved, -539, accuracy: 1)
+        XCTAssertEqual(timer.entry(id: id)?.state.remaining(at: Date()) ?? 0, IslandTimer.minimumRemaining, accuracy: 1)
+        XCTAssertFalse(timer.entry(id: id)?.state.isFinished ?? true, "shortened, never rung on the spot")
+        // A timer that has rung has nothing to move.
+        timer.finishForTesting(id: id)
+        XCTAssertEqual(Router.moveTimer(id: id, seconds: IslandTimer.addStep), 0)
+        XCTAssertEqual(Router.moveTimer(id: id, seconds: -IslandTimer.addStep), 0)
+        XCTAssertEqual(Router.moveTimer(id: "no-such-timer", seconds: IslandTimer.addStep), 0)
+    }
+
+    func testANudgeDownStopsAtTheLastSecondAndCountsOnlyWhatLanded() {
+        let tea = fakeTimer(90)
+        var nudge = Router.TimerNudge()
+        XCTAssertTrue(nudge.nudge(id: "tea", toward: -1, move: tea.move))
+        XCTAssertEqual(tea.remaining(), 30)
+        XCTAssertTrue(nudge.nudge(id: "tea", toward: -2, move: tea.move), "what there is to take, is taken")
+        XCTAssertEqual(tea.remaining(), IslandTimer.minimumRemaining)
+        XCTAssertEqual(nudge.moved, -89, "not the two minutes asked for")
+        XCTAssertFalse(nudge.nudge(id: "tea", toward: -3, move: tea.move), "nothing left to take")
+        XCTAssertEqual(nudge.steps, -2, "a step that moved nothing is not counted")
+        XCTAssertFalse(nudge.nudge(id: "coffee", toward: 1, move: tea.move), "a gesture belongs to the timer it moved")
+    }
+
+    func testASwipeThatNudgedATimerOnItsWayPutsTheMinutesBack() {
+        // The fingers go down a timer's pill in "Open and close": past a step's distance first,
+        // then past the swipe's. The router applies each event the way it does here.
+        let tea = fakeTimer(300)
+        var nudge = Router.TimerNudge()
+        var opened = false
+        for travel: CGFloat in [10, 30, 45, 60] {
+            switch Router.decide(dx: 0, dy: 10, context: .compactTimer, verticalSwipe: .openClose, travel: travel) {
+            case .nudgeTimer(let steps):
+                _ = nudge.nudge(id: "tea", toward: steps, move: tea.move)
+                if travel == 30 { XCTAssertEqual(tea.remaining(), 240, "a minute off on the way past") }
+            case .openPanel:
+                opened = true
+                XCTAssertTrue(nudge.putBack(move: tea.move))
+            default:
+                break
+            }
+        }
+        XCTAssertTrue(opened)
+        XCTAssertEqual(tea.remaining(), 300, "the swipe was the whole gesture, and the timer is as it was")
+        XCTAssertEqual(nudge, Router.TimerNudge(), "and nothing is left to put back twice")
+        XCTAssertFalse(nudge.putBack(move: tea.move))
+    }
+
+    func testAPutBackUndoesExactlyWhatLandedEitherWay() {
+        // Up two, down one: a minute on, and a minute is what goes back.
+        let tea = fakeTimer(300)
+        var nudge = Router.TimerNudge()
+        XCTAssertTrue(nudge.nudge(id: "tea", toward: 2, move: tea.move))
+        XCTAssertTrue(nudge.nudge(id: "tea", toward: 1, move: tea.move))
+        XCTAssertEqual(tea.remaining(), 360)
+        XCTAssertTrue(nudge.putBack(move: tea.move))
+        XCTAssertEqual(tea.remaining(), 300)
+        // Down past the floor: the seconds that really came off go back, not the minutes asked.
+        let short = fakeTimer(90)
+        var down = Router.TimerNudge()
+        XCTAssertTrue(down.nudge(id: "tea", toward: -2, move: short.move))
+        XCTAssertEqual(short.remaining(), IslandTimer.minimumRemaining)
+        XCTAssertTrue(down.putBack(move: short.move))
+        XCTAssertEqual(short.remaining(), 90)
+        // And a gesture that came back to where it started has nothing to put back.
+        var there = Router.TimerNudge()
+        _ = there.nudge(id: "tea", toward: 1, move: tea.move)
+        _ = there.nudge(id: "tea", toward: 0, move: tea.move)
+        XCTAssertFalse(there.putBack(move: tea.move))
+        XCTAssertEqual(tea.remaining(), 300)
+    }
 }
 
 /// What a swipe down opens, and where: `ActivityCenter.openBySwipe`, which the router calls

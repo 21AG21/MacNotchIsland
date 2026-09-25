@@ -104,8 +104,34 @@ enum HomeSection: String, CaseIterable {
         return result
     }
 
+    /// Whether the section is in the panel — a slot on the switcher, a tile on the Home grid, a
+    /// stop on the ring Tab walks: switched on, or, for Controls, holding what the control rail
+    /// had no room for. The rail's overflow is only ever at the top of that section, so a
+    /// switch that took the section away took those controls with it, and nothing said where
+    /// they had gone. While anything is waiting there the section stays whatever its switch
+    /// says, and it goes again once nothing is.
+    ///
+    /// Pure, so the rule can be tested.
+    static func isShown(_ section: HomeSection, isEnabled: Bool, railSpills: Bool) -> Bool {
+        isEnabled || (section == .controls && railSpills)
+    }
+
+    /// The same, from the live preferences and the rail's live plan. The plan is asked only of
+    /// a Controls section that is switched off, the one case it can change the answer.
+    func isShown(_ prefs: Preferences) -> Bool {
+        let enabled = isEnabled(prefs)
+        guard !enabled, self == .controls else { return enabled }
+        return Self.isShown(self, isEnabled: false, railSpills: Self.railSpills(prefs))
+    }
+
+    /// Whether anything the user switched on is waiting at the top of the Controls section,
+    /// asked the way that section asks it: see `ControlsSectionView` and `RailPlan`.
+    static func railSpills(_ prefs: Preferences) -> Bool {
+        !RailPlan.current(prefs: prefs, showingShelf: false, showingMirror: false).spill.isEmpty
+    }
+
     static func available(_ prefs: Preferences) -> [HomeSection] {
-        ordered(prefs).filter { $0.isEnabled(prefs) }
+        ordered(prefs).filter { $0.isShown(prefs) }
     }
 
     static let fallback = HomeSection.home
@@ -114,7 +140,7 @@ enum HomeSection: String, CaseIterable {
     /// Playing, which has the wide tile at the head of the grid. Listing it again beside its
     /// own tile put "Now Playing" on the grid twice and pushed Stats off the end of it.
     static func tiles(_ prefs: Preferences) -> [HomeSection] {
-        ordered(prefs).filter { $0 != .home && $0 != .music && $0.isEnabled(prefs) }
+        ordered(prefs).filter { $0 != .home && $0 != .music && $0.isShown(prefs) }
     }
 
     /// The section a raw tab name maps to, or the nearest one that is switched on.

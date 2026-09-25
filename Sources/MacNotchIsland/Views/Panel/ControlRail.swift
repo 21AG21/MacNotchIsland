@@ -18,7 +18,7 @@ struct ControlRail: View {
     var showingShelf = false
     @ObservedObject private var outputs = AudioOutputs.shared
     // Watched for what they decide about the rail's shape — whether AirDrop, Wi-Fi, Bluetooth
-    // and the keyboard's slider are on it at all — not for what the buttons show, which each
+    // and the keyboard's light are on it at all — not for what the buttons show, which each
     // button watches for itself.
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var brightness = BrightnessControl.shared
@@ -234,14 +234,26 @@ struct ControlRail: View {
 /// shows exactly the ones the rail could not.
 enum RailPlan {
     static func current(prefs: Preferences, showingShelf: Bool, showingMirror: Bool) -> RailControl.Fit {
-        var controls = RailControl.available(prefs)
-        // The Shelf section carries its own AirDrop; see `ControlRail.showingShelf`.
-        if showingShelf { controls.removeAll { $0 == .airDrop } }
         let room = RailMetrics.room(hasPicker: AudioOutputs.shared.hasChoice || RenderMode.isGallery,
                                     hasBrightness: BrightnessControl.shared.isAvailable)
+        return plan(RailControl.available(prefs), room: room, showingShelf: showingShelf, showingMirror: showingMirror)
+    }
+
+    /// The fit, from readings. The Shelf section carries its own AirDrop (see
+    /// `ControlRail.showingShelf`), so the rail's stands down there — but only after the rail
+    /// has been fitted with it, as it is on every other section. Fitted without it, the room
+    /// it left went to whatever had not fitted, which came onto the rail on that one section
+    /// and went again on the next: the strip changed shape with the section under it. Pure.
+    static func plan(_ controls: [RailControl], room: CGFloat, showingShelf: Bool,
+                     showingMirror: Bool) -> RailControl.Fit {
         var pinned: Set<RailControl> = [.settings]
         if showingMirror { pinned.insert(.mirror) }
-        return RailControl.fit(controls, room: room, pinned: pinned)
+        var fit = RailControl.fit(controls, room: room, pinned: pinned)
+        if showingShelf {
+            fit.rail.removeAll { $0 == .airDrop }
+            fit.spill.removeAll { $0 == .airDrop }
+        }
+        return fit
     }
 }
 
@@ -253,6 +265,9 @@ struct RailControlView: View {
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var keepAwake = KeepAwake.shared
     @ObservedObject private var shelf = ShelfStore.shared
+    /// Whether a Focus is on. Read through `FocusMonitor.isOn` alone, the disc kept whatever it
+    /// showed until something else happened to redraw it.
+    @ObservedObject private var focusStatus = FocusStatus.shared
 
     var body: some View {
         switch control {
@@ -286,8 +301,8 @@ struct RailControlView: View {
             RailDisc(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
         case .focus:
             // Lit while a Focus is on, as the island last saw it.
-            RailDisc(symbol: RailControl.focus.symbol, label: FocusMonitor.isOn ? "Focus is on — open Focus settings" : "Focus settings",
-                     active: FocusMonitor.isOn) {
+            RailDisc(symbol: RailControl.focus.symbol, label: focusStatus.isOn ? "Focus is on — open Focus settings" : "Focus settings",
+                     active: focusStatus.isOn) {
                 if let url = RailControl.focusSettings { NSWorkspace.shared.open(url) }
             }
         case .microphone:
@@ -301,7 +316,7 @@ struct RailControlView: View {
         case .record:
             RecordRailButton()
         case .keyboardLight:
-            KeyboardLightRailSlider()
+            KeyboardLightRailButton()
         case .settings:
             RailDisc(symbol: RailControl.settings.symbol, label: "Settings") { SettingsWindow.open() }
         }
@@ -393,46 +408,93 @@ private struct MicrophoneRailButton: View {
     }
 }
 
-/// Starts and stops a screen recording, red while one is running.
+/// Starts and stops a screen recording, red while one is running. From Stop until the movie
+/// is finished it says it is saving and takes no click: there is nothing left to stop then —
+/// `ScreenRecorder.stop()` does nothing meanwhile — and a Stop that does nothing reads as a
+/// Stop that is broken.
 private struct RecordRailButton: View {
     @State private var recording = false
+    @State private var saving = false
 
     var body: some View {
-        RailDisc(symbol: recording ? "stop.circle.fill" : RailControl.record.symbol,
-                 label: recording ? "Stop recording" : "Record the screen",
-                 tint: recording ? Color(red: 1, green: 0.27, blue: 0.23) : nil) {
+        RailDisc(symbol: saving ? "hourglass" : (recording ? "stop.circle.fill" : RailControl.record.symbol),
+                 label: saving ? "Saving the recording" : (recording ? "Stop recording" : "Record the screen"),
+                 tint: recording && !saving ? Color(red: 1, green: 0.27, blue: 0.23) : nil) {
             ScreenRecorder.shared.toggle()
         }
+        .disabled(saving)
+        .opacity(saving ? 0.6 : 1)
         .onReceive(ScreenRecorder.shared.$isRecording) { recording = $0 }
+        .onReceive(ScreenRecorder.shared.$isSaving) { saving = $0 }
     }
 }
 
-/// The keyboard's backlight, as a short slider with its lamp beside it. Right-click the lamp for
-/// automatic adjustment, where the keyboard has it.
-private struct KeyboardLightRailSlider: View {
+/// The keyboard's backlight: a disc like the Display's, whose popover holds the slider and the
+/// switch for following the room's light. A slider of its own on the rail cost the room of
+/// two and a half discs, and was the first control a file on the shelf pushed off the rail —
+/// and back on again on the Shelf section, where AirDrop stands down. Right-click the disc for
+/// automatic adjustment, where the keyboard has it, as the lamp beside the slider had.
+private struct KeyboardLightRailButton: View {
+    @ObservedObject private var light = KeyboardLight.shared
+    @State private var open = false
+
+    var body: some View {
+        RailDisc(symbol: RailControl.keyboardLight.symbol,
+                 label: light.isAutomatic ? "Keyboard brightness, adjusting automatically" : "Keyboard brightness",
+                 active: open) { open.toggle() }
+            .contextMenu {
+                Toggle("Adjust Keyboard Brightness Automatically", isOn: automatic)
+                    .disabled(!light.canSetAutomatic)
+            }
+            .accessibilityAction(named: "Adjust automatically") {
+                guard light.canSetAutomatic else { return }
+                light.setAutomatic(!light.isAutomatic)
+            }
+            // Under the rail, the way the Display disc's popover opens.
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                KeyboardLightModuleView()
+            }
+    }
+
+    private var automatic: Binding<Bool> {
+        Binding(get: { light.isAutomatic }, set: { light.setAutomatic($0) })
+    }
+}
+
+/// What the keyboard's disc opens: the backlight's slider and its Automatic switch. Built the
+/// way `DisplayModuleView` is, from the system's own controls in the system's colours, since a
+/// popover is its own window; and, like it, a viewer of the service for as long as it is open,
+/// which is the only time the level is polled.
+private struct KeyboardLightModuleView: View {
     @ObservedObject private var light = KeyboardLight.shared
 
     var body: some View {
-        HStack(spacing: RailMetrics.groupGap) {
-            Image(systemName: light.level < 0.5 ? "light.min" : "light.max")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: RailMetrics.glyph, height: 28)
-                .contentShape(Rectangle())
-                .contextMenu {
-                    Toggle("Adjust Keyboard Brightness Automatically", isOn: Binding(
-                        get: { light.isAutomatic },
-                        set: { light.setAutomatic($0) }
-                    ))
-                    .disabled(!light.canSetAutomatic)
-                }
-                .help(light.isAutomatic ? "Keyboard brightness, adjusting automatically" : "Keyboard brightness")
-                .accessibilityHidden(true)
-            IslandSlider(value: light.level, onChange: { light.set($0) })
-                .frame(width: RailMetrics.keyboardSlider)
-                .accessibilityLabel("Keyboard brightness")
-                .accessibilityValue("\(Int((light.level * 100).rounded())) percent")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Keyboard Brightness")
+                .font(.system(size: 13, weight: .semibold))
+            HStack(spacing: 8) {
+                Image(systemName: "light.min")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Slider(value: Binding(get: { light.level }, set: { light.set($0) }), in: 0...1)
+                    .controlSize(.small)
+                    .accessibilityLabel("Keyboard brightness")
+                    .accessibilityValue("\(Int((light.level * 100).rounded())) percent")
+                Image(systemName: "light.max")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            Divider()
+            // A checkbox, whose name takes the click as well as its box.
+            Toggle("Adjust Keyboard Brightness Automatically",
+                   isOn: Binding(get: { light.isAutomatic }, set: { light.setAutomatic($0) }))
+                .font(.system(size: 12))
+                .disabled(!light.canSetAutomatic)
         }
+        .padding(14)
+        .frame(width: DisplayModuleView.width, alignment: .leading)
         .onAppear { light.viewerAppeared() }
         .onDisappear { light.viewerDisappeared() }
     }
@@ -476,9 +538,6 @@ enum RailMetrics {
     static let glyph: CGFloat = 22
     static let volumeSlider: CGFloat = 120
     static let brightnessSlider: CGFloat = 104
-    /// The keyboard's backlight is set far less often than either, and shares the right-hand
-    /// end with the buttons: a short slider, long enough to land on a level.
-    static let keyboardSlider: CGFloat = 64
     /// Between a glyph and the slider it belongs to.
     static let groupGap: CGFloat = 6
     /// Between one control and the next.
@@ -503,9 +562,11 @@ enum RailMetrics {
         width - leading(hasPicker: hasPicker, hasBrightness: hasBrightness) - gap - minSpacer
     }
 
-    /// How wide a control is drawn: a disc, or the keyboard's lamp and slider.
+    /// How wide a control is drawn: a disc, every one of them. The keyboard's backlight was a
+    /// lamp and a slider, 104 pt of a right-hand end that is short of room; its slider is in
+    /// the popover its disc opens now, the way the displays' are in the Display disc's.
     static func width(of control: RailControl) -> CGFloat {
-        control == .keyboardLight ? glyph + groupGap + keyboardSlider : button
+        button
     }
 
     /// A control and the gap in front of it.

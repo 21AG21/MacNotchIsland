@@ -12,7 +12,8 @@ import SwiftUI
 ///
 /// Above them, when there are any, the rail's overflow: the controls somebody switched on that
 /// the rail had no room for, in the same discs and the same order, so a control is never simply
-/// gone because the rail was full. See `RailPlan`.
+/// gone because the rail was full. Nor because this section's switch is off: while there is
+/// overflow the section stays in the panel (`HomeSection.isShown`). See `RailPlan`.
 struct ControlsSectionView: View {
     /// The panel's mirror, for the mirror's disc when it is one of the overflow.
     var showingMirror: Binding<Bool> = .constant(false)

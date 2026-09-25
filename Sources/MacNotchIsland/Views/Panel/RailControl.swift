@@ -13,7 +13,7 @@ enum RailControl: String, CaseIterable, Codable {
     /// The Display popover: a slider per display, Dark Mode, Night Shift, True Tone.
     case display
     case keepAwake, mirror, airDrop, focus, microphone, lock, sleepDisplay, screenshot, record
-    /// A slider, not a button: the keyboard's backlight.
+    /// The keyboard's backlight: a disc like Display's, whose popover holds the slider.
     case keyboardLight
     case settings
 
@@ -63,7 +63,7 @@ enum RailControl: String, CaseIterable, Codable {
     }
 
     /// Whether a button nobody has switched either way is on. The seven the rail has always had
-    /// are, and so is the keyboard's slider where there is a backlight; the actions that are new
+    /// are, and so is the keyboard's light where there is a backlight; the actions that are new
     /// with the catalog wait to be asked for, so an update does not crowd a rail somebody has
     /// already learned.
     var isOnByDefault: Bool {
@@ -144,7 +144,7 @@ enum RailControl: String, CaseIterable, Codable {
     }
 
     /// Whether the control has anything to do on this Mac right now: Wi-Fi and Bluetooth with the
-    /// radio, the keyboard slider with a backlight, AirDrop with something on the shelf.
+    /// radio, the keyboard's light with a backlight, AirDrop with something on the shelf.
     func isPresent(_ presence: Presence) -> Bool {
         switch self {
         case .wifi: return presence.hasWiFi

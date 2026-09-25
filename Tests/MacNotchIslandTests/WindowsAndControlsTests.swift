@@ -268,24 +268,54 @@ final class WindowsAndControlsTests: XCTestCase {
         }
     }
 
-    func testTheKeyboardSliderFitsBesideTheButtonsThatShipOn() {
-        // One output, a display with a brightness, nothing on the shelf: the everyday laptop.
+    func testTheKeyboardsDiscFitsBesideTheButtonsThatShipOnWithAFileOnTheShelfAndWithout() {
+        // Every control that ships on, on a Mac with both radios and a backlit keyboard — with
+        // the shelf empty, and with one file on it, which brings AirDrop onto the rail.
+        func shipped(shelfHasFiles: Bool) -> [RailControl] {
+            RailControl.available(order: RailControl.defaultOrder,
+                                  isEnabled: { RailControl.isSwitchedOn($0, switches: [:]) },
+                                  presence: RailControl.Presence(shelfHasFiles: shelfHasFiles))
+        }
+        let empty = shipped(shelfHasFiles: false)
+        let oneFile = shipped(shelfHasFiles: true)
+        XCTAssertEqual(empty, [.wifi, .bluetooth, .display, .keepAwake, .mirror, .keyboardLight, .settings])
+        XCTAssertEqual(oneFile, [.wifi, .bluetooth, .display, .keepAwake, .mirror, .airDrop, .keyboardLight, .settings])
+
+        // One output and a display with a brightness: the everyday laptop. The keyboard's slider
+        // was pushed off this rail by a single file on the shelf, and came back on the Shelf
+        // section; its disc stays put either way.
         let room = RailMetrics.room(hasPicker: false, hasBrightness: true)
-        let shipped: [RailControl] = [.wifi, .bluetooth, .display, .keepAwake, .mirror, .keyboardLight, .settings]
-        XCTAssertEqual(RailControl.fit(shipped, room: room).rail, shipped)
-        // Plug in a second output and it is the slider that makes room, not a switch.
-        let crowded = RailControl.fit(shipped, room: RailMetrics.room(hasPicker: true, hasBrightness: true))
+        XCTAssertEqual(RailControl.fit(empty, room: room).rail, empty)
+        let everyday = RailControl.fit(oneFile, room: room)
+        XCTAssertEqual(everyday.rail, oneFile, "a file on the shelf pushes nothing off the rail")
+        XCTAssertTrue(everyday.spill.isEmpty)
+        XCTAssertEqual(RailPlan.plan(oneFile, room: room, showingShelf: true, showingMirror: false).rail, empty,
+                       "and on the Shelf section only its own AirDrop stands down")
+
+        // A second output as well: the widest fixed end there is. With the shelf empty it all
+        // still fits; with a file on it the last control before Settings waits in the Controls
+        // section — on every section, the Shelf's included, rather than coming and going.
+        let widest = RailMetrics.room(hasPicker: true, hasBrightness: true)
+        XCTAssertEqual(RailControl.fit(empty, room: widest).rail, empty)
+        let crowded = RailPlan.plan(oneFile, room: widest, showingShelf: false, showingMirror: false)
         XCTAssertEqual(crowded.spill, [.keyboardLight])
         XCTAssertEqual(crowded.rail.last, .settings)
+        let crowdedShelf = RailPlan.plan(oneFile, room: widest, showingShelf: true, showingMirror: false)
+        XCTAssertEqual(crowdedShelf.spill, [.keyboardLight])
+        XCTAssertEqual(crowdedShelf.rail, crowded.rail.filter { $0 != .airDrop })
     }
 
     func testTheRailIsTheFrontOfTheListAndTheOverflowItsBack() {
-        // A narrow control after a wide one that did not fit does not jump the queue: the rail
-        // is always the start of the user's order, the Controls row always the rest of it.
-        let room = RailMetrics.cost(of: .settings) + RailMetrics.cost(of: .wifi) + 1
-        let fit = RailControl.fit([.keyboardLight, .wifi, .settings], room: room)
-        XCTAssertEqual(fit.rail, [.settings])
-        XCTAssertEqual(fit.spill, [.keyboardLight, .wifi])
+        // Whatever the room, the rail is the start of the user's order and the Controls row the
+        // rest of it — never a shuffle of both.
+        let order: [RailControl] = [.keyboardLight, .wifi, .bluetooth, .display, .lock, .settings]
+        for discs in 0...5 {
+            let room = RailMetrics.cost(of: .settings) + CGFloat(discs) * RailMetrics.cost(of: .wifi) + 1
+            let fit = RailControl.fit(order, room: room)
+            XCTAssertEqual(fit.rail.last, .settings, "room for \(discs)")
+            XCTAssertEqual(fit.rail.count - 1, discs, "room for \(discs)")
+            XCTAssertEqual(Array(fit.rail.dropLast()) + fit.spill, Array(order.dropLast()), "room for \(discs)")
+        }
     }
 
     func testTheMirrorsOwnButtonStaysWhileTheMirrorIsShowing() {
@@ -561,11 +591,40 @@ final class WindowsAndControlsTests: XCTestCase {
 
     func testControlsIsASectionWithASwitchOfItsOwn() {
         let prefs = Preferences.shared
-        defer { prefs.controlsEnabled = true }
+        let saved = (prefs.railSwitches, prefs.mirrorEnabled)
+        defer {
+            prefs.controlsEnabled = true
+            (prefs.railSwitches, prefs.mirrorEnabled) = saved
+        }
         XCTAssertTrue(HomeSection.controls.isEnabled(prefs))
         HomeSection.controls.setEnabled(false, in: prefs)
         XCTAssertFalse(HomeSection.controls.isEnabled(prefs))
+        // Nothing on the rail but Settings, so nothing can be waiting in the section: it goes.
+        for control in RailControl.allCases { control.setEnabled(false, in: prefs) }
+        XCTAssertFalse(HomeSection.railSpills(prefs))
         XCTAssertFalse(HomeSection.available(prefs).contains(.controls))
+        XCTAssertFalse(HomeSection.tiles(prefs).contains(.controls))
+        // Every control switched on: the section is there exactly when the rail has overflow
+        // for it, whatever this Mac's rail has room for.
+        for control in RailControl.allCases { control.setEnabled(true, in: prefs) }
+        let spills = HomeSection.railSpills(prefs)
+        XCTAssertEqual(HomeSection.available(prefs).contains(.controls), spills)
+        XCTAssertEqual(HomeSection.tiles(prefs).contains(.controls), spills)
+        XCTAssertEqual(HomeSection.controls.isShown(prefs), spills)
+    }
+
+    func testTheControlsSectionStaysWhileTheRailHasOverflowForIt() {
+        // The rail's overflow lives only at the top of the Controls section: switching the
+        // section off must not take those controls with it, with nothing to say where they went.
+        XCTAssertTrue(HomeSection.isShown(.controls, isEnabled: false, railSpills: true))
+        XCTAssertFalse(HomeSection.isShown(.controls, isEnabled: false, railSpills: false),
+                       "and it goes again once nothing is waiting there")
+        XCTAssertTrue(HomeSection.isShown(.controls, isEnabled: true, railSpills: false))
+        XCTAssertTrue(HomeSection.isShown(.controls, isEnabled: true, railSpills: true))
+        for section in HomeSection.allCases where section != .controls {
+            XCTAssertFalse(HomeSection.isShown(section, isEnabled: false, railSpills: true), "\(section) holds no overflow")
+            XCTAssertTrue(HomeSection.isShown(section, isEnabled: true, railSpills: false), "\(section)")
+        }
     }
 
     // MARK: - The sound column

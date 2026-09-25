@@ -137,7 +137,7 @@ struct HomePanelPane: View {
         case .sleepDisplay: return "Puts the display to sleep. The Mac itself stays awake."
         case .screenshot: return "Opens the screenshot toolbar."
         case .record: return "Starts and stops a recording of the screen, red while it runs."
-        case .keyboardLight: return "A slider for the keyboard's backlight, where the keyboard has one. Right-click its lamp to have it follow the room's light."
+        case .keyboardLight: return "Opens the keyboard's backlight: a slider and a switch to have it follow the room's light, where the keyboard has one. Right-click the disc for the switch alone."
         case .settings: return "Always on, and always last."
         }
     }
@@ -313,7 +313,7 @@ struct HomePanelPane: View {
                 Text("Control rail")
             } footer: {
                 HStack(spacing: 8) {
-                    Text("Drag a control to move it. The volume and the brightness always lead the rail and Settings always ends it; Wi-Fi, Bluetooth and the keyboard's backlight appear where this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Whatever does not fit the rail waits at the top of the Controls section. Choose the apps and shortcuts that appear in the Actions section there.")
+                    Text("Drag a control to move it. The volume and the brightness always lead the rail and Settings always ends it; Wi-Fi, Bluetooth and the keyboard's backlight appear where this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Whatever does not fit the rail waits at the top of the Controls section, which comes back while anything is waiting there, even with its switch off. Choose the apps and shortcuts that appear in the Actions section there.")
                     Button("Open Actions") {
                         selectedSection = SettingsSection.shortcuts.rawValue
                     }

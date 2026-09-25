@@ -90,7 +90,7 @@ final class RailControlTests: XCTestCase {
         let shown = RailControl.available(order: RailControl.defaultOrder, isEnabled: { _ in true }, presence: bare)
         XCTAssertFalse(shown.contains(.wifi))
         XCTAssertFalse(shown.contains(.bluetooth))
-        XCTAssertFalse(shown.contains(.keyboardLight), "no backlight, no slider for one")
+        XCTAssertFalse(shown.contains(.keyboardLight), "no backlight, no disc for one")
         XCTAssertFalse(shown.contains(.airDrop), "nothing on the shelf, nothing to send")
         XCTAssertEqual(shown.last, .settings)
         XCTAssertTrue(shown.contains(.display), "every Mac has a display and a Dark Mode")
@@ -119,10 +119,49 @@ final class RailControlTests: XCTestCase {
         XCTAssertEqual(Set(RailControl.allCases.map(\.label)).count, RailControl.allCases.count, "no two share a name")
     }
 
-    func testTheKeyboardSliderIsWiderThanADiscAndEverythingElseIsADisc() {
-        XCTAssertGreaterThan(RailMetrics.width(of: .keyboardLight), RailMetrics.button)
-        for control in RailControl.allCases where control != .keyboardLight {
-            XCTAssertEqual(RailMetrics.width(of: control), RailMetrics.button)
+    func testEveryControlIsADiscTheKeyboardsLightIncluded() {
+        // The keyboard's slider was 104 pt of the rail, and the first thing a file on the shelf
+        // pushed off it. It is a disc like the rest, and its slider is in the popover it opens.
+        XCTAssertEqual(RailMetrics.width(of: .keyboardLight), RailMetrics.button)
+        XCTAssertEqual(RailMetrics.cost(of: .keyboardLight), RailMetrics.cost(of: .display))
+        for control in RailControl.allCases {
+            XCTAssertEqual(RailMetrics.width(of: control), RailMetrics.button, "\(control)")
+            XCTAssertEqual(RailMetrics.cost(of: control), RailMetrics.gap + RailMetrics.button, "\(control)")
         }
+        XCTAssertEqual(RailMetrics.cost(of: .keyboardLight), 42)
+        XCTAssertGreaterThanOrEqual(RailMetrics.button, IslandHit.minimum, "and every disc takes its click in 24 pt or more")
+    }
+
+    // MARK: - The Shelf section's AirDrop
+
+    /// Every control that ships on, on a Mac that has them all, with one file on the shelf.
+    private var shippedWithAirDrop: [RailControl] {
+        RailControl.available(order: RailControl.defaultOrder,
+                              isEnabled: { RailControl.isSwitchedOn($0, switches: [:]) },
+                              presence: RailControl.Presence(shelfHasFiles: true))
+    }
+
+    func testTheShelfSectionTakesItsOwnAirDropOffTheRailAndNothingElseMoves() {
+        // AirDrop stands down on the Shelf section, which has its own. The room it leaves is not
+        // handed to whatever did not fit: the strip keeps its shape whatever the panel shows.
+        XCTAssertTrue(shippedWithAirDrop.contains(.airDrop))
+        for picker in [false, true] {
+            for brightness in [false, true] {
+                let room = RailMetrics.room(hasPicker: picker, hasBrightness: brightness)
+                let elsewhere = RailPlan.plan(shippedWithAirDrop, room: room, showingShelf: false, showingMirror: false)
+                let onShelf = RailPlan.plan(shippedWithAirDrop, room: room, showingShelf: true, showingMirror: false)
+                XCTAssertEqual(onShelf.rail, elsewhere.rail.filter { $0 != .airDrop }, "picker \(picker), brightness \(brightness)")
+                XCTAssertEqual(onShelf.spill, elsewhere.spill.filter { $0 != .airDrop }, "picker \(picker), brightness \(brightness)")
+                XCTAssertFalse(onShelf.rail.contains(.airDrop))
+            }
+        }
+    }
+
+    func testThePlanIsTheFitEverywhereButTheShelf() {
+        let room = RailMetrics.room(hasPicker: true, hasBrightness: true)
+        XCTAssertEqual(RailPlan.plan(shippedWithAirDrop, room: room, showingShelf: false, showingMirror: false),
+                       RailControl.fit(shippedWithAirDrop, room: room))
+        XCTAssertEqual(RailPlan.plan(shippedWithAirDrop, room: room, showingShelf: false, showingMirror: true),
+                       RailControl.fit(shippedWithAirDrop, room: room, pinned: [.settings, .mirror]))
     }
 }

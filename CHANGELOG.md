@@ -153,13 +153,14 @@ the unreleased section is what the next tag will ship.
   the island used to leave its keys alone and why a MacBook with no backlight keys on its
   keyboard sends you to Control Centre for it. It now has three ways in: the backlight keys are
   answered in the island with the same level display the volume gets, on the same sixteen steps
-  with Shift-Option's quarter steps, whenever the bezel is replaced; a short slider sits on the
-  rail, with automatic adjustment one right-click away; and Control-scroll on the island sets it
-  the way Option-scroll sets the display. A "Keyboard backlight" switch under Activities sits
-  beside Brightness and does the same two jobs. It goes through `KeyboardBrightnessClient`, the
-  private CoreBrightness class Control Centre itself talks to — opened by path, found by name,
-  every method asked for before it is called — so a Mac with no backlight, or a macOS that has
-  changed the class, shows none of it and hands the keys straight back to macOS.
+  with Shift-Option's quarter steps, whenever the bezel is replaced; a disc on the rail opens its
+  slider and an Automatic switch, with automatic adjustment one right-click away as well; and
+  Control-scroll on the island sets it the way Option-scroll sets the display. A "Keyboard
+  backlight" switch under Activities sits beside Brightness and does the same two jobs. It goes
+  through `KeyboardBrightnessClient`, the private CoreBrightness class Control Centre itself
+  talks to — opened by path, found by name, every method asked for before it is called — so a
+  Mac with no backlight, or a macOS that has changed the class, shows none of it and hands the
+  keys straight back to macOS.
 - **A Display popover, behind the rail's sun.** The sun used to switch between light and dark
   and nothing else. It now opens what Control Centre's Display module holds: a brightness slider
   for every display that takes one — the Studio Display on the desk as well as the Mac's own
@@ -175,7 +176,7 @@ the unreleased section is what the next tag will ship.
   had nowhere to go without pushing something else off. It is now a catalog, arranged in Home
   Panel the way the sections are: a switch on every control, drag to reorder, and a button to
   put it back as it ships. The seven buttons the rail always had are on out of the box, joined
-  by the keyboard's slider where there is a backlight; Focus, microphone mute, Lock Screen,
+  by the keyboard's backlight where there is one; Focus, microphone mute, Lock Screen,
   Sleep Display, Screenshot and screen recording wait to be asked for, so an update does not
   crowd a rail somebody has already learned. Settings has no switch and is always last. What
   does not fit waits in a row at the top of the Controls section, in the same order and the
@@ -269,6 +270,23 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A script's "end" ends only the script's cards.** `notchisland://activity/end` with no id
+  ended every custom activity, the island's own screen recording among them: its card went, and
+  with it the only Stop button, while `screencapture` went on recording. It now ends the cards a
+  script pushed and nothing else.
+- **The keyboard's backlight keeps its place on the rail.** Its slider took the room of two and a
+  half buttons, so a single file on the shelf — which brings AirDrop — pushed it off into the
+  Controls section, and it came back whenever the Shelf section was open, where AirDrop stands
+  down: the strip that is meant to be the same under every section changed shape with the
+  section. It is a disc now, like Display's, and its slider and Automatic switch are in the
+  popover it opens; right-click still switches Automatic. And the rail is fitted with AirDrop on
+  every section before the Shelf's takes it off, so the room it leaves there goes to nothing
+  else.
+- **Switching the Controls section off no longer loses the rail's overflow.** The controls the
+  rail has no room for wait at the top of that section and nowhere else, so its switch took them
+  with it. While anything is waiting there the section stays in the panel — on the switcher, the
+  Home grid, the Tab ring and the `home/controls` link — whatever its switch says, and goes
+  again once nothing is. The Home Panel pane says so.
 - **The Wi-Fi list names the networks in range.** macOS 14 only tells an app the names of the
   networks around it once Location allows it, and nothing asked, so every network in the scan
   came back nameless and Controls said "Nothing in range" on a Mac sitting on a working

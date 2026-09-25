@@ -14,7 +14,8 @@ import SwiftUI
 ///   scrolls by itself — or, with "Open and close" chosen in the Island pane, a swipe down on
 ///   the closed island opens the panel and a swipe up on the panel closes it.
 /// - A vertical scroll on a timer's pill moves the timer a minute at a time instead, and in
-///   "Open and close" a swipe that goes far enough still opens the panel.
+///   "Open and close" a swipe that goes far enough still opens the panel — putting back the
+///   minutes it moved on its way past a step.
 /// - Anything else is handed straight back to SwiftUI, so the clipboard list and the shelf
 ///   strip keep scrolling normally.
 ///
@@ -149,6 +150,50 @@ final class GestureRouter {
         return Int(steps)
     }
 
+    /// What one gesture has done to the timer under it: the minutes it has asked for, and the
+    /// seconds the timer actually moved for them — fewer, when taking time off met the timer's
+    /// last second (`IslandTimer.adjustment`). Kept so that a swipe which set off as a small
+    /// scroll, nudged the timer on its way past a step, and then went far enough to open the
+    /// panel can put exactly that back: the swipe was the whole gesture, never a nudge.
+    ///
+    /// The timer itself is reached through `move`, which moves one by a number of seconds and
+    /// answers how far it really went, so the bookkeeping can be tested without a trackpad.
+    struct TimerNudge: Equatable {
+        typealias Move = (_ id: String, _ seconds: TimeInterval) -> TimeInterval
+
+        /// The timer this gesture has moved, once it has moved one.
+        private(set) var id: String?
+        /// Whole minutes from where the gesture found the timer: positive is more time.
+        private(set) var steps = 0
+        /// Seconds the timer has actually moved in this gesture, either way.
+        private(set) var moved: TimeInterval = 0
+
+        /// Moves the timer to `steps` minutes from where the gesture found it, applying only
+        /// what has not been applied yet. False when there is nothing to do or nothing moved —
+        /// a timer that has rung, or one already at its last second — and then the count stays
+        /// where it was, so what lands later is still measured from what really happened. A
+        /// gesture belongs to the timer it first moved.
+        mutating func nudge(id: String, toward steps: Int, move: Move) -> Bool {
+            if let current = self.id, current != id { return false }
+            guard steps != self.steps else { return false }
+            let change = move(id, TimeInterval(steps - self.steps) * IslandTimer.addStep)
+            guard change != 0 else { return false }
+            self.id = id
+            self.steps = steps
+            moved += change
+            return true
+        }
+
+        /// Undoes everything this gesture moved, through `move`, and forgets it. False when it
+        /// had moved nothing.
+        mutating func putBack(move: Move) -> Bool {
+            guard let id = self.id, moved != 0 else { return false }
+            _ = move(id, -moved)
+            self = TimerNudge()
+            return true
+        }
+    }
+
     /// The whole gesture policy, as a pure function.
     ///
     /// `dx` is the horizontal distance accumulated so far in the current gesture and `dy` the
@@ -230,8 +275,8 @@ final class GestureRouter {
     private var accumulatedY: CGFloat = 0
     /// The timer whose pill the gesture is on, when it is on one; see `currentContext`.
     private var timerID: String?
-    /// Minutes this gesture has moved that timer so far.
-    private var timerStepsApplied = 0
+    /// What this gesture has done to that timer so far.
+    private var timerNudge = TimerNudge()
     private var firedSwipe = false
     private var consumedGesture = false
     private var lastEventAt = Date.distantPast
@@ -329,7 +374,7 @@ final class GestureRouter {
         accumulatedX = 0
         pendingY = 0
         accumulatedY = 0
-        timerStepsApplied = 0
+        timerNudge = TimerNudge()
         firedSwipe = false
         consumedGesture = false
     }
@@ -418,6 +463,10 @@ final class GestureRouter {
             guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
             guard ActivityCenter.shared.openBySwipe(panel: panel) else { return false }
             lastTrackAt = now
+            // A swipe on a timer's pill passes a step's distance before it reaches this one,
+            // and the timer moved as it went by. It was a swipe, not a nudge: those minutes go
+            // back, and the card opens on the time that was there before it.
+            _ = timerNudge.putBack(move: Self.moveTimer)
             // No click came with it, unlike an open from the pointer, so the hand gets the
             // same soft nod a view step gives.
             Haptics.soft()
@@ -440,22 +489,25 @@ final class GestureRouter {
     /// tap for each change that lands; the pill's digits roll on their own.
     @discardableResult
     private func nudgeTimer(toward steps: Int) -> Bool {
-        guard let id = timerID, steps != timerStepsApplied else { return false }
-        guard moveTimer(id: id, minutes: steps - timerStepsApplied) else { return false }
-        timerStepsApplied = steps
+        guard let id = timerID, timerNudge.nudge(id: id, toward: steps, move: Self.moveTimer) else { return false }
         Haptics.tap()
         return true
     }
 
-    /// `IslandTimer` adds time and cannot take it away: `add(seconds:id:)` refuses anything
-    /// that is not more, and nothing else shortens a timer. So a step up lands and a step down
-    /// is refused, and a gesture that comes back down never takes back what it added. Should
-    /// it learn to shorten, a swipe that opens the panel after a small scroll took minutes off
-    /// ought to put `timerStepsApplied` back, since the swipe was the whole gesture.
-    private func moveTimer(id: String, minutes: Int) -> Bool {
-        guard minutes > 0, let entry = IslandTimer.shared.entry(id: id), !entry.state.isFinished else { return false }
-        IslandTimer.shared.add(seconds: TimeInterval(minutes) * IslandTimer.addStep, id: id)
-        return true
+    /// Moves a timer by `seconds` either way and answers how far it really went. Time comes
+    /// off as well as going on — `IslandTimer.add(seconds:id:now:)` takes a negative figure,
+    /// and never leaves less than a second — so a scroll down shortens the timer the way a
+    /// scroll up lengthens it. A timer that has rung, or one that has gone, is not moved at
+    /// all. The distance is `IslandTimer.adjustment`, the rule `add` itself applies, worked
+    /// out at the same instant, so a put-back undoes exactly what landed.
+    static func moveTimer(id: String, seconds: TimeInterval) -> TimeInterval {
+        guard seconds.isFinite, seconds != 0,
+              let entry = IslandTimer.shared.entry(id: id), !entry.state.isFinished else { return 0 }
+        let now = Date()
+        let change = IslandTimer.adjustment(seconds, remaining: entry.state.remaining(at: now))
+        guard change != 0 else { return 0 }
+        IslandTimer.shared.add(seconds: seconds, id: id, now: now)
+        return change
     }
 
     /// Where the backlight was when this gesture started, carried from event to event for the
