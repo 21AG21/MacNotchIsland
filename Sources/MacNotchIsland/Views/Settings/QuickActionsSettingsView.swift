@@ -12,6 +12,24 @@ struct QuickActionsSettingsView: View {
     /// How many favourites the row has room for beside the apps it draws (`FavoriteApps.inRow`).
     private var room: Int { QuickActionsRowView.shortcutRoom(besideApps: apps.inRow) }
 
+    /// What the pane says under "Favourites": the row's own count (`QuickActionsRowView.tally`)
+    /// and, while apps kept are on a disk that is not plugged in, that they are away. The room
+    /// is the room the row has now, and an app coming back takes a button of it: where the
+    /// favourites chosen would not all fit then, the tally says how many would, rather than
+    /// leave a favourite to drop out of the row unannounced when the disk is plugged in.
+    static func tally(favourites: Int, appsInRow: Int, appsAway: Int) -> String {
+        let now = QuickActionsRowView.tally(favourites: favourites, apps: appsInRow)
+        guard appsAway > 0 else { return now }
+        let one = appsAway == 1
+        let whenBack = QuickActionsRowView.shortcutRoom(besideApps: appsInRow + appsAway)
+        guard favourites > whenBack else {
+            return now + (one ? ". 1 app is away on a disk that is not plugged in"
+                              : ". \(appsAway) apps are away on disks that are not plugged in")
+        }
+        return now + (one ? ". \(whenBack) fit once the app on a disk that is not plugged in is back"
+                          : ". \(whenBack) fit once the \(appsAway) apps on disks that are not plugged in are back")
+    }
+
     var body: some View {
         Group {
             LabeledContent {
@@ -19,7 +37,7 @@ struct QuickActionsSettingsView: View {
                     .help("Ask the Shortcuts app for the current list.")
             } label: {
                 Text("Favourites")
-                Text(QuickActionsRowView.tally(favourites: runner.favorites.count, apps: apps.inRow))
+                Text(Self.tally(favourites: runner.favorites.count, appsInRow: apps.inRow, appsAway: apps.away.count))
             }
 
             if !runner.isAvailable {

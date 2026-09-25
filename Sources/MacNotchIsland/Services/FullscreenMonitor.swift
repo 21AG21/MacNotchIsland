@@ -19,7 +19,8 @@ import Combine
 ///
 /// But only a window at the front of its display, or the frontmost app's (`contenders`): a
 /// utility that keeps a display-sized window behind everything else hid that display's island
-/// for as long as it ran.
+/// for as long as it ran. Each window is at the front of one display at most, the one it
+/// belongs to (`home`).
 final class FullscreenMonitor {
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
@@ -146,6 +147,10 @@ final class FullscreenMonitor {
         /// fallback's evidence of full screen (see `covers`), which a display that never had
         /// one cannot give.
         var hasMenuBar = true
+        /// Whether an island is on this display. One that carries none is never covered, but
+        /// it is still listed: a window there belongs there (`home`), and without it a window
+        /// against the shared edge would be given to the neighbour it overhangs.
+        var carriesIsland = true
     }
 
     /// One window as the window list reports it: whose it is, and its frame in the list's
@@ -158,19 +163,20 @@ final class FullscreenMonitor {
         var canCover = true
     }
 
-    /// Only the displays that carry an island. A film full screen on a display with no
-    /// island used to count as an island hidden, and everything asked about no island in
-    /// particular — the shortcut, the menu bar — answered "hidden".
+    /// Every display, marked with whether it carries an island. Only those that do are ever
+    /// covered: a film full screen on a display with no island used to count as an island
+    /// hidden, and everything asked about no island in particular — the shortcut, the menu
+    /// bar — answered "hidden". The others are listed so that their windows stay theirs.
     static func screens(carrying panels: Set<String> = ActivityCenter.shared.livePanels) -> [Screen] {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        return NSScreen.screens.compactMap { screen in
+        return NSScreen.screens.map { screen in
             let id = NotchPanel.panelID(for: screen)
-            guard panels.isEmpty || panels.contains(id) else { return nil }
             return Screen(panelID: id,
                           rect: CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
                                        width: screen.frame.width, height: screen.frame.height),
                           top: screen.safeAreaInsets.top,
-                          hasMenuBar: NSScreen.screensHaveSeparateSpaces || NotchGeometry.isPrimary(screen))
+                          hasMenuBar: NSScreen.screensHaveSeparateSpaces || NotchGeometry.isPrimary(screen),
+                          carriesIsland: panels.isEmpty || panels.contains(id))
         }
     }
 
@@ -228,8 +234,8 @@ final class FullscreenMonitor {
                               fullScreenFrames: ((pid_t) -> [CGRect])?) -> Set<String> {
         var answers: [pid_t: [CGRect]] = [:]
         var covered = Set<String>()
-        for screen in screens {
-            let inFront = contenders(on: screen, windows: windows, frontmost: frontmost)
+        for screen in screens where screen.carriesIsland {
+            let inFront = contenders(on: screen, among: screens, windows: windows, frontmost: frontmost)
             if inFront.contains(where: { covers(screen, $0.frame, reportedFullScreen: false) }) {
                 covered.insert(screen.panelID)
                 continue
@@ -265,9 +271,31 @@ final class FullscreenMonitor {
     /// app counts wherever its window stands, since whatever the user is in is not behind
     /// anything. The Finder and this app never cover a display (`Window.canCover`), but in
     /// front of one they can be, and then nothing behind them covers it.
-    static func contenders(on screen: Screen, windows: [Window], frontmost: pid_t?) -> [Window] {
-        let front = windows.first(where: { isOn(screen, $0.frame) })?.pid
+    ///
+    /// The front of a display is the first window that belongs to it (`home`), judged among
+    /// every display in `screens`. The first window with two points of itself there used to
+    /// be it, so a Safari window on the external display, against the shared edge and
+    /// overhanging the MacBook by a few points, was the MacBook's front too, and the film full
+    /// screen there came out from under its island.
+    static func contenders(on screen: Screen, among screens: [Screen], windows: [Window], frontmost: pid_t?) -> [Window] {
+        let front = windows.first(where: { home(of: $0.frame, among: screens) == screen.panelID })?.pid
         return windows.filter { $0.canCover && ($0.pid == front || $0.pid == frontmost) }
+    }
+
+    /// The display a window belongs to, by its `panelID`: of the displays it shows on at all
+    /// (`isOn`), the one holding its centre, or, for a window whose centre is off every one
+    /// of them, the one with most of it. Nil for a window that shows on none. One display
+    /// each, so that the few points a window overhangs a neighbour by never make it the
+    /// neighbour's too.
+    static func home(of window: CGRect, among screens: [Screen]) -> String? {
+        let showing = screens.filter { isOn($0, window) }
+        let centre = CGPoint(x: window.midX, y: window.midY)
+        if let holder = showing.first(where: { $0.rect.contains(centre) }) { return holder.panelID }
+        func area(_ screen: Screen) -> CGFloat {
+            let overlap = screen.rect.intersection(window)
+            return overlap.width * overlap.height
+        }
+        return showing.max(by: { area($0) < area($1) })?.panelID
     }
 
     /// Whether a window shows on `screen` at all: more than a sliver of it lies there. A window

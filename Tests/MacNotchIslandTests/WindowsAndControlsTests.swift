@@ -734,18 +734,43 @@ final class WindowsAndControlsTests: XCTestCase {
     }
 
     /// Settings counted the apps it stored and the row the apps it could draw, so one on a disk
-    /// that was not plugged in left Settings a Shortcut short of the room the row had. The row's
-    /// share is counted as the row draws it; what is stored is still held to six.
+    /// that was not plugged in left Settings a Shortcut short of the room the row had. The
+    /// Shortcuts' share is counted as the row draws it; what is stored is still held to six.
     func testAnAppOnAnUnpluggedDiskTakesNoRoomInTheRowButStaysKept() {
         // Four apps drawn and one on a disk that is not plugged in, beside four favourites.
         let room = QuickActionsRowView.appRoom(besideShortcuts: 4)
         XCTAssertEqual(room, 6)
-        XCTAssertTrue(FavoriteApps.hasRoom(stored: 5, inRow: 4, room: room), "the row has room, and so does the list")
+        XCTAssertTrue(FavoriteApps.hasRoom(stored: 5, room: room), "the row has room, and so does the list")
         XCTAssertEqual(QuickActionsRowView.shortcutRoom(besideApps: 4), 6, "and the Shortcuts get the room the row leaves them")
-        XCTAssertFalse(FavoriteApps.hasRoom(stored: FavoriteApps.maximum, inRow: 4, room: room),
+        XCTAssertFalse(FavoriteApps.hasRoom(stored: FavoriteApps.maximum, room: room),
                        "six kept is six, however many of them are plugged in")
-        XCTAssertFalse(FavoriteApps.hasRoom(stored: 2, inRow: 2, room: 2), "and the row's share is the row's")
-        XCTAssertTrue(FavoriteApps.hasRoom(stored: 0, inRow: 0, room: 10), "an empty list with a full row's room")
+        XCTAssertFalse(FavoriteApps.hasRoom(stored: 2, room: 2), "and the row's share is the row's")
+        XCTAssertTrue(FavoriteApps.hasRoom(stored: 0, room: 10), "an empty list with a full row's room")
+    }
+
+    /// With six favourites the row leaves the apps four. Three drawn and one on a disk that
+    /// was not plugged in left room, counted as the row drew them, for a fifth; Settings added
+    /// it, and when the disk came back the row drew five apps and pushed a favourite out.
+    func testAddingAnAppCountsTheOnesOnADiskThatIsNotPluggedIn() {
+        let room = QuickActionsRowView.appRoom(besideShortcuts: 6)
+        XCTAssertEqual(room, 4)
+        XCTAssertFalse(FavoriteApps.hasRoom(stored: 4, room: room),
+                       "four kept, three of them drawn: the fourth has its place for when its disk is back")
+        XCTAssertTrue(FavoriteApps.hasRoom(stored: 3, room: room))
+        let back = QuickActionsRowView.fit(apps: 4, shortcuts: 6)
+        XCTAssertEqual(back.shortcuts, 6, "so with every disk back each favourite is still drawn")
+    }
+
+    func testTheFavouritesTallySaysWhenAnAppIsAway() {
+        XCTAssertEqual(QuickActionsSettingsView.tally(favourites: 3, appsInRow: 4, appsAway: 0), "3 of 6 chosen",
+                       "nothing away: the row's own count")
+        XCTAssertEqual(QuickActionsSettingsView.tally(favourites: 3, appsInRow: 4, appsAway: 1),
+                       "3 of 6 chosen. 1 app is away on a disk that is not plugged in")
+        XCTAssertEqual(QuickActionsSettingsView.tally(favourites: 6, appsInRow: 4, appsAway: 1),
+                       "6 of 6 chosen. 5 fit once the app on a disk that is not plugged in is back",
+                       "a favourite the row would leave out then is said so now")
+        XCTAssertEqual(QuickActionsSettingsView.tally(favourites: 6, appsInRow: 3, appsAway: 2),
+                       "6 of 7 chosen. 5 fit once the 2 apps on disks that are not plugged in are back")
     }
 
     // MARK: - Laying several windows out at once

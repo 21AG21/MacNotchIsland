@@ -949,6 +949,26 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ActivityCenter.holdsCard(unlock), "asked for a card, but it has none to show")
     }
 
+    /// With "Open from the empty notch too" off the pointer on the bare notch opens nothing,
+    /// but a card that arrived there counted as yielding to that peek: nothing was drawn at
+    /// all, card or peek.
+    func testACardArrivingOnTheBareNotchIsDrawnWhenThePointerOpensNothingThere() {
+        Preferences.shared.expandOnIdleHover = false
+        center.setHovering(true)
+        settle(0.1)
+        XCTAssertTrue(center.isHovering)
+        XCTAssertEqual(center.presentation, .idle, "nothing live, and nothing to peek at")
+        XCTAssertFalse(center.isPanelShowing)
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        guard case .card(let shown) = center.presentation else { return XCTFail("the card, where it was drawn nowhere") }
+        XCTAssertEqual(shown.id, "download-done")
+        XCTAssertNil(center.overlayAlert, "and not a banner over a panel that is not there")
+
+        center.showAlert(airPods(), duration: 5, haptic: false)
+        guard case .compact(let pill, _) = center.presentation else { return XCTFail("a pill alert is a pill") }
+        XCTAssertEqual(pill.id, "bt")
+    }
+
     // MARK: - A card forced up
 
     private func rungTimer() -> IslandActivity {
@@ -1018,12 +1038,12 @@ final class ActivityCenterTests: XCTestCase {
 
     func testTimeBehindARingingCardDoesNotCountAgainstAnAlertsPatience() {
         // Eight seconds of ringing and a minute under the pointer, against twenty of patience.
-        XCTAssertFalse(ActivityCenter.outwaited(finishedDownload(), waited: 68, behindForcedCard: true),
+        XCTAssertFalse(ActivityCenter.outwaited(finishedDownload(), waited: 68, behindHold: true),
                        "a finished download that waited behind the card is still news when it goes")
-        XCTAssertTrue(ActivityCenter.outwaited(finishedDownload(), waited: 21, behindForcedCard: false))
-        XCTAssertFalse(ActivityCenter.outwaited(finishedDownload(), waited: 19, behindForcedCard: false))
+        XCTAssertTrue(ActivityCenter.outwaited(finishedDownload(), waited: 21, behindHold: false))
+        XCTAssertFalse(ActivityCenter.outwaited(finishedDownload(), waited: 19, behindHold: false))
         let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
-        XCTAssertTrue(ActivityCenter.outwaited(hud, waited: 5, behindForcedCard: true),
+        XCTAssertTrue(ActivityCenter.outwaited(hud, waited: 5, behindHold: true),
                       "a volume tick from a while ago is stale behind the card as anywhere")
     }
 
@@ -1033,7 +1053,7 @@ final class ActivityCenterTests: XCTestCase {
         let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
         let queue = [ActivityCenter.PendingAlert(activity: finishedDownload(), queuedAt: queued, duration: 5, exact: false),
                      ActivityCenter.PendingAlert(activity: hud, queuedAt: queued, duration: 1.5, exact: false)]
-        let after = ActivityCenter.afterForcedCard(queue, now: gone)
+        let after = ActivityCenter.afterHold(queue, now: gone)
         XCTAssertEqual(after.map(\.queuedAt), [gone, queued], "the download from now, the HUD left to go stale")
         XCTAssertEqual(after.first?.duration, 5, "and nothing else about it changes")
     }
@@ -1043,6 +1063,67 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(ActivityCenter.forcedCardHolds(underPointer: false, heldFor: 0), "nobody on it: it goes on time")
         XCTAssertFalse(ActivityCenter.forcedCardHolds(underPointer: true, heldFor: ActivityCenter.forcedHoldLimit),
                        "a hand left resting over the notch is not somebody still deciding")
+    }
+
+    // MARK: - A full queue
+
+    private func pending(_ activity: IslandActivity, at seconds: TimeInterval) -> ActivityCenter.PendingAlert {
+        ActivityCenter.PendingAlert(activity: activity, queuedAt: Date(timeIntervalSince1970: 1_790_000_000 + seconds),
+                                    duration: 4, exact: false)
+    }
+
+    private func charging() -> IslandActivity {
+        let charging = BatteryState(percent: 40, isCharging: true, isPluggedIn: true, event: .pluggedIn)
+        return IslandActivity(id: "battery", kind: .battery, content: .battery(charging), priority: 90)
+    }
+
+    /// Behind a card that holds the queue for minutes, the three alerts that got there first
+    /// kept their places for good, and a charger going in after them was never shown.
+    func testALouderArrivalTakesTheQuietestPlaceInAFullQueue() {
+        let full = [pending(finishedDownload(), at: 0), pending(custom("note"), at: 1), pending(custom("later"), at: 2)]
+        XCTAssertEqual(ActivityCenter.pendingLimit, 3)
+        let after = ActivityCenter.admitting(pending(charging(), at: 3), to: full)
+        XCTAssertEqual(after.map(\.activity.id), ["download-done", "later", "battery"],
+                       "the quietest goes, and of the two quietest the one that has waited longest")
+
+        let quiet = ActivityCenter.admitting(pending(custom("another"), at: 3), to: full)
+        XCTAssertEqual(quiet.map(\.activity.id), ["download-done", "note", "later"],
+                       "no louder than the quietest waiting: it is the one left out")
+        let roomy = ActivityCenter.admitting(pending(custom("another"), at: 3), to: Array(full.prefix(2)))
+        XCTAssertEqual(roomy.map(\.activity.id), ["download-done", "note", "another"], "with room, it simply joins")
+    }
+
+    func testAChargerArrivingBehindARingingCardAndAFullQueueIsNotLost() {
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 5)
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        center.showAlert(custom("note"), duration: 5, haptic: false)
+        center.showAlert(custom("later"), duration: 5, haptic: false)
+        XCTAssertEqual(center.pendingAlerts.count, 3)
+        center.showAlert(charging(), duration: 5, haptic: false)
+        XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done", "later", "battery"])
+    }
+
+    // MARK: - What waits behind an alert the pointer holds
+
+    /// A finished download's card held under the pointer for its minute kept a quieter alert
+    /// queued behind it counting its twenty seconds, and that alert was dropped unseen when
+    /// the card went. Its patience starts again when the card goes, as behind a forced card.
+    func testWhatWaitedBehindAHeldCardStartsItsPatienceAgainWhenTheCardGoes() {
+        center.showAlert(finishedDownload(), duration: 1.6, exact: true, haptic: false)
+        center.showAlert(custom("note"), duration: 5, haptic: false)
+        center.showAlert(custom("later"), duration: 5, haptic: false)
+        XCTAssertEqual(center.pendingAlerts.count, 2, "both wait behind the louder card")
+        center.setHovering(true)
+        settle(1.9)
+        XCTAssertEqual(center.alert?.id, "download-done", "held past its time under the pointer")
+        let released = Date()
+        center.setHovering(false)
+        settle(ActivityCenter.hoverExitGrace + 1.2)
+        XCTAssertNotEqual(center.alert?.id, "download-done", "gone once the pointer has")
+        XCTAssertEqual(center.pendingAlerts.count, 1, "one of the two has its turn, and the other still waits")
+        XCTAssertGreaterThanOrEqual(center.pendingAlerts.first?.queuedAt ?? .distantPast, released,
+                                    "counting its patience from when the card went, not from when it was queued")
     }
 
     // MARK: - What waits behind a held alert
@@ -1057,6 +1138,48 @@ final class ActivityCenterTests: XCTestCase {
         center.end(id: "bt")
         XCTAssertFalse(center.isOpen)
         XCTAssertEqual(center.alert?.id, "note", "what waited behind it is shown now, not dropped when its patience runs out")
+    }
+
+    // MARK: - When the island next wakes
+
+    func testTheIslandWakesForTheSoonestExpiryAndForNothingElse() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var soon = custom("soon")
+        soon.expiresAt = now.addingTimeInterval(30)
+        var later = custom("later")
+        later.expiresAt = now.addingTimeInterval(600)
+        let forever = custom("forever")
+        XCTAssertNil(ActivityCenter.nextWake(activities: [], pausedUntil: 0, now: now),
+                     "nothing to run out: nothing armed, where a timer used to look every second")
+        XCTAssertNil(ActivityCenter.nextWake(activities: [forever], pausedUntil: 0, now: now))
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [later, forever, soon], pausedUntil: 0, now: now),
+                       now.addingTimeInterval(30))
+        var gone = custom("gone")
+        gone.expiresAt = now.addingTimeInterval(-5)
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [later, gone], pausedUntil: 0, now: now), now,
+                       "one already past is due now")
+    }
+
+    func testTheEndOfAPauseIsAWakeWhileItIsStillToCome() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var later = custom("later")
+        later.expiresAt = now.addingTimeInterval(600)
+        let pauseEnd = now.timeIntervalSince1970 + 60
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [], pausedUntil: pauseEnd, now: now), now.addingTimeInterval(60),
+                       "a pause persisted across a relaunch has no timer of its own")
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [later], pausedUntil: pauseEnd, now: now), now.addingTimeInterval(60))
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [later], pausedUntil: now.timeIntervalSince1970 - 1, now: now),
+                       now.addingTimeInterval(600), "a pause that has ended is not waited for again")
+        XCTAssertLessThan(ActivityCenter.expiryTolerance, 1, "inside the second the old look could be late by")
+    }
+
+    func testAnActivityStillGoesAtItsTime() {
+        var brief = custom("brief")
+        brief.expiresAt = Date().addingTimeInterval(0.3)
+        center.upsert(brief)
+        XCTAssertNotNil(center.activity(id: "brief"))
+        settle(0.3 + ActivityCenter.expiryTolerance + 0.3)
+        XCTAssertNil(center.activity(id: "brief"), "ended by the timer armed for it")
     }
 
     // MARK: - The sneak peek

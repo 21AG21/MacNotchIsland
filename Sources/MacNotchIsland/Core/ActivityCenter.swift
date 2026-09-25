@@ -20,8 +20,20 @@ import Combine
 final class ActivityCenter: ObservableObject {
     static let shared = ActivityCenter()
 
-    @Published private(set) var activities: [IslandActivity] = []
-    @Published private(set) var alert: IslandActivity? = nil
+    @Published private(set) var activities: [IslandActivity] = [] {
+        didSet { armExpiry() }
+    }
+    /// The alert on screen. When one the pointer held past its own time goes, whichever way,
+    /// what waited behind it starts its patience again from then (`afterHold`), as behind a
+    /// card forced up.
+    @Published private(set) var alert: IslandActivity? = nil {
+        didSet {
+            if alertHeldPastTime, alert?.id != oldValue?.id {
+                alertHeldPastTime = false
+                pendingAlerts = Self.afterHold(pendingAlerts, now: Date())
+            }
+        }
+    }
     /// Which panel (screen) the pointer is hovering / dragging over. Interaction state is
     /// per screen so an island on one display doesn't open the one on another.
     @Published private(set) var hoverPanel: String? = nil
@@ -70,11 +82,11 @@ final class ActivityCenter: ObservableObject {
     /// always set right before the change that is.
     private(set) var navigationDirection = 0
     /// The card forced up (`forceExpanded`). When it goes, whichever way — its time, its Stop,
-    /// a close — what waited behind it starts its patience again from then (`afterForcedCard`).
+    /// a close — what waited behind it starts its patience again from then (`afterHold`).
     @Published private(set) var forcedExpandedID: String? = nil {
         didSet {
             if oldValue != nil, forcedExpandedID != oldValue {
-                pendingAlerts = Self.afterForcedCard(pendingAlerts, now: Date())
+                pendingAlerts = Self.afterHold(pendingAlerts, now: Date())
             }
         }
     }
@@ -128,8 +140,8 @@ final class ActivityCenter: ObservableObject {
     /// An alert waiting its turn, behind a louder one or behind a card forced up.
     struct PendingAlert {
         var activity: IslandActivity
-        /// Where its patience is counted from: when it was queued, or when the forced card it
-        /// waited behind went (`afterForcedCard`).
+        /// Where its patience is counted from: when it was queued, or when the card it waited
+        /// behind while that was held went (`afterHold`).
         var queuedAt: Date
         /// What its caller asked for, kept for its turn: a finished download that waited behind
         /// a ringing timer used to come back at the default length, not its own.
@@ -137,6 +149,9 @@ final class ActivityCenter: ObservableObject {
         var exact: Bool
     }
     private(set) var pendingAlerts: [PendingAlert] = []
+    /// Whether the alert on screen has been kept past its own time by the pointer resting on it
+    /// (`alertHolds`). While it is, the queue behind it is on hold (`queueOnHold`).
+    private var alertHeldPastTime = false
     /// What the alert on screen was asked to last, so that one sent back to the queue — behind
     /// a louder alert, or behind a card forced up — keeps it.
     private var alertRequest: (duration: TimeInterval?, exact: Bool) = (nil, false)
@@ -196,18 +211,24 @@ final class ActivityCenter: ObservableObject {
     /// Watches for another app coming forward while it is open. A click outside is not the only
     /// way to leave: Command-Tab never sends one.
     private var activationObserver: Any?
+    /// Armed for the next moment something here runs out on its own (`nextWake`), and not at
+    /// all while nothing will.
     private var expiryTimer: Timer?
-    private var lastSuppressed = false
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
-        expiryTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.pruneExpired()
-        }
         Preferences.shared.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        // A pause set, taken back or persisted across a relaunch moves the next wake. After
+        // the change, which `objectWillChange` and the property's own publisher announce
+        // before it is made.
+        Preferences.shared.$pausedUntil
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.armExpiry() }
+            .store(in: &cancellables)
+        armExpiry()
     }
 
     /// Clears every piece of state. Used by the test suite.
@@ -218,6 +239,7 @@ final class ActivityCenter: ObservableObject {
         pendingAlerts.removeAll()
         alertRequest = (nil, false)
         alertShownAt = .distantPast
+        alertHeldPastTime = false
         heldAlertIDs.removeAll()
         hoverPanel = nil
         dragPanel = nil
@@ -408,8 +430,12 @@ final class ActivityCenter: ObservableObject {
     private func presentationUnderTheDrag(for panel: String?) -> IslandPresentation {
         let prefs = Preferences.shared
         let hovering = hoverPanel != nil && (panel == nil || hoverPanel == panel)
-        let peeking = hovering && prefs.hoverToExpand
         let live = sortedActivities
+        // Only where the pointer opens something (`hoverPeeks`): on the bare notch with "Open
+        // from the empty notch too" off it opens nothing, and a card that arrived there counted
+        // as yielding to a peek that was never drawn, and was drawn nowhere itself.
+        let peeking = hovering && prefs.hoverToExpand
+            && Self.peeksWhenIdle(hasLiveActivity: !live.isEmpty, idleHover: prefs.expandOnIdleHover)
         let forced = Self.forcedCard(primary: live.first, forcedID: forcedExpandedID)
         // An alert takes the island unless a panel is showing; then it is drawn over the panel
         // instead (`overlayAlert`), so the panel never goes away under the user. What it does
@@ -432,7 +458,7 @@ final class ActivityCenter: ObservableObject {
         if let view = openView, openHere { return .panel(validated(view)) }
 
         if let forced { return .card(forced) }
-        if peeking, hoverPeeks { return .panel(validated(peekView ?? defaultPeek())) }
+        if peeking { return .panel(validated(peekView ?? defaultPeek())) }
         if let primary = live.first {
             return .compact(primary, bubble: live.dropFirst().first)
         }
@@ -508,9 +534,11 @@ final class ActivityCenter: ObservableObject {
 
     func activity(id: String) -> IslandActivity? { activities.first { $0.id == id } }
 
-    /// True while the user's panel is on screen, pinned or under the pointer.
+    /// True while the user's panel is on screen, pinned or under the pointer. Under the pointer
+    /// only where the pointer opens one (`hoverPeeks`): the bare notch, with "Open from the
+    /// empty notch too" off, shows no panel to draw a banner over.
     var isPanelShowing: Bool {
-        isOpen || (hoverPanel != nil && Preferences.shared.hoverToExpand)
+        isOpen || (hoverPanel != nil && Preferences.shared.hoverToExpand && hoverPeeks)
     }
 
     /// An alert that arrived while the panel is showing (a volume HUD, a finished download, a
@@ -668,16 +696,52 @@ final class ActivityCenter: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
-    private func pruneExpired() {
-        // A pause persisted across a relaunch has no timer of its own; notice when it ends.
-        let suppressed = isSuppressed
-        if suppressed != lastSuppressed {
-            lastSuppressed = suppressed
-            objectWillChange.send()
+    /// The next moment something here runs out on its own: the soonest activity's
+    /// `expiresAt`, or the end of a pause (`pausedUntil`, seconds since 1970, nought for none)
+    /// while it is still to come. One already past is due now. Nil when nothing will run out,
+    /// and then nothing is armed.
+    ///
+    /// A timer used to look every second, for ever, whether anything had: one of the handful
+    /// of wakeups a second the app made with nothing on the island at all.
+    static func nextWake(activities: [IslandActivity], pausedUntil: TimeInterval, now: Date) -> Date? {
+        var soonest = activities.compactMap(\.expiresAt).min()
+        if pausedUntil > 0 {
+            let end = Date(timeIntervalSince1970: pausedUntil)
+            if end > now { soonest = min(soonest ?? end, end) }
         }
+        return soonest.map { max($0, now) }
+    }
+
+    /// How late the expiry timer may fire, so the system can fold its wakeup in with others.
+    /// Well inside the second the old once-a-second look could be late by.
+    static let expiryTolerance: TimeInterval = 0.2
+
+    /// Arms the expiry timer for `nextWake`, or leaves nothing armed. Called whenever the
+    /// activities or the pause change, and after each firing; the same moment again leaves
+    /// the timer that is already set for it.
+    private func armExpiry() {
+        let wake = Self.nextWake(activities: activities, pausedUntil: Preferences.shared.pausedUntil, now: Date())
+        if let timer = expiryTimer, timer.isValid, timer.fireDate == wake { return }
+        expiryTimer?.invalidate()
+        expiryTimer = nil
+        guard let wake else { return }
+        let timer = Timer(fire: wake, interval: 0, repeats: false) { [weak self] _ in self?.pruneExpired() }
+        timer.tolerance = Self.expiryTolerance
+        // The default mode, as the once-a-second timer was scheduled in.
+        RunLoop.main.add(timer, forMode: .default)
+        expiryTimer = timer
+    }
+
+    private func pruneExpired() {
+        expiryTimer = nil
         let now = Date()
-        let expired = activities.filter { ($0.expiresAt ?? .distantFuture) < now }
+        // A pause that has run out has nothing else to say so — one persisted across a
+        // relaunch has no timer of its own — and every island was drawn as hidden.
+        let until = Preferences.shared.pausedUntil
+        if until > 0, until <= now.timeIntervalSince1970 { objectWillChange.send() }
+        let expired = activities.filter { ($0.expiresAt ?? .distantFuture) <= now }
         for a in expired { end(id: a.id) }
+        armExpiry()
     }
 
     // MARK: - Alerts
@@ -708,21 +772,24 @@ final class ActivityCenter: ObservableObject {
 
     /// Whether a queued alert has waited past its patience.
     ///
-    /// Time behind a card forced up does not count against an alert worth keeping. A pointer
-    /// can hold a ringing timer's card for its eight seconds and a minute more
-    /// (`forcedHoldLimit`), and a question from a script for as long as the script said, while
-    /// a finished download has twenty seconds of patience: it waited behind the card and was
-    /// dropped unseen. A key press's HUD goes stale behind the card as anywhere else — a volume
-    /// tick from a minute ago is no news when the card goes.
-    static func outwaited(_ activity: IslandActivity, waited: TimeInterval, behindForcedCard: Bool) -> Bool {
-        if behindForcedCard, alertRank(activity) >= 3 { return false }
+    /// Time the queue is on hold (`behindHold`) does not count against an alert worth keeping:
+    /// behind a card forced up, or behind an alert the pointer is keeping past its own time. A
+    /// pointer can hold a ringing timer's card for its eight seconds and a minute more
+    /// (`forcedHoldLimit`), a question from a script is up for as long as the script said, and
+    /// a finished download's card stays a minute under a resting pointer (`alertHoldLimit`),
+    /// while an alert behind any of them has twenty seconds of patience: it waited, and was
+    /// dropped unseen when its turn came. A key press's HUD goes stale behind them as anywhere
+    /// else — a volume tick from a minute ago is no news when the card goes.
+    static func outwaited(_ activity: IslandActivity, waited: TimeInterval, behindHold: Bool) -> Bool {
+        if behindHold, alertRank(activity) >= 3 { return false }
         return waited > patience(for: activity)
     }
 
-    /// The queue once the card forced up has gone: every alert worth keeping starts its
-    /// patience again from now, so its turn is measured from when it could have one. A HUD
-    /// keeps the moment it was queued, and is dropped as stale.
-    static func afterForcedCard(_ queue: [PendingAlert], now: Date) -> [PendingAlert] {
+    /// The queue once the hold it waited through is over — the card forced up has gone, or
+    /// the alert the pointer was keeping: every alert worth keeping starts its patience again
+    /// from now, so its turn is measured from when it could have one. A HUD keeps the moment
+    /// it was queued, and is dropped as stale.
+    static func afterHold(_ queue: [PendingAlert], now: Date) -> [PendingAlert] {
         queue.map { item in
             var item = item
             if alertRank(item.activity) >= 3 { item.queuedAt = now }
@@ -834,16 +901,45 @@ final class ActivityCenter: ObservableObject {
         // arrives behind the same ringing timer.
         pendingAlerts.removeAll { $0.activity.id == activity.id }
         pruneOutwaitedAlerts(now: now)
-        if pendingAlerts.count < 3 {
-            pendingAlerts.append(PendingAlert(activity: activity, queuedAt: now, duration: duration, exact: exact))
-        }
+        pendingAlerts = Self.admitting(PendingAlert(activity: activity, queuedAt: now, duration: duration, exact: exact),
+                                       to: pendingAlerts)
     }
+
+    /// How many alerts wait their turn at once.
+    static let pendingLimit = 3
+
+    /// The queue with `item` in it. With room, it joins. Full, it takes the place of the
+    /// quietest alert waiting, the one that has waited longest of those, if it is louder than
+    /// that; otherwise it is dropped.
+    ///
+    /// Arrivals used to be dropped whenever the three places were taken, and behind a card that
+    /// holds the queue for minutes (`outwaited`) the three alerts that got there first kept
+    /// their places for good: a charger going in after them was never shown at all.
+    static func admitting(_ item: PendingAlert, to queue: [PendingAlert],
+                          limit: Int = ActivityCenter.pendingLimit) -> [PendingAlert] {
+        guard queue.count >= limit else { return queue + [item] }
+        let quietestIndex = queue.indices.min { a, b in
+            let rankA = alertRank(queue[a].activity), rankB = alertRank(queue[b].activity)
+            return rankA != rankB ? rankA < rankB : queue[a].queuedAt < queue[b].queuedAt
+        }
+        guard let quietest = quietestIndex, alertRank(item.activity) > alertRank(queue[quietest].activity) else {
+            return queue
+        }
+        var admitted = queue
+        admitted.remove(at: quietest)
+        admitted.append(item)
+        return admitted
+    }
+
+    /// Whether the queue waits on something that can outlast any alert's patience: a card
+    /// forced up and showing, or an alert the pointer is keeping past its own time.
+    private var queueOnHold: Bool { forcedCardShowing || alertHeldPastTime }
 
     /// Drops what has waited past its patience (`outwaited`).
     private func pruneOutwaitedAlerts(now: Date) {
-        let behindCard = forcedCardShowing
+        let onHold = queueOnHold
         pendingAlerts.removeAll {
-            Self.outwaited($0.activity, waited: now.timeIntervalSince($0.queuedAt), behindForcedCard: behindCard)
+            Self.outwaited($0.activity, waited: now.timeIntervalSince($0.queuedAt), behindHold: onHold)
         }
     }
 
@@ -859,6 +955,8 @@ final class ActivityCenter: ObservableObject {
             guard let self, self.alert?.id == id else { return }
             if Self.alertHolds(seconds: requested, heldFor: heldFor, pointerOn: self.isHovering || self.isDragTargeted,
                                panelShowing: self.isPanelShowing, cardUnderPointer: self.cardUnderPointer(id: id)) {
+                // Past its own time now: what waits behind it is on hold until it goes.
+                self.alertHeldPastTime = true
                 self.scheduleAlertDismiss(id: id, after: 1, requested: requested, heldFor: heldFor + 1)
             } else {
                 self.alert = nil

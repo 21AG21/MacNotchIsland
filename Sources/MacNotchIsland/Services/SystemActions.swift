@@ -7,9 +7,9 @@ import CoreGraphics
 /// the screen, put the display to sleep, and open the screenshot toolbar.
 ///
 /// The lock is the call the menu bar's own Lock Screen item makes, looked up by name in a
-/// private framework and walked past when it is not there or the screen has not locked a
-/// moment after it; behind it is Control-Command-Q, posted as if typed, which needs
-/// Accessibility. The display goes to sleep through `pmset`, which any user may run, and the
+/// private framework and walked past when it is not there, or when it answers something other
+/// than nought and the screen has not locked a couple of seconds later; behind it is
+/// Control-Command-Q, posted as if typed, which needs Accessibility. The display goes to sleep through `pmset`, which any user may run, and the
 /// toolbar is Apple's own Screenshot app.
 enum SystemActions {
     /// Locks the screen at once, the way Control-Command-Q does.
@@ -17,34 +17,83 @@ enum SystemActions {
     /// The menu's own call first, because it depends on nothing: no permission, no keyboard
     /// layout. The keystroke used to come first, and on a French keyboard it was
     /// Control-Command-A — see `lockKeyCode(characterFor:)` — which locks nothing; and since
-    /// posting it counted as success, nothing else was tried. What the call returns is written
-    /// down nowhere, so it is not what decides: the screen is looked at a moment later, and
-    /// the lock goes another way only if it is still not locked (`lockFallback`).
+    /// posting it counted as success, nothing else was tried. A nought from the call is taken
+    /// at its word, at once; anything else is not taken for a failure until the screen has had
+    /// a couple of seconds to lock (`lockFallback`, `LockWatch`).
     static func lockScreen() {
         guard let lock = loginLockScreen else { return lockAnotherWay() }
         let status = lock()
-        DispatchQueue.main.asyncAfter(deadline: .now() + lockGrace) {
-            guard Self.lockFallback(status: status, lockedAfter: ScreenLockMonitor.screenIsLocked) else { return }
-            IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock, and the screen is not locked")
+        guard status != 0 else { return }
+        LockWatch.start { locked in
+            guard Self.lockFallback(status: status, lockedAfter: locked) else { return }
+            IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock, and the screen did not lock")
             Self.lockAnotherWay()
         }
     }
 
-    /// How long the screen is given to lock after the login framework's call before it is
-    /// looked at.
-    static let lockGrace: TimeInterval = 0.5
+    /// How long the screen is given to lock after the login framework's call answered
+    /// something other than nought, before the lock goes another way. The lock screen can take
+    /// more than half a second to come up on a busy Mac, and half a second, as this was,
+    /// pressed Control-Command-Q into a lock screen already on its way.
+    static let lockPatience: TimeInterval = 2
+
+    /// How often the session is read while waiting, for when the system's "locked"
+    /// notification does not come.
+    static let lockPollInterval: TimeInterval = 0.25
 
     /// Whether the lock goes another way: the keystroke, else the display put to sleep.
     ///
-    /// `status` is what the login framework's call returned, nil when it is not there to call.
-    /// What the call returns is written down nowhere, so the number decides nothing: anything
-    /// but nought used to press Control-Command-Q, or put the display to sleep, on top of a lock
-    /// that had already happened, should the call answer something else when it works. The
-    /// screen decides: locked a moment later, the call worked, whatever it said; not locked, it
-    /// did not, whatever it said.
+    /// `status` is what the login framework's call returned, nil when it is not there to call;
+    /// `lockedAfter` is whether the screen locked within `lockPatience` of it. Nought is the
+    /// call's word that it locked, and it is believed whatever the screen says yet: the
+    /// session's flag can be slower to turn than any fixed wait, and not believing it pressed
+    /// Control-Command-Q into the lock screen, or put the display to sleep after a lock that
+    /// had worked. What anything else means is written down nowhere, so there the screen
+    /// decides: locked in time, the call worked, whatever it said; not locked, it did not.
     static func lockFallback(status: Int32?, lockedAfter: Bool) -> Bool {
-        guard status != nil else { return true }
+        guard let status else { return true }
+        guard status != 0 else { return false }
         return !lockedAfter
+    }
+
+    /// Waits up to `lockPatience` for the screen to lock and says, once, on the main thread,
+    /// whether it did: at once on the system's own "screen is locked" notification, or on a
+    /// read of the session every `lockPollInterval`, and no in the end. It keeps itself alive
+    /// through its poll until it has answered.
+    private final class LockWatch {
+        private let done: (Bool) -> Void
+        private let started = Date()
+        private var observer: NSObjectProtocol?
+        private var poll: Timer?
+        private var heard = false
+
+        static func start(_ done: @escaping (Bool) -> Void) {
+            _ = LockWatch(done: done)
+        }
+
+        private init(done: @escaping (Bool) -> Void) {
+            self.done = done
+            observer = DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+                    self?.heard = true
+                    self?.check()
+                }
+            // The timer holds the watch, and lets it go when it is invalidated.
+            let poll = Timer(timeInterval: SystemActions.lockPollInterval, repeats: true) { [self] _ in check() }
+            RunLoop.main.add(poll, forMode: .common)
+            self.poll = poll
+        }
+
+        private func check() {
+            guard let poll else { return }
+            let locked = heard || ScreenLockMonitor.screenIsLocked
+            guard locked || Date().timeIntervalSince(started) >= SystemActions.lockPatience else { return }
+            poll.invalidate()
+            self.poll = nil
+            if let observer { DistributedNotificationCenter.default().removeObserver(observer) }
+            observer = nil
+            done(locked)
+        }
     }
 
     /// The lock without the login framework's call: Control-Command-Q, which needs

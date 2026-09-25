@@ -99,8 +99,35 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertEqual(mute.owed, [airPods], "but the AirPods are owed their unmute")
         XCTAssertFalse(mute.reappeared(builtIn), "nothing is owed to a microphone that was there to be given back")
         XCTAssertTrue(mute.reappeared(airPods), "back, with no mute in force: unmuted")
+        XCTAssertEqual(mute.owed, [airPods], "still owed until the unmute has gone through")
+        mute.settled(airPods)
         XCTAssertEqual(mute.owed, [])
         XCTAssertFalse(mute.reappeared(airPods), "and only the once")
+    }
+
+    /// AirPods that have only just appeared can have no mute to read yet, or none that can be
+    /// set. The debt was struck off before the unmute was tried, the unmute was passed over,
+    /// and they stayed muted for good.
+    func testAnUnmuteOwedIsPaidOnlyOnceItHasGoneThrough() {
+        typealias Held = MicrophoneControl.HeldMute
+        XCTAssertTrue(Held.owedUnmutePaid(readMuted: true, unmuted: true), "read muted, and unmuted")
+        XCTAssertFalse(Held.owedUnmutePaid(readMuted: true, unmuted: false), "the unmute was refused: asked again next time")
+        XCTAssertFalse(Held.owedUnmutePaid(readMuted: nil, unmuted: false),
+                       "could not say whether it is muted: nothing is known to be paid")
+        XCTAssertTrue(Held.owedUnmutePaid(readMuted: false, unmuted: false),
+                      "already live, whoever made it so: nothing is left to give")
+
+        var mute = Held()
+        mute.muted(airPods)
+        let away = mute.release(except: builtIn)
+        mute.unreachable(away)
+        XCTAssertTrue(mute.reappeared(airPods), "back, and nothing could be read")
+        XCTAssertTrue(mute.reappeared(airPods), "so at the next change of devices it is tried again")
+        XCTAssertEqual(mute.owed, [airPods])
+        mute.muted(builtIn)
+        XCTAssertFalse(mute.reappeared(airPods), "a mute put on meanwhile takes it over")
+        XCTAssertEqual(mute.owed, [])
+        XCTAssertEqual(mute.devices, [builtIn, airPods])
     }
 
     func testAMicrophoneBackUnderANewMuteStaysUnderIt() {
@@ -334,18 +361,22 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertFalse(SystemActions.lockFlags.contains(.maskAlternate))
     }
 
-    /// What the login framework's call returns is written down nowhere, so the screen says
-    /// whether it worked: anything but nought used to press the keystroke too, or put the
-    /// display to sleep, on top of a lock that had happened.
-    func testTheLockGoesAnotherWayOnlyIfTheScreenDidNotLock() {
+    /// Nought from the login framework's call is its word that it locked, and is believed:
+    /// looked at half a second later, a screen whose session flag had not turned yet had
+    /// Control-Command-Q pressed into its lock screen, or the display put to sleep after a lock
+    /// that worked. Anything else is written down nowhere, and there the screen says whether
+    /// it worked: anything but nought used to press the keystroke too, on top of a lock that
+    /// had happened.
+    func testTheLockGoesAnotherWayOnlyIfTheCallDidNotSayItLockedAndTheScreenDidNotLock() {
         XCTAssertFalse(SystemActions.lockFallback(status: 0, lockedAfter: true))
+        XCTAssertFalse(SystemActions.lockFallback(status: 0, lockedAfter: false),
+                       "a nought is taken at its word, however slow the screen is to say so")
         XCTAssertFalse(SystemActions.lockFallback(status: 1, lockedAfter: true),
-                       "locked a moment later, whatever the call answered: nothing more is pressed")
+                       "locked in time, whatever the call answered: nothing more is pressed")
         XCTAssertTrue(SystemActions.lockFallback(status: -1, lockedAfter: false))
-        XCTAssertTrue(SystemActions.lockFallback(status: 0, lockedAfter: false),
-                      "a nought that locked nothing is not a lock either")
         XCTAssertTrue(SystemActions.lockFallback(status: nil, lockedAfter: false), "no call to make: straight to the keystroke")
-        XCTAssertGreaterThan(SystemActions.lockGrace, 0)
-        XCTAssertLessThanOrEqual(SystemActions.lockGrace, 1, "the way round still answers the same click")
+        XCTAssertGreaterThanOrEqual(SystemActions.lockPatience, 1.5, "long enough for a busy Mac's lock screen to come up")
+        XCTAssertLessThanOrEqual(SystemActions.lockPatience, 3, "the way round still answers the same click")
+        XCTAssertLessThan(SystemActions.lockPollInterval, SystemActions.lockPatience)
     }
 }

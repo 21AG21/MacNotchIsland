@@ -44,26 +44,38 @@ final class FavoriteApps: ObservableObject {
         return live.map { ($0, Self.name(of: $0)) }
     }
 
-    /// How many buttons the apps take in the Actions row: the ones on disk, which is what the
-    /// row draws (`apps`). The one count of them every share of the row is worked out from —
-    /// the room Settings leaves the Shortcuts, its tally, the Add App button and the Home
-    /// tile. Settings counted `paths` and the row `apps`, so an app on a disk that was not
-    /// plugged in left Settings one Shortcut short of the room the row actually had.
+    /// The apps kept whose disk is not plugged in (`worthKeeping`, and not on disk), as (path,
+    /// name) pairs in the stored order. The row does not draw them, but they keep their place
+    /// and are back in it when the disk is, so Settings lists them, to be removed.
+    var away: [(path: String, name: String)] {
+        paths.filter { !FileManager.default.fileExists(atPath: $0) && Self.worthKeeping($0) }
+            .map { ($0, Self.name(of: $0)) }
+    }
+
+    /// How many buttons the apps take in the Actions row now: the ones on disk, which is what
+    /// the row draws (`apps`). What the row is shared out by as it stands — the room Settings
+    /// leaves the Shortcuts, its tally, and the Home tile. Settings counted `paths` and the row
+    /// `apps`, so an app on a disk that was not plugged in left Settings one Shortcut short of
+    /// the room the row actually had. Adding an app counts every app kept (`hasRoom`).
     var inRow: Int { apps.count }
+
+    /// Every app kept, plugged in or not: the row's share once every disk is back.
+    var keptCount: Int { paths.filter { Self.worthKeeping($0) }.count }
 
     /// Whether another app can be kept beside `room`, the most the row leaves the apps. Pure,
     /// so the rule is tested.
     ///
-    /// The row's share is counted as the row draws it (`inRow`); what is stored is still held
-    /// to `maximum`, since an app on a disk that is not plugged in is kept, and is back in the
-    /// row when the disk is.
-    static func hasRoom(stored: Int, inRow: Int, room: Int) -> Bool {
-        stored < maximum && inRow < min(room, maximum)
+    /// Every app kept counts (`keptCount`), not only the ones the row draws now. Counted as
+    /// the row draws them, an app on a disk that was not plugged in left room for one more;
+    /// Settings added it, and when the disk came back the row drew both and pushed a favourite
+    /// Shortcut out without a word — what `add` is there to prevent.
+    static func hasRoom(stored: Int, room: Int) -> Bool {
+        stored < min(room, maximum)
     }
 
     /// `hasRoom`, for the apps kept now.
     func hasRoom(beside room: Int) -> Bool {
-        Self.hasRoom(stored: paths.count, inRow: inRow, room: room)
+        Self.hasRoom(stored: keptCount, room: room)
     }
 
     /// Whether a path is still worth storing. A deleted app is forgotten; an app whose whole
@@ -95,8 +107,8 @@ final class FavoriteApps: ObservableObject {
 
     /// Keeps an app. `room` is how many apps the row can show beside the favourite Shortcuts
     /// it shares with, which Settings works out: an app added past it would push a Shortcut
-    /// out of the row without a word. Counted the way the button that calls this is, see
-    /// `hasRoom`.
+    /// out of the row without a word, now or when a disk comes back. Counted the way the
+    /// button that calls this is, see `hasRoom`.
     func add(_ url: URL, room: Int = FavoriteApps.maximum) {
         let path = url.path
         guard !paths.contains(path), hasRoom(beside: room) else { return }

@@ -314,7 +314,7 @@ final class SpacesAndDisplaysTests: XCTestCase {
                        FullscreenMonitor.Window(pid: 70, frame: externalScreen.rect)]
         XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [externalScreen],
                                                        frontmost: 2, fullScreenFrames: nil), [])
-        XCTAssertEqual(FullscreenMonitor.contenders(on: externalScreen, windows: windows, frontmost: 2), [],
+        XCTAssertEqual(FullscreenMonitor.contenders(on: externalScreen, among: [externalScreen], windows: windows, frontmost: 2), [],
                        "and is never a contender itself")
     }
 
@@ -324,11 +324,50 @@ final class SpacesAndDisplaysTests: XCTestCase {
                        FullscreenMonitor.Window(pid: 30, frame: safariWindow),
                        FullscreenMonitor.Window(pid: 20, frame: externalScreen.rect),
                        FullscreenMonitor.Window(pid: 20, frame: safariOnExternal)]
-        XCTAssertEqual(FullscreenMonitor.contenders(on: externalScreen, windows: windows, frontmost: nil).map(\.pid), [20, 20],
+        let both = [notchedScreen, externalScreen]
+        XCTAssertEqual(FullscreenMonitor.contenders(on: externalScreen, among: both, windows: windows, frontmost: nil).map(\.pid), [20, 20],
                        "a point-wide window, one parked off every display and one on the other display are in front of nothing")
-        XCTAssertEqual(FullscreenMonitor.contenders(on: notchedScreen, windows: windows, frontmost: nil).map(\.pid), [30])
+        XCTAssertEqual(FullscreenMonitor.contenders(on: notchedScreen, among: both, windows: windows, frontmost: nil).map(\.pid), [30])
         XCTAssertTrue(FullscreenMonitor.isOn(externalScreen, safariOnExternal))
         XCTAssertFalse(FullscreenMonitor.isOn(externalScreen, safariWindow))
+    }
+
+    /// A Safari window on the external display, against the shared edge, overhangs the MacBook
+    /// by a few points. It was the MacBook's front, being first in the list with two points
+    /// there, and the film full screen on the MacBook came out from under its island.
+    func testAWindowOverhangingTheSharedEdgeIsInFrontOfItsOwnDisplayOnly() {
+        let overhanging = CGRect(x: 1705, y: 100, width: 1200, height: 800)
+        let windows = [FullscreenMonitor.Window(pid: 30, frame: overhanging),
+                       FullscreenMonitor.Window(pid: 20, frame: notchedScreen.rect)]
+        XCTAssertTrue(FullscreenMonitor.isOn(notchedScreen, overhanging), "five points of it do lie on the MacBook")
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: 30, fullScreenFrames: nil),
+                       ["screen-1"], "Safari belongs to the external display, and the film is the MacBook's front")
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: nil, fullScreenFrames: nil),
+                       ["screen-1"])
+
+        // The same when the external display carries no island: it is still where Safari is.
+        var bare = externalScreen
+        bare.carriesIsland = false
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, bare],
+                                                       frontmost: 30, fullScreenFrames: nil),
+                       ["screen-1"])
+        let filmThere = [FullscreenMonitor.Window(pid: 20, frame: externalScreen.rect)]
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: filmThere, menuBars: [], screens: [notchedScreen, bare],
+                                                       frontmost: 20, fullScreenFrames: nil),
+                       [], "a display with no island is never covered")
+    }
+
+    func testAWindowBelongsToTheDisplayHoldingItsCentreOrElseToTheOneWithMostOfIt() {
+        let both = [notchedScreen, externalScreen]
+        XCTAssertEqual(FullscreenMonitor.home(of: CGRect(x: 1705, y: 100, width: 1200, height: 800), among: both), "screen-2")
+        XCTAssertEqual(FullscreenMonitor.home(of: CGRect(x: 600, y: 100, width: 1200, height: 800), among: both), "screen-1",
+                       "the centre is on the MacBook, a few points of it on the external display")
+        XCTAssertEqual(FullscreenMonitor.home(of: CGRect(x: 1000, y: 1000, width: 1000, height: 1000), among: both), "screen-2",
+                       "centre below the MacBook, on no display: the external display has most of it")
+        XCTAssertNil(FullscreenMonitor.home(of: CGRect(x: 1710, y: 0, width: 1, height: 1), among: both))
+        XCTAssertNil(FullscreenMonitor.home(of: CGRect(x: -5000, y: -5000, width: 500, height: 500), among: both))
     }
 
     private func listed(pid: pid_t, owner: String, layer: Int = 0, name: String? = nil, bounds: CGRect,

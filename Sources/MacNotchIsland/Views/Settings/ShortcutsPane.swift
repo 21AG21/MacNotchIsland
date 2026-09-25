@@ -35,6 +35,17 @@ struct ShortcutsPane: View {
                             }
                         }
                     }
+                    // Not drawn in the row while their disk is unplugged, but kept, and counted
+                    // against the room (`FavoriteApps.hasRoom`): listed so that the place one
+                    // holds can be given up here rather than only by plugging the disk in.
+                    ForEach(apps.away, id: \.path) { app in
+                        LabeledContent {
+                            Button("Remove") { apps.remove(app.path) }
+                        } label: {
+                            Text(app.name)
+                            Text("On a disk that is not plugged in. It keeps its place, and is back in the row when the disk is.")
+                        }
+                    }
                     Button("Add App…") { chooseApp() }
                         .disabled(!apps.hasRoom(beside: appRoom))
                 } header: {
