@@ -26,8 +26,8 @@ import ObjectiveC
 /// here tries to talk AVFoundation out of its check.
 ///
 /// The route changes without telling anybody — a pair taken out of the case becomes the output a
-/// moment later — so it is polled: every two seconds, slower on battery, and only while
-/// something that shows it is on screen.
+/// moment later — so it is polled: every two seconds, slower on battery, only while something
+/// that shows it is on screen, and never while AVFoundation is refusing the context.
 final class AirPodsControl: ObservableObject {
     static let shared = AirPodsControl()
 
@@ -181,6 +181,15 @@ final class AirPodsControl: ObservableObject {
         candidates.first(where: exists) ?? candidates.last ?? "headphones"
     }
 
+    /// Whether the route is worth asking again every few seconds: only while something that
+    /// shows the pills is on screen, and only where there is something to ask — not where the
+    /// class is missing, and not while AVFoundation is refusing the context, which its
+    /// entitlement check does for the whole run of an app signed the way this one is. Asking
+    /// that every two seconds only hears the same no again. Pure.
+    static func shouldPoll(hasBridge: Bool, contextRefused: Bool, viewers: Int) -> Bool {
+        hasBridge && !contextRefused && viewers > 0
+    }
+
     // MARK: - The runtime
 
     /// `sharedSystemAudioContext` and every getter here: an object back, at +0.
@@ -299,6 +308,10 @@ final class AirPodsControl: ObservableObject {
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
     private var pending: (mode: Mode, until: TimeInterval)?
+    /// AVFoundation gave no context the last time it was asked. The poll stops while this is
+    /// set (see `shouldPoll`); the route is still read when a viewer appears or a Bluetooth card
+    /// asks, and the moment the context answers this clears and the poll starts again.
+    private var contextRefused = false
     /// Each said once per run rather than every two seconds.
     private var reportedNoContext = false
     private var reportedNoDevices = false
@@ -312,7 +325,13 @@ final class AirPodsControl: ObservableObject {
     /// Reads the route once. Main thread.
     func refresh() {
         guard let bridge, !RenderMode.isGallery else { return publish(nil) }
-        guard let context = bridge.context() else {
+        let context = bridge.context()
+        if contextRefused != (context == nil) {
+            contextRefused = context == nil
+            // Stops the poll, or starts it again, to match.
+            schedule()
+        }
+        guard let context else {
             if !reportedNoContext {
                 reportedNoContext = true
                 IslandLog.audio.notice("AVFoundation gave no system audio context; the listening modes stay hidden")
@@ -448,12 +467,16 @@ final class AirPodsControl: ObservableObject {
         energyCancellable = nil
     }
 
+    /// Starts the poll afresh, or leaves it stopped where `shouldPoll` says there is nothing to
+    /// poll for.
     private func schedule() {
         timer?.invalidate()
         timer = nil
-        // Nothing to poll for where the class or its context is missing: that does not change
-        // while the app runs.
-        guard bridge != nil else { return }
+        // Nothing to poll for where the class or its context is missing: neither comes back by
+        // being asked every two seconds. A refused context is asked again only by `refresh`,
+        // which a viewer appearing or a Bluetooth card still calls, and which starts the poll
+        // itself if the answer changes.
+        guard Self.shouldPoll(hasBridge: bridge != nil, contextRefused: contextRefused, viewers: viewers) else { return }
         let interval = Self.pollInterval * EnergyPolicy.shared.pollingMultiplier
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.refresh() }
         t.tolerance = interval / 2

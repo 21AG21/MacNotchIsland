@@ -287,49 +287,83 @@ final class AudioOutputs: ObservableObject {
     // MARK: - Writing
 
     func select(_ device: Device) {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var id = device.id
-        let status = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
-                                                UInt32(MemoryLayout<AudioDeviceID>.size), &id)
+        let status = Self.writeDefaultOutput(device.id)
         if status != noErr { IslandLog.audio.error("could not select output \(device.name, privacy: .public): \(status, privacy: .public)") }
         reloadDevices()
+    }
+
+    /// The two writes that send the sound to an AirPlay receiver, in the order they are made.
+    enum AirPlayStep: Equatable {
+        /// The AirPlay device becomes the default output.
+        case output
+        /// Its data source is set to the receiver.
+        case receiver
+    }
+
+    /// The output to put back when sending the sound to a receiver was refused at `failed`, or
+    /// nil when there is nothing to undo. A refused first step never moved the output. A refused
+    /// second step comes after the first has moved it, and the AirPlay device is then left
+    /// playing to whichever receiver it last had, or to none — so the output that was playing
+    /// before goes back. Unless that was the AirPlay device already, which is still where it
+    /// was, or CoreAudio could not say what it was (0), where writing a guess back would be one
+    /// more wrong turn. Pure.
+    static func rollback(previous: AudioDeviceID, airPlay: AudioDeviceID, after failed: AirPlayStep) -> AudioDeviceID? {
+        switch failed {
+        case .output: return nil
+        case .receiver: return previous == 0 || previous == airPlay ? nil : previous
+        }
     }
 
     /// Sends the sound to one AirPlay receiver: the AirPlay device becomes the output first, and
     /// then its data source is set to the receiver, which is the order the Sound pane did it in.
     /// Every step that CoreAudio refuses is logged by name, because how the AirPlay device
-    /// answers this on a given macOS is not written down anywhere; a refusal leaves the output
-    /// where it was, and the route picker under the list is still there to do it the system's way.
+    /// answers this on a given macOS is not written down anywhere. A refusal leaves the output
+    /// where it was, wherever CoreAudio could say where that was — a refused receiver by putting
+    /// back the output the first step moved away from, as `rollback` decides — and the route
+    /// picker under the list is still there to do it the system's way.
     func selectAirPlay(_ target: AirPlayTarget) {
-        var defaultAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                                                        mScope: kAudioObjectPropertyScopeGlobal,
-                                                        mElement: kAudioObjectPropertyElementMain)
-        var id = target.device
-        let madeDefault = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &defaultAddress, 0, nil,
-                                                     UInt32(MemoryLayout<AudioDeviceID>.size), &id)
-        guard madeDefault == noErr else {
+        // Read before anything is written: the one to go back to if the receiver says no.
+        let previous = AudioMonitor.defaultOutputDevice()
+        var failed: AirPlayStep?
+        let madeDefault = Self.writeDefaultOutput(target.device)
+        if madeDefault != noErr {
             IslandLog.audio.error("could not make AirPlay the output for \(target.name, privacy: .public): \(madeDefault, privacy: .public)")
-            reloadDevices()
-            return
+            failed = .output
+        } else {
+            var sourceAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDataSource,
+                                                           mScope: kAudioDevicePropertyScopeOutput,
+                                                           mElement: kAudioObjectPropertyElementMain)
+            var settable: DarwinBoolean = false
+            let asked = AudioObjectIsPropertySettable(target.device, &sourceAddress, &settable)
+            if asked != noErr || !settable.boolValue {
+                // Tried anyway: a device that says no here has been known to take the write.
+                IslandLog.audio.notice("the AirPlay device says its data source is not settable (\(asked, privacy: .public)); trying \(target.name, privacy: .public) anyway")
+            }
+            // The property is a list of the selected sources; a list of one is one UInt32.
+            var source = target.source
+            let status = AudioObjectSetPropertyData(target.device, &sourceAddress, 0, nil,
+                                                    UInt32(MemoryLayout<UInt32>.size), &source)
+            if status != noErr {
+                IslandLog.audio.error("could not send AirPlay to \(target.name, privacy: .public): \(status, privacy: .public)")
+                failed = .receiver
+            }
         }
-        var sourceAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDataSource,
-                                                       mScope: kAudioDevicePropertyScopeOutput,
-                                                       mElement: kAudioObjectPropertyElementMain)
-        var settable: DarwinBoolean = false
-        let asked = AudioObjectIsPropertySettable(target.device, &sourceAddress, &settable)
-        if asked != noErr || !settable.boolValue {
-            // Tried anyway: a device that says no here has been known to take the write.
-            IslandLog.audio.notice("the AirPlay device says its data source is not settable (\(asked, privacy: .public)); trying \(target.name, privacy: .public) anyway")
-        }
-        // The property is a list of the selected sources; a list of one is one UInt32.
-        var source = target.source
-        let status = AudioObjectSetPropertyData(target.device, &sourceAddress, 0, nil,
-                                                UInt32(MemoryLayout<UInt32>.size), &source)
-        if status != noErr {
-            IslandLog.audio.error("could not send AirPlay to \(target.name, privacy: .public): \(status, privacy: .public)")
+        if let failed, let back = Self.rollback(previous: previous, airPlay: target.device, after: failed) {
+            let restored = Self.writeDefaultOutput(back)
+            if restored != noErr {
+                IslandLog.audio.error("could not put the output back after \(target.name, privacy: .public) refused: \(restored, privacy: .public)")
+            }
         }
         reloadDevices()
+    }
+
+    /// Makes `device` the system's default output: the write the Sound pane makes.
+    private static func writeDefaultOutput(_ device: AudioDeviceID) -> OSStatus {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var id = device
+        return AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+                                          UInt32(MemoryLayout<AudioDeviceID>.size), &id)
     }
 
     /// When the island last set the level itself, from its own slider. See `LocalWrite`.

@@ -134,6 +134,33 @@ final class AirPlayAndAirPodsTests: XCTestCase {
         XCTAssertEqual(with - without, RailMetrics.gap + RailMetrics.button)
     }
 
+    // MARK: - AirPlay: a receiver that says no
+
+    private let speakersID: AudioDeviceID = 1
+
+    func testAReceiverThatSaysNoPutsTheSpeakersBack() {
+        // The speakers were playing, "Kitchen" was picked, the AirPlay device became the output
+        // and then refused the receiver: left there, the sound goes to whichever receiver AirPlay
+        // last had, or nowhere.
+        XCTAssertEqual(AudioOutputs.rollback(previous: speakersID, airPlay: airPlayID, after: .receiver), speakersID)
+    }
+
+    func testAnOutputThatNeverMovedHasNothingToPutBack() {
+        XCTAssertNil(AudioOutputs.rollback(previous: speakersID, airPlay: airPlayID, after: .output),
+                     "AirPlay was refused as the output, so the speakers never stopped being it")
+    }
+
+    func testAirPlayThatWasAlreadyTheOutputStaysTheOutput() {
+        // Playing to the den, "Kitchen" picked and refused: the output was AirPlay before and is
+        // AirPlay now, and anything else would move the sound somewhere nobody asked for.
+        XCTAssertNil(AudioOutputs.rollback(previous: airPlayID, airPlay: airPlayID, after: .receiver))
+    }
+
+    func testAnOutputCoreAudioCouldNotNameIsNotGuessedAt() {
+        XCTAssertNil(AudioOutputs.rollback(previous: 0, airPlay: airPlayID, after: .receiver),
+                     "device 0 is no device, and writing it back is one more wrong turn")
+    }
+
     // MARK: - AirPods: reading AVFoundation's names
 
     func testTheNamesAVFoundationUsesAreRead() {
@@ -237,6 +264,23 @@ final class AirPlayAndAirPodsTests: XCTestCase {
         XCTAssertTrue(AirPodsControl.accepts(.noiseCancellation, pending: pending, now: 99), "they agree: settled")
         XCTAssertTrue(AirPodsControl.accepts(.off, pending: pending, now: 100), "past the wait, the pair is believed")
         XCTAssertTrue(AirPodsControl.accepts(.off, pending: nil, now: 0))
+    }
+
+    // MARK: - AirPods: when the route is asked
+
+    func testTheRouteIsPolledOnlyWhileSomethingShowsIt() {
+        XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: false, viewers: 1))
+        XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: false, viewers: 2))
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: false, viewers: 0))
+    }
+
+    func testARefusedContextIsNotAskedEveryTwoSeconds() {
+        // The entitlement check an ad-hoc signed app fails: asking again only hears the same no,
+        // on a timer, for as long as Controls or a Bluetooth card is open.
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: true, viewers: 1))
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: false, contextRefused: false, viewers: 1),
+                       "nor is a class that is not there")
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: false, contextRefused: true, viewers: 0))
     }
 
     // MARK: - AirPods: the glyphs

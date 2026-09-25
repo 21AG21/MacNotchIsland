@@ -270,6 +270,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A receiver that says no leaves the sound where it was.** Picking an AirPlay speaker makes the AirPlay device the output and then points it at the speaker. When the speaker refused, the first half stayed done, and the sound went to whichever speaker AirPlay last played to, or nowhere. The output the Mac was playing through before is put back now.
+- **No asking every two seconds for what will not be given.** Where AVFoundation refuses an app like this one the system's audio context, the AirPods listening modes stay hidden — but the route was still asked for them every two seconds for as long as Controls or a Bluetooth card was open. The island asks again only when one of them opens, and polls only once the context answers.
 - **A script's "end" ends only the script's cards.** `notchisland://activity/end` with no id
   ended every custom activity, the island's own screen recording among them: its card went, and
   with it the only Stop button, while `screencapture` went on recording. It now ends the cards a
