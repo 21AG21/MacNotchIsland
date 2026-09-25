@@ -33,6 +33,12 @@ final class AdapterBackend {
     /// When each helper we have owned this session died, most recent last.
     private var failures: [Date] = []
     private var watchdog: Timer?
+    /// When the Mac, or its screens, last woke — or the watchdog found it had not been running,
+    /// which is how a sleep looks from inside a timer. See `isOverdue`.
+    private var wokeAt: Date?
+    /// When the watchdog last looked, so a look that comes far too late can be told apart.
+    private var lastCheck: Date?
+    private var wakeObservers: [NSObjectProtocol] = []
     private var artworkHash = ""
     private var artwork: NSImage?
     private var accent: NSColor = .white
@@ -69,7 +75,34 @@ final class AdapterBackend {
 
     /// The helper is alive and still talking to us. This is what the lower-ranked backends are
     /// gated on: while it holds, nobody else needs to go and ask the Mac what is playing.
-    var isAnswering: Bool { BackendHealth.isFresh(lastMessage, now: Date(), within: Self.silence) }
+    var isAnswering: Bool { !Self.isOverdue(lastMessage: lastMessage, wokeAt: wokeAt, now: Date(), within: Self.silence) }
+
+    /// Whether a helper last heard from at `lastMessage` has been silent for longer than it may
+    /// be. Pure, so the sleep can be tested without one.
+    ///
+    /// Silence is counted from the later of its last message and the last wake. A sleep is
+    /// silence the helper did not choose: it was frozen with the rest of the Mac, and after
+    /// anything longer than `silence` its last message was stale the moment the lid opened.
+    /// The watchdog then killed a healthy helper on every wake, each death counted against its
+    /// restart budget, and while it was down AppleScript was let loose on Music and Spotify —
+    /// which could raise the first "control Music" prompt right at the lock screen. A wake
+    /// starts the helper's clock again, the same benefit of the doubt a launch gives it. A
+    /// helper never heard from at all is overdue however recent the wake: there is nothing
+    /// there to wait for.
+    static func isOverdue(lastMessage: Date?, wokeAt: Date?, now: Date, within window: TimeInterval) -> Bool {
+        guard lastMessage != nil else { return true }
+        if BackendHealth.isFresh(lastMessage, now: now, within: window) { return false }
+        return !BackendHealth.isFresh(wokeAt, now: now, within: window)
+    }
+
+    /// Whether the watchdog, looking now and last at `lastCheck`, has been kept from looking for
+    /// long enough that the silence it would find says nothing about the helper: the Mac slept,
+    /// or the main thread did. The wake notification is not certain to arrive before the
+    /// watchdog's first look after a sleep, and this is the watchdog noticing for itself.
+    static func missedItsLooks(lastCheck: Date?, now: Date, window: TimeInterval) -> Bool {
+        guard let lastCheck else { return false }
+        return now.timeIntervalSince(lastCheck) > window
+    }
 
     /// The helper is answering *and* the last thing it said was a real track.
     ///
@@ -86,12 +119,17 @@ final class AdapterBackend {
         failures.removeAll()
         launch(dylib)
         startWatchdog()
+        watchForWake()
     }
 
     func stop() {
         stopped = true
         watchdog?.invalidate()
         watchdog = nil
+        lastCheck = nil
+        let center = NSWorkspace.shared.notificationCenter
+        for observer in wakeObservers { center.removeObserver(observer) }
+        wakeObservers.removeAll()
         if process?.isRunning == true { send("quit") }
         if let process, process.isRunning { process.terminate() }
         releaseHelper()
@@ -197,7 +235,24 @@ final class AdapterBackend {
         watchdog = timer
     }
 
+    /// The Mac waking, and its screens waking, each start the helper's clock again; see
+    /// `isOverdue`. The screens count too: a display that went to sleep on its own is a Mac
+    /// nobody was using, where the helper's beat may have been held back with everything
+    /// else's, and a few seconds' grace for a helper that did not need it costs nothing.
+    private func watchForWake() {
+        guard wakeObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.wokeAt = Date()
+            })
+        }
+    }
+
     private func checkForSilence() {
+        let now = Date()
+        if Self.missedItsLooks(lastCheck: lastCheck, now: now, window: Self.silence) { wokeAt = now }
+        lastCheck = now
         guard !stopped, let p = process, !isAnswering else { return }
         IslandLog.media.error("the adapter helper has gone quiet; restarting it")
         // This death is ours to handle, so the process must not report it a second time.

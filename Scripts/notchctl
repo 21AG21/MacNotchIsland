@@ -20,13 +20,21 @@
 #   notchctl settings [general|island|activities|home|media|actions|privacy|about]
 set -euo pipefail
 
+# Percent-encodes a query value one byte at a time. In a UTF-8 locale bash counts and slices
+# characters, and printf "'c" gives a character's code point rather than its bytes, so "é"
+# came out as %E9 and an emoji as %1F600, neither of which decodes. Under LC_ALL=C every
+# byte is a character of its own, and each is written as its own %XX. The & 0xFF keeps a byte
+# over 0x7F positive should a bash read it as a signed char, which printf would print as
+# sixteen hex digits. LC_ALL is set before anything measures the string, and is local, so the
+# rest of the script keeps the caller's locale.
 urlencode() {
+  local LC_ALL=C
   local s="$1" out="" c i
   for (( i = 0; i < ${#s}; i++ )); do
     c="${s:i:1}"
     case "$c" in
       [a-zA-Z0-9.~_-]) out+="$c" ;;
-      *) out+=$(printf '%%%02X' "'$c") ;;
+      *) out+=$(printf '%%%02X' $(( $(printf '%d' "'$c") & 0xFF ))) ;;
     esac
   done
   printf '%s' "$out"

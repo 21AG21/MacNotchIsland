@@ -425,7 +425,7 @@ final class IslandTimer: ObservableObject {
         guard date > now else { return nil }
         // A URL can set one before launch has read back the last run's; writing first would
         // write over them.
-        if !alarmsLoaded { restoreAlarms(now: now) }
+        loadAlarmsIfNeeded(now: now)
         let name = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let alarm = IslandAlarm(label: name.isEmpty ? IslandAlarm.defaultLabel : name, fireDate: date, createdAt: now)
         alarms = IslandAlarm.sorted(alarms + [alarm])
@@ -437,6 +437,9 @@ final class IslandTimer: ObservableObject {
 
     /// Takes an alarm away, whether it is still waiting or already ringing.
     func cancelAlarm(id: String) {
+        // A URL can cancel one before launch has read back the last run's, see
+        // `loadAlarmsIfNeeded`.
+        loadAlarmsIfNeeded()
         if entry(id: IslandAlarm.ringingID(id)) != nil { cancel(id: IslandAlarm.ringingID(id)) }
         guard alarms.contains(where: { $0.id == id }) else { return }
         alarms.removeAll { $0.id == id }
@@ -468,6 +471,19 @@ final class IslandTimer: ObservableObject {
         guard let ringing = entry(id: id), ringing.state.isAlarm else { return }
         remove(id: id)
         setAlarm(at: Date().addingTimeInterval(Self.snoozeInterval), label: ringing.label)
+    }
+
+    /// Reads back the last run's alarms, unless something already has.
+    ///
+    /// `notchctl alarm cancel 07:30` with the app not running launches it by URL, and the URL
+    /// is handled before launch has got as far as reading the alarms back — or while it waits
+    /// for an older copy to quit. A cancel that looked only at what was in hand found an empty
+    /// list, cancelled nothing, and the restore that followed brought the alarm back to ring.
+    /// So everything that looks the list up to change it reads the disk first, as setting one
+    /// always has.
+    func loadAlarmsIfNeeded(now: Date = Date()) {
+        guard !alarmsLoaded else { return }
+        restoreAlarms(now: now)
     }
 
     /// Reads back the alarms written down by the last run, at launch. Anything already in hand
@@ -530,15 +546,35 @@ final class IslandTimer: ObservableObject {
                                                        priority: 80, presentation: .expanded), duration: 5)
     }
 
+    /// The card, and a banner as well whenever the card cannot be seen, see `missedNeedsBanner`.
     private func reportMissed(_ alarm: IslandAlarm, now: Date) {
         IslandLog.island.notice("alarm missed by \(Int(now.timeIntervalSince(alarm.fireDate)), privacy: .public)s")
-        var card = CustomActivity(title: "Missed alarm, \(IslandAlarm.describe(alarm.fireDate, now: alarm.fireDate))")
+        let title = "Missed alarm, \(IslandAlarm.describe(alarm.fireDate, now: alarm.fireDate))"
+        var card = CustomActivity(title: title)
         card.subtitle = alarm.hasOwnLabel ? alarm.label : nil
         card.symbol = "alarm"
         card.tint = "orange"
-        card.body = "The Mac was asleep, or Notch Island was not running, when it was due."
+        card.body = Self.missedNote
         ActivityCenter.shared.showAlert(IslandActivity(id: Self.alarmMissedAlertID, kind: .custom, content: .custom(card),
                                                        priority: 85, presentation: .expanded), duration: 8)
+        if Self.missedNeedsBanner(locked: ScreenLockMonitor.screenIsLockedOrAsleep, suppressed: ActivityCenter.shared.isSuppressed) {
+            postBanner(title: title, body: alarm.hasOwnLabel ? alarm.label + ". " + Self.missedNote : Self.missedNote,
+                       id: "alarm-missed.\(alarm.id)")
+        }
+    }
+
+    static let missedNote = "The Mac was asleep, or Notch Island was not running, when it was due."
+
+    /// Whether a missed alarm needs a banner as well as its card. Pure, so it is tested.
+    ///
+    /// A missed alarm is found at wake, and a Mac wakes to its lock screen: the eight-second
+    /// card came and went behind it, and the one thing that said the alarm had been missed was
+    /// seen by nobody. A banner waits in Notification Centre for whoever unlocks. It is the
+    /// rule a ringing timer's banner follows — only when the island cannot be seen: locked,
+    /// asleep, hidden, or under an app full screen — and not otherwise, where it would only
+    /// say what the card is saying.
+    static func missedNeedsBanner(locked: Bool, suppressed: Bool) -> Bool {
+        locked || suppressed
     }
 
     private func saveAlarms() {
@@ -583,9 +619,13 @@ final class IslandTimer: ObservableObject {
         if running {
             guard ticker == nil else { return }
             // Always 1 Hz: a countdown that rings late is a fidelity bug, and one timer per
-            // second while a timer runs is well inside the energy budget.
-            let t = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
+            // second while a timer runs is well inside the energy budget. Added in the common
+            // modes, like the alarm check: a timer in the default mode alone does not fire while
+            // a menu is held open or a slider dragged, so a countdown that ran out then rang
+            // only when the menu closed.
+            let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
             t.tolerance = 0.15
+            RunLoop.main.add(t, forMode: .common)
             ticker = t
         } else {
             ticker?.invalidate()
@@ -654,19 +694,23 @@ final class IslandTimer: ObservableObject {
     }
 
     /// Banner for a timer that went off while the island was hidden or another app was full
-    /// screen. Only a real .app bundle may talk to the notification centre — `swift test` runs
-    /// unbundled, where touching it would trap — so this is a no-op there.
+    /// screen.
     private func notify(_ entry: TimerEntry) {
-        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
-        let label = entry.label
-        let id = entry.id
         // An alarm's banner says the time it rang for, which is the thing a banner read later
         // most needs to say.
         let title = entry.state.alarmAt.map { "Alarm, " + IslandAlarm.describe($0) } ?? "Timer"
+        postBanner(title: title, body: entry.label, id: entry.id)
+    }
+
+    /// Posts a banner through Notification Centre, asking for Notifications the first time.
+    /// Only a real .app bundle may talk to the notification centre — `swift test` runs
+    /// unbundled, where touching it would trap — so this is a no-op there.
+    private func postBanner(title: String, body: String, id: String) {
+        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
         let deliver: () -> Void = {
             let content = UNMutableNotificationContent()
             content.title = title
-            content.body = label
+            content.body = body
             let request = UNNotificationRequest(identifier: "notchisland.timer.\(id).\(Date().timeIntervalSince1970)",
                                                 content: content, trigger: nil)
             UNUserNotificationCenter.current().add(request) { error in

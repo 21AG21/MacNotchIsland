@@ -168,6 +168,30 @@ final class AlarmTests: XCTestCase {
         XCTAssertEqual(IslandAlarm.decode(defaults.data(forKey: IslandTimer.alarmsKey)), [], "and it is gone from the list")
     }
 
+    func testACancelThatComesBeforeTheRestoreStaysCancelled() {
+        // A URL that launches the app is handled before launch reads the alarms back. The
+        // cancel used to look only at the empty list in hand, find nothing, and leave the
+        // restore after it to bring the alarm back and ring it.
+        let now = Date()
+        let saved = IslandAlarm(label: "Wake", fireDate: now.addingTimeInterval(3600))
+        defaults.set(IslandAlarm.encode([saved]), forKey: IslandTimer.alarmsKey)
+        timer.forgetAlarmsForTesting()
+        timer.cancelAlarm(id: saved.id)
+        timer.restoreAlarms(now: now)
+        XCTAssertTrue(timer.alarms.isEmpty)
+        XCTAssertEqual(IslandAlarm.decode(defaults.data(forKey: IslandTimer.alarmsKey)), [], "and it is gone from the disk")
+    }
+
+    // MARK: - Missed
+
+    func testAMissedAlarmIsABannerOnlyWhereTheCardCannotBeSeen() {
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: false),
+                      "a Mac wakes to its lock screen, which is where a missed alarm is found")
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: false, suppressed: true), "the island hidden, or an app full screen")
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: true))
+        XCTAssertFalse(IslandTimer.missedNeedsBanner(locked: false, suppressed: false), "the card says it, and once is enough")
+    }
+
     func testATimeThatHasGoneIsNotAnAlarm() {
         let now = Date()
         XCTAssertNil(timer.setAlarm(at: now.addingTimeInterval(-1), announce: false, now: now))
@@ -242,6 +266,20 @@ final class AlarmTests: XCTestCase {
 
         LiveActivityAPI.shared.handle(URL(string: "notchisland://alarm/cancel?at=7:30")!)
         XCTAssertTrue(timer.alarms.isEmpty, "cancelled by the time it was set for")
+    }
+
+    func testTheURLCancelsByTimeBeforeTheAlarmsAreReadBack() {
+        // `notchctl alarm cancel 07:30` with the app not running: the URL comes first, the
+        // restore after it.
+        guard let fire = IslandAlarm.nextFire(hour: 7, minute: 30, after: Date(), calendar: .current) else {
+            return XCTFail("no 7:30 today or tomorrow")
+        }
+        let saved = IslandAlarm(label: "Wake", fireDate: fire)
+        defaults.set(IslandAlarm.encode([saved]), forKey: IslandTimer.alarmsKey)
+        timer.forgetAlarmsForTesting()
+        LiveActivityAPI.shared.handle(URL(string: "notchisland://alarm/cancel?at=07:30")!)
+        timer.restoreAlarms()
+        XCTAssertTrue(timer.alarms.isEmpty, "the restore does not bring it back")
     }
 
     func testTheURLTakesTheTwelveHourClockAndCancelsEverything() {

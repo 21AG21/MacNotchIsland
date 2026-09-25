@@ -1,26 +1,29 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 
 /// Three things the Mac does in one keystroke that nobody remembers the keystroke for: lock
 /// the screen, put the display to sleep, and open the screenshot toolbar.
 ///
-/// Each is done the most ordinary way there is. The lock is the Control-Command-Q every Mac
-/// already answers, posted as if typed; the display goes to sleep through `pmset`, which any
-/// user may run; the toolbar is Apple's own Screenshot app. Only where the ordinary way is
-/// closed — no Accessibility, so no posting keys — does anything private come into it, and
-/// then only by looking it up by name and walking past it when it is not there.
+/// The lock is the call the menu bar's own Lock Screen item makes, looked up by name in a
+/// private framework and walked past when it is not there; behind it is Control-Command-Q,
+/// posted as if typed, which needs Accessibility. The display goes to sleep through `pmset`,
+/// which any user may run, and the toolbar is Apple's own Screenshot app.
 enum SystemActions {
     /// Locks the screen at once, the way Control-Command-Q does.
+    ///
+    /// The menu's own call first, because it depends on nothing: no permission, no keyboard
+    /// layout, and it says whether it worked. The keystroke used to come first, and on a
+    /// French keyboard it was Control-Command-A — see `lockKeyCode(characterFor:)` — which
+    /// locks nothing; and since posting it counted as success, nothing else was tried.
     static func lockScreen() {
-        if AXIsProcessTrusted(), postLockShortcut() { return }
         if let lock = loginLockScreen {
             let status = lock()
-            if status != 0 {
-                IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock")
-            }
-            return
+            if status == 0 { return }
+            IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock")
         }
+        if AXIsProcessTrusted(), postLockShortcut() { return }
         // Neither is open to us. Sleeping the display locks the Mac wherever "Require
         // password" is set to immediately, which is how most Macs ship; where it is not, the
         // display still goes dark, which is the half of a lock that can be seen.
@@ -50,17 +53,36 @@ enum SystemActions {
 
     // MARK: - The lock
 
-    /// Q's position on the keyboard, whatever the layout prints on it: the shortcut is a
-    /// position, like every shortcut the system itself listens for.
-    static let lockKeyCode: CGKeyCode = 0x0C
+    /// The key that types Q on the layout in force, or nil when no letter key does.
+    ///
+    /// Lock Screen is a menu item's key equivalent, and a key equivalent is matched by the
+    /// character the key types, not by where the key sits: a virtual key code is a position,
+    /// and position 0x0C, Q on a US keyboard, is A on a French one and ' on Dvorak. Posting it
+    /// there was Control-Command-A. So the letter keys are asked, the US Q first since it is
+    /// the answer nearly everywhere, and the first one that types "q" is the one pressed. A
+    /// layout with no Q at all — Cyrillic, Greek — gets nil, and the lock goes another way
+    /// rather than pressing something else. Pure, given what each key types, so the French
+    /// keyboard can be tested on a US one.
+    static func lockKeyCode(characterFor character: (Int) -> String?) -> CGKeyCode? {
+        let candidates = [kVK_ANSI_Q] + HotKeyService.letterKeyCodes.filter { $0 != kVK_ANSI_Q }
+        guard let code = candidates.first(where: { character($0)?.lowercased() == "q" }) else { return nil }
+        return CGKeyCode(code)
+    }
+
     static let lockFlags: CGEventFlags = [.maskControl, .maskCommand]
 
-    /// Types Control-Command-Q into the system. Needs Accessibility, which is why it is asked
-    /// about first; returns false when an event could not even be made.
+    /// Types Control-Command-Q into the system, with whichever key types Q here. Needs
+    /// Accessibility, which the caller asks about first. Returns false when there is no Q to
+    /// press or an event could not even be made; true means it was posted, which is as much as
+    /// anybody can know about a keystroke.
     private static func postLockShortcut() -> Bool {
+        guard let key = lockKeyCode(characterFor: KeyLayout.character(for:)) else {
+            IslandLog.island.notice("no key types Q on this keyboard layout, so there is no lock keystroke to post")
+            return false
+        }
         let source = CGEventSource(stateID: .hidSystemState)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: lockKeyCode, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: lockKeyCode, keyDown: false) else {
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) else {
             IslandLog.island.error("could not make the lock keystroke")
             return false
         }

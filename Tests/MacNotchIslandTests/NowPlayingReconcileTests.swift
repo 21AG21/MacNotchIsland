@@ -122,6 +122,33 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertTrue(BackendHealth.isFresh(now.addingTimeInterval(3), now: now, within: 12))
     }
 
+    func testASleepIsNotSilenceTheHelperChose() {
+        // An hour asleep leaves the helper's last message an hour old the moment the lid opens.
+        // The watchdog took that for a wedged helper and killed a healthy one on every wake,
+        // and let AppleScript at Music and Spotify while it was down.
+        let now = Date()
+        let beforeSleep = now.addingTimeInterval(-3600)
+        XCTAssertTrue(AdapterBackend.isOverdue(lastMessage: beforeSleep, wokeAt: nil, now: now, within: 12),
+                      "with no wake, an hour of silence is a helper gone quiet")
+        XCTAssertFalse(AdapterBackend.isOverdue(lastMessage: beforeSleep, wokeAt: now.addingTimeInterval(-2), now: now, within: 12),
+                       "two seconds after a wake it has not had its chance to speak")
+        XCTAssertTrue(AdapterBackend.isOverdue(lastMessage: beforeSleep, wokeAt: now.addingTimeInterval(-13), now: now, within: 12),
+                      "a whole silence window after the wake, it has")
+        XCTAssertFalse(AdapterBackend.isOverdue(lastMessage: now.addingTimeInterval(-5), wokeAt: nil, now: now, within: 12),
+                       "a helper that spoke a moment ago is answering, wake or none")
+        XCTAssertTrue(AdapterBackend.isOverdue(lastMessage: nil, wokeAt: now, now: now, within: 12),
+                      "and a wake is no reason to wait for a helper there is not")
+    }
+
+    func testAWatchdogKeptFromLookingHasSeenASleep() {
+        // The wake notification can come after the watchdog's first look, so the watchdog also
+        // notices for itself that it has not been running.
+        let now = Date()
+        XCTAssertFalse(AdapterBackend.missedItsLooks(lastCheck: now.addingTimeInterval(-2), now: now, window: 12), "a look on time")
+        XCTAssertTrue(AdapterBackend.missedItsLooks(lastCheck: now.addingTimeInterval(-3600), now: now, window: 12))
+        XCTAssertFalse(AdapterBackend.missedItsLooks(lastCheck: nil, now: now, window: 12), "the first look has nothing to go by")
+    }
+
     func testDeathsAreCountedAsARateRatherThanForever() {
         // A lifetime budget of five is spent by a helper that dies once a day, after five days
         // of uptime — and the island then stays dark for the rest of the run. A rate forgives

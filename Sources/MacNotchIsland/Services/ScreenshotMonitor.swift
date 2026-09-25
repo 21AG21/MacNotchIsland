@@ -6,7 +6,9 @@ import ImageIO
 /// the island.
 ///
 /// Event-driven only: a DispatchSource on the directory fires when macOS adds a capture.
-/// The only timers are the short one-shots that confirm a new file has finished writing.
+/// The only timers are the short one-shots that confirm a new file has finished writing. The
+/// folder itself is looked up again whenever the watcher wakes and whenever another app comes
+/// to the front, so that moving the captures somewhere else moves the watch with them.
 ///
 /// None of that happens on the main thread. The folder being watched is usually the Desktop,
 /// every app that saves a file there wakes the source, and answering each wake means reading
@@ -56,12 +58,27 @@ final class ScreenshotMonitor {
     private var running = false
     /// Bumped on every start/stop so a settle check scheduled by an earlier run is ignored.
     private var generation = 0
+    /// Heard on the main thread, which is where `start` and `stop` are called and the only
+    /// place this is touched; what it hears is handed to the queue.
+    private var activationObserver: NSObjectProtocol?
 
     func start() {
         queue.async { [weak self] in self?.beginWatching() }
+        // The folder can be changed without a single write to the old one — the Options menu in
+        // the screenshot toolbar, a `defaults write` in Terminal — so the watcher's own events
+        // cannot be the only time it is looked up again. Switching apps is cheap to hear and
+        // comes soon after either.
+        guard activationObserver == nil else { return }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil) { [weak self] _ in
+                guard let self else { return }
+                self.queue.async { [weak self] in self?.followTheFolder() }
+            }
     }
 
     func stop() {
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+        activationObserver = nil
         queue.async { [weak self] in self?.endWatching() }
     }
 
@@ -70,12 +87,45 @@ final class ScreenshotMonitor {
         running = true
         generation += 1
         let dir = Self.currentDirectory()
-        directory = dir
         seen.removeAll()
         settling.removeAll()
         // Captures already there are old news; only what lands from now on is announced.
         for url in candidates(in: dir, now: Date()) { remember(url.path) }
+        bind(to: dir)
+    }
 
+    /// Moves the watch to wherever macOS is saving captures now, if that is somewhere else.
+    ///
+    /// The folder used to be read once, at start, and `start` does nothing while running: a
+    /// new location in the screenshot toolbar's Options menu left the watcher on the old
+    /// folder, and the card never came again until the app was relaunched. What has been
+    /// seen is kept — its paths are whole paths, so nothing in the new folder is mistaken for
+    /// something in the old — and the new folder is walked once straight away, because the
+    /// capture that follows a change of folder is often taken before anything notices it: it
+    /// has the recency window to be found in, like any other.
+    private func followTheFolder() {
+        guard running else { return }
+        let current = Self.currentDirectory()
+        guard Self.needsRebind(watching: directory, current: current) else { return }
+        IslandLog.island.notice("screenshots are saved somewhere else now; watching the new folder")
+        unbind()
+        bind(to: current)
+        walk()
+    }
+
+    /// Whether the folder being watched is not the one captures are saved to. Nothing being
+    /// watched is no reason to rebind: that is a monitor that has not started, and starting
+    /// reads the folder for itself. Compared by path, so a trailing slash is not a new folder.
+    /// Pure, so it is tested.
+    static func needsRebind(watching: URL?, current: URL) -> Bool {
+        guard let watching else { return false }
+        return watching.standardizedFileURL.path != current.standardizedFileURL.path
+    }
+
+    /// Opens `dir` and starts listening to it. Nothing is announced from here: the caller
+    /// decides whether what is already there is old news or worth a look.
+    private func bind(to dir: URL) {
+        directory = dir
         let fd = open(dir.path, O_EVTONLY)
         guard fd >= 0 else { return }
         self.fd = fd
@@ -89,19 +139,32 @@ final class ScreenshotMonitor {
         source = src
     }
 
+    /// Stops listening to the folder being watched. A capture already settling finishes: it
+    /// is a whole path, and still a capture wherever the watch has gone.
+    private func unbind() {
+        source?.cancel()
+        source = nil
+        directory = nil
+    }
+
     private func endWatching() {
         guard running else { return }
         running = false
         generation += 1
-        source?.cancel()
-        source = nil
+        unbind()
         settling.removeAll()
-        directory = nil
     }
 
     // MARK: - Watching
 
+    /// The watcher has woken: whatever woke it is in the folder being watched, and every wake
+    /// is also a chance to notice that the folder has moved, for the price of one preference.
     private func scan() {
+        walk()
+        followTheFolder()
+    }
+
+    private func walk() {
         guard running, let directory else { return }
         for url in candidates(in: directory, now: Date()) { settle(url) }
     }
@@ -260,8 +323,10 @@ final class ScreenshotMonitor {
         return claimed.contains(path)
     }
 
-    /// The folder macOS is saving captures to right now. Re-read on every start so a
-    /// `defaults write com.apple.screencapture location …` change is picked up. A location
+    /// The folder macOS is saving captures to right now. Re-read on every start, every wake of
+    /// the watcher and every switch of app, so a new location — from the screenshot toolbar or
+    /// `defaults write com.apple.screencapture location …` — is picked up without a relaunch,
+    /// see `followTheFolder`. A location
     /// that no longer exists falls back to the Desktop, as macOS itself does. The screen
     /// recorder saves here too, so a recording goes wherever a screenshot would.
     static func currentDirectory() -> URL {

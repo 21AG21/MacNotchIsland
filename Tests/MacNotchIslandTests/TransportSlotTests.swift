@@ -209,6 +209,65 @@ final class TransportSlotTests: XCTestCase {
         XCTAssertEqual(NowPlayingService.route(.forward15, active: .adapter, info: silent), .adapter)
     }
 
+    // MARK: - A mode set by script
+
+    func testAShuffleSetByScriptCanBeSwitchedOffAgain() {
+        // The helper says nothing about Music's shuffle, so a press goes to AppleScript, and
+        // nothing ever reports back what it set. Read as off, every press asked for on.
+        let silent = track(bundle: "com.apple.Music")
+        XCTAssertEqual(NowPlayingService.route(.shuffle, active: .adapter, info: silent), .appleScript)
+        let memory = NowPlayingService.ScriptedModes.remembering(shuffle: true, in: nil, for: "com.apple.Music")
+        guard let kept = memory.after(silent) else { return XCTFail("a report that says nothing forgets nothing") }
+        let shown = kept.filling(silent)
+        XCTAssertEqual(shown.shuffle, true, "so the next press reads on, and asks for off")
+        XCTAssertTrue(TransportSlot.shuffle.isOn(in: shown, liked: false), "and the button stays lit after the press's moment")
+        XCTAssertEqual(NowPlayingService.route(.shuffle, active: .adapter, info: shown, scripted: kept), .appleScript,
+                       "the next press goes where the last one did, though the mode now looks reported")
+        XCTAssertEqual(NowPlayingService.route(.shuffle, active: .adapter, info: shown), .adapter,
+                       "which, without the memory, it would not")
+    }
+
+    func testRepeatSetByScriptStepsOnFromWhereItWasLeft() {
+        func presses(_ bundle: String) -> [NowPlayingInfo.RepeatMode] {
+            let silent = track(bundle: bundle)
+            var memory: NowPlayingService.ScriptedModes?
+            var shown = silent
+            var steps: [NowPlayingInfo.RepeatMode] = []
+            for _ in 0..<3 {
+                // The press, as `cycleRepeat` makes it, then the helper's next report, which
+                // still says nothing about repeat.
+                let backend = NowPlayingService.route(.cycleRepeat, active: .adapter, info: shown, scripted: memory)
+                XCTAssertEqual(backend, .appleScript)
+                let target = NowPlayingService.nextRepeat(after: shown.repeatMode ?? .off, bundleID: bundle, via: backend)
+                steps.append(target)
+                memory = NowPlayingService.ScriptedModes.remembering(repeatMode: target, in: memory, for: bundle)
+                memory = memory?.after(silent)
+                shown = memory?.filling(silent) ?? silent
+            }
+            return steps
+        }
+        XCTAssertEqual(presses("com.apple.Music"), [.all, .one, .off], "not all, all, all")
+        XCTAssertEqual(presses("com.spotify.client"), [.all, .off, .all], "Spotify's on and off, not on every time")
+    }
+
+    func testThePlayersOwnWordEndsTheMemory() {
+        let memory = NowPlayingService.ScriptedModes.remembering(shuffle: true, repeatMode: .all, in: nil, for: "com.apple.Music")
+        let saysShuffle = track(bundle: "com.apple.Music", shuffle: false)
+        let left = memory.after(saysShuffle)
+        XCTAssertNil(left?.shuffle, "a shuffle reported is the player's word")
+        XCTAssertEqual(left?.repeatMode, .all, "a repeat it still says nothing about is kept")
+        XCTAssertEqual(left?.filling(saysShuffle).shuffle, false, "and what a report does say is never written over")
+        XCTAssertNil(memory.after(track(bundle: "com.apple.Music", shuffle: false, repeatMode: .off)), "nothing left is nothing")
+
+        let spotify = track(bundle: "com.spotify.client")
+        XCTAssertEqual(memory.after(spotify), memory, "another player's report leaves it alone")
+        XCTAssertNil(memory.filling(spotify).shuffle, "and is not filled in from it")
+        XCTAssertFalse(memory.holds(.shuffle, in: "com.spotify.client"))
+        XCTAssertEqual(NowPlayingService.ScriptedModes.remembering(shuffle: false, in: memory, for: "com.spotify.client"),
+                       NowPlayingService.ScriptedModes(bundleID: "com.spotify.client", shuffle: false),
+                       "a press in another player starts afresh")
+    }
+
     func testFifteenSecondsIsASeekFromWhereThePlayheadIs() {
         let paused = track(elapsed: 100)
         XCTAssertEqual(NowPlayingService.skipTarget(from: paused, by: 15, now: t0), 115, accuracy: 0.001)

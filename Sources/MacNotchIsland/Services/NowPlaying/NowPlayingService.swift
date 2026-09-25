@@ -135,6 +135,7 @@ final class NowPlayingService: ObservableObject {
         clear()
         // Switched back on, the paused track is news again.
         dismissedPaused = nil
+        scriptedModes = nil
         refreshHealth()
     }
 
@@ -200,7 +201,9 @@ final class NowPlayingService: ObservableObject {
         // us the truth, and there is nothing for AppleScript to add — asking it anyway meant a
         // working Mac with the music stopped fired a round trip at Music and at Spotify every
         // two seconds for as long as it was switched on, each one able to raise an Automation
-        // prompt. The fallback is for a backend that has gone quiet, which is a different thing.
+        // prompt. The fallback is for a backend that has gone quiet, which is a different thing
+        // — and a helper that was asleep with the Mac has not, so for its first silence window
+        // after a wake it still counts as answering, see `AdapterBackend.isOverdue`.
         if !energy.isAsleep, !adapter.isAnswering, !mediaRemote.isAnswering, ticks % pollEvery == 0 {
             appleScript.poll { [weak self] info in self?.handle(info, from: .appleScript) }
         } else if activeBackend == .mediaRemote {
@@ -225,10 +228,14 @@ final class NowPlayingService: ObservableObject {
         if backend == .appleScript && (adapter.isAnswering || mediaRemote.isAnswering) { return }
         if backend == .mediaRemote && adapter.isAnswering { return }
 
-        guard let new = new.map(Self.sanitized) else {
+        guard var new = new.map(Self.sanitized) else {
             if activeBackend == backend || activeBackend == .inactive { scheduleClear() }
             return
         }
+        // A mode the report carries is the player's word; one it does not is what the island
+        // last set by script, if it set one, see `ScriptedModes`.
+        scriptedModes = scriptedModes?.after(new)
+        if let scripted = scriptedModes { new = scripted.filling(new) }
         // The paused track the limit has already taken away is not news, see `staysDismissed`.
         // Any other track, or this one playing again, is, and ends the dismissal.
         if Self.staysDismissed(new, dismissed: dismissedPaused) { return }
@@ -482,6 +489,68 @@ final class NowPlayingService: ObservableObject {
 
     func isLiked(_ track: NowPlayingInfo) -> Bool { likedTrackKey == Self.trackKey(track) }
 
+    /// The shuffle and repeat the island last set through AppleScript, and the player it set
+    /// them in.
+    ///
+    /// AppleScript is only asked to set a mode that the backend showing the track says nothing
+    /// about, so nothing ever says it back. The button went dark once the press's moment was
+    /// over, and the next press, reading nothing said as off, asked for on again: shuffle could
+    /// be switched on and never off, and repeat went to all every time — for Spotify, repeating
+    /// true, every time. Like the heart, this is the island's own memory of the press; unlike
+    /// the heart it belongs to the player and not the track, because shuffle and repeat stay as
+    /// they are from one track to the next. It fills in only what a report leaves out, and a
+    /// mode is forgotten the moment a report carries it. What it cannot know is a change made
+    /// in the player itself, which reports nothing either.
+    struct ScriptedModes: Equatable {
+        var bundleID: String?
+        var shuffle: Bool? = nil
+        var repeatMode: NowPlayingInfo.RepeatMode? = nil
+
+        /// The memory after a press in `bundleID` set a mode by script. A press in another player
+        /// starts it afresh: what was set in the first is no guide to the second.
+        static func remembering(shuffle: Bool? = nil, repeatMode: NowPlayingInfo.RepeatMode? = nil,
+                                in memory: ScriptedModes?, for bundleID: String?) -> ScriptedModes {
+            var result = ScriptedModes(bundleID: bundleID)
+            if let memory, memory.bundleID == bundleID { result = memory }
+            if let shuffle { result.shuffle = shuffle }
+            if let repeatMode { result.repeatMode = repeatMode }
+            return result
+        }
+
+        /// What is left once `report` has come in: a mode it carries is forgotten, and nothing
+        /// left is nil. A report from another player changes nothing — the one the modes were
+        /// set in may well come back to the front.
+        func after(_ report: NowPlayingInfo) -> ScriptedModes? {
+            guard report.bundleID == bundleID else { return self }
+            var kept = self
+            if report.shuffle != nil { kept.shuffle = nil }
+            if report.repeatMode != nil { kept.repeatMode = nil }
+            return kept.shuffle == nil && kept.repeatMode == nil ? nil : kept
+        }
+
+        /// The report with the remembered modes filled in where it has none, for this player.
+        func filling(_ report: NowPlayingInfo) -> NowPlayingInfo {
+            guard report.bundleID == bundleID else { return report }
+            var result = report
+            if result.shuffle == nil { result.shuffle = shuffle }
+            if result.repeatMode == nil { result.repeatMode = repeatMode }
+            return result
+        }
+
+        /// Whether this button's mode, in this player, is one the island set by script.
+        func holds(_ command: NowPlayingInfo.Command, in bundleID: String?) -> Bool {
+            guard bundleID == self.bundleID else { return false }
+            switch command {
+            case .shuffle: return shuffle != nil
+            case .cycleRepeat: return repeatMode != nil
+            default: return false
+            }
+        }
+    }
+
+    /// See `ScriptedModes`. Main-queue state, like `info`, which it is folded into.
+    private(set) var scriptedModes: ScriptedModes?
+
     /// Which backend a press of one of these buttons goes to. Pure, so the rule is tested.
     ///
     /// The one that is showing the track, as for play — unless MediaRemote has said nothing
@@ -489,8 +558,14 @@ final class NowPlayingService: ObservableObject {
     /// cannot set a shuffle it cannot see, and Music and Spotify answer AppleScript whatever
     /// MediaRemote makes of them. The fallback asks macOS for Automation once per player,
     /// which is why it is only taken when the helper has nothing to offer.
-    static func route(_ command: NowPlayingInfo.Command, active: Backend, info: NowPlayingInfo) -> Backend {
+    ///
+    /// A mode the island set by script (`scripted`) is shown in `info` as though reported, and
+    /// is not: it goes back to AppleScript, where the last press went, and not to a helper
+    /// that never said it could see it.
+    static func route(_ command: NowPlayingInfo.Command, active: Backend, info: NowPlayingInfo,
+                      scripted: ScriptedModes? = nil) -> Backend {
         if active == .appleScript { return .appleScript }
+        if scripted?.holds(command, in: info.bundleID) == true { return .appleScript }
         let remoteKnows: Bool
         switch command {
         case .shuffle: remoteKnows = info.shuffle != nil || info.remoteSupports?.contains(.shuffle) == true
@@ -502,12 +577,15 @@ final class NowPlayingService: ObservableObject {
         return active == .adapter ? .adapter : .mediaRemote
     }
 
-    /// Shuffle on if it is off, off if it is on. A player that has never said counts as off.
+    /// Shuffle on if it is off, off if it is on. A player that has never said, and has not been
+    /// set by script, counts as off.
     func toggleShuffle() {
         guard let current = info else { return }
         let target = !(current.shuffle ?? false)
-        switch Self.route(.shuffle, active: activeBackend, info: current) {
-        case .appleScript: appleScript.setShuffle(target, bundleID: current.bundleID)
+        switch Self.route(.shuffle, active: activeBackend, info: current, scripted: scriptedModes) {
+        case .appleScript:
+            appleScript.setShuffle(target, bundleID: current.bundleID)
+            scriptedModes = ScriptedModes.remembering(shuffle: target, in: scriptedModes, for: current.bundleID)
         case .adapter: adapter.send("shuffle \(NowPlayingInfo.remoteCode(shuffle: target))")
         default: mediaRemote.setShuffle(target)
         }
@@ -517,10 +595,12 @@ final class NowPlayingService: ObservableObject {
     /// The next repeat, see `nextRepeat`.
     func cycleRepeat() {
         guard let current = info else { return }
-        let backend = Self.route(.cycleRepeat, active: activeBackend, info: current)
+        let backend = Self.route(.cycleRepeat, active: activeBackend, info: current, scripted: scriptedModes)
         let target = Self.nextRepeat(after: current.repeatMode ?? .off, bundleID: current.bundleID, via: backend)
         switch backend {
-        case .appleScript: appleScript.setRepeat(target, bundleID: current.bundleID)
+        case .appleScript:
+            appleScript.setRepeat(target, bundleID: current.bundleID)
+            scriptedModes = ScriptedModes.remembering(repeatMode: target, in: scriptedModes, for: current.bundleID)
         case .adapter: adapter.send("repeat \(NowPlayingInfo.remoteCode(repeat: target))")
         default: mediaRemote.setRepeat(target)
         }

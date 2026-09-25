@@ -274,7 +274,18 @@ final class MicrophoneAndRecordingTests: XCTestCase {
     // MARK: - The system's own keystrokes
 
     func testTheLockIsControlCommandQ() {
-        XCTAssertEqual(SystemActions.lockKeyCode, 0x0C, "Q's position on the keyboard")
+        // Q is whichever key types it. A key equivalent is matched by the character, so the US
+        // Q's position, pressed on a French keyboard, is Control-Command-A and locks nothing.
+        let us: [Int: String] = [0x00: "a", 0x06: "z", 0x0C: "q", 0x0D: "w"]
+        XCTAssertEqual(SystemActions.lockKeyCode(characterFor: { us[$0] }), 0x0C, "Q's own key on a US keyboard")
+        let azerty: [Int: String] = [0x00: "q", 0x06: "w", 0x0C: "a", 0x0D: "z"]
+        XCTAssertEqual(SystemActions.lockKeyCode(characterFor: { azerty[$0] }), 0x00,
+                       "on a French keyboard Q is where a US keyboard has A")
+        let dvorak: [Int: String] = [0x07: "q", 0x0C: "'"]
+        XCTAssertEqual(SystemActions.lockKeyCode(characterFor: { dvorak[$0] }), 0x07)
+        XCTAssertEqual(SystemActions.lockKeyCode(characterFor: { $0 == 0x0C ? "Q" : nil }), 0x0C, "a capital Q is still Q")
+        XCTAssertNil(SystemActions.lockKeyCode(characterFor: { _ in "й" }),
+                     "a keyboard with no Q presses nothing, rather than something else")
         XCTAssertTrue(SystemActions.lockFlags.contains(.maskControl))
         XCTAssertTrue(SystemActions.lockFlags.contains(.maskCommand))
         XCTAssertFalse(SystemActions.lockFlags.contains(.maskShift), "Shift makes it Log Out")

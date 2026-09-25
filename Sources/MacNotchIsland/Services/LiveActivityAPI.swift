@@ -212,6 +212,9 @@ final class LiveActivityAPI {
             } else if let raw = q["at"] ?? q["time"] {
                 let wanted = TimerEntry.clockTime(raw.trimmingCharacters(in: .whitespaces).lowercased())
                 let calendar = Calendar.current
+                // The list this walks is empty until the last run's alarms are read back, and a
+                // URL that launched the app is handled before launch reads them.
+                IslandTimer.shared.loadAlarmsIfNeeded()
                 for alarm in IslandTimer.shared.alarms {
                     let parts = calendar.dateComponents([.hour, .minute], from: alarm.fireDate)
                     if parts.hour == wanted?.hour, parts.minute == wanted?.minute { IslandTimer.shared.cancelAlarm(id: alarm.id) }

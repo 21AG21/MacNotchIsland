@@ -151,6 +151,25 @@ final class ScreenshotMonitorTests: XCTestCase {
         XCTAssertTrue(ScreenshotMonitor.screenshotDirectory(defaultsLocation: nil, home: home).isFileURL)
     }
 
+    // MARK: - Following the folder
+
+    /// The folder was read once, at start: a new location left the watch on the old folder,
+    /// and no card came again until a relaunch.
+    func testTheWatchMovesWhenTheFolderDoes() {
+        let desktop = ScreenshotMonitor.screenshotDirectory(defaultsLocation: nil, home: home)
+        let shots = ScreenshotMonitor.screenshotDirectory(defaultsLocation: "~/Pictures/Shots", home: home)
+        XCTAssertTrue(ScreenshotMonitor.needsRebind(watching: desktop, current: shots))
+        XCTAssertTrue(ScreenshotMonitor.needsRebind(watching: shots, current: desktop), "and back again")
+        XCTAssertFalse(ScreenshotMonitor.needsRebind(watching: desktop, current: desktop))
+        XCTAssertFalse(ScreenshotMonitor.needsRebind(watching: desktop,
+                                                     current: ScreenshotMonitor.screenshotDirectory(defaultsLocation: "~/Desktop", home: home)),
+                       "the Desktop named outright is the Desktop it was already watching")
+        XCTAssertFalse(ScreenshotMonitor.needsRebind(watching: URL(fileURLWithPath: "/Users/test/Desktop/"), current: desktop),
+                       "a trailing slash is not a new folder")
+        XCTAssertFalse(ScreenshotMonitor.needsRebind(watching: nil, current: shots),
+                       "a monitor that is not watching anything reads the folder when it starts")
+    }
+
     // MARK: - The whole rule for one directory entry
 
     /// The walk that applies this moved off the main thread; what it decides did not.
