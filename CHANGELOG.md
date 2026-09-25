@@ -272,6 +272,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A timer's ring no longer redraws at display rate for movement you cannot see.** On a long timer it steps once a second like the digits beside it, while short timers still sweep; it also stops sweeping while animations are paused and under Reduce Motion. Adding a minute, repeating a timer or moving to the next Pomodoro phase moves the ring with a short spring instead of a one-second sweep.
+- **Moving the pointer near the island no longer rebuilds its outline two or three times per move.** The outline is built once for each layout and kept.
 - **Minimised windows stay in Windows.** The minus on a tile, or "Hide Safari", took the window out of the strip with no way back. With Accessibility, windows in the Dock and a hidden app's windows are listed after the rest, dimmed, and a click brings them back. The count says "on this desktop", because windows on other desktops are not listed, and a same-named window on another desktop is never listed in place of the one in the Dock.
 - **A find on Windows always shows its field.** With Screen Recording or Accessibility missing, typing narrowed the strip while the header showed only the permission pill. The field comes first now, with the pill beside it.
 - **Old weather says how old it is.** After Location was refused, or offline, Today showed the last reading as the weather for good and never offered "Allow Location". A refusal clears the reading and shows the offer. After three missed refreshes the line gives the reading's age, and after a day it goes.
