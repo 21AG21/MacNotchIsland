@@ -202,7 +202,9 @@ struct IslandLayout: Equatable {
         let h = g.notchHeight
         let privacy: CGFloat = center.privacyIndicatorsVisible ? privacyDots : 0
         let floating = !g.hasPhysicalNotch
-        // The floating pill hangs just below the menu bar, never on it.
+        // The floating pill hangs just below the menu bar, never on it — and 4 pt from the top
+        // of a display whose menu bar is elsewhere or hides itself, where `menuBarHeight` is
+        // nothing (`NotchGeometry.menuBarHeight(notchTop:…)`).
         let inset: CGFloat = floating ? g.menuBarHeight + 4 : 0
         // A floating island sits below the menu bar and covers nothing in it.
         let room = floating ? MenuBarClearance.Limits.unlimited : clearance

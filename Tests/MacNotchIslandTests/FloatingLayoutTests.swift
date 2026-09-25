@@ -67,6 +67,40 @@ final class FloatingLayoutTests: XCTestCase {
         XCTAssertEqual(onNotch.hitTop, 0, "fused to the top edge")
     }
 
+    // MARK: - a menu bar that hides itself
+
+    /// With the menu bar set to hide, the display still counted as carrying one, and the pill
+    /// hung twenty-eight points down — under a menu bar that was not there, over the top of
+    /// windows that reach the top of the display.
+    func testAMenuBarThatHidesItselfLeavesNothingToHangBelow() {
+        let hidden = NotchGeometry.menuBarHeight(notchTop: 0, carriesMenuBar: true, autoHides: true, thickness: 24)
+        XCTAssertEqual(hidden, 0, "a menu bar that is not showing keeps nothing")
+        XCTAssertEqual(NotchGeometry.menuBarHeight(notchTop: 0, carriesMenuBar: true, autoHides: false, thickness: 24), 24,
+                       "one that is showing keeps its thickness")
+        XCTAssertEqual(NotchGeometry.menuBarHeight(notchTop: 0, carriesMenuBar: false, autoHides: false, thickness: 24), 0,
+                       "a display with no menu bar keeps nothing, as before")
+        XCTAssertEqual(NotchGeometry.menuBarHeight(notchTop: 32, carriesMenuBar: true, autoHides: true, thickness: 24), 32,
+                       "the housing is there whether the menu bar shows or not")
+
+        var autoHidden = external
+        autoHidden.menuBarHeight = hidden
+        for presentation in [IslandPresentation.idle, .panel(.home(tab: "music"))] {
+            let layout = IslandLayout.make(presentation: presentation, geometry: autoHidden)
+            XCTAssertTrue(layout.floating)
+            XCTAssertEqual(layout.topInset, 4, "just under the top edge, not 28 pt down: \(presentation.contentID)")
+            XCTAssertEqual(layout.hitTop, 0, "with no menu bar above it there is no strip to leave to one")
+            XCTAssertEqual(layout.hitSize.height, layout.bodyHeight + 4 + 6)
+        }
+        let shown = IslandLayout.make(presentation: .idle, geometry: external)
+        XCTAssertEqual(shown.topInset, 28, "a menu bar that shows is still hung below")
+
+        var notchedHidden = notched
+        notchedHidden.menuBarHeight = NotchGeometry.menuBarHeight(notchTop: notched.notchHeight, carriesMenuBar: true,
+                                                                   autoHides: true, thickness: 24)
+        XCTAssertEqual(IslandLayout.make(presentation: .idle, geometry: notchedHidden).topInset, 0,
+                       "the notch's island is fused to the top edge either way")
+    }
+
     // MARK: - the other presentations
 
     func testCompactHasNoEarsAndStaysCentred() {

@@ -159,6 +159,15 @@ final class ServiceHub {
         p.callDetectionEnabled || (p.hideFromScreenSharingDuringCalls && !p.hiddenFromScreenSharing)
     }
 
+    /// Whether the full-screen watch runs: the switch, and only the switch. What it starts at
+    /// is where the fault was. It shipped off everywhere, so on a Mac without a notch the watch
+    /// never ran and the pill — at the main menu's level, and in every full-screen Space —
+    /// stayed over every full-screen film. Until it is set it now follows the island, on where
+    /// the island floats (`FloatingDefaults.hidesInFullScreen`), and the rule here is as it was.
+    static func wantsFullscreen(_ p: Preferences) -> Bool {
+        p.hideInFullscreen
+    }
+
     private func apply() {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
@@ -178,8 +187,9 @@ final class ServiceHub {
         let showsVolume = p.hudReplacementEnabled && p.volumeHUDEnabled
         (showsVolume || p.privacyIndicatorsEnabled || Self.wantsCallDetector(p)) ? audio.start() : audio.stop()
         // The brightness monitor exists only to raise that display, and polls a private
-        // display call four times a second to do it. With the island not answering the keys
-        // there is nothing for it to raise, so it does not run at all.
+        // display call to do it — every two seconds while the key tap announces the keys,
+        // four times a second only where it does not. With the island not answering the
+        // keys there is nothing for it to raise, so it does not run at all.
         (p.hudReplacementEnabled && p.brightnessHUDEnabled) ? brightness.start() : brightness.stop()
         p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
         calls.showsCard = p.callDetectionEnabled
@@ -221,7 +231,7 @@ final class ServiceHub {
             ShortcutsRunner.shared.refresh()
         }
         p.updateChecksEnabled ? updates.start() : updates.stop()
-        p.hideInFullscreen ? fullscreen.start() : fullscreen.stop()
+        Self.wantsFullscreen(p) ? fullscreen.start() : fullscreen.stop()
         p.hiddenAppBundleIDs.isEmpty ? hiddenApps.stop() : hiddenApps.start()
         // The card is the feature now, and the shelf is one of the things it does: a capture
         // is still announced with the shelf switched off, where it used to be silent.

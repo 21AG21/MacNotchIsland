@@ -14,7 +14,12 @@ final class Preferences: ObservableObject {
     /// Keep the island still through a Space transition, in a window space of its own.
     @Published var staysPutAcrossSpaces: Bool { didSet { d.set(staysPutAcrossSpaces, forKey: "staysPutAcrossSpaces") } }
     @Published var hoverToExpand: Bool { didSet { d.set(hoverToExpand, forKey: "hoverToExpand") } }
-    @Published var expandOnIdleHover: Bool { didSet { d.set(expandOnIdleHover, forKey: "expandOnIdleHover") } }
+    /// "Open from the empty notch too". Until it is set it follows the island — on under a
+    /// notch, off where the island floats — and is not written down: see `FloatingDefaults`
+    /// and `followFloatingDefaults`.
+    @Published var expandOnIdleHover: Bool {
+        didSet { if !followingIsland { d.set(expandOnIdleHover, forKey: "expandOnIdleHover") } }
+    }
     @Published var hapticsEnabled: Bool { didSet { d.set(hapticsEnabled, forKey: "hapticsEnabled") } }
     @Published var hoverDelay: Double { didSet { d.set(hoverDelay, forKey: "hoverDelay") } }
     @Published var alertDuration: Double { didSet { d.set(alertDuration, forKey: "alertDuration") } }
@@ -112,7 +117,11 @@ final class Preferences: ObservableObject {
     /// Only widen the compact island into menu bar space that is actually free.
     @Published var keepClearOfMenuBar: Bool { didSet { d.set(keepClearOfMenuBar, forKey: "keepClearOfMenuBar") } }
     @Published var weatherEnabled: Bool { didSet { d.set(weatherEnabled, forKey: "weatherEnabled") } }
-    @Published var hideInFullscreen: Bool { didSet { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
+    /// Until it is set this follows the island too — off under a notch, on where the island
+    /// floats — for `FloatingDefaults`' reason, and is not written down while it does.
+    @Published var hideInFullscreen: Bool {
+        didSet { if !followingIsland { d.set(hideInFullscreen, forKey: "hideInFullscreen") } }
+    }
     @Published var reactiveVisualizerEnabled: Bool { didSet { d.set(reactiveVisualizerEnabled, forKey: "reactiveVisualizerEnabled") } }
     @Published var hotkeyKeyCode: Double { didSet { d.set(hotkeyKeyCode, forKey: "hotkeyKeyCode") } }
     @Published var hotkeyModifiers: Double { didSet { d.set(hotkeyModifiers, forKey: "hotkeyModifiers") } }
@@ -140,6 +149,38 @@ final class Preferences: ObservableObject {
     // No preset is stored beside them. The two numbers are the whole of the motion, and the
     // Motion pane works out which preset they are; a name kept alongside was written on every
     // slider move and read by nothing.
+
+    // MARK: Following the island
+
+    /// Set while `followFloatingDefaults` moves a switch nobody has set, so that moving it
+    /// writes nothing down: written, it would be a choice, and would stop following.
+    private var followingIsland = false
+
+    /// Whether `key` has ever been written, and what to, for a switch whose default is not
+    /// the same on every Mac.
+    private static func storedBool(_ key: String) -> Bool? {
+        UserDefaults.standard.object(forKey: key) == nil ? nil : UserDefaults.standard.bool(forKey: key)
+    }
+
+    /// Puts the switches that follow the island where `FloatingDefaults` has them for the
+    /// islands just built, one entry per panel, true where it floats. A switch that has been
+    /// set is left as it was set.
+    ///
+    /// Called whenever the panels are built, because what was read at load can stop being
+    /// true while the app runs: a MacBook opened after launching with the lid shut and a
+    /// monitor attached, or "Show on all displays" switched on, gives the island a notch it
+    /// did not have or a display where it floats. No panels says nothing about the island —
+    /// a display that has not come back yet — and moves nothing.
+    func followFloatingDefaults(panelsFloating: [Bool]) {
+        guard !panelsFloating.isEmpty else { return }
+        let floating = panelsFloating.contains(true)
+        let hides = FloatingDefaults.hidesInFullScreen(stored: Self.storedBool("hideInFullscreen"), floating: floating)
+        let opens = FloatingDefaults.idleHoverOpens(stored: Self.storedBool("expandOnIdleHover"), floating: floating)
+        followingIsland = true
+        defer { followingIsland = false }
+        if hideInFullscreen != hides { hideInFullscreen = hides }
+        if expandOnIdleHover != opens { expandOnIdleHover = opens }
+    }
 
     // MARK: Launch at login (SMAppService)
     /// SMAppService only makes sense for a real .app bundle (not `swift run` or the test host).
@@ -188,10 +229,15 @@ final class Preferences: ObservableObject {
         func double(_ key: String, _ def: Double) -> Double {
             UserDefaults.standard.object(forKey: key) == nil ? def : UserDefaults.standard.double(forKey: key)
         }
-        showOnAllDisplays = bool("showOnAllDisplays", false)
+        let onAllDisplays = bool("showOnAllDisplays", false)
+        // Whether the island will float, read from the displays before any panel is built, for
+        // the two switches that follow it while nobody has set them (`FloatingDefaults`). The
+        // panels say so again once they are built, see `followFloatingDefaults`.
+        let floating = FloatingDefaults.floatsOnThisMac(onAllDisplays: onAllDisplays)
+        showOnAllDisplays = onAllDisplays
         staysPutAcrossSpaces = bool("staysPutAcrossSpaces", true)
         hoverToExpand = bool("hoverToExpand", true)
-        expandOnIdleHover = bool("expandOnIdleHover", true)
+        expandOnIdleHover = FloatingDefaults.idleHoverOpens(stored: Self.storedBool("expandOnIdleHover"), floating: floating)
         hapticsEnabled = bool("hapticsEnabled", true)
         hoverDelay = double("hoverDelay", 0.25)
         alertDuration = double("alertDuration", 1.8)
@@ -251,7 +297,7 @@ final class Preferences: ObservableObject {
         panelKeysEnabled = bool("panelKeysEnabled", true)
         keepClearOfMenuBar = bool("keepClearOfMenuBar", true)
         weatherEnabled = bool("weatherEnabled", false)
-        hideInFullscreen = bool("hideInFullscreen", false)
+        hideInFullscreen = FloatingDefaults.hidesInFullScreen(stored: Self.storedBool("hideInFullscreen"), floating: floating)
         reactiveVisualizerEnabled = bool("reactiveVisualizerEnabled", false)
         // ⌃⌥Space, unless macOS already uses it — see `HotKeyService.shippingDefault`. Asked
         // only while nothing has been recorded, and not written down: the combination follows

@@ -128,7 +128,116 @@ final class SettingsRulesTests: XCTestCase {
         }
     }
 
+    // MARK: - What a switch starts at where the island floats
+
+    /// Shipped off everywhere, so on a Mac without a notch the full-screen watch never ran and
+    /// the pill stayed over every full-screen film.
+    func testFullScreenHidingFollowsTheIslandUntilItIsSet() {
+        XCTAssertTrue(FloatingDefaults.hidesInFullScreen(stored: nil, floating: true),
+                      "never set, a floating island hides in full screen")
+        XCTAssertFalse(FloatingDefaults.hidesInFullScreen(stored: nil, floating: false),
+                       "never set, a notch's island stays beside the camera, as it always has")
+        for floating in [true, false] {
+            XCTAssertTrue(FloatingDefaults.hidesInFullScreen(stored: true, floating: floating),
+                          "switched on, it is on, floating \(floating)")
+            XCTAssertFalse(FloatingDefaults.hidesInFullScreen(stored: false, floating: floating),
+                           "switched off, it is off, floating \(floating)")
+        }
+    }
+
+    /// Under a notch the strip the island sits in is dead space; on a plain display it is the
+    /// tab bar, and a quarter of a second's rest there opened Home.
+    func testIdleHoverFollowsTheIslandUntilItIsSet() {
+        XCTAssertFalse(FloatingDefaults.idleHoverOpens(stored: nil, floating: true),
+                       "never set, the bare floating pill does not open under a resting pointer")
+        XCTAssertTrue(FloatingDefaults.idleHoverOpens(stored: nil, floating: false),
+                      "never set, the empty notch opens as it always has")
+        for floating in [true, false] {
+            XCTAssertTrue(FloatingDefaults.idleHoverOpens(stored: true, floating: floating),
+                          "switched on, it is on, floating \(floating)")
+            XCTAssertFalse(FloatingDefaults.idleHoverOpens(stored: false, floating: floating),
+                           "switched off, it is off, floating \(floating)")
+        }
+        // The switch is only about the bare island: something live opens under the pointer
+        // whatever it starts at.
+        XCTAssertTrue(ActivityCenter.peeksWhenIdle(
+            hasLiveActivity: true, idleHover: FloatingDefaults.idleHoverOpens(stored: nil, floating: true)))
+    }
+
+    /// Which island floats, by the choice `AppDelegate.targetScreens` makes.
+    func testTheIslandFloatsWhereItHasNoNotchToSitIn() {
+        XCTAssertEqual(FloatingDefaults.floats(notched: [false], onAllDisplays: false), true, "a Mac without a notch")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [true], onAllDisplays: false), false, "a MacBook on its own")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [true, false], onAllDisplays: false), false,
+                       "a MacBook and a monitor: the island is on the notch alone")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [true, false], onAllDisplays: true), true,
+                       "on every display, the monitor's floats")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [false, false], onAllDisplays: false), true,
+                       "two plain displays: the primary's floats")
+        XCTAssertNil(FloatingDefaults.floats(notched: [], onAllDisplays: false),
+                     "no displays says nothing about the island")
+    }
+
+    /// The panels say whether any of them floats each time they are built, and a switch nobody
+    /// has set moves with it, without being written down; one somebody has set stays put.
+    func testASwitchNobodySetMovesWithTheIslandAndOneSomebodySetStays() {
+        let d = UserDefaults.standard
+        let prefs = Preferences.shared
+        let keys = ["hideInFullscreen", "expandOnIdleHover"]
+        let savedObjects = keys.map { d.object(forKey: $0) }
+        let savedValues = (prefs.hideInFullscreen, prefs.expandOnIdleHover)
+        defer {
+            (prefs.hideInFullscreen, prefs.expandOnIdleHover) = savedValues
+            for (key, object) in zip(keys, savedObjects) {
+                if let object { d.set(object, forKey: key) } else { d.removeObject(forKey: key) }
+            }
+        }
+        keys.forEach { d.removeObject(forKey: $0) }
+
+        prefs.followFloatingDefaults(panelsFloating: [true])
+        XCTAssertTrue(prefs.hideInFullscreen, "a floating island hides in full screen out of the box")
+        XCTAssertTrue(ServiceHub.wantsFullscreen(prefs), "so the watch runs, by the switch as ever")
+        XCTAssertFalse(prefs.expandOnIdleHover, "and the bare pill waits for a click")
+        for key in keys {
+            XCTAssertNil(d.object(forKey: key), "followed, not written down: \(key)")
+        }
+
+        prefs.followFloatingDefaults(panelsFloating: [false])
+        XCTAssertFalse(prefs.hideInFullscreen, "the lid opened on a notch: the notch's defaults again")
+        XCTAssertFalse(ServiceHub.wantsFullscreen(prefs))
+        XCTAssertTrue(prefs.expandOnIdleHover)
+
+        prefs.followFloatingDefaults(panelsFloating: [false, true])
+        XCTAssertTrue(prefs.hideInFullscreen, "one floating island among them is enough")
+        XCTAssertFalse(prefs.expandOnIdleHover)
+
+        prefs.followFloatingDefaults(panelsFloating: [])
+        XCTAssertTrue(prefs.hideInFullscreen, "no panels says nothing, and moves nothing")
+
+        prefs.hideInFullscreen = false
+        prefs.expandOnIdleHover = true
+        for key in keys {
+            XCTAssertNotNil(d.object(forKey: key), "set by hand, it is written down: \(key)")
+        }
+        prefs.followFloatingDefaults(panelsFloating: [true])
+        XCTAssertFalse(prefs.hideInFullscreen, "and stays as it was set, floating or not")
+        XCTAssertTrue(prefs.expandOnIdleHover)
+    }
+
     // MARK: - A sentence read from its rule
+
+    /// Both switches start somewhere different on a Mac without a notch, and a switch found
+    /// one way on one Mac and the other way on the next reads as a setting that was lost
+    /// unless something says so.
+    func testSettingsSayTheDefaultsAreNotTheSameWithoutANotch() {
+        let footers = [GeneralPane.hidingFooter(needsAccessibility: false),
+                       GeneralPane.hidingFooter(needsAccessibility: true),
+                       IslandPane.pointerFooter]
+        for footer in footers {
+            XCTAssertTrue(footer.contains("without a notch"), footer)
+            XCTAssertTrue(footer.localizedCaseInsensitiveContains("until you set it"), footer)
+        }
+    }
 
     /// The Island pane named the sections that take the letters by hand, and missed
     /// Notifications. It is read from `PanelFind.sections` now.

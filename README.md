@@ -61,7 +61,7 @@ and the same content layout as iOS.
 | — | Energy discipline: animations slow on battery and stop in Low Power Mode or sleep; every poller backs off; idle CPU stays near zero. |
 | — | Hide the island automatically while chosen apps are in front (Keynote, a game, a screen-sharing client). Screenshots land on the shelf as well as on their card. |
 | — | VoiceOver labels: the pill says in one line what it is showing — the track, the time left, the charge — and the panel's buttons, sliders and tiles carry names of their own. Not every corner has been through VoiceOver yet. |
-| — | On a Mac without a notch, or on an external display, the island floats at the top centre with the same morphs. |
+| — | On a Mac without a notch, or on an external display, the island floats at the top centre with the same morphs — just under the top edge when the menu bar hides itself — and out of the box it hides in full-screen apps and opens from the bare pill on a click rather than a resting pointer. |
 
 ## Build
 

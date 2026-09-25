@@ -6,7 +6,8 @@ struct NotchGeometry: Equatable {
     var notchWidth: CGFloat
     var notchHeight: CGFloat
     var hasPhysicalNotch: Bool
-    /// The menu bar's height on this screen; a floating island hangs below it.
+    /// The menu bar's height on this screen; a floating island hangs below it. Nothing where
+    /// the display has no menu bar, or has one that hides itself (`menuBarHeight(notchTop:…)`).
     var menuBarHeight: CGFloat = 24
 
     /// Detect the notch on a screen. Uses the safe-area inset for the height and the
@@ -31,6 +32,8 @@ struct NotchGeometry: Equatable {
         // a menu bar's height below the top of a display that has no menu bar floated
         // twenty-eight points down with nothing above it.
         let hasMenuBar = NSScreen.screensHaveSeparateSpaces || isPrimary(screen)
+        let keptByMenuBar = Self.menuBarHeight(notchTop: top, carriesMenuBar: hasMenuBar,
+                                               autoHides: Self.menuBarAutoHides, thickness: menuBar)
 
         // An override exists for a notch the system under-reports. It may only enlarge the
         // island: a value below the measured cutout would put content under glass that is
@@ -39,7 +42,35 @@ struct NotchGeometry: Equatable {
         if prefs.notchHeightOverride > 0 { height = max(height, prefs.notchHeightOverride) }
 
         return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch,
-                             menuBarHeight: hasNotch ? top : (hasMenuBar ? menuBar : 0))
+                             menuBarHeight: keptByMenuBar)
+    }
+
+    /// How much of the top of a display the menu bar keeps, for a floating island to hang
+    /// below: the housing where there is a notch, whatever the menu bar does, since the
+    /// cutout is there either way; otherwise the menu bar's thickness on a display that
+    /// carries one, and nothing on a display that does not.
+    ///
+    /// Nor on one whose menu bar hides itself. The display was counted as carrying a menu bar
+    /// whether or not one was showing, so with the menu bar set to hide, the pill still hung
+    /// twenty-eight points down — under a menu bar that was not there, over windows that reach
+    /// the top of the display. Now it hangs at the top, the way it does on a display with no
+    /// menu bar.
+    static func menuBarHeight(notchTop: CGFloat, carriesMenuBar: Bool, autoHides: Bool, thickness: CGFloat) -> CGFloat {
+        if notchTop > 0 { return notchTop }
+        return carriesMenuBar && !autoHides ? thickness : 0
+    }
+
+    /// Whether the menu bar hides itself on the desktop: "Automatically hide and show the menu
+    /// bar" set to Always or On Desktop Only, which macOS keeps as `_HIHideMenuBar` in the
+    /// global domain. Only the desktop matters here — in a full-screen Space the menu bar is
+    /// gone whatever this says, and the island with it (`FloatingDefaults.hidesInFullScreen`)
+    /// — so `AppleMenuBarVisibleInFullscreen`, the other half of that setting, is not read.
+    ///
+    /// The setting rather than `visibleFrame` measured against `frame`: the panel is measured
+    /// once, when it is built, and the setting is the same whatever is in front at that
+    /// moment, where a measurement of the menu bar need not be.
+    static var menuBarAutoHides: Bool {
+        UserDefaults.standard.bool(forKey: "_HIHideMenuBar")
     }
 
     /// The width the island takes on a screen before any override: the cutout where there is

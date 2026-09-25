@@ -578,6 +578,12 @@ final class ActivityCenter: ObservableObject {
     /// notch too", in the Island pane. That switch had been sitting there with its reader
     /// deleted out from under it, promising to gate something that happened either way.
     ///
+    /// What that switch starts at depends on the island. Under a notch the strip the island
+    /// sits in is dead space, and it starts on; where the island floats that strip is the top
+    /// of somebody's windows, and a quarter of a second's rest on the way to a tab opened Home
+    /// over it, so there it starts off (`FloatingDefaults.idleHoverOpens`). A live activity
+    /// opens under the pointer either way.
+    ///
     /// The keyboard shortcut is deliberately not asked: somebody who presses it has said what
     /// they want, and this is only about what the pointer does when it happens to pass by.
     var hoverPeeks: Bool {

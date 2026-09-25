@@ -409,6 +409,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderFrontRegardless()
             panels.append(panel)
         }
+        // Whether any island floats decides where two switches nobody has set start
+        // (`FloatingDefaults`), and a rebuild is where that can change. The hub hears it as a
+        // preference change, and starts or stops the full-screen watch by the switch as ever.
+        Preferences.shared.followFloatingDefaults(panelsFloating: panels.map { !$0.geometry.hasPhysicalNotch })
         ActivityCenter.shared.islandHitTest = { [weak self] point in
             self?.panels.contains { $0.islandContains(screenPoint: point) } ?? false
         }
