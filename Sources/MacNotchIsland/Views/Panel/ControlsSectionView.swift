@@ -53,12 +53,13 @@ struct ControlsSectionView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("More controls")
             }
-            columns
+            lists
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var columns: some View {
+    /// The three columns.
+    private var lists: some View {
         HStack(alignment: .top, spacing: Self.gutter) {
             column(title: "Wi-Fi",
                    symbol: toggles.wifiOn ? "wifi" : "wifi.slash",

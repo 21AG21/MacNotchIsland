@@ -76,7 +76,7 @@ struct DisplayModuleView: View {
     @ViewBuilder
     private var sliders: some View {
         if display.screens.isEmpty {
-            Text(builtIn.isAvailable ? "Reading the displays…" : "No display here takes its brightness from this Mac.")
+            Text(display.hasRead ? "No display here takes its brightness from this Mac." : "Reading the displays…")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         } else {

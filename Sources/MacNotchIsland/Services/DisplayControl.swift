@@ -33,6 +33,9 @@ final class DisplayControl: ObservableObject {
 
     /// The built-in panel first, when it answers, then every other display that does.
     @Published private(set) var screens: [Screen] = []
+    /// A first pass has come back, so an empty `screens` means no display answered rather than
+    /// that none has been asked yet.
+    @Published private(set) var hasRead = false
     /// Night Shift can be switched on this Mac.
     @Published private(set) var hasNightShift = false
     @Published private(set) var nightShiftOn = false
@@ -282,6 +285,7 @@ final class DisplayControl: ObservableObject {
 
     /// Main thread.
     private func apply(_ snapshot: Snapshot) {
+        if !hasRead { hasRead = true }
         let screens = snapshot.screens.map { screen -> Screen in
             var screen = screen
             // A slider under the hand keeps what the hand set until the display agrees.
@@ -390,9 +394,10 @@ final class DisplayControl: ObservableObject {
     // MARK: - Displays
 
     private static func onlineDisplays() -> [CGDirectDisplayID] {
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        let capacity: UInt32 = 16
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(capacity))
         var count: UInt32 = 0
-        guard CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count) == .success else { return [] }
+        guard CGGetOnlineDisplayList(capacity, &ids, &count) == .success else { return [] }
         return Array(ids.prefix(Int(count)))
     }
 

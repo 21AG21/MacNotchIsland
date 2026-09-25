@@ -39,6 +39,9 @@ final class ServiceHub {
         // CoreWLAN client and talks to the Wi-Fi daemon, and the first time anything asks for
         // it is when the rail is mounted — which is during the spring that opens the panel.
         _ = SystemToggles.shared
+        // The same for the keyboard's backlight: opening CoreBrightness and asking its client
+        // which keyboards it has is a one-time cost, and the rail asks whether there is one.
+        _ = KeyboardLight.shared
         apply()
         LiveActivityAPI.shared.start()
         Preferences.shared.objectWillChange
