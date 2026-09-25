@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import MacNotchIsland
 
 /// The rules behind the island's dealings with Spaces, displays and the mouse: what the panel
@@ -160,12 +161,12 @@ final class SpacesAndDisplaysTests: XCTestCase {
 
     func testADisplayGoingFullScreenTakesOnlyItsOwnInteraction() {
         // The film is on screen-2; the panel is open on screen-1.
-        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-1"))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-2"))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: "screen-2", drag: nil, isOpen: false, openPanel: nil))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: nil),
-                      "open on every display, it goes when any of them is covered")
-        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: [], hover: "screen-2", drag: nil, isOpen: true, openPanel: nil),
+        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-1", allCovered: false))
+        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-2", allCovered: false))
+        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: "screen-2", drag: nil, isOpen: false, openPanel: nil, allCovered: false))
+        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: true),
+                      "open on every display, it goes when every one of them is covered")
+        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: [], hover: "screen-2", drag: nil, isOpen: true, openPanel: nil, allCovered: true),
                        "nothing new covered, nothing to forget")
     }
 }
