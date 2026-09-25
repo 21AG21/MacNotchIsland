@@ -5,7 +5,8 @@ import Combine
 /// Hides an island while an app has a window covering that island's whole display (full-screen
 /// video, games, presentations). Only while the preference is on, and led by events: the
 /// window list is read when the Space changes, an app comes to the front or quits, and on a
-/// timer that is quick only while something is covered (`pollInterval`).
+/// timer that is quick only while something is covered or an event has just been heard
+/// (`pollInterval`).
 ///
 /// Per display. A film full screen on the external display hides that display's island and
 /// leaves the MacBook's alone; one flag for every island hid the lot, and closed whatever
@@ -15,8 +16,9 @@ import Combine
 /// display when a click on the MacBook brings Safari forward, and asking only the app in front
 /// brought the external island back over the film within one poll. Every app's windows come
 /// from the one window-list read there always was; the Accessibility question, a round trip to
-/// the app asked, is put only to an app with a window that could be full screen on a notched
-/// display, which is the one case the window list cannot settle (see `covers`).
+/// the app asked, is put only to an app with a window the window list cannot settle: one that
+/// could be full screen on a notched display (see `covers`), or one that fills a display
+/// exactly and could be only zoomed (see `zoomedToFill`).
 ///
 /// But only a window at the front of its display, or the frontmost app's (`contenders`): a
 /// utility that keeps a display-sized window behind everything else hid that display's island
@@ -29,6 +31,18 @@ final class FullscreenMonitor {
     /// Whether the last reading found any island covered, which is what the timer's pace
     /// follows (`pollInterval`).
     private var anyCovered = false
+    /// When the last event was heard (`heard`), on `now`'s clock; nil when none has been since
+    /// `start`. The timer stays quick for `settle` after it.
+    private var lastEvent: TimeInterval?
+    /// How many events have been heard, which is what a window's remembered answer is kept by
+    /// (`ZoomAnswers`). Main thread.
+    private var events = 0
+    /// Readings handed out by `tick`, and the newest one `apply` has taken, by number. Main
+    /// thread. A reading runs on a concurrent queue, and one that went through Accessibility
+    /// can land after a newer one that did not.
+    private var issued = 0
+    private var applied = 0
+    private let zoomAnswers = ZoomAnswers()
     private var energyCancellable: AnyCancellable?
     private var observers: [NSObjectProtocol] = []
 
@@ -40,17 +54,46 @@ final class FullscreenMonitor {
     /// How often it is read while nothing is: only for the covering that no event announces,
     /// a display-sized window put up inside the app already in front.
     static let idlePoll: TimeInterval = 20
+    /// How long the quick pace is kept after an event. What an event announces can arrive a few
+    /// seconds behind it — a game's or a player's display-sized window put up after the app
+    /// came forward, a borderless window opened from the app in front — and nothing announces
+    /// it when it does; at the idle pace the island sat over it for up to 20 seconds, 80 in
+    /// Low Power.
+    static let settle: TimeInterval = 10
 
-    /// How long the timer waits between readings, scaled by EnergyPolicy's multiplier.
+    /// Whether an event was heard `sinceEvent` seconds ago recently enough that what it
+    /// announced may still be arriving. Pure.
+    static func settling(sinceEvent: TimeInterval) -> Bool {
+        sinceEvent < settle
+    }
+
+    /// How long the timer waits between readings, scaled by EnergyPolicy's multiplier: quick
+    /// while something is covered, and for `settle` after an event; slow otherwise.
     ///
     /// The window list was read every two seconds whatever was on screen, and since the switch
     /// is on out of the box wherever the island floats, that was every iMac and Mac mini
     /// running the app, reading every window on the Mac around the clock to be ready for a
     /// film. Going full screen changes the Space, and bringing another app forward or quitting
     /// one is what changes what is in front; those are heard as they happen (`start`), and the
-    /// timer is left to what they cannot say. Pure.
-    static func pollInterval(anyCovered: Bool, multiplier: Double) -> TimeInterval {
-        (anyCovered ? coveredPoll : idlePoll) * multiplier
+    /// timer is left to what they cannot say. `sinceEvent` is infinite when no event has been
+    /// heard. Pure.
+    static func pollInterval(anyCovered: Bool, sinceEvent: TimeInterval, multiplier: Double) -> TimeInterval {
+        (anyCovered || settling(sinceEvent: sinceEvent) ? coveredPoll : idlePoll) * multiplier
+    }
+
+    /// Whether reading number `reading` is newer than the one last applied. Readings land in the
+    /// order they finish, and one that waited on an app's Accessibility answer finishes after a
+    /// newer one that did not: applied, it would put back what the window list said before.
+    /// Pure.
+    static func isNewer(_ reading: Int, than applied: Int) -> Bool {
+        reading > applied
+    }
+
+    private static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// How long ago the last event was heard, infinite when none has been.
+    private var sinceEvent: TimeInterval {
+        lastEvent.map { Self.now() - $0 } ?? .infinity
     }
 
     func start() {
@@ -68,7 +111,7 @@ final class FullscreenMonitor {
                      NSWorkspace.didActivateApplicationNotification,
                      NSWorkspace.didTerminateApplicationNotification] {
             observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.tick()
+                self?.heard()
             })
         }
         tick()
@@ -79,15 +122,29 @@ final class FullscreenMonitor {
         timer = nil
         interval = 0
         anyCovered = false
+        lastEvent = nil
+        // Whatever is still in the air is speaking to a watch that has gone.
+        applied = issued
         energyCancellable = nil
         for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         observers.removeAll()
         if !ActivityCenter.shared.fullscreenPanels.isEmpty { ActivityCenter.shared.fullscreenPanels = [] }
     }
 
+    /// An event that can change what is at the front of a display: the window list is read at
+    /// once, and quickly for `settle` after (`pollInterval`). Main thread.
+    private func heard() {
+        guard timer != nil else { return }
+        lastEvent = Self.now()
+        events += 1
+        scheduleTimer()
+        tick()
+    }
+
     /// Sets the timer to the pace `pollInterval` gives, if it is not at it already.
     private func scheduleTimer() {
-        let next = Self.pollInterval(anyCovered: anyCovered, multiplier: EnergyPolicy.shared.pollingMultiplier)
+        let next = Self.pollInterval(anyCovered: anyCovered, sinceEvent: sinceEvent,
+                                     multiplier: EnergyPolicy.shared.pollingMultiplier)
         guard timer == nil || next != interval else { return }
         timer?.invalidate()
         interval = next
@@ -100,20 +157,38 @@ final class FullscreenMonitor {
     private func tick() {
         // AppKit lookups on main; the window-list walk (every on-screen window) and the
         // Accessibility round trips off it.
+        issued += 1
+        let reading = issued
         let screens = Self.screens()
         let trusted = AXIsProcessTrusted()
         let ignored = Self.ignoredPIDs()
         let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        // A window's answer is remembered only once things have settled after an event: while
+        // a window is going full screen its app can still call it zoomed, and remembered, that
+        // would leave the island over it until the next event.
+        let epoch = events
+        let remembering = !Self.settling(sinceEvent: sinceEvent)
+        let answers = zoomAnswers
         DispatchQueue.global(qos: .utility).async { [weak self] in
             // On screen only, which is also front to back: `contenders` reads the order.
             let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
             let seen = Self.windowList(list, ignoring: ignored)
-            // Nil without Accessibility, which is what tells `coveredPanels` to go by the menu bar.
+            // Nil without Accessibility, which is what tells `coveredPanels` to go by the menu bar,
+            // and by the frame alone for a window that fills a display.
             var ask: ((pid_t) -> [CGRect])?
-            if trusted { ask = { Self.fullScreenFrames(pid: $0) } }
+            var zoomed: ((Window) -> Bool)?
+            if trusted {
+                ask = { Self.fullScreenFrames(pid: $0) }
+                zoomed = { window in
+                    if remembering, let known = answers.answer(for: window, epoch: epoch) { return known }
+                    let answer = Self.isZoomed(window)
+                    if remembering { answers.remember(answer, for: window, epoch: epoch) }
+                    return answer
+                }
+            }
             let covered = Self.coveredPanels(windows: seen.windows, menuBars: seen.menuBars, screens: screens,
-                                             frontmost: frontmost, fullScreenFrames: ask)
-            DispatchQueue.main.async { self?.apply(covered) }
+                                             frontmost: frontmost, fullScreenFrames: ask, zoomed: zoomed)
+            DispatchQueue.main.async { self?.apply(covered, reading: reading) }
         }
     }
 
@@ -126,13 +201,14 @@ final class FullscreenMonitor {
         return pids
     }
 
-    private func apply(_ covered: Set<String>) {
-        guard timer != nil else { return }
-        // Quick while something is covered, to notice it uncovered; slow while nothing is.
-        if anyCovered != !covered.isEmpty {
-            anyCovered = !covered.isEmpty
-            scheduleTimer()
-        }
+    private func apply(_ covered: Set<String>, reading: Int) {
+        guard timer != nil, Self.isNewer(reading, than: applied) else { return }
+        applied = reading
+        // Quick while something is covered, to notice it uncovered, and while an event is
+        // settling; slow otherwise. Asked on every reading, since the settling ends with no
+        // change to what is covered; `scheduleTimer` leaves a timer already at its pace alone.
+        anyCovered = !covered.isEmpty
+        scheduleTimer()
         let center = ActivityCenter.shared
         guard center.fullscreenPanels != covered else { return }
         let newlyCovered = covered.subtracting(center.fullscreenPanels)
@@ -204,6 +280,9 @@ final class FullscreenMonitor {
         /// False for this app's windows and the Finder's: never an app gone full screen, but
         /// in front of one they can be, and then nothing behind them is full screen.
         var canCover = true
+        /// The window list's number for it, 0 where the list gave none: what an app's answer
+        /// about the window is remembered by (`ZoomAnswers`).
+        var number: CGWindowID = 0
     }
 
     /// Every display, marked with whether it carries an island. Only those that do are ever
@@ -258,7 +337,8 @@ final class FullscreenMonitor {
             guard layer == 0, !systemOwners.contains(owner) else { continue }
             // A window nobody can see covers nothing, and is in front of nothing.
             guard ((entry[kCGWindowAlpha as String] as? Double) ?? 1) > 0 else { continue }
-            windows.append(Window(pid: pid, frame: bounds, canCover: !pids.contains(pid)))
+            let number = (entry[kCGWindowNumber as String] as? CGWindowID) ?? 0
+            windows.append(Window(pid: pid, frame: bounds, canCover: !pids.contains(pid), number: number))
         }
         return (windows, menuBars)
     }
@@ -267,19 +347,22 @@ final class FullscreenMonitor {
     /// list (`windowList`), front to back.
     ///
     /// A window that fills a display exactly covers it, whoever's it is, as long as it is at
-    /// the front there (`contenders`). On a display with a camera housing a full-screen window
-    /// stops below the housing — which is also exactly where a window zoomed under the menu bar
-    /// stops, so such a window needs more than its frame: its app's own word, through
-    /// Accessibility (`fullScreenFrames`, asked only of the apps that have one, each at most
-    /// once), or, without Accessibility (`fullScreenFrames` nil), the display's menu bar having
-    /// gone.
+    /// the front there (`contenders`) and its app does not say it is only zoomed (`zoomed`, see
+    /// `zoomedToFill`). On a display with a camera housing a full-screen window stops below the
+    /// housing — which is also exactly where a window zoomed under the menu bar stops, so such
+    /// a window needs more than its frame: its app's own word, through Accessibility
+    /// (`fullScreenFrames`, asked only of the apps that have one, each at most once), or,
+    /// without Accessibility (`fullScreenFrames` nil), the display's menu bar having gone.
     static func coveredPanels(windows: [Window], menuBars: [CGRect], screens: [Screen], frontmost: pid_t?,
-                              fullScreenFrames: ((pid_t) -> [CGRect])?) -> Set<String> {
+                              fullScreenFrames: ((pid_t) -> [CGRect])?,
+                              zoomed: ((Window) -> Bool)? = nil) -> Set<String> {
         var answers: [pid_t: [CGRect]] = [:]
         var covered = Set<String>()
         for screen in screens where screen.carriesIsland {
             let inFront = contenders(on: screen, among: screens, windows: windows, frontmost: frontmost)
-            if inFront.contains(where: { covers(screen, $0.frame, reportedFullScreen: false) }) {
+            if inFront.contains(where: { window in
+                covers(screen, window.frame, reportedFullScreen: false) && !zoomedToFill(window, zoomed: zoomed)
+            }) {
                 covered.insert(screen.panelID)
                 continue
             }
@@ -350,18 +433,35 @@ final class FullscreenMonitor {
 
     /// Whether `window` fills `screen`.
     ///
-    /// Exactly, for any window. Short by the camera housing only on better evidence than the
-    /// frame: an ordinary window zoomed to fill the display under the menu bar has the very
-    /// same frame, since the menu bar is as tall as the housing, and taking that for full
-    /// screen would hide the island every time a window was zoomed. The evidence is the app
-    /// reporting the window as full screen, or — for when the app cannot be asked, without
-    /// Accessibility — the display's menu bar being gone: a full-screen Space takes it away,
-    /// and a zoomed window leaves it where it is. `menuBarVisible` is true when the menu bar
-    /// is not being used as evidence at all.
+    /// Exactly, for any window, as far as the frame goes; `coveredPanels` still lets the app
+    /// say such a window is only zoomed (`zoomedToFill`). Short by the camera housing only on
+    /// better evidence than the frame: an ordinary window zoomed to fill the display under the
+    /// menu bar has the very same frame, since the menu bar is as tall as the housing, and
+    /// taking that for full screen would hide the island every time a window was zoomed. The
+    /// evidence is the app reporting the window as full screen, or — for when the app cannot
+    /// be asked, without Accessibility — the display's menu bar being gone: a full-screen Space
+    /// takes it away, and a zoomed window leaves it where it is. `menuBarVisible` is true when
+    /// the menu bar is not being used as evidence at all.
     static func covers(_ screen: Screen, _ window: CGRect, reportedFullScreen: Bool, menuBarVisible: Bool = true) -> Bool {
         if screenCoversWindow(screen.rect, window) { return true }
         guard reportedFullScreen || !menuBarVisible else { return false }
         return fillsBelowHousing(screen, window)
+    }
+
+    /// Whether a window that fills its display exactly is only an ordinary window zoomed to fill
+    /// it, by its app's word (`zoomed`: `isZoomed`, remembered by `ZoomAnswers`; nil without
+    /// Accessibility, when the frame is all there is to go on).
+    ///
+    /// On a display with no camera housing, with the menu bar set to hide itself and no Dock
+    /// there — or with "Displays have separate Spaces" off, where a second display has no menu
+    /// bar at all — a window zoomed to fill the display has the display's very frame, and the
+    /// island went every time a window was zoomed there. What tells the two apart is not in
+    /// the window list: a zoomed window and a full-screen one are both on screen at layer 0,
+    /// frame for frame. The app knows: a window in full screen says so, and a game's or a
+    /// player's borderless window has no close button. Only a window with one, not in full
+    /// screen, is taken for zoomed; anything the app will not say stays covered, as before.
+    static func zoomedToFill(_ window: Window, zoomed: ((Window) -> Bool)?) -> Bool {
+        zoomed?(window) ?? false
     }
 
     /// Whether `window` fills everything below the camera housing of a display that has one.
@@ -409,6 +509,33 @@ final class FullscreenMonitor {
         }
     }
 
+    /// Whether the app says its window at `window`'s frame is an ordinary one zoomed to fill
+    /// the display (`zoomedToFill`): a window with a close button, not in full screen. Every
+    /// window it lists at that frame has to say so, and it has to list one; an app that will
+    /// not answer, or does not list the window, leaves it covering. Off the main thread, one
+    /// app's window list and a few questions of the windows at that frame, each with a second
+    /// to answer.
+    private static func isZoomed(_ window: Window) -> Bool {
+        let application = AXUIElementCreateApplication(window.pid)
+        _ = AXUIElementSetMessagingTimeout(application, 1)
+        var windowsValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+              let elements = windowsValue as? [AXUIElement] else { return false }
+        var found = false
+        for element in elements {
+            _ = AXUIElementSetMessagingTimeout(element, 1)
+            guard let bounds = frame(of: element), screenCoversWindow(window.frame, bounds) else { continue }
+            var fullValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &fullValue) == .success,
+               (fullValue as? Bool) == true { return false }
+            var button: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &button) == .success,
+                  let button, CFGetTypeID(button) == AXUIElementGetTypeID() else { return false }
+            found = true
+        }
+        return found
+    }
+
     private static func frame(of element: AXUIElement) -> CGRect? {
         var positionValue: CFTypeRef?
         var sizeValue: CFTypeRef?
@@ -421,5 +548,55 @@ final class FullscreenMonitor {
         guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),   // type checked just above
               AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: position, size: size)
+    }
+
+    /// What `isZoomed` answered, by window — its app, its number and its frame — so a window
+    /// that fills its display is asked about once rather than on every reading. Kept by the
+    /// event it was asked after (`epoch`, the monitor's count of events): the first answer
+    /// given after a newer event forgets every older one, and an answer from a reading that
+    /// started before it is not kept. A window going full screen changes the Space, which is
+    /// an event, so what it said while zoomed is never taken for what it says in full screen.
+    /// Any thread: readings run on a concurrent queue, more than one can be in the air.
+    final class ZoomAnswers {
+        private struct Key: Hashable {
+            let pid: pid_t
+            let number: CGWindowID
+            let x, y, width, height: CGFloat
+
+            init(_ window: Window) {
+                pid = window.pid
+                number = window.number
+                x = window.frame.minX
+                y = window.frame.minY
+                width = window.frame.width
+                height = window.frame.height
+            }
+        }
+
+        private let lock = NSLock()
+        private var epoch = Int.min
+        private var answers: [Key: Bool] = [:]
+
+        /// The answer given for this window since event `epoch`, if there is one.
+        func answer(for window: Window, epoch: Int) -> Bool? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard epoch == self.epoch else { return nil }
+            return answers[Key(window)]
+        }
+
+        /// Keeps an answer asked after event `epoch`. A window the list gave no number is not
+        /// kept: nothing would tell it from the next window at that frame.
+        func remember(_ answer: Bool, for window: Window, epoch: Int) {
+            guard window.number != 0 else { return }
+            lock.lock()
+            defer { lock.unlock() }
+            if epoch > self.epoch {
+                self.epoch = epoch
+                answers.removeAll()
+            }
+            guard epoch == self.epoch else { return }
+            answers[Key(window)] = answer
+        }
     }
 }

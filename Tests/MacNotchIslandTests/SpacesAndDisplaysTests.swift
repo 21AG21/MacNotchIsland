@@ -193,16 +193,39 @@ final class SpacesAndDisplaysTests: XCTestCase {
     /// On out of the box wherever the island floats, the watch read every window on the Mac
     /// every two seconds on every iMac and Mac mini, for a film that was not playing. Going
     /// full screen, an app coming forward and one quitting are heard as they happen; the timer
-    /// is quick only while something is covered, to see it uncovered.
-    func testTheFullScreenWatchPollsQuicklyOnlyWhileSomethingIsCovered() {
-        let covered = FullscreenMonitor.pollInterval(anyCovered: true, multiplier: 1)
-        let idle = FullscreenMonitor.pollInterval(anyCovered: false, multiplier: 1)
+    /// is quick while something is covered, to see it uncovered, and for a few seconds after
+    /// each event, for the display-sized window that arrives behind it.
+    func testTheFullScreenWatchPollsQuicklyWhileSomethingIsCoveredAndJustAfterAnEvent() {
+        let settled = FullscreenMonitor.settle + 1
+        let covered = FullscreenMonitor.pollInterval(anyCovered: true, sinceEvent: settled, multiplier: 1)
+        let idle = FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: settled, multiplier: 1)
         XCTAssertEqual(covered, 2, "a film ending brings the island back within a couple of seconds")
         XCTAssertGreaterThanOrEqual(idle, 5 * covered, "with nothing covered, the list is read rarely")
         XCTAssertLessThanOrEqual(idle, 30, "but a window no event announces is still seen within half a minute")
-        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, multiplier: 4), 4 * idle,
-                       "and both back off with the energy policy")
-        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: true, multiplier: 2), 2 * covered)
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: .infinity, multiplier: 1), idle,
+                       "no event heard since the watch started")
+
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: 0, multiplier: 1), covered,
+                       "a game came forward: its display-sized window can be a few seconds behind it")
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: FullscreenMonitor.settle - 0.5, multiplier: 1),
+                       covered)
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: FullscreenMonitor.settle, multiplier: 1), idle,
+                       "and once it has had time to arrive, the slow pace again")
+        XCTAssertGreaterThanOrEqual(FullscreenMonitor.settle / covered, 3, "several looks before settling")
+        XCTAssertLessThanOrEqual(FullscreenMonitor.settle, idle, "never longer than the slow pace it stands in for")
+
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: settled, multiplier: 4), 4 * idle,
+                       "and every pace backs off with the energy policy")
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: true, sinceEvent: settled, multiplier: 2), 2 * covered)
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, sinceEvent: 0, multiplier: 4), 4 * covered)
+    }
+
+    /// Readings run on a concurrent queue and land in the order they finish; one that waited on
+    /// an app's Accessibility answer used to put back what an older window list said.
+    func testAReadingOlderThanTheLastOneAppliedIsDropped() {
+        XCTAssertTrue(FullscreenMonitor.isNewer(4, than: 3))
+        XCTAssertFalse(FullscreenMonitor.isNewer(3, than: 4), "overtaken by a newer reading")
+        XCTAssertFalse(FullscreenMonitor.isNewer(3, than: 3))
     }
 
     func testAWindowFillingTheDisplayCoversIt() {
@@ -301,6 +324,65 @@ final class SpacesAndDisplaysTests: XCTestCase {
         XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [noMenuBar],
                                                        frontmost: 40, fullScreenFrames: nil),
                        [], "a display that never has a menu bar cannot say anything by lacking one")
+    }
+
+    /// On a display with no housing, with the menu bar hiding itself and no Dock there, a window
+    /// zoomed to fill the display has the display's very frame, and the island went every time
+    /// one was zoomed. The app is asked, and only a window with a close button that is not in
+    /// full screen is taken for zoomed.
+    func testAWindowItsAppCallsZoomedDoesNotCoverTheDisplayItFills() {
+        let windows = [FullscreenMonitor.Window(pid: 30, frame: externalScreen.rect, number: 7)]
+        var asked: [CGWindowID] = []
+        let zoomed = FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                     frontmost: 30, fullScreenFrames: { _ in [] }, zoomed: { window in
+            asked.append(window.number)
+            return true
+        })
+        XCTAssertEqual(zoomed, [], "Safari zoomed on the external display, its menu bar hidden")
+        XCTAssertEqual(asked, [7])
+
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: 30, fullScreenFrames: { _ in [] }, zoomed: { _ in false }),
+                       ["screen-2"], "a film full screen, or a game's borderless window: covered")
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: 30, fullScreenFrames: nil),
+                       ["screen-2"], "without Accessibility the frame is all there is, as before")
+    }
+
+    func testOnlyAWindowThatFillsItsDisplayIsAskedWhetherItIsZoomed() {
+        let windows = [FullscreenMonitor.Window(pid: 30, frame: safariOnExternal, number: 1),
+                       FullscreenMonitor.Window(pid: 40, frame: belowTheHousing, number: 2)]
+        var asked = 0
+        let covered = FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                      frontmost: 30, fullScreenFrames: { _ in [] }, zoomed: { _ in
+            asked += 1
+            return false
+        })
+        XCTAssertEqual(covered, [])
+        XCTAssertEqual(asked, 0, "an ordinary window, and one below the housing that its app did not call full screen")
+    }
+
+    /// The app is asked about a window once, not on every reading, until the next event: going
+    /// full screen changes the Space, and what the window said while zoomed must not outlive it.
+    func testAWindowsAnswerIsKeptUntilTheNextEvent() {
+        let answers = FullscreenMonitor.ZoomAnswers()
+        let zoomedSafari = FullscreenMonitor.Window(pid: 30, frame: externalScreen.rect, number: 7)
+        XCTAssertNil(answers.answer(for: zoomedSafari, epoch: 1))
+        answers.remember(true, for: zoomedSafari, epoch: 1)
+        XCTAssertEqual(answers.answer(for: zoomedSafari, epoch: 1), true)
+        var moved = zoomedSafari
+        moved.frame.origin.x += 40
+        XCTAssertNil(answers.answer(for: moved, epoch: 1), "another frame is another question")
+
+        XCTAssertNil(answers.answer(for: zoomedSafari, epoch: 2), "an event since: asked again")
+        answers.remember(false, for: zoomedSafari, epoch: 2)
+        answers.remember(true, for: zoomedSafari, epoch: 1)
+        XCTAssertEqual(answers.answer(for: zoomedSafari, epoch: 2), false,
+                       "a reading that started before the event does not put its answer back")
+
+        let unnumbered = FullscreenMonitor.Window(pid: 30, frame: externalScreen.rect)
+        answers.remember(true, for: unnumbered, epoch: 2)
+        XCTAssertNil(answers.answer(for: unnumbered, epoch: 2), "nothing tells a window without a number from the next one")
     }
 
     // MARK: - Full screen, and only at the front

@@ -103,18 +103,42 @@ final class MainThreadRulesTests: XCTestCase {
 
     // MARK: - The sound devices
 
+    private let nothing: AudioOutputs.LevelParts = []
+
     /// A reading of the devices is taken on a queue and lands later; the listeners on the output
-    /// report the level on the main thread the moment it moves. A reading's level is taken only
-    /// when the listeners have just moved to a new output with it.
+    /// report the level on the main thread the moment it moves. A reading's whole level is taken
+    /// only when the listeners have just moved to a new output with it.
     func testADeviceReadingSetsTheLevelOnlyWhenItBringsANewOutput() {
-        XCTAssertTrue(AudioOutputs.showsLevel(rebound: true, wroteRecently: false),
-                      "a new output: the level shown was another device's")
-        XCTAssertFalse(AudioOutputs.showsLevel(rebound: false, wroteRecently: false),
-                       "the same output: its listener already said, and later than this reading could")
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: true, wroteRecently: false, shownVolume: 0.4, shownHasMute: true,
+                                               readVolume: 0.7, readMute: false),
+                       AudioOutputs.LevelParts.all, "a new output: the level shown was another device's")
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: false, shownVolume: 0.4, shownHasMute: true,
+                                               readVolume: 0.7, readMute: false),
+                       nothing, "the same output: its listener already said, and later than this reading could")
+    }
+
+    /// AirPods picked as the output: the reading that moved the listeners came before the level
+    /// and the mute did, and the slider stayed disabled. A later reading of the same output fills
+    /// in what is missing, and only that.
+    func testALaterReadingFillsInALevelOrAMuteTheOutputHadNotPublishedYet() {
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: false, shownVolume: nil, shownHasMute: true,
+                                               readVolume: 0.5, readMute: false),
+                       AudioOutputs.LevelParts.volume, "no level shown, one read: the slider comes alive")
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: false, shownVolume: 0.5, shownHasMute: false,
+                                               readVolume: 0.2, readMute: true),
+                       AudioOutputs.LevelParts.mute, "the mute arrives; the level shown is its listener's and stays")
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: false, shownVolume: nil, shownHasMute: false,
+                                               readVolume: 0.5, readMute: false),
+                       AudioOutputs.LevelParts.all)
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: false, shownVolume: nil, shownHasMute: false,
+                                               readVolume: nil, readMute: nil),
+                       nothing, "an output with no level of its own is left showing none")
     }
 
     func testTheSlidersOwnWriteIsNeverPulledBackByAReading() {
-        XCTAssertFalse(AudioOutputs.showsLevel(rebound: true, wroteRecently: true))
-        XCTAssertFalse(AudioOutputs.showsLevel(rebound: false, wroteRecently: true))
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: true, wroteRecently: true, shownVolume: 0.4, shownHasMute: true,
+                                               readVolume: 0.7, readMute: false), nothing)
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: true, shownVolume: nil, shownHasMute: false,
+                                               readVolume: 0.7, readMute: false), nothing)
     }
 }

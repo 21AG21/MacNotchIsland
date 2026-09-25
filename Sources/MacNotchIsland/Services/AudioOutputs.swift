@@ -142,6 +142,11 @@ final class AudioOutputs: ObservableObject {
         let object: AudioObjectID
         var address: AudioObjectPropertyAddress
         let block: AudioObjectPropertyListenerBlock
+        /// Whether CoreAudio took the listener.
+        var landed: Bool
+        /// A level listener put on before the output had that property, or one CoreAudio would
+        /// not take: put on again once the property is there (`listenAgainForArrivedLevel`).
+        var early = false
     }
 
     private init() {}
@@ -263,8 +268,22 @@ final class AudioOutputs: ObservableObject {
         return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
     }
 
+    /// Wherever an output might keep its level — see `AudioMonitor.volumeElements` — and its
+    /// mute. Watching only the synthesised main volume left the rail's slider frozen on a
+    /// device that has none, while the media keys moved it.
+    private static let levelAddresses: [AudioObjectPropertyAddress] =
+        AudioMonitor.volumeElements.map { AudioMonitor.volumeAddress(element: $0) }
+        + [AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute, mScope: kAudioDevicePropertyScopeOutput,
+                                      mElement: kAudioObjectPropertyElementMain)]
+
     /// Moves the listeners onto the output and the AirPlay device a reading found, or takes
     /// them away (0), and says whether the output's listeners moved. On `reader`.
+    ///
+    /// A reading that finds the same output puts back on any level listener that went on
+    /// before its property was there (`listenAgainForArrivedLevel`). AirPods or an AirPlay
+    /// receiver can become the output before they have published a level or a mute, and a
+    /// listener put on a property that does not exist yet cannot be counted on to report it
+    /// arriving, or anything after.
     @discardableResult
     private func bind(output: AudioDeviceID, airPlay: AudioDeviceID) -> Bool {
         let rebound = boundDevice != output
@@ -272,17 +291,15 @@ final class AudioOutputs: ObservableObject {
             remove(&deviceRegistrations)
             boundDevice = output
             if output != 0 {
-                // Wherever this device might keep its level — see `AudioMonitor.volumeElements`.
-                // Watching only the synthesised main one left the rail's slider frozen on a
-                // device that has none, while the media keys moved it.
-                for element in AudioMonitor.volumeElements {
-                    deviceRegistrations.append(listen(output, address: AudioMonitor.volumeAddress(element: element)) {
-                        [weak self] in self?.reloadLevel()
-                    })
-                }
-                deviceRegistrations.append(listen(output, selector: kAudioDevicePropertyMute,
-                                                  scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.reloadLevel() })
+                deviceRegistrations = Self.levelAddresses.map { listenForLevel(on: output, at: $0) }
+                // What the output owns changes as its controls arrive, the level among them: a
+                // reading then shows what the last one could not (`showsLevel`) and puts the
+                // early listeners back on.
+                deviceRegistrations.append(listen(output, selector: kAudioObjectPropertyOwnedObjects,
+                                                  scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
             }
+        } else if output != 0 {
+            listenAgainForArrivedLevel(on: output)
         }
         if boundAirPlay != airPlay {
             remove(&airPlayRegistrations)
@@ -298,6 +315,29 @@ final class AudioOutputs: ObservableObject {
         return rebound
     }
 
+    /// A listener for one of `levelAddresses` on `output`, marked `early` when the output does
+    /// not have that property yet or CoreAudio would not take it. On `reader`.
+    private func listenForLevel(on output: AudioDeviceID, at address: AudioObjectPropertyAddress) -> Registration {
+        var asked = address
+        let present = AudioObjectHasProperty(output, &asked)
+        var registration = listen(output, address: address) { [weak self] in self?.reloadLevel() }
+        registration.early = !present || !registration.landed
+        return registration
+    }
+
+    /// Puts back on each early level listener whose property the output has now, so the
+    /// output's own listener reports that level from here on. On `reader`, from `bind`, which
+    /// is before the reading reads the level.
+    private func listenAgainForArrivedLevel(on output: AudioDeviceID) {
+        for index in deviceRegistrations.indices where deviceRegistrations[index].early {
+            var address = deviceRegistrations[index].address
+            guard AudioObjectHasProperty(output, &address) else { continue }
+            var stale = [deviceRegistrations[index]]
+            remove(&stale)
+            deviceRegistrations[index] = listenForLevel(on: output, at: address)
+        }
+    }
+
     /// Where every reading lands. Main thread, and the only place the list is published.
     private func show(_ reading: Reading) {
         let again = pass.finish()
@@ -309,25 +349,48 @@ final class AudioOutputs: ObservableObject {
         if input != currentInput { currentInput = input }
         if reading.airPlay != airPlay { airPlay = reading.airPlay }
         if reading.ticked != airPlayCurrent { airPlayCurrent = reading.ticked }
-        if Self.showsLevel(rebound: reading.rebound, wroteRecently: Self.wroteRecently()) {
-            showLevel(volume: reading.volume, mute: reading.mute)
-        }
+        let parts = Self.showsLevel(rebound: reading.rebound, wroteRecently: Self.wroteRecently(),
+                                    shownVolume: volume, shownHasMute: hasMute,
+                                    readVolume: reading.volume, readMute: reading.mute)
+        showLevel(volume: reading.volume, mute: reading.mute, parts: parts)
         // Something changed while this reading was in the air; the answer it is waiting for is
         // the next one.
         if again { reloadDevices() }
     }
 
-    /// Whether a reading's level is the one to show. Pure, so it is tested.
+    /// Which halves of a level `showLevel` sets.
+    struct LevelParts: OptionSet {
+        let rawValue: Int
+        static let volume = LevelParts(rawValue: 1 << 0)
+        static let mute = LevelParts(rawValue: 1 << 1)
+        static let all: LevelParts = [.volume, .mute]
+    }
+
+    /// Which of a reading's level to show. Pure, so it is tested.
     ///
-    /// Only when the listeners moved to a new output with it: until then the level shown is some
-    /// other device's, and from then on the new device's listeners report every change
+    /// All of it when the listeners moved to a new output with it: until then the level shown
+    /// is some other device's, and from then on the new device's listeners report every change
     /// (`reloadLevel`), exactly and on the main thread. A reading that went round by `reader`
     /// took longer, and applied afterwards it could put back a level one of those listeners had
-    /// already moved past. Nor when the island wrote the level a moment ago: a level read before
-    /// the slider moved lands after it, and must not pull the slider back for a frame; the
-    /// device's own listener reports where it really settled.
-    static func showsLevel(rebound: Bool, wroteRecently: Bool) -> Bool {
-        rebound && !wroteRecently
+    /// already moved past.
+    ///
+    /// Otherwise only what is shown as missing and the reading has: a level where none is shown,
+    /// a mute where the output is shown as having none. AirPods or an AirPlay receiver picked as
+    /// the output can have neither yet when the reading that moved the listeners reads them, and
+    /// the slider stayed disabled until the level moved some other way. Nothing a listener
+    /// reported is put back that way: there was nothing there for it to report.
+    ///
+    /// Nothing at all when the island wrote the level a moment ago: a level read before the
+    /// slider moved lands after it, and must not pull the slider back for a frame; the device's
+    /// own listener reports where it really settled.
+    static func showsLevel(rebound: Bool, wroteRecently: Bool, shownVolume: Float?, shownHasMute: Bool,
+                           readVolume: Float?, readMute: Bool?) -> LevelParts {
+        guard !wroteRecently else { return [] }
+        if rebound { return .all }
+        var parts: LevelParts = []
+        if shownVolume == nil, readVolume != nil { parts.insert(.volume) }
+        if !shownHasMute, readMute != nil { parts.insert(.mute) }
+        return parts
     }
 
     /// Which device a system-wide default points at.
@@ -362,8 +425,9 @@ final class AudioOutputs: ObservableObject {
         showLevel(volume: AudioMonitor.readOutputVolume(), mute: AudioMonitor.readOutputMute())
     }
 
-    private func showLevel(volume v: Float?, mute m: Bool?) {
-        if v != volume { volume = v }
+    private func showLevel(volume v: Float?, mute m: Bool?, parts: LevelParts = .all) {
+        if parts.contains(.volume), v != volume { volume = v }
+        guard parts.contains(.mute) else { return }
         if (m != nil) != hasMute { hasMute = m != nil }
         if (m ?? false) != isMuted { isMuted = m ?? false }
     }
@@ -525,8 +589,8 @@ final class AudioOutputs: ObservableObject {
                         handler: @escaping () -> Void) -> Registration {
         var address = address
         let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
-        _ = AudioObjectAddPropertyListenerBlock(object, &address, callbacks, block)
-        return Registration(object: object, address: address, block: block)
+        let status = AudioObjectAddPropertyListenerBlock(object, &address, callbacks, block)
+        return Registration(object: object, address: address, block: block, landed: status == noErr)
     }
 
     private func remove(_ registrations: inout [Registration]) {

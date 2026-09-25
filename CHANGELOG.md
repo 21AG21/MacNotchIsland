@@ -278,6 +278,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **The volume slider comes alive as soon as AirPods or an AirPlay speaker report a level**, instead of staying greyed out until the level moved some other way.
+- **A game or video that goes full screen a few seconds after its app comes forward hides the island within a couple of seconds**, not up to twenty (eighty in Low Power Mode); a slow answer from one app can no longer bring the island back over a full-screen window with an out-of-date reading; and on a display without a notch, zooming a window to fill the screen no longer hides the island, while films and games still do.
 - **Nothing leaves the Mac or asks because you looked, part two.** With "Find missing album art" off, the cover Spotify names for a track is no longer downloaded; right-clicking the island on a new Mac no longer asks for Bluetooth before the welcome tour; Music and Spotify are no longer sent a script, and so asked for Automation, before it; and peeking at Today no longer asks for Location, while a panel you pinned open still can.
 - **A pushed card's Shortcut button stops working, and greys out, the moment "Let pushed cards run Shortcuts" is turned off**, rather than at the next push.
 - **Turning on "Pause animations on battery" while unplugged takes effect at once**, and the sound monitor's listeners no longer come back after it is turned off.
