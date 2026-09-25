@@ -265,9 +265,6 @@ struct RailControlView: View {
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var keepAwake = KeepAwake.shared
     @ObservedObject private var shelf = ShelfStore.shared
-    /// Whether a Focus is on. Read through `FocusMonitor.isOn` alone, the disc kept whatever it
-    /// showed until something else happened to redraw it.
-    @ObservedObject private var focusStatus = FocusStatus.shared
 
     var body: some View {
         switch control {
@@ -300,11 +297,7 @@ struct RailControlView: View {
         case .airDrop:
             RailDisc(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
         case .focus:
-            // Lit while a Focus is on, as the island last saw it.
-            RailDisc(symbol: RailControl.focus.symbol, label: focusStatus.isOn ? "Focus is on — open Focus settings" : "Focus settings",
-                     active: focusStatus.isOn) {
-                if let url = RailControl.focusSettings { NSWorkspace.shared.open(url) }
-            }
+            FocusRailButton()
         case .microphone:
             MicrophoneRailButton()
         case .lock:
@@ -391,6 +384,37 @@ private struct DisplayRailButton: View {
             .popover(isPresented: $open, arrowEdge: .bottom) {
                 DisplayModuleView()
             }
+    }
+}
+
+/// The moon on the rail: opens the Focus popover, which lists this Mac's Focus modes and sets
+/// one. It used to open Focus settings and nothing else, which is a long way round to turning on
+/// Do Not Disturb; settings are a right-click away now, and at the foot of the popover.
+///
+/// Lit while a Focus is on, as the island last saw it, and wearing that Focus's own glyph —
+/// the briefcase for Work, the bed for Sleep — where SF Symbols has it. Watched through
+/// `FocusStatus`, since read through `FocusMonitor.isOn` alone the disc kept whatever it showed
+/// until something else happened to redraw it.
+private struct FocusRailButton: View {
+    @ObservedObject private var status = FocusStatus.shared
+    @State private var open = false
+
+    var body: some View {
+        let symbol = LiveActivityAPI.symbol(status.active?.symbol, fallback: RailControl.focus.symbol)
+        let label: String = status.active.map { "Focus: \($0.name)" } ?? "Focus"
+        return RailDisc(symbol: symbol, label: label, active: status.isOn) { open.toggle() }
+            .contextMenu {
+                Button("Focus Settings\u{2026}") { Self.openSettings() }
+            }
+            .accessibilityAction(named: "Open Focus settings") { Self.openSettings() }
+            // Under the rail, the way the Display disc's popover opens.
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                FocusModuleView()
+            }
+    }
+
+    static func openSettings() {
+        if let url = RailControl.focusSettings { NSWorkspace.shared.open(url) }
     }
 }
 

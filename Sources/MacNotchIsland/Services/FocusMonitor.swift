@@ -12,13 +12,97 @@ final class FocusStatus: ObservableObject {
     static let shared = FocusStatus()
 
     @Published private(set) var isOn = false
+    /// Which Focus is on, as the database names it, or nil while none is. The rail's Focus
+    /// popover marks this one; `isOn` stays its own value because most of what watches the
+    /// Focus only cares whether there is one, and should not redraw when Work becomes Sleep.
+    @Published private(set) var active: FocusMode?
 
     private init() {}
 
     /// Announced only when it has changed: the monitor reads the file on every change to the
     /// folder, and most of those are not a Focus turning on or off.
-    fileprivate func publish(_ on: Bool) {
-        if isOn != on { isOn = on }
+    fileprivate func publish(_ mode: FocusMode?) {
+        if active != mode { active = mode }
+        if isOn != (mode != nil) { isOn = mode != nil }
+    }
+}
+
+/// One of this Mac's Focus modes, as `ModeConfigurations.json` describes it: what it is called,
+/// its glyph and its colour. The name is what the "Set Focus" shortcut is handed when the rail's
+/// popover picks it, so it is the name the Focus pane shows, not the identifier.
+struct FocusMode: Equatable, Hashable, Identifiable {
+    let identifier: String
+    let name: String
+    let symbol: String
+    let tint: String
+
+    var id: String { identifier }
+
+    /// Do Not Disturb is the one mode every Mac has, and the one Control Centre lists first.
+    var isDoNotDisturb: Bool { identifier.hasSuffix(".default") }
+
+    static let doNotDisturb = FocusMode(identifier: "com.apple.donotdisturb.mode.default", name: "Do Not Disturb",
+                                        symbol: "moon.fill", tint: "indigo")
+
+    /// The modes in a `ModeConfigurations.json`, Do Not Disturb first and the rest by name.
+    ///
+    /// The file is `data[].modeConfigurations`, a dictionary from each mode's identifier to its
+    /// configuration, and the part worth having is the configuration's `mode`: `name`,
+    /// `modeIdentifier`, `symbolImageName` and `tintColorName`. A dictionary has no order, so
+    /// the list is given one — the order would otherwise change between two openings of the
+    /// same popover. A mode with no name is left out, since the name is the one thing a pick
+    /// can hand the shortcut; Do Not Disturb, whose name the system has always had, keeps it.
+    /// Anything that is not that shape is no modes at all rather than a guess.
+    ///
+    /// Pure, so it can be tested against a fixture rather than against somebody's Mac.
+    static func decode(_ data: Data) -> [FocusMode] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = json["data"] as? [[String: Any]] else { return [] }
+        var seen = Set<String>()
+        var modes: [FocusMode] = []
+        for entry in entries {
+            guard let configs = entry["modeConfigurations"] as? [String: Any] else { continue }
+            for (key, value) in configs {
+                guard let config = value as? [String: Any], let mode = config["mode"] as? [String: Any] else { continue }
+                let identifier = Self.text(mode["modeIdentifier"]) ?? key
+                let fallback = identifier.hasSuffix(".default") ? doNotDisturb.name : nil
+                guard let name = Self.text(mode["name"]) ?? fallback, seen.insert(identifier).inserted else { continue }
+                modes.append(FocusMode(identifier: identifier, name: name,
+                                       symbol: Self.text(mode["symbolImageName"]) ?? "moon.fill",
+                                       tint: tint(from: mode["tintColorName"] as? String)))
+            }
+        }
+        return modes.sorted { a, b in
+            if a.isDoNotDisturb != b.isDoNotDisturb { return a.isDoNotDisturb }
+            let byName = a.name.caseInsensitiveCompare(b.name)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return a.identifier < b.identifier
+        }
+    }
+
+    /// The mode with this identifier, or what the island has always called one it could not
+    /// look up: Do Not Disturb by its identifier, anything else plain "Focus" with a moon.
+    static func describe(_ identifier: String, in modes: [FocusMode]) -> FocusMode {
+        if let mode = modes.first(where: { $0.identifier == identifier }) { return mode }
+        return FocusMode(identifier: identifier,
+                         name: identifier.hasSuffix(".default") ? doNotDisturb.name : "Focus",
+                         symbol: "moon.fill", tint: "indigo")
+    }
+
+    /// The colour's name as `Color.named` spells it. The database writes UIKit's names —
+    /// "systemIndigoColor" — and handed over as they stood they matched none of the island's,
+    /// so every Focus was drawn white. A name that is already plain, or a hex value, is kept.
+    static func tint(from raw: String?) -> String {
+        guard var name = raw?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return "indigo" }
+        if name.hasPrefix("#") { return name }
+        if name.lowercased().hasPrefix("system") { name.removeFirst("system".count) }
+        if name.lowercased().hasSuffix("color") { name.removeLast("color".count) }
+        return name.isEmpty ? "indigo" : name.lowercased()
+    }
+
+    private static func text(_ value: Any?) -> String? {
+        guard let string = value as? String, !string.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return string
     }
 }
 
@@ -65,7 +149,7 @@ final class FocusMonitor {
         lastMode = mode?.identifier
         // Read once at the start as well as on every change: a Mac that was already in a
         // Focus when the island launched is still in one.
-        FocusStatus.shared.publish(mode != nil)
+        FocusStatus.shared.publish(mode)
         fd = open(dbDirectory.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: .main)
@@ -87,19 +171,12 @@ final class FocusMonitor {
         source = nil
         // Nothing is watching any more, so nothing may be held back on the strength of what
         // this last saw. Only a stop does this — the alerts switch going off does not.
-        FocusStatus.shared.publish(false)
-    }
-
-    private struct Mode {
-        var identifier: String
-        var name: String
-        var symbol: String
-        var tint: String
+        FocusStatus.shared.publish(nil)
     }
 
     private func check() {
         let mode = currentMode()
-        FocusStatus.shared.publish(mode != nil)
+        FocusStatus.shared.publish(mode)
         let id = mode?.identifier
         guard id != lastMode else { return }
         let previous = lastMode
@@ -110,7 +187,8 @@ final class FocusMonitor {
 
         if let mode {
             show(FocusState(name: mode.name, symbol: mode.symbol, isOn: true, tint: mode.tint))
-        } else if let previous, let old = describe(previous) {
+        } else if let previous {
+            let old = describe(previous)
             show(FocusState(name: old.name, symbol: old.symbol, isOn: false, tint: old.tint))
         }
     }
@@ -120,7 +198,7 @@ final class FocusMonitor {
         ActivityCenter.shared.showAlert(activity)
     }
 
-    private func currentMode() -> Mode? {
+    private func currentMode() -> FocusMode? {
         let url = dbDirectory.appendingPathComponent("Assertions.json")
         guard let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -137,24 +215,15 @@ final class FocusMonitor {
         return nil
     }
 
-    private func describe(_ identifier: String) -> Mode? {
-        var name = "Focus"
-        var symbol = "moon.fill"
-        var tint = "indigo"
-        if identifier.hasSuffix(".default") { name = "Do Not Disturb" }
-        let url = dbDirectory.appendingPathComponent("ModeConfigurations.json")
-        if let data = try? Data(contentsOf: url),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let entries = json["data"] as? [[String: Any]] {
-            for entry in entries {
-                guard let configs = entry["modeConfigurations"] as? [String: Any],
-                      let config = configs[identifier] as? [String: Any],
-                      let mode = config["mode"] as? [String: Any] else { continue }
-                if let n = mode["name"] as? String, !n.isEmpty { name = n }
-                if let s = mode["symbolImageName"] as? String, !s.isEmpty { symbol = s }
-                if let t = mode["tintColorName"] as? String, !t.isEmpty { tint = t }
-            }
-        }
-        return Mode(identifier: identifier, name: name, symbol: symbol, tint: tint)
+    private func describe(_ identifier: String) -> FocusMode {
+        FocusMode.describe(identifier, in: Self.readModes())
+    }
+
+    /// This Mac's Focus modes, read from the same folder as the one that is on. Empty when the
+    /// file cannot be read — which, on a macOS that guards the folder, is without Full Disk
+    /// Access — since every Mac has at least Do Not Disturb in it when it can.
+    static func readModes() -> [FocusMode] {
+        guard let data = try? Data(contentsOf: dbDirectory.appendingPathComponent("ModeConfigurations.json")) else { return [] }
+        return FocusMode.decode(data)
     }
 }

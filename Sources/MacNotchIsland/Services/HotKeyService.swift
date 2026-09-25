@@ -25,6 +25,8 @@ final class HotKeyService: ObservableObject {
         case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6
         /// Claimed only while the panel is pinned open on a section nobody types into.
         case panelLeft = 7, panelRight = 8, volumeUp = 9, volumeDown = 10, playPause = 11
+        /// Control-Y and Control-N, claimed only while a question from `notchctl ask` is up.
+        case askYes = 12, askNo = 13
         case slot1 = 21, slot2 = 22, slot3 = 23, slot4 = 24, slot5 = 25
         case slot6 = 26, slot7 = 27, slot8 = 28, slot9 = 29
         /// Zero, which has no switcher slot of its own: it is claimed only so that a time typed
@@ -76,6 +78,7 @@ final class HotKeyService: ObservableObject {
     private var handlerRef: EventHandlerRef?
     private var escapeArmed = false
     private var stepKeysArmed = false
+    private var askKeysArmed = false
     /// What the panel is allowed to take from the keyboard at this moment, see `claim`.
     private var panelClaim = KeyClaim.nothing
     private var cancellables = Set<AnyCancellable>()
@@ -158,6 +161,7 @@ final class HotKeyService: ObservableObject {
         if escapeArmed { registerEscape() }
         if stepKeysArmed { registerStepKeys() }
         if panelClaim.bareKeys { registerPanelKeys() }
+        if askKeysArmed { registerAskKeys() }
     }
 
     /// Escape belongs to whatever is open, not to the shortcut that may have opened it. It is
@@ -219,6 +223,36 @@ final class HotKeyService: ObservableObject {
         for slot in Self.panelSlots { unregister(slot) }
     }
 
+    /// Control-Y and Control-N answer the question `notchctl ask` put on the island. Claimed
+    /// from every app at once, which is why only for as long as a question is up: Control-N is
+    /// the line below in every text field on the Mac, and Control-Y puts back what Control-K
+    /// took. Found by the letters they type on the layout in force rather than by where Y and
+    /// N sit on an American keyboard — on a German one that is the key marked Z.
+    private func registerAskKeys() {
+        let letters = Self.letterKeyCodes
+        let yes = register(.askYes, keyCode: Self.askKeyCode(typing: "y", among: letters, character: KeyLayout.character(for:)),
+                           modifiers: controlKey)
+        let no = register(.askNo, keyCode: Self.askKeyCode(typing: "n", among: letters, character: KeyLayout.character(for:)),
+                          modifiers: controlKey)
+        if !(yes && no) { IslandLog.keys.notice("Control-Y or Control-N unavailable: another app owns it") }
+    }
+
+    private func unregisterAskKeys() {
+        unregister(.askYes)
+        unregister(.askNo)
+    }
+
+    /// The key that types `letter` on the layout in force, out of the letter keys; the American
+    /// position where no key types it — a Russian layout, whose keys type Cyrillic — since the
+    /// keys have to be somewhere, and that is where the card's hint is most likely to be read.
+    ///
+    /// Pure: the layout is asked through `character`, so the rule can be tested for any of them.
+    static func askKeyCode(typing letter: Character, among codes: [Int], character: (Int) -> String?) -> Int {
+        let wanted = String(letter).lowercased()
+        if let code = codes.first(where: { character($0)?.lowercased() == wanted }) { return code }
+        return letter.lowercased() == "n" ? kVK_ANSI_N : kVK_ANSI_Y
+    }
+
     @discardableResult
     private func register(_ slot: Slot, keyCode: Int, modifiers: Int) -> Bool {
         let id = EventHotKeyID(signature: Self.signature, id: slot.rawValue)
@@ -253,6 +287,20 @@ final class HotKeyService: ObservableObject {
         stepKeysArmed = armed
         guard handlerRef != nil else { return }
         if armed { registerStepKeys() } else { unregisterStepKeys() }
+    }
+
+    /// The question's two keys, claimed while `notchctl ask` has a question up and given back
+    /// the moment it is answered, runs out or is replaced — see `IslandAsk`. Says whether both
+    /// are the island's now, which is whether the card may say they answer it.
+    @discardableResult
+    func setAskKeysArmed(_ armed: Bool) -> Bool {
+        if armed != askKeysArmed {
+            askKeysArmed = armed
+            if handlerRef != nil {
+                if armed { registerAskKeys() } else { unregisterAskKeys() }
+            }
+        }
+        return armed && hotKeyRefs[.askYes] != nil && hotKeyRefs[.askNo] != nil
     }
 
     /// The two halves of the claim: the keys the panel answers itself — the arrows, the digits
@@ -367,6 +415,9 @@ final class HotKeyService: ObservableObject {
             center.collapse(reason: "escape")
         case .panelLeft: _ = center.step(forward: false, wrap: false)
         case .panelRight: _ = center.step(forward: true, wrap: false)
+        // Whatever question is up, from wherever the keyboard is.
+        case .askYes: IslandAsk.shared.answer(.yes)
+        case .askNo: IslandAsk.shared.answer(.no)
         case .volumeUp: GestureRouter.shared.nudgeVolume(up: true)
         case .volumeDown: GestureRouter.shared.nudgeVolume(up: false)
         case .playPause:

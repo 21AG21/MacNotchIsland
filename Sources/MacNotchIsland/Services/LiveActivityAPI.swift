@@ -14,6 +14,7 @@ import AppKit
 ///   notchisland://alarm?at=07:30&label=Wake       notchisland://alarm/cancel[?id=…]
 ///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
+///   notchisland://ask?title=Deploy%3F&detail=…&yes=Deploy&no=Wait&timeout=60&reply=/tmp/notchctl-ask.X/answer
 ///   notchisland://home                            notchisland://settings/island
 ///   Panes: general, island, activities, home, media, actions (or shortcuts), privacy, about
 final class LiveActivityAPI {
@@ -236,6 +237,19 @@ final class LiveActivityAPI {
             if let p = q["path"] { ShelfStore.shared.add([URL(fileURLWithPath: (p as NSString).expandingTildeInPath)]) }
         case ("shelf", "clear"):
             ShelfStore.shared.clear()
+
+        case ("ask", ""):
+            // A yes-or-no question held on the island until it is answered, with the answer
+            // written to `reply`; `notchctl ask` waits on that file. See `IslandAsk`.
+            IslandAsk.shared.handle(query: q)
+        case ("ask", "answer"):
+            // The card's own buttons, which carry the question's token. Anything without it is
+            // somebody else's guess at an answer, and answers nothing.
+            guard let token = q["token"], let answer = q["answer"].flatMap(AskAnswer.init(rawValue:)) else {
+                IslandLog.island.error("ask/answer: no token or no answer")
+                return
+            }
+            IslandAsk.shared.answer(answer, token: token)
 
         case ("home", let tab):
             // notchisland://home, notchisland://home/shelf, notchisland://home?tab=clipboard

@@ -253,11 +253,16 @@ enum IslandCommand: Equatable {
     case stopRecording
     /// Take back an alarm that was just set, from the card that says it was.
     case cancelAlarm(id: String)
+    /// Answer a script's question from its card. A command rather than a link: the link went
+    /// out through Launch Services and came back, and the card flashed to a pill on the way.
+    /// The token is the card's own, so nothing else can answer for it.
+    case answerAsk(token: String, answer: AskAnswer)
 
     func perform() {
         switch self {
         case .stopRecording: ScreenRecorder.shared.stop()
         case .cancelAlarm(let id): IslandTimer.shared.cancelAlarm(id: id)
+        case .answerAsk(let token, let answer): IslandAsk.shared.answer(answer, token: token)
         }
     }
 }

@@ -73,8 +73,8 @@ enum RailControl: String, CaseIterable, Codable {
         }
     }
 
-    /// Where the Focus button goes: macOS's Focus settings. The island has no Focus card of its
-    /// own to open — the Focus it shows is an alert that comes and goes.
+    /// Where a right-click on the Focus disc goes: macOS's Focus settings. A click opens the
+    /// island's own picker (`FocusModuleView`); this is for the settings behind it.
     static let focusSettings = URL(string: "x-apple.systempreferences:com.apple.Focus-Settings.extension")
 
     // MARK: - Order

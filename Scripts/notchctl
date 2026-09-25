@@ -18,6 +18,9 @@
 #   notchctl shelf add <path>                   notchctl shelf clear
 #   notchctl home [home|music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
 #   notchctl settings [general|island|activities|home|media|actions|privacy|about]
+#   notchctl ask "Deploy to production?" [--detail "main at 4f2c1"] [--yes Deploy] [--no Wait] [--timeout 60]
+#                                        (answered on the island, or with Control-Y / Control-N;
+#                                         prints yes, no or timeout and exits 0, 1 or 2)
 set -euo pipefail
 
 # Percent-encodes a query value one byte at a time. In a UTF-8 locale bash counts and slices
@@ -136,6 +139,59 @@ case "$cmd" in
     open_url "$cmd" ;;
   settings)
     if [ -n "${1:-}" ]; then open_url "settings/$1"; else open_url "settings"; fi ;;
+  # A question on the island, held there until it is answered with a click or Control-Y /
+  # Control-N, or until its time is up. The island writes the answer to a file in a folder of
+  # our own, and we wait for the file. Only a yes exits 0, so `if notchctl ask "Deploy?"; then`
+  # means what it says, and a question nobody answered is never taken for one. Anything that
+  # goes wrong before the question is asked exits 64 or 69, never 1 or 2, which are answers.
+  ask)
+    ask_usage='usage: notchctl ask "Question" [--detail TEXT] [--yes LABEL] [--no LABEL] [--timeout SECONDS]'
+    if [ -z "${1:-}" ] || [[ "$1" == --* ]]; then echo "$ask_usage" >&2; exit 64; fi
+    add title "$1"; shift
+    wait_for=60
+    while (( $# )); do
+      case "$1" in
+        --detail|--yes|--no|--timeout)
+          if (( $# < 2 )); then echo "notchctl ask: $1 needs a value" >&2; exit 64; fi
+          case "$1" in
+            --detail) add detail "$2" ;;
+            --yes) add yes "$2" ;;
+            --no) add no "$2" ;;
+            --timeout)
+              if ! [[ "$2" =~ ^[0-9]{1,6}$ ]]; then echo "notchctl ask: --timeout takes whole seconds" >&2; exit 64; fi
+              wait_for=$(( 10#$2 )) ;;
+          esac
+          shift 2 ;;
+        *) echo "notchctl ask: unknown flag: $1" >&2; echo "$ask_usage" >&2; exit 64 ;;
+      esac
+    done
+    # The island's own limits, so the two ends count to the same second.
+    if (( wait_for < 5 )); then wait_for=5; fi
+    if (( wait_for > 600 )); then wait_for=600; fi
+    add timeout "$wait_for"
+    # In /tmp, not $TMPDIR: the island writes only inside the home folder or /tmp, and macOS's
+    # $TMPDIR is neither. The folder is ours alone (mktemp makes it 0700); the island creates
+    # the file in it, and never replaces one that is already there.
+    ask_dir=$(mktemp -d /tmp/notchctl-ask.XXXXXX)
+    trap 'rm -rf "$ask_dir"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    reply="$ask_dir/answer"
+    add reply "$reply"
+    if ! open_url "ask"; then echo "notchctl ask: could not reach Notch Island" >&2; exit 69; fi
+    # Every fifth of a second until the answer is there, or until a few seconds past the
+    # island's own timeout — an island that was quit, or never got the question, never writes.
+    answer=timeout
+    for (( i = 0; i < (wait_for + 3) * 5; i++ )); do
+      if [ -f "$reply" ]; then answer=$(tr -d '[:space:]' < "$reply"); break; fi
+      sleep 0.2
+    done
+    # The same table as `AskAnswer.exitStatus`; AskTests reads these three lines.
+    case "$answer" in
+      yes) echo yes; exit 0 ;;
+      no) echo no; exit 1 ;;
+      *) echo timeout; exit 2 ;;
+    esac ;;
   *)
     # The comment block at the top, however long it grows: a fixed line range is a usage
     # message that goes quietly out of date the first time a command is added.

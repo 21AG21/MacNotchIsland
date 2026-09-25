@@ -21,6 +21,7 @@ and the same content layout as iOS.
 | AirPods / Bluetooth connect with battery | IOBluetooth connection events: a brief pill with the level as a device connects, the card with left, right and case one click away, read from the IORegistry. |
 | Noise Control for AirPods in Control Centre | Off, Transparency, Adaptive and Noise Cancellation as a row of pills on the AirPods card and under the pair's row in Controls (click the row to open it), whichever of them the pair has. Through AVFoundation's private `AVOutputContext` and `AVOutputDevice`, looked up by name; where a macOS does not have them, or keeps the system's audio context from an app without its entitlement, the pills are simply not there. |
 | Focus on / off with the Focus symbol | Watches macOS's Focus assertion database — and quietens the island while one is on: alerts that arrive on their own wait, and anything you did yourself still shows. |
+| Choosing a Focus in Control Centre | The rail's Focus disc opens a list of this Mac's Focus modes, read from the same database, with the one that is on filled in its colour, and Off. macOS gives apps no way to set a Focus, so a pick runs a shortcut you make once, named “Set Focus”, handed a text file holding the mode's name or “Off”; until it exists the list says so and opens Shortcuts. Right-click the disc for Focus settings. |
 | Silent / ring switch, volume | Turn on "Answer the volume and brightness keys" under Activities (event tap, needs Accessibility) and the volume, mute, brightness and keyboard backlight keys are answered in the island instead — a level bar that also names where the sound is going, which the system's bezel never does. There is only ever one display: a key the island cannot answer, or whose display you have switched off, goes straight back to macOS and its own bezel. Scroll on the island to change volume. |
 | Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
 | Face ID unlock animation | "Unlocked" when the Mac unlocks. |
@@ -29,6 +30,7 @@ and the same content layout as iOS.
 | Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. The Today section lists the next 24 hours and today's reminders. |
 | Long-press to expand, tap to open | Rest the pointer on the island to peek at the panel; click to keep it open, click anywhere else (or press Escape) to close it. What you open stays open across desktops. A global shortcut (⌃⌥Space by default) toggles it, the same modifiers with Tab step through every section and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
 | — | A URL scheme and `notchctl` for scripts: push your own Live Activity with a title, a progress ring and up to two named buttons that open a link or run a Shortcut. |
+| — | Ask from a script: `notchctl ask "Deploy to production?"` holds the question on the island with two buttons (Yes and No, or names of your own) until you click one or press Control-Y or Control-N, or its time runs out. It prints yes, no or timeout and exits 0, 1 or 2, so `if notchctl ask "Deploy?"; then …` does what it says. |
 | — | Tell me when the battery has had enough charge: pick 70, 80, 85 or 90 per cent and the island says so once per charge, which is the thing macOS never does. |
 | — | A sleep timer: right-click the island while something is playing and the music stops in fifteen minutes, or an hour, or whenever you say. A real countdown with a card — it just does not ring. |
 | — | Controls: the networks in range, the devices you are paired with, and where the sound goes and comes from — three lists, each with its own switch. Join a known network, connect a pair of headphones, move the sound to the AirPods or pick a different microphone, and mute, without opening System Settings. Every connected device carries its charge, the emptier ear first, red under ten per cent. HomePods, Apple TVs and AirPlay speakers get a group of their own, here and in the rail's output menu, where CoreAudio's AirPlay device lists them; the Sound list always ends in the system's own AirPlay picker, for when it does not. |
@@ -176,6 +178,7 @@ Scripts/notchctl timer 25 --label Focus
 Scripts/notchctl alarm 07:30 Wake up                                         # or 7:30am, 19:30, 7pm
 Scripts/notchctl alarm cancel
 Scripts/notchctl shelf add ~/Downloads/report.pdf
+Scripts/notchctl ask "Deploy to production?" --yes Deploy --no Wait --timeout 120   # yes → 0, no → 1, timeout → 2
 ```
 
 The underlying URLs:
@@ -189,6 +192,7 @@ notchisland://timer/add?minutes=1
 notchisland://alarm?at=07:30&label=Wake    notchisland://alarm/cancel[?at=07:30 | ?id=…]
 notchisland://stopwatch                    notchisland://stopwatch/lap | stop | reset
 notchisland://shelf/add?path=…             notchisland://shelf/clear
+notchisland://ask?title=…&detail=…&yes=Yes&no=No&timeout=5–600&reply=/tmp/…/answer   (the answer is written to reply)
 notchisland://home[/music|today|windows|shelf|controls|clipboard|actions|notes|stats|notifications] | collapse | settings[/pane]
 ```
 

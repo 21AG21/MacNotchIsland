@@ -6,6 +6,8 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Pick a Focus from the rail.** The Focus disc opens a list of this Mac's Focus modes, read from the same database the island already watches, with the one that is on filled in its own colour, and Off. macOS gives no app a way to set a Focus, so a pick runs a shortcut you make once, named “Set Focus”, handed a text file with the mode's name or “Off”. Until it exists the list still says which Focus is on, and a line under it says how to make it, with a button to Shortcuts. Right-click the disc for Focus settings. Focus alerts wear the Focus's colour: the database names colours the UIKit way, and every one used to be drawn white.
+- **Ask from a script.** `notchctl ask "Deploy to production?" [--yes Deploy] [--no Wait] [--timeout 60]` holds the question on the island until a click or Control-Y / Control-N, or until its time is up. It prints yes, no or timeout and exits 0, 1 or 2, so `if notchctl ask …; then` means what it says. Everything but a flat battery waits behind the card. A second question answers the first "timeout". The answer file must be new and in your home or /tmp, and only the card's own buttons and the keys can answer. `notchisland://ask?title=…&reply=…`.
 - **Buttons beside play.** The transport was back, play and forward, which is all Music needs
   and not what a podcast needs. Settings > Media now has four places, two either side of the
   three, each holding nothing, shuffle, repeat, favourite, back 15 s or forward 15 s. They are
