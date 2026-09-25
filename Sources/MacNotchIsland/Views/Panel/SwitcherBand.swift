@@ -442,7 +442,7 @@ struct SwitcherBand: View {
         case .activity(let id):
             guard let a = center.activity(id: id) else { return Entry(symbol: "circle", title: "Activity", tint: .white) }
             switch a.content {
-            case .timer(let t): return Entry(symbol: t.isFinished ? "bell.fill" : "timer", title: t.label, tint: .orange)
+            case .timer(let t): return Entry(symbol: t.isAlarm ? "alarm.fill" : (t.isFinished ? "bell.fill" : "timer"), title: t.label, tint: .orange)
             case .stopwatch: return Entry(symbol: "stopwatch.fill", title: "Stopwatch", tint: .orange)
             case .call(let c): return Entry(symbol: "phone.fill", title: "Call in \(c.appName)", tint: .green)
             case .battery(let b): return Entry(symbol: b.isCharging || b.isPluggedIn ? "battery.100percent.bolt" : "battery.50percent",

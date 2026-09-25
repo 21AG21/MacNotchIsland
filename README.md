@@ -12,12 +12,14 @@ and the same content layout as iOS.
 
 | iPhone Dynamic Island | Notch Island on the Mac |
 | --- | --- |
-| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover or click for the Now Playing section: scrubber, transport, an output picker, time-synced lyrics from LRCLIB. A track that starts peeks into the pill for a moment with its title and artist. Swipe sideways on the pill to skip tracks. |
+| Now Playing: artwork on the left, artwork-tinted audio bars on the right; expanded scrubber, title, artist, transport controls | Same, for any app playing through the system player (Music, Spotify, Safari, Podcasts…). Hover or click for the Now Playing section: scrubber, transport, an output picker, time-synced lyrics from LRCLIB. A track that starts peeks into the pill for a moment with its title and artist. Swipe sideways on the pill to skip tracks. Up to two more buttons either side of play, chosen under Media: shuffle, repeat (off, all, one), favourite, and back or forward 15 seconds for podcasts — lit while shuffle or repeat is on, dimmed when the player in front does not offer them. |
+| Clock app alarm | Type a time on the Actions section — 7:30, 19:05, 7:30pm — and Return sets an alarm for the next time the clock reads it; type a number instead and it is a timer of that many minutes. An alarm waits in the timer row, the menu bar and the island's menu, survives a relaunch, and rings the way a timer does, with Snooze. `notchctl alarm 07:30 Wake`. It rings only while the Mac is awake: waking a sleeping Mac needs root. |
 | Timer countdown in orange, expanded pause / cancel, "timer done" state | Same, with 1–60 min presets in the Home panel and menu bar, or `notchctl timer 5`. Another minute is one click on the card, a scroll up on the pill, or `notchctl timer add`. |
 | Stopwatch Live Activity (iOS 17) with laps | Same: Home panel, menu bar, or `notchisland://stopwatch`. |
 | Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. The card mutes the microphone for every app at once — the input device itself, not one app's idea of it — and opens Control Centre's Video Effects and Mic Mode; while it is muted the pill's glyph is a red microphone with a line through it. |
 | Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. Low Power Mode on/off too. |
 | AirPods / Bluetooth connect with battery | IOBluetooth connection events: a brief pill with the level as a device connects, the card with left, right and case one click away, read from the IORegistry. |
+| Noise Control for AirPods in Control Centre | Off, Transparency, Adaptive and Noise Cancellation as a row of pills on the AirPods card and under the pair's row in Controls (click the row to open it), whichever of them the pair has. Through AVFoundation's private `AVOutputContext` and `AVOutputDevice`, looked up by name; where a macOS does not have them, or keeps the system's audio context from an app without its entitlement, the pills are simply not there. |
 | Focus on / off with the Focus symbol | Watches macOS's Focus assertion database — and quietens the island while one is on: alerts that arrive on their own wait, and anything you did yourself still shows. |
 | Silent / ring switch, volume | Turn on "Replace the system volume and brightness bezel" (event tap, needs Accessibility) and the volume, mute, brightness and keyboard backlight keys are answered in the island instead — a level bar that also names where the sound is going, which the system's bezel never does. There is only ever one display: a key the island cannot answer, or whose display you have switched off, goes straight back to macOS and its own bezel. Scroll on the island to change volume. |
 | Privacy indicators inside the island (orange mic, green camera) | Same, from CoreAudio and CoreMediaIO "running somewhere" properties. |
@@ -29,13 +31,13 @@ and the same content layout as iOS.
 | — | A URL scheme and `notchctl` for scripts: push your own Live Activity with a title, a progress ring and up to two named buttons that open a link or run a Shortcut. |
 | — | Tell me when the battery has had enough charge: pick 70, 80, 85 or 90 per cent and the island says so once per charge, which is the thing macOS never does. |
 | — | A sleep timer: right-click the island while something is playing and the music stops in fifteen minutes, or an hour, or whenever you say. A real countdown with a card — it just does not ring. |
-| — | Controls: the networks in range, the devices you are paired with, and where the sound goes and comes from — three lists, each with its own switch. Join a known network, connect a pair of headphones, move the sound to the AirPods or pick a different microphone, and mute, without opening System Settings. Every connected device carries its charge, the emptier ear first, red under ten per cent. |
+| — | Controls: the networks in range, the devices you are paired with, and where the sound goes and comes from — three lists, each with its own switch. Join a known network, connect a pair of headphones, move the sound to the AirPods or pick a different microphone, and mute, without opening System Settings. Every connected device carries its charge, the emptier ear first, red under ten per cent. HomePods, Apple TVs and AirPlay speakers get a group of their own, here and in the rail's output menu, where CoreAudio's AirPlay device lists them; the Sound list always ends in the system's own AirPlay picker, for when it does not. |
 | — | The panel opens on Home: a grid of tiles, Control Centre style. What is playing takes a wide tile with a play button on it; every other section is a tile with its name and a glimpse of what is inside — the next thing in your day, how many files are on the shelf, the first line of your notes. |
 | — | One panel for everything. A switcher beside the notch holds the live activities on the left and the sections on the right: Now Playing, Today (events, reminders, weather), Windows, the shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history with pins and search, actions that run your Shortcuts, a notes scratchpad, and system stats whose every reading opens the place macOS keeps it — Activity Monitor for the processor and the memory, Storage for the disk, Network for the network. Under every section a control rail: the volume, and the brightness where the Mac has one; where the sound is going as soon as there is more than one place it could go; then the controls you have chosen, in your order, with Settings last — out of the box Wi-Fi and Bluetooth where the Mac has them, the Display popover, Keep Awake, the camera mirror, AirDrop for the shelf when there is something to point it at, and the keyboard's backlight. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
 | — | Windows: every open window as a live tile. Click one to bring it forward; the zones on it send it to a half of the screen, fill the screen, centre it or move it to the next display, and the two corner buttons minimise or close it. Pictures need Screen Recording, moving needs Accessibility; without them the windows are still listed by app. |
 | — | Command-click several window tiles and tile them together: two side by side, three across, four in quarters, or a grid beyond that. |
 | — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume, hold Option while scrolling for brightness, and Control for the keyboard's backlight. Or have the vertical swipe open and close instead: down on the island opens the panel, up on the panel closes it, once a swipe, with a sensitivity slider for how far a swipe has to go. A scroll on a timer's pill gives it another minute a step. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
-| — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a slot of the switcher, Space plays and pauses, ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes is showing. |
+| — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a slot of the switcher (on Actions they start a timer instead), Space plays and pauses, ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes is showing. |
 | A–Z | Start typing on Windows, the Clipboard or the Shelf and a find opens with that letter in it, narrowing the list as you type. ↑ and ↓ walk the matches, Return takes the one you are on, Escape leaves the find. |
 | — | Screenshots: the capture you just took, as a card with the picture on it. Drag it straight into a message, copy the picture, copy the words in it (read with Vision, offered only when there are any), open a QR code's link (the host is written under the title), or open the file. |
 | Screen recording from Control Centre, a red pill while it runs | Record Screen from the island's right-click menu: Apple's own `screencapture`, a red dot and the time on the pill, Stop on its card, and the finished movie saved where screenshots go and handed back as a capture card. Needs Screen Recording; the island says so, and where to turn it on, if it is off. |
@@ -135,7 +137,9 @@ Nothing is required up front. macOS asks for these lazily:
   the build bundles a tiny helper (`Adapter/MediaRemoteAdapter.m`) that runs inside
   `/usr/bin/perl`, an Apple-signed host, and streams Now Playing data to the app. If that
   ever fails, Notch Island falls back to asking Music and Spotify directly with AppleScript,
-  which prompts once per app.
+  which prompts once per app. The same prompt can come the first time you press shuffle,
+  repeat or favourite beside play in Music or Spotify, when MediaRemote has not said whether
+  the player takes it.
 - **Calendars**: only if you turn on "Upcoming calendar events".
 
 The microphone and camera indicators read the devices' *in-use* state; no audio or video is
@@ -151,6 +155,8 @@ Scripts/notchctl activity build --title "Building" --progress 0.9           # up
 Scripts/notchctl end build
 Scripts/notchctl alert "Deployed" --symbol checkmark.circle.fill --tint green
 Scripts/notchctl timer 25 --label Focus
+Scripts/notchctl alarm 07:30 Wake up                                         # or 7:30am, 19:30, 7pm
+Scripts/notchctl alarm cancel
 Scripts/notchctl shelf add ~/Downloads/report.pdf
 ```
 
@@ -161,6 +167,7 @@ notchisland://activity?id=…&title=…&subtitle=…&symbol=…&tint=…&progres
 notchisland://activity/end?id=…
 notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1
 notchisland://timer?minutes=5&label=Tea    notchisland://timer/cancel | pause | resume
+notchisland://alarm?at=07:30&label=Wake    notchisland://alarm/cancel[?at=07:30 | ?id=…]
 notchisland://stopwatch                    notchisland://stopwatch/lap | stop | reset
 notchisland://shelf/add?path=…             notchisland://shelf/clear
 notchisland://home[/music|today|shelf|clipboard|actions|notes|stats] | collapse | settings

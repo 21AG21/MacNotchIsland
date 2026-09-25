@@ -42,6 +42,17 @@ struct MediaPane: View {
             }
 
             Section {
+                Picker("Leftmost", selection: transportSlot(0)) { slotChoices }
+                Picker("Left of back", selection: transportSlot(1)) { slotChoices }
+                Picker("Right of forward", selection: transportSlot(2)) { slotChoices }
+                Picker("Rightmost", selection: transportSlot(3)) { slotChoices }
+            } header: {
+                Text("Buttons beside play")
+            } footer: {
+                Text("Up to two more buttons either side of back, play and forward, the same size as they are. Out of the box there are none and the row is Music's three. For podcasts and audiobooks, Back 15 s and Forward 15 s are the pair to choose; for albums, Shuffle and Repeat. A button the player in front does not offer is drawn dimmed. Where MediaRemote says nothing about shuffle, repeat or the favourite, Music and Spotify are asked with AppleScript, which macOS asks you to allow once for each.")
+            }
+
+            Section {
                 Text(Self.startExample)
                     .font(.system(.footnote, design: .monospaced))
                     .textSelection(.enabled)
@@ -70,6 +81,26 @@ struct MediaPane: View {
     private static let startExample =
         "open \"notchisland://activity?id=build&title=Building&symbol=hammer.fill&tint=blue&progress=0.4\""
     private static let endExample = "open \"notchisland://activity/end?id=build\""
+
+    /// The six things a place beside play can hold.
+    @ViewBuilder
+    private var slotChoices: some View {
+        ForEach(TransportSlot.allCases) { slot in
+            Text(slot.title).tag(slot)
+        }
+    }
+
+    /// One place beside play. Choosing a button that is already in another place moves it
+    /// here, see `TransportSlot.placing`.
+    private func transportSlot(_ index: Int) -> Binding<TransportSlot> {
+        Binding(
+            get: { TransportSlot.resolved(stored: prefs.transportSlots)[index] },
+            set: { slot in
+                let current = TransportSlot.resolved(stored: prefs.transportSlots)
+                prefs.transportSlots = TransportSlot.placing(slot, at: index, in: current).map(\.rawValue)
+            }
+        )
+    }
 
     /// A helper this Mac cannot run has nothing to restart, and one that has not been started
     /// — Now Playing switched off — must not be started from here behind the switch's back.

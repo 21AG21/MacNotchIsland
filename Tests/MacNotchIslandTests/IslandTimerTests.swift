@@ -211,6 +211,65 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertNil(timer.state)
     }
 
+    // MARK: - A minute less
+
+    func testAMinuteLessMovesTheEndAndTheTotalTogether() {
+        timer.start(seconds: 300, label: "Pasta")
+        let before = timer.state
+        timer.add(seconds: -IslandTimer.addStep)
+        let after = timer.state
+        XCTAssertEqual(after?.total ?? 0, (before?.total ?? 0) - 60, accuracy: 0.01)
+        XCTAssertEqual(after?.endDate.timeIntervalSince1970 ?? 0,
+                       (before?.endDate.timeIntervalSince1970 ?? 0) - 60, accuracy: 0.01)
+        XCTAssertEqual(after?.label, "Pasta", "it is the same timer, a minute shorter")
+        XCTAssertFalse(after?.isFinished ?? true)
+    }
+
+    func testTakingOffMoreThanIsLeftLeavesOneSecond() {
+        timer.start(seconds: 30, label: "Tea")
+        guard let id = timer.primary?.id else { return XCTFail("no timer") }
+        let now = Date()
+        timer.add(seconds: -IslandTimer.addStep, id: id, now: now)
+        XCTAssertEqual(timer.state?.remaining(at: now) ?? 0, IslandTimer.minimumRemaining, accuracy: 0.01,
+                       "shortened to the floor, not rung on the spot")
+        XCTAssertFalse(timer.state?.isFinished ?? true)
+        XCTAssertGreaterThanOrEqual(timer.state?.total ?? 0, IslandTimer.minimumRemaining)
+
+        let end = timer.state?.endDate
+        timer.add(seconds: -IslandTimer.addStep, id: id, now: now)
+        XCTAssertEqual(timer.state?.endDate, end, "at the floor there is nothing more to take")
+    }
+
+    func testAMinuteLessOnAPausedTimerIsTakenFromWhatIsWaiting() {
+        timer.start(seconds: 300, label: "Pasta")
+        timer.pause()
+        let before = timer.state?.pausedRemaining ?? 0
+        timer.add(seconds: -IslandTimer.addStep)
+        XCTAssertEqual(timer.state?.pausedRemaining ?? 0, before - 60, accuracy: 0.01)
+        XCTAssertTrue(timer.state?.isPaused ?? false, "taking time off does not start it running")
+        timer.add(seconds: -10 * IslandTimer.addStep)
+        XCTAssertEqual(timer.state?.pausedRemaining ?? 0, IslandTimer.minimumRemaining, accuracy: 0.01)
+    }
+
+    func testATimerThatHasRungIsNotShortened() {
+        timer.start(seconds: 300, label: "Pasta")
+        guard let id = timer.timers.first?.id else { return XCTFail("no timer") }
+        timer.finishForTesting(id: id)
+        let before = timer.state
+        timer.add(seconds: -IslandTimer.addStep)
+        XCTAssertEqual(timer.state, before)
+    }
+
+    func testTheFloorOnItsOwn() {
+        XCTAssertEqual(IslandTimer.adjustment(60, remaining: 10), 60, "adding is never held back")
+        XCTAssertEqual(IslandTimer.adjustment(-60, remaining: 300), -60)
+        XCTAssertEqual(IslandTimer.adjustment(-60, remaining: 30), -29, accuracy: 0.0001)
+        XCTAssertEqual(IslandTimer.adjustment(-60, remaining: 1), 0)
+        XCTAssertEqual(IslandTimer.adjustment(-60, remaining: 0.4), 0, "less than the floor is left alone, not lengthened")
+        XCTAssertEqual(IslandTimer.adjustment(.nan, remaining: 30), 0)
+        XCTAssertEqual(IslandTimer.adjustment(-.infinity, remaining: 30), 0)
+    }
+
     // MARK: - What the card says over the countdown
 
     private func state(_ label: String, finished: Bool = false, paused: Bool = false) -> TimerState {

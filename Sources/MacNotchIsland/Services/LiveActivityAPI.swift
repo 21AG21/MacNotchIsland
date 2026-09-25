@@ -11,6 +11,7 @@ import AppKit
 ///   notchisland://timer/add?minutes=1
 ///   notchisland://timer/pomodoro?work=25&rest=5&cycles=4&long=15
 ///   notchisland://sleep?minutes=30                notchisland://sleep/cancel
+///   notchisland://alarm?at=07:30&label=Wake       notchisland://alarm/cancel[?id=…]
 ///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
 ///   notchisland://home                            notchisland://settings/island
@@ -103,6 +104,14 @@ final class LiveActivityAPI {
         return raw
     }
 
+    /// When `alarm?at=` rings, read with the rule the Actions field reads a typed time with
+    /// (`TimerEntry.parse`), so "07:30", "7:30pm" and "19:30" mean the same here as there. A
+    /// bare number is minutes to that rule and so not a time; it, and anything else, is nil.
+    static func alarmDate(_ raw: String?, now: Date = Date(), calendar: Calendar = .current) -> Date? {
+        guard let raw, case .alarm(let date)? = TimerEntry.parse(raw, now: now, calendar: calendar) else { return nil }
+        return date
+    }
+
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "notchisland",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
@@ -181,6 +190,28 @@ final class LiveActivityAPI {
             IslandTimer.shared.pause()
         case ("timer", "resume"):
             IslandTimer.shared.resume()
+
+        case ("alarm", ""), ("alarm", "set"), ("alarm", "start"):
+            // notchisland://alarm?at=07:30&label=Wake — the next time the clock reads it.
+            guard let date = Self.alarmDate(q["at"] ?? q["time"]) else {
+                IslandLog.island.error("alarm: \(q["at"] ?? q["time"] ?? "", privacy: .public) is not a time")
+                return
+            }
+            IslandTimer.shared.setAlarm(at: date, label: Self.text(q["label"]))
+        case ("alarm", "cancel"), ("alarm", "stop"):
+            // By id, by the time it was set for, or every one of them.
+            if let id = q["id"] {
+                IslandTimer.shared.cancelAlarm(id: id)
+            } else if let raw = q["at"] ?? q["time"] {
+                let wanted = TimerEntry.clockTime(raw.trimmingCharacters(in: .whitespaces).lowercased())
+                let calendar = Calendar.current
+                for alarm in IslandTimer.shared.alarms {
+                    let parts = calendar.dateComponents([.hour, .minute], from: alarm.fireDate)
+                    if parts.hour == wanted?.hour, parts.minute == wanted?.minute { IslandTimer.shared.cancelAlarm(id: alarm.id) }
+                }
+            } else {
+                IslandTimer.shared.cancelAllAlarms()
+            }
 
         case ("stopwatch", ""), ("stopwatch", "start"):
             IslandStopwatch.shared.start()

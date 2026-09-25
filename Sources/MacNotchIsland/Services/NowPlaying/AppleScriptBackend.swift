@@ -72,7 +72,11 @@ final class AppleScriptBackend {
                 end if
                 if s is "playing" or s is "paused" then
                     set t to current track
-                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & ((duration of t) / 1000) & linefeed & (player position) & linefeed & (id of t) & linefeed & (artwork url of t)
+                    set m to ""
+                    try
+                        set m to (shuffling as text) & linefeed & (repeating as text)
+                    end try
+                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & ((duration of t) / 1000) & linefeed & (player position) & linefeed & (id of t) & linefeed & (artwork url of t) & linefeed & m
                 end if
             end tell
             return ""
@@ -88,7 +92,11 @@ final class AppleScriptBackend {
                 end if
                 if s is "playing" or s is "paused" then
                     set t to current track
-                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (duration of t) & linefeed & (player position) & linefeed & (database ID of t) & linefeed & ""
+                    set m to ""
+                    try
+                        set m to (shuffle enabled as text) & linefeed & (song repeat as text)
+                    end try
+                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (duration of t) & linefeed & (player position) & linefeed & (database ID of t) & linefeed & "" & linefeed & m
                 end if
             end tell
             return ""
@@ -115,10 +123,37 @@ final class AppleScriptBackend {
             accent = artwork?.dominantColor() ?? .white
         }
 
-        return NowPlayingInfo(title: title, artist: artist, album: album,
-                              duration: duration, elapsed: position, timestamp: Date(),
-                              isPlaying: state == "playing", bundleID: bundle,
-                              artwork: artwork, artworkID: artworkID, accent: accent)
+        var info = NowPlayingInfo(title: title, artist: artist, album: album,
+                                  duration: duration, elapsed: position, timestamp: Date(),
+                                  isPlaying: state == "playing", bundleID: bundle,
+                                  artwork: artwork, artworkID: artworkID, accent: accent)
+        info.shuffle = Self.scriptedShuffle(parts.count > 8 ? parts[8] : "")
+        info.repeatMode = Self.scriptedRepeat(parts.count > 9 ? parts[9] : "", spotify: spotify)
+        return info
+    }
+
+    /// "true" or "false", as both players' dictionaries write a boolean; anything else is a
+    /// player that would not say.
+    static func scriptedShuffle(_ text: String) -> Bool? {
+        switch text.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "true": return true
+        case "false": return false
+        default: return nil
+        }
+    }
+
+    /// Music says off, one or all. Spotify's dictionary has only a yes or no for repeating, and
+    /// yes is read as the whole list, which is what its button does first.
+    static func scriptedRepeat(_ text: String, spotify: Bool) -> NowPlayingInfo.RepeatMode? {
+        let word = text.trimmingCharacters(in: .whitespaces).lowercased()
+        if spotify {
+            switch word {
+            case "true": return .all
+            case "false": return .off
+            default: return nil
+            }
+        }
+        return NowPlayingInfo.RepeatMode(rawValue: word)
     }
 
     private func fetchMusicArtwork() -> NSImage? {
@@ -184,5 +219,39 @@ final class AppleScriptBackend {
     func seek(to seconds: TimeInterval, bundleID: String?) {
         let app = bundleID == Self.spotifyID ? "Spotify" : "Music"
         commandQueue.async { _ = self.run("tell application \"\(app)\" to set player position to \(Int(seconds))") }
+    }
+
+    /// The two players name the same switch differently: Music's `shuffle enabled`, Spotify's
+    /// `shuffling`. Both take a plain true or false.
+    func setShuffle(_ on: Bool, bundleID: String?) {
+        let source = bundleID == Self.spotifyID
+            ? "tell application \"Spotify\" to set shuffling to \(on)"
+            : "tell application \"Music\" to set shuffle enabled to \(on)"
+        commandQueue.async { _ = self.run(source) }
+    }
+
+    /// Music takes off, one or all; Spotify only whether it repeats at all.
+    func setRepeat(_ mode: NowPlayingInfo.RepeatMode, bundleID: String?) {
+        let source = bundleID == Self.spotifyID
+            ? "tell application \"Spotify\" to set repeating to \(mode != .off)"
+            : "tell application \"Music\" to set song repeat to \(mode.rawValue)"
+        commandQueue.async { _ = self.run(source) }
+    }
+
+    /// Favourites the track in Music. The property was `loved` before Apple renamed the button
+    /// Favourite, so the older word is tried when the newer one is refused. Spotify's
+    /// dictionary has no way to save a track at all, so there is nothing to send it.
+    func like(bundleID: String?) {
+        guard bundleID != Self.spotifyID else { return }
+        let source = """
+        tell application "Music"
+            try
+                set favorited of current track to true
+            on error
+                set loved of current track to true
+            end try
+        end tell
+        """
+        commandQueue.async { _ = self.run(source) }
     }
 }

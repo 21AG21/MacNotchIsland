@@ -6,6 +6,22 @@
 // periodic refresh); single-word commands on stdin ("play", "pause", "toggle", "next",
 // "previous", "seek <seconds>", "refresh"). The process exits when stdin closes.
 //
+// Added later, and ignored by nothing: an older app sends none of them, and a command this
+// helper does not know is dropped without a word, so either side can be newer.
+//   "shuffle"          advance the shuffle mode (MRMediaRemoteCommand 6)
+//   "shuffle <mode>"   set it: 1 off, 3 songs (MRMediaRemoteSetShuffleMode, else command 6)
+//   "repeat"           advance the repeat mode (command 7)
+//   "repeat <mode>"    set it: 1 off, 2 one, 3 all (MRMediaRemoteSetRepeatMode, else command 7)
+//   "like"             like / favourite the track (command 21)
+// Seeking by fifteen seconds is not here: the app knows where the playhead is and sends an
+// absolute "seek".
+//
+// The payload carries every string and number MediaRemote hands over, under its own keys —
+// which is how the shuffle and repeat modes arrive, as kMRMediaRemoteNowPlayingInfoShuffleMode
+// and kMRMediaRemoteNowPlayingInfoRepeatMode, wherever the player reports them. One key is the
+// helper's own: "supportedCommands", the MRMediaRemoteCommand numbers the player says it
+// takes, present only where MediaRemote will list them. Readers ignore keys they do not know.
+//
 // Built by Scripts/build.sh into Contents/Resources/MediaRemoteAdapter.dylib and loaded
 // through perl's DynaLoader (see AdapterBackend.swift).
 
@@ -19,12 +35,35 @@ typedef void (*MRGetInfoFn)(dispatch_queue_t, void (^)(NSDictionary *));
 typedef void (*MRGetPIDFn)(dispatch_queue_t, void (^)(int));
 typedef Boolean (*MRSendCommandFn)(int, NSDictionary *);
 typedef void (*MRSetElapsedFn)(double);
+typedef void (*MRSetModeFn)(int);
+typedef void *(*MRGetLocalOriginFn)(void);
+typedef void (*MRGetSupportedCommandsFn)(void *, dispatch_queue_t, void (^)(NSArray *));
+typedef int (*MRCommandInfoGetCommandFn)(id);
+typedef Boolean (*MRCommandInfoGetEnabledFn)(id);
 
 static MRGetInfoFn sGetInfo;
 static MRGetPIDFn sGetPID;
 static MRSendCommandFn sSendCommand;
 static MRSetElapsedFn sSetElapsed;
+static MRSetModeFn sSetShuffle;
+static MRSetModeFn sSetRepeat;
+static MRGetLocalOriginFn sGetLocalOrigin;
+static MRGetSupportedCommandsFn sGetSupported;
+static MRCommandInfoGetCommandFn sInfoCommand;
+static MRCommandInfoGetEnabledFn sInfoEnabled;
 static unsigned long long sLastArtworkHash = 0;
+/// The last list of supported commands MediaRemote gave, sorted; nil until it has given one.
+static NSArray<NSNumber *> *sSupported = nil;
+/// When the last request for that list went out, so one that never comes back does not stop
+/// the next from being asked.
+static CFAbsoluteTime sSupportedAskedAt = 0;
+
+// MRMediaRemoteCommand numbers this helper sends.
+enum {
+    kAdvanceShuffle = 6,
+    kAdvanceRepeat = 7,
+    kLikeTrack = 21,
+};
 
 static unsigned long long fnv1a(NSData *data) {
     unsigned long long h = 1469598103934665603ULL;
@@ -46,8 +85,58 @@ static void writeLine(NSDictionary *dict) {
     fflush(stdout);
 }
 
+static void emit(void);
+
+/// One entry of MediaRemote's supported-command list as a number, or nil for one that is
+/// switched off or cannot be read. The entries are MRCommandInfo objects; the C accessors are
+/// used where the framework still exports them and the object's own properties otherwise.
+static NSNumber *commandNumber(id info) {
+    if (!info) return nil;
+    if (sInfoEnabled && !sInfoEnabled(info)) return nil;
+    if (sInfoCommand) return @(sInfoCommand(info));
+    @try {
+        if ([info respondsToSelector:NSSelectorFromString(@"isEnabled")] || [info respondsToSelector:NSSelectorFromString(@"enabled")]) {
+            id enabled = [info valueForKey:@"enabled"];
+            if ([enabled isKindOfClass:[NSNumber class]] && ![(NSNumber *)enabled boolValue]) return nil;
+        }
+        if ([info respondsToSelector:NSSelectorFromString(@"command")]) {
+            id command = [info valueForKey:@"command"];
+            if ([command isKindOfClass:[NSNumber class]]) return (NSNumber *)command;
+        }
+    } @catch (NSException *exception) {
+        // A shape this helper does not know: no list, rather than a helper that dies.
+    }
+    return nil;
+}
+
+/// Asks for the player's supported commands, at most once a second, and speaks again only when
+/// the list has changed. The answer arrives on its own time, so it never holds up a payload:
+/// each payload carries the last list there was.
+static void refreshSupported(void) {
+    if (!sGetSupported || !sGetLocalOrigin) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (sSupportedAskedAt > 0 && now - sSupportedAskedAt < 1.0) return;
+    sSupportedAskedAt = now;
+    void *origin = sGetLocalOrigin();
+    if (!origin) return;
+    sGetSupported(origin, dispatch_get_main_queue(), ^(NSArray *infos) {
+        NSMutableSet<NSNumber *> *numbers = [NSMutableSet set];
+        if ([infos isKindOfClass:[NSArray class]]) {
+            for (id info in infos) {
+                NSNumber *number = commandNumber(info);
+                if (number) [numbers addObject:number];
+            }
+        }
+        NSArray<NSNumber *> *sorted = [numbers.allObjects sortedArrayUsingSelector:@selector(compare:)];
+        if (sSupported && [sSupported isEqualToArray:sorted]) return;
+        sSupported = sorted;
+        emit();
+    });
+}
+
 static void emit(void) {
     if (!sGetInfo) return;
+    refreshSupported();
     sGetInfo(dispatch_get_main_queue(), ^(NSDictionary *info) {
         NSMutableDictionary *out = [NSMutableDictionary dictionary];
         for (NSString *key in info) {
@@ -68,6 +157,7 @@ static void emit(void) {
             }
         }
         if (info.count == 0) sLastArtworkHash = 0;
+        if (info.count > 0 && sSupported) out[@"supportedCommands"] = sSupported;
         if (sGetPID) {
             sGetPID(dispatch_get_main_queue(), ^(int pid) {
                 out[@"pid"] = @(pid);
@@ -88,6 +178,17 @@ static void handleCommand(NSString *line) {
     else if ([cmd isEqualToString:@"next"] && sSendCommand) sSendCommand(4, nil);
     else if ([cmd isEqualToString:@"previous"] && sSendCommand) sSendCommand(5, nil);
     else if ([cmd isEqualToString:@"seek"] && parts.count > 1 && sSetElapsed) sSetElapsed([parts[1] doubleValue]);
+    else if ([cmd isEqualToString:@"shuffle"]) {
+        int mode = parts.count > 1 ? [parts[1] intValue] : 0;
+        if (mode >= 1 && mode <= 3 && sSetShuffle) sSetShuffle(mode);
+        else if (sSendCommand) sSendCommand(kAdvanceShuffle, nil);
+    }
+    else if ([cmd isEqualToString:@"repeat"]) {
+        int mode = parts.count > 1 ? [parts[1] intValue] : 0;
+        if (mode >= 1 && mode <= 3 && sSetRepeat) sSetRepeat(mode);
+        else if (sSendCommand) sSendCommand(kAdvanceRepeat, nil);
+    }
+    else if ([cmd isEqualToString:@"like"] && sSendCommand) sSendCommand(kLikeTrack, nil);
     else if ([cmd isEqualToString:@"refresh"]) emit();
     else if ([cmd isEqualToString:@"quit"]) exit(0);
     if (![cmd isEqualToString:@"refresh"]) {
@@ -108,6 +209,14 @@ void MRAdapterMain(void) {
         sGetPID = (MRGetPIDFn)dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID");
         sSendCommand = (MRSendCommandFn)dlsym(handle, "MRMediaRemoteSendCommand");
         sSetElapsed = (MRSetElapsedFn)dlsym(handle, "MRMediaRemoteSetElapsedTime");
+        // Each of these is optional: a macOS that has renamed or dropped one loses that one
+        // button's shortcut, never the helper.
+        sSetShuffle = (MRSetModeFn)dlsym(handle, "MRMediaRemoteSetShuffleMode");
+        sSetRepeat = (MRSetModeFn)dlsym(handle, "MRMediaRemoteSetRepeatMode");
+        sGetLocalOrigin = (MRGetLocalOriginFn)dlsym(handle, "MRMediaRemoteGetLocalOrigin");
+        sGetSupported = (MRGetSupportedCommandsFn)dlsym(handle, "MRMediaRemoteGetSupportedCommandsForOrigin");
+        sInfoCommand = (MRCommandInfoGetCommandFn)dlsym(handle, "MRMediaRemoteCommandInfoGetCommand");
+        sInfoEnabled = (MRCommandInfoGetEnabledFn)dlsym(handle, "MRMediaRemoteCommandInfoGetEnabled");
         if (!registerFn || !sGetInfo) {
             fprintf(stderr, "MediaRemoteAdapter: missing symbols\n");
             exit(3);

@@ -10,6 +10,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     private let keepAwake = NSMenuItem()
     private let stopwatch = NSMenuItem()
     private let cancel = NSMenuItem()
+    private let timerItem = NSMenuItem(title: "Timer", action: nil, keyEquivalent: "")
+    /// One item per waiting alarm, under the Timer submenu's item and rebuilt each time the
+    /// menu opens, see `refreshAlarms`.
+    private var alarmItems: [NSMenuItem] = []
     private lazy var timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.timeStyle = .short
@@ -48,7 +52,6 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         cancel.action = #selector(cancelTimer)
         cancel.target = self
         timerMenu.addItem(cancel)
-        let timerItem = NSMenuItem(title: "Timer", action: nil, keyEquivalent: "")
         timerItem.submenu = timerMenu
         menu.addItem(timerItem)
 
@@ -149,6 +152,24 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         }
         stopwatch.title = IslandStopwatch.shared.state == nil ? "Start Stopwatch" : "Reset Stopwatch"
         keepAwake.state = KeepAwake.shared.isOn ? .on : .off
+        refreshAlarms()
+    }
+
+    /// The waiting alarms, each an item under Timer that takes it back — the same list the
+    /// island's own menu keeps, built afresh each time the menu opens. None when there are none.
+    private func refreshAlarms() {
+        guard let menu = item.menu else { return }
+        for old in alarmItems where old.menu === menu { menu.removeItem(old) }
+        alarmItems = IslandTimer.shared.alarms.map { alarm in
+            let it = NSMenuItem(title: "Cancel Alarm, \(alarm.menuTitle())", action: #selector(cancelAlarm(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = alarm.id
+            it.toolTip = IslandAlarm.awakeNote
+            return it
+        }
+        let at = menu.index(of: timerItem)
+        guard at >= 0 else { return }
+        for (offset, it) in alarmItems.enumerated() { menu.insertItem(it, at: at + 1 + offset) }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -170,6 +191,11 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     @objc private func startPomodoro() { IslandTimer.shared.startPomodoro() }
 
     @objc private func cancelTimer() { IslandTimer.shared.cancel() }
+
+    @objc private func cancelAlarm(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        IslandTimer.shared.cancelAlarm(id: id)
+    }
 
     @objc private func toggleStopwatch() {
         if IslandStopwatch.shared.state == nil { IslandStopwatch.shared.start() } else { IslandStopwatch.shared.reset() }

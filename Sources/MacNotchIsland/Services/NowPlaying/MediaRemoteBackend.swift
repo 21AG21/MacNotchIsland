@@ -4,6 +4,9 @@ import AppKit
 final class MediaRemoteBackend {
     enum Command: Int {
         case play = 0, pause = 1, togglePlayPause = 2, stop = 3, nextTrack = 4, previousTrack = 5
+        /// Advance the shuffle and the repeat mode one step, the way the players' own buttons do.
+        case advanceShuffle = 6, advanceRepeat = 7
+        case likeTrack = 21
     }
 
     private typealias GetNowPlayingInfoFn = @convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void
@@ -13,6 +16,7 @@ final class MediaRemoteBackend {
     private typealias SendCommandFn = @convention(c) (Int32, AnyObject?) -> Bool
     private typealias SetElapsedFn = @convention(c) (Double) -> Void
     private typealias GetPIDFn = @convention(c) (DispatchQueue, @escaping (Int32) -> Void) -> Void
+    private typealias SetModeFn = @convention(c) (Int32) -> Void
 
     var onUpdate: ((NowPlayingInfo?) -> Void)?
 
@@ -58,6 +62,8 @@ final class MediaRemoteBackend {
     private var sendCommandFn: SendCommandFn?
     private var setElapsedFn: SetElapsedFn?
     private var getPIDFn: GetPIDFn?
+    private var setShuffleFn: SetModeFn?
+    private var setRepeatFn: SetModeFn?
 
     private var lastArtworkHash = 0
     private var lastArtwork: NSImage?
@@ -102,6 +108,9 @@ final class MediaRemoteBackend {
         sendCommandFn = symbol("MRMediaRemoteSendCommand", SendCommandFn.self)
         setElapsedFn = symbol("MRMediaRemoteSetElapsedTime", SetElapsedFn.self)
         getPIDFn = symbol("MRMediaRemoteGetNowPlayingApplicationPID", GetPIDFn.self)
+        // Optional: without them the modes are advanced a step with a command instead.
+        setShuffleFn = symbol("MRMediaRemoteSetShuffleMode", SetModeFn.self)
+        setRepeatFn = symbol("MRMediaRemoteSetRepeatMode", SetModeFn.self)
     }
 
     func stop() {
@@ -166,6 +175,10 @@ final class MediaRemoteBackend {
                                   duration: duration, elapsed: elapsed, timestamp: timestamp,
                                   isPlaying: rate > 0, bundleID: nil,
                                   artwork: lastArtwork, artworkID: lastArtworkHash, accent: lastAccent)
+        // The same keys the helper passes through, read the same way. No list of supported
+        // commands here: that is asked for inside the helper only.
+        info.shuffle = NowPlayingInfo.shuffle(fromRemote: (d["kMRMediaRemoteNowPlayingInfoShuffleMode"] as? NSNumber)?.intValue)
+        info.repeatMode = NowPlayingInfo.repeatMode(fromRemote: (d["kMRMediaRemoteNowPlayingInfoRepeatMode"] as? NSNumber)?.intValue)
 
         // Heard from, whatever it said. An empty payload is not a track and must not rank this
         // above AppleScript, but it is still MediaRemote answering.
@@ -198,5 +211,23 @@ final class MediaRemoteBackend {
 
     func seek(to seconds: TimeInterval) {
         setElapsedFn?(seconds)
+    }
+
+    /// Sets the shuffle outright where the framework exports a way to, and otherwise advances
+    /// it a step — which, from off, is on, and from on, is off.
+    func setShuffle(_ on: Bool) {
+        if let setShuffleFn {
+            setShuffleFn(Int32(NowPlayingInfo.remoteCode(shuffle: on)))
+        } else {
+            send(.advanceShuffle)
+        }
+    }
+
+    func setRepeat(_ mode: NowPlayingInfo.RepeatMode) {
+        if let setRepeatFn {
+            setRepeatFn(Int32(NowPlayingInfo.remoteCode(repeat: mode)))
+        } else {
+            send(.advanceRepeat)
+        }
     }
 }

@@ -44,4 +44,38 @@ enum PanelFind {
         guard character.count == 1, let scalar = character.unicodeScalars.first else { return false }
         return CharacterSet.letters.contains(scalar)
     }
+
+    // MARK: - Typing a timer
+
+    /// The sections whose field takes figures rather than a search: Actions, where what is
+    /// typed is a timer's minutes or an alarm's time (`TimerEntry.parse`). The same field, the
+    /// same way in — start typing — and the same way out, Escape.
+    static let entrySections: Set<HomeSection> = [.actions]
+
+    /// Whether a section's field is the timer entry.
+    static func takesEntry(_ section: HomeSection?) -> Bool {
+        guard let section else { return false }
+        return entrySections.contains(section)
+    }
+
+    /// A key worth starting a timer with: one of the ten digits. On Actions the digits start
+    /// the entry instead of stepping the switcher, which is the one section where a number
+    /// means something of its own.
+    static func opensEntry(_ character: String) -> Bool {
+        guard character.count == 1, let first = character.first else { return false }
+        return first.isASCII && first.isNumber
+    }
+
+    /// Whether this key press on this section opens the field: a letter on a list, a digit on
+    /// Actions, and nothing anywhere else.
+    static func begins(with character: String, on section: HomeSection?) -> Bool {
+        if opensFind(character) { return searches(section) }
+        if opensEntry(character) { return takesEntry(section) }
+        return false
+    }
+
+    /// Whether the section has a field at all, for the glass or the timer glyph clicked.
+    static func hasField(_ section: HomeSection?) -> Bool {
+        searches(section) || takesEntry(section)
+    }
 }

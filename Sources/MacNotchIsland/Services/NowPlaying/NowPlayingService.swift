@@ -69,6 +69,10 @@ final class NowPlayingService: ObservableObject {
         var elapsed: TimeInterval?
         var at: Date
         var until: Date
+        /// The shuffle and the repeat the user just asked for. They round-trip the same way the
+        /// play button does, and the glyph must not flick back to the old mode meanwhile.
+        var shuffle: Bool? = nil
+        var repeatMode: NowPlayingInfo.RepeatMode? = nil
 
         /// Where the playhead should be now if the backend had kept up.
         func expectedPosition(at now: Date, playing: Bool) -> TimeInterval? {
@@ -302,6 +306,11 @@ final class NowPlayingService: ObservableObject {
         if !result.duration.isFinite || result.duration < 0 { result.duration = 0 }
         if !result.elapsed.isFinite || result.elapsed < 0 { result.elapsed = 0 }
         if !result.timestamp.timeIntervalSinceReferenceDate.isFinite { result.timestamp = Date() }
+        // Worked out here, after the duration is known to be a number, so a live stream's
+        // infinite length does not offer it a fifteen-second skip.
+        result.supports = NowPlayingInfo.supportedCommands(remote: result.remoteSupports, shuffle: result.shuffle,
+                                                           repeatMode: result.repeatMode, bundleID: result.bundleID,
+                                                           duration: result.duration)
         return result
     }
 
@@ -323,6 +332,8 @@ final class NowPlayingService: ObservableObject {
             result.elapsed = expected
             result.timestamp = now
         }
+        if let shuffle = optimistic.shuffle, incoming.shuffle != shuffle { result.shuffle = shuffle }
+        if let mode = optimistic.repeatMode, incoming.repeatMode != mode { result.repeatMode = mode }
         return result
     }
 
@@ -348,6 +359,8 @@ final class NowPlayingService: ObservableObject {
         if let isPlaying = pending.isPlaying, report.isPlaying != isPlaying { return false }
         if let expected = pending.expectedPosition(at: now, playing: report.isPlaying),
            abs(report.position(at: now) - expected) > 1.5 { return false }
+        if let shuffle = pending.shuffle, report.shuffle != shuffle { return false }
+        if let mode = pending.repeatMode, report.repeatMode != mode { return false }
         return true
     }
 
@@ -422,10 +435,12 @@ final class NowPlayingService: ObservableObject {
         }
         if var i = info {
             let now = Date()
+            let pending = carried(now)
             i.elapsed = seconds
             i.timestamp = now
             info = i
-            optimistic = Optimistic(isPlaying: optimistic?.isPlaying, elapsed: seconds, at: now, until: now + Self.optimisticWindow)
+            optimistic = Optimistic(isPlaying: optimistic?.isPlaying, elapsed: seconds, at: now, until: now + Self.optimisticWindow,
+                                    shuffle: pending?.shuffle, repeatMode: pending?.repeatMode)
             publish()
         }
     }
@@ -437,11 +452,127 @@ final class NowPlayingService: ObservableObject {
     private func optimisticallyToggle() {
         guard var i = info else { return }
         let now = Date()
+        let pending = carried(now)
         i.elapsed = i.position(at: now)
         i.timestamp = now
         i.isPlaying.toggle()
         info = i
-        optimistic = Optimistic(isPlaying: i.isPlaying, elapsed: nil, at: now, until: now + Self.optimisticWindow)
+        optimistic = Optimistic(isPlaying: i.isPlaying, elapsed: nil, at: now, until: now + Self.optimisticWindow,
+                                shuffle: pending?.shuffle, repeatMode: pending?.repeatMode)
+        publish()
+    }
+
+    /// What is still pending of the last request, for a new one that must not forget it: a
+    /// shuffle pressed a moment before play would otherwise flick back when play replaced it.
+    private func carried(_ now: Date) -> Optimistic? {
+        guard let optimistic, optimistic.until > now else { return nil }
+        return optimistic
+    }
+
+    // MARK: The buttons beside play
+
+    /// The track somebody pressed the heart on, so the heart stays filled while it plays.
+    /// Players do not report a favourite back, so this is the island's own memory of the press,
+    /// for this track only.
+    @Published private(set) var likedTrackKey: String?
+
+    static func trackKey(_ track: NowPlayingInfo) -> String {
+        [track.bundleID ?? "", track.artist, track.title].joined(separator: "|")
+    }
+
+    func isLiked(_ track: NowPlayingInfo) -> Bool { likedTrackKey == Self.trackKey(track) }
+
+    /// Which backend a press of one of these buttons goes to. Pure, so the rule is tested.
+    ///
+    /// The one that is showing the track, as for play — unless MediaRemote has said nothing
+    /// about this button for this player, and AppleScript can press it instead: the helper
+    /// cannot set a shuffle it cannot see, and Music and Spotify answer AppleScript whatever
+    /// MediaRemote makes of them. The fallback asks macOS for Automation once per player,
+    /// which is why it is only taken when the helper has nothing to offer.
+    static func route(_ command: NowPlayingInfo.Command, active: Backend, info: NowPlayingInfo) -> Backend {
+        if active == .appleScript { return .appleScript }
+        let remoteKnows: Bool
+        switch command {
+        case .shuffle: remoteKnows = info.shuffle != nil || info.remoteSupports?.contains(.shuffle) == true
+        case .cycleRepeat: remoteKnows = info.repeatMode != nil || info.remoteSupports?.contains(.cycleRepeat) == true
+        case .like: remoteKnows = info.remoteSupports?.contains(.like) == true
+        case .back15, .forward15: remoteKnows = true
+        }
+        if !remoteKnows, NowPlayingInfo.scriptable(command, bundleID: info.bundleID) { return .appleScript }
+        return active == .adapter ? .adapter : .mediaRemote
+    }
+
+    /// Shuffle on if it is off, off if it is on. A player that has never said counts as off.
+    func toggleShuffle() {
+        guard let current = info else { return }
+        let target = !(current.shuffle ?? false)
+        switch Self.route(.shuffle, active: activeBackend, info: current) {
+        case .appleScript: appleScript.setShuffle(target, bundleID: current.bundleID)
+        case .adapter: adapter.send("shuffle \(NowPlayingInfo.remoteCode(shuffle: target))")
+        default: mediaRemote.setShuffle(target)
+        }
+        optimistically(shuffle: target)
+    }
+
+    /// The next repeat, see `nextRepeat`.
+    func cycleRepeat() {
+        guard let current = info else { return }
+        let backend = Self.route(.cycleRepeat, active: activeBackend, info: current)
+        let target = Self.nextRepeat(after: current.repeatMode ?? .off, bundleID: current.bundleID, via: backend)
+        switch backend {
+        case .appleScript: appleScript.setRepeat(target, bundleID: current.bundleID)
+        case .adapter: adapter.send("repeat \(NowPlayingInfo.remoteCode(repeat: target))")
+        default: mediaRemote.setRepeat(target)
+        }
+        optimistically(repeatMode: target)
+    }
+
+    /// Off, all, one, off — except Spotify spoken to in AppleScript, whose dictionary knows only
+    /// whether it repeats, so there the button is off and on.
+    static func nextRepeat(after mode: NowPlayingInfo.RepeatMode, bundleID: String?, via backend: Backend) -> NowPlayingInfo.RepeatMode {
+        if backend == .appleScript, bundleID == NowPlayingInfo.spotifyID { return mode == .off ? .all : .off }
+        return mode.next
+    }
+
+    /// Favourite the track: "like" to MediaRemote, the heart in Music through AppleScript.
+    func like() {
+        guard let current = info else { return }
+        switch Self.route(.like, active: activeBackend, info: current) {
+        case .appleScript: appleScript.like(bundleID: current.bundleID)
+        case .adapter: adapter.send("like")
+        default: mediaRemote.send(.likeTrack)
+        }
+        likedTrackKey = Self.trackKey(current)
+    }
+
+    /// Fifteen seconds back or on, as a seek from where the playhead is now — the same seek the
+    /// scrubber makes, through whichever backend is showing the track. A player's own skip
+    /// command is not used: most players do not take one, every one that has a scrubber takes
+    /// a seek.
+    func skip(by seconds: Double) {
+        guard seconds.isFinite, let current = info else { return }
+        seek(to: Self.skipTarget(from: current, by: seconds, now: Date()))
+    }
+
+    /// Where a skip lands: never before the start, and a second short of the end rather than
+    /// on it, so skipping on through the last few seconds finishes the track instead of asking
+    /// a player to stand on a position it has no frame for. Pure, so it is tested.
+    static func skipTarget(from track: NowPlayingInfo, by seconds: Double, now: Date) -> TimeInterval {
+        let target = max(0, track.position(at: now) + seconds)
+        guard track.duration > 0 else { return target }
+        return min(target, max(0, track.duration - 1))
+    }
+
+    private func optimistically(shuffle: Bool? = nil, repeatMode: NowPlayingInfo.RepeatMode? = nil) {
+        guard var i = info else { return }
+        let now = Date()
+        let pending = carried(now)
+        if let shuffle { i.shuffle = shuffle }
+        if let repeatMode { i.repeatMode = repeatMode }
+        info = i
+        optimistic = Optimistic(isPlaying: pending?.isPlaying, elapsed: pending?.elapsed, at: pending?.at ?? now,
+                                until: now + Self.optimisticWindow,
+                                shuffle: shuffle ?? pending?.shuffle, repeatMode: repeatMode ?? pending?.repeatMode)
         publish()
     }
 }

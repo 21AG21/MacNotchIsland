@@ -4,6 +4,12 @@ struct BluetoothExpandedView: View {
     let state: BluetoothState
     let geometry: NotchGeometry
     @Environment(\.insidePanel) private var insidePanel
+    @ObservedObject private var airPods = AirPodsControl.shared
+
+    /// The device's disc and the gap after it, which the pills are indented by so that they
+    /// start under the name.
+    static let discWidth: CGFloat = 44
+    static let rowSpacing: CGFloat = 10
 
     /// One battery the device reports: "L 92%", "Case 64%", or a single unlabelled figure.
     private struct Reading: Identifiable {
@@ -18,11 +24,11 @@ struct BluetoothExpandedView: View {
             // Closer than the other cards' 14, because this row carries up to three readings
             // and a button beside the name: at 14, with 20 between the readings and a 12 pt
             // spacer, "AirPods Pro" had 59 pt of a 400 pt row and needs about 85.
-            HStack(spacing: 10) {
+            HStack(spacing: Self.rowSpacing) {
                 Image(systemName: state.symbol)
                     .font(.system(size: 26))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: Self.discWidth, height: Self.discWidth)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.name)
@@ -63,11 +69,41 @@ struct BluetoothExpandedView: View {
                 }
             }
             .islandContentColumn()
-            .padding(.bottom, insidePanel ? 0 : 16)
+            .padding(.bottom, insidePanel || showsModes ? 0 : 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilitySummary)
+            // Noise control, under the name it belongs to, the way Control Centre hangs it
+            // under a pair of AirPods: the pills, and what the lit one is called.
+            if showsModes {
+                HStack(spacing: Self.rowSpacing) {
+                    ListeningModePicker(control: airPods, pillWidth: ListeningModeMetrics.cardPill)
+                    if let current = airPods.current {
+                        Text(current.title)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                            .accessibilityHidden(true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: ListeningModeMetrics.height)
+                .padding(.leading, Self.discWidth + Self.rowSpacing)
+                .padding(.top, ActivityContent.cardListeningModes - ListeningModeMetrics.height)
+                .islandContentColumn()
+                .padding(.bottom, insidePanel ? 0 : 16)
+            }
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
+        .onAppear { airPods.viewerAppeared() }
+        .onDisappear { airPods.viewerDisappeared() }
+    }
+
+    /// The pills go on the pair the modes belong to, while it is connected. On a card they also
+    /// need the room the card was made with — it is only as tall as `offersListeningModes` said
+    /// when it went up; in the panel there is always room.
+    private var showsModes: Bool {
+        state.isConnected && (insidePanel || state.offersListeningModes)
+            && airPods.drives(name: state.name, address: state.address)
     }
 
     /// Whichever batteries the device actually reports, left to right.

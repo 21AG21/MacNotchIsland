@@ -305,10 +305,11 @@ final class AdapterBackend {
             artwork = nil
             accent = .white
         }
-        let info = NowPlayingInfo(title: title, artist: artist, album: album,
+        var info = NowPlayingInfo(title: title, artist: artist, album: album,
                                   duration: duration, elapsed: elapsed, timestamp: timestamp,
                                   isPlaying: rate > 0, bundleID: nil,
                                   artwork: artwork, artworkID: artworkHash.hashValue, accent: accent)
+        Self.readModes(from: obj, into: &info)
 
         DispatchQueue.main.async { [weak self] in
             guard let self, self.process != nil else { return }
@@ -316,6 +317,17 @@ final class AdapterBackend {
             if pid > 0, let app = NSRunningApplication(processIdentifier: pid) { delivered.bundleID = app.bundleIdentifier }
             self.noteMessage(carryingTrack: true)
             self.onUpdate?(delivered)
+        }
+    }
+
+    /// The shuffle and repeat modes, where MediaRemote reported them, and the helper's list of
+    /// the commands the player takes, where it could get one. Each is optional in the payload —
+    /// an older helper sends none of them — and a missing one is left as nothing said.
+    static func readModes(from obj: [String: Any], into info: inout NowPlayingInfo) {
+        info.shuffle = NowPlayingInfo.shuffle(fromRemote: (obj["kMRMediaRemoteNowPlayingInfoShuffleMode"] as? NSNumber)?.intValue)
+        info.repeatMode = NowPlayingInfo.repeatMode(fromRemote: (obj["kMRMediaRemoteNowPlayingInfoRepeatMode"] as? NSNumber)?.intValue)
+        if let numbers = obj["supportedCommands"] as? [NSNumber] {
+            info.remoteSupports = NowPlayingInfo.commands(fromRemote: numbers.map(\.intValue))
         }
     }
 

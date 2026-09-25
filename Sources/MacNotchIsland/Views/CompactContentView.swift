@@ -102,7 +102,7 @@ struct CompactLeadingView: View {
                     // element out of the matched group mid-expansion.
                     .islandMatched(IslandMatchedID.nowPlayingArtwork)
             case .timer(let t):
-                Image(systemName: t.isFinished ? "bell.fill" : "timer")
+                Image(systemName: t.isAlarm ? "alarm.fill" : (t.isFinished ? "bell.fill" : "timer"))
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.orange)
                     .contentTransition(.symbolEffect(.replace))
@@ -231,13 +231,16 @@ struct CompactTrailingView: View {
                                      animation: IslandMotion.meter(cadence: 1))
                             .frame(width: height * 0.5, height: height * 0.5)
                     } else {
-                        let remaining = t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString
+                        // A ringing alarm shows the time it went off for, not a countdown to it.
+                        let remaining = t.alarmAt.map(IslandAlarm.clock)
+                            ?? (t.isFinished ? "0:00" : t.remaining(at: ctx.date).timerString)
                         Text(remaining)
                             .font(numeralFont)
                             .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: true))
                             .animation(IslandMotion.digits, value: remaining)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                     }
                 }
                 .islandMatched(IslandMatchedID.timerTime)
@@ -373,6 +376,7 @@ enum IslandAccessibility {
             return "Now Playing, \(title) by \(info.artist)"
 
         case .timer(let t):
+            if let alarmAt = t.alarmAt { return "\(t.label), \(IslandAlarm.clock(alarmAt))" }
             if t.isFinished { return "Timer, done" }
             let remaining = t.remaining(at: date).timerString
             return t.isPaused ? "Timer, \(remaining) remaining, paused" : "Timer, \(remaining) remaining"

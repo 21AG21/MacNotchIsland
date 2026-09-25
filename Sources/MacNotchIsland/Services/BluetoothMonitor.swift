@@ -48,7 +48,14 @@ final class BluetoothMonitor: NSObject {
             state.batteryRight = levels.right
             state.batteryCase = levels.caseLevel
             state.batterySingle = levels.single
-            DispatchQueue.main.async { show(state) }
+            DispatchQueue.main.async {
+                // Asked here, on the main thread and once, because the card has to know how tall
+                // to be before it is up: a pair that is not the output yet gets no pills on it,
+                // and has them in the panel as soon as it is.
+                var card = state
+                card.offersListeningModes = AirPodsControl.shared.offers(name: name, address: address)
+                show(card)
+            }
         }
     }
 

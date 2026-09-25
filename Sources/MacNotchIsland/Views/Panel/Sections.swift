@@ -64,6 +64,8 @@ struct ActionsSectionView: View {
     /// and the row was only ever redrawn because something else in the panel happened to
     /// change at the same moment.
     @ObservedObject private var stopwatch = IslandStopwatch.shared
+    /// The timer entry is the panel's find, see `TimerEntryField`.
+    @ObservedObject private var center = ActivityCenter.shared
 
     /// Two rows and the rule between them, measured so they fill the section exactly: the
     /// header and its gap, 65.5 pt of buttons, the hairline with 8 pt of air above and below
@@ -105,22 +107,40 @@ struct ActionsSectionView: View {
     /// The air above and below the hairline between the two rows.
     static let ruleGap: CGFloat = 8
 
+    /// Whether the timer entry is up: the find, on this section.
+    private var entryOpen: Bool { center.findQuery != nil && PanelFind.takesEntry(center.openSection) }
+
     private var timerRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "timer")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.55))
-                .frame(width: 16, alignment: .leading)
-                .accessibilityHidden(true)
-            ForEach([1, 5, 10, 25], id: \.self) { minutes in
-                PillButton(title: "\(minutes)m") {
-                    IslandTimer.shared.start(seconds: TimeInterval(minutes * 60), label: "Timer")
-                }
-                .accessibilityLabel("Start \(minutes) minute timer")
+            // The way in for a pointer, as the glass is on a list: typing a number is the other.
+            Button(action: { ActivityCenter.shared.beginFind() }) {
+                Image(systemName: "timer")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(entryOpen ? 0.3 : 0.55))
+                    .frame(width: 16, height: Self.timerRowHeight, alignment: .leading)
+                    .contentShape(Rectangle())
             }
-            PillButton(title: "Pomodoro") { IslandTimer.shared.startPomodoro() }
+            .buttonStyle(IslandButtonStyle())
+            .disabled(entryOpen)
+            .help("Type minutes for a timer, or a time for an alarm — or just start typing")
+            .accessibilityLabel("Type a timer or an alarm")
+            if entryOpen {
+                // In place of the presets while it is up: what is typed is a preset of its own.
+                TimerEntryField()
+            } else {
+                ForEach([1, 5, 10, 25], id: \.self) { minutes in
+                    PillButton(title: "\(minutes)m") {
+                        IslandTimer.shared.start(seconds: TimeInterval(minutes * 60), label: "Timer")
+                    }
+                    .accessibilityLabel("Start \(minutes) minute timer")
+                }
+                PillButton(title: "Pomodoro") { IslandTimer.shared.startPomodoro() }
+            }
             if timers.state != nil {
                 PillButton(title: "Cancel", tint: .white.opacity(0.7)) { IslandTimer.shared.cancel() }
+            }
+            if let soonest = timers.alarms.first {
+                alarmPill(soonest, others: timers.alarms.count - 1)
             }
             Spacer(minLength: 0)
             // Stop means stop: it used to reset, and took the laps with it. Stopped, the same
@@ -137,6 +157,40 @@ struct ActionsSectionView: View {
                 }
             }
         }
+    }
+
+    /// The next alarm, by the time it will ring, with a cross to take it back — and how many
+    /// more are waiting behind it, which the menu bar and the island's menu list in full. One
+    /// capsule, because the row has room for one beside the presets, the Cancel and the
+    /// stopwatch; a second would push the stopwatch off the end.
+    private func alarmPill(_ alarm: IslandAlarm, others: Int) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "alarm.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text(IslandAlarm.clock(alarm.fireDate) + (others > 0 ? " +\(others)" : ""))
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
+            Button(action: { IslandTimer.shared.cancelAlarm(id: alarm.id) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(width: 14, height: 14)
+                    .hitOutset(drawn: 14)
+            }
+            .buttonStyle(IslandButtonStyle())
+            .accessibilityLabel("Cancel the alarm at \(IslandAlarm.describe(alarm.fireDate))")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .frame(height: Self.timerRowHeight)
+        .background(Capsule().fill(Color.white.opacity(0.18)))
+        .help(alarm.menuTitle() + (others > 0 ? ", and \(others) more" : "") + ". " + IslandAlarm.awakeNote)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Alarm, \(alarm.menuTitle())")
     }
 }
 

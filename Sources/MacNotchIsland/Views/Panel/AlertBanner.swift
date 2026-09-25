@@ -65,7 +65,7 @@ struct AlertBanner: View {
         case .calendar(let c): return c.title
         case .custom(let c): return c.title
         case .call(let c): return "Call in \(c.appName)"
-        case .timer(let t): return t.isFinished ? "\(t.label) done" : t.label
+        case .timer(let t): return t.isAlarm ? t.label : (t.isFinished ? "\(t.label) done" : t.label)
         case .unlock: return "Unlocked"
         case .silent(let s): return s.isSilent ? "Silent" : "Sound on"
         // Where the sound is going, whenever that is worth saying — it is the one thing the

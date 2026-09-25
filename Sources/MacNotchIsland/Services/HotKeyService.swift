@@ -27,6 +27,9 @@ final class HotKeyService: ObservableObject {
         case panelLeft = 7, panelRight = 8, volumeUp = 9, volumeDown = 10, playPause = 11
         case slot1 = 21, slot2 = 22, slot3 = 23, slot4 = 24, slot5 = 25
         case slot6 = 26, slot7 = 27, slot8 = 28, slot9 = 29
+        /// Zero, which has no switcher slot of its own: it is claimed only so that a time typed
+        /// on Actions can start "07:30".
+        case digit0 = 30
         /// The twenty-six letter keys, in alphabetical order, claimed alongside the rest so
         /// that typing on a section which is a list of things starts a find in it.
         case letterA = 31, letterB = 32, letterC = 33, letterD = 34, letterE = 35, letterF = 36
@@ -50,7 +53,7 @@ final class HotKeyService: ObservableObject {
 
     /// Every slot the panel claims while it is open, so they are released together.
     private static let panelSlots: [Slot] =
-        [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause]
+        [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause, .digit0]
         + (0..<9).compactMap { Slot(rawValue: UInt32(21 + $0)) }
         + (0..<26).compactMap { Slot(rawValue: UInt32(31 + $0)) }
 
@@ -192,6 +195,7 @@ final class HotKeyService: ObservableObject {
             guard let slot = Slot(rawValue: UInt32(21 + index)) else { continue }
             register(slot, keyCode: code, modifiers: 0)
         }
+        register(.digit0, keyCode: kVK_ANSI_0, modifiers: 0)
         // The alphabet, but only where there is a list to look through: on Now Playing or
         // Stats a letter is nobody's to take, so it is left alone.
         guard panelClaim.letters else { return }
@@ -342,12 +346,22 @@ final class HotKeyService: ObservableObject {
             }
         // The digits and the letters, which are the only slots left.
         default:
-            if let index = slot.switcherIndex {
+            if let digit = Self.typedDigit(slot), PanelFind.takesEntry(center.openSection) {
+                // On Actions a number is a timer's minutes or the start of an alarm's time,
+                // typed into the field this opens; the switcher is a Tab or an arrow away.
+                center.beginFind(with: digit)
+            } else if let index = slot.switcherIndex {
                 center.selectSlot(index)
             } else if let code = slot.letterKeyCode, let character = KeyLayout.character(for: code) {
                 center.beginFind(with: character)
             }
         }
+    }
+
+    /// The digit a slot's key types, for the timer entry on Actions.
+    private static func typedDigit(_ slot: Slot) -> String? {
+        if slot == .digit0 { return "0" }
+        return slot.switcherIndex.map { String($0 + 1) }
     }
 
     // MARK: - Display

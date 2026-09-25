@@ -12,6 +12,8 @@
 #   notchctl timer add [minutes]                (another minute for the running timer)
 #   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
 #   notchctl sleep [minutes]                     notchctl sleep cancel
+#   notchctl alarm <07:30|19:30|7:30pm> [label]  (the next time the clock reads it)
+#   notchctl alarm cancel [07:30]                (that one, or every alarm)
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
 #   notchctl home [home|music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
@@ -96,6 +98,17 @@ case "$cmd" in
       cancel|stop) open_url "sleep/cancel" ;;
       "") open_url "sleep" ;;
       *) add minutes "$1"; open_url "sleep" ;;
+    esac ;;
+  # The time is read by the app with the same rule as a time typed on Actions, so anything
+  # the island would take there it takes here; the label is the rest of the line.
+  alarm)
+    case "${1:-}" in
+      cancel|stop) shift; if [ -n "${1:-}" ]; then add at "$1"; fi; open_url "alarm/cancel" ;;
+      "") echo "usage: notchctl alarm <time> [label] | cancel [time]" >&2; exit 2 ;;
+      *)
+        add at "$1"; shift
+        if [[ "${1:-}" == --* ]]; then parse_flags "$@"; elif (( $# )); then add label "$*"; fi
+        open_url "alarm" ;;
     esac ;;
   stopwatch)
     case "${1:-}" in

@@ -620,6 +620,39 @@ final class WindowsAndControlsTests: XCTestCase {
                              "at most a point lost per column to rounding")
     }
 
+    // MARK: - The AirPods row, open
+
+    func testAColumnHoldsFourRowsUnderItsHeader() {
+        // The budget every list in the section is laid out against: four rows in the body, with
+        // the air under the fourth that a fifth would need.
+        XCTAssertLessThanOrEqual(4 * ControlsSectionView.rowHeight, SectionMetrics.bodyHeight)
+        XCTAssertGreaterThan(5 * ControlsSectionView.rowHeight, SectionMetrics.bodyHeight)
+    }
+
+    func testAnOpenAirPodsRowIsExactlyTwoRowsOfTheColumn() {
+        // The row, a hairline of air and the pills: two rows' worth, so every row under it lands
+        // on the grid it would have been on, and the column still shows the open pair and two
+        // more devices without scrolling.
+        XCTAssertEqual(ControlsSectionView.expandedRowHeight, 2 * ControlsSectionView.rowHeight)
+        XCTAssertLessThanOrEqual(ControlsSectionView.expandedRowHeight + 2 * ControlsSectionView.rowHeight,
+                                 SectionMetrics.bodyHeight)
+        XCTAssertEqual(ListeningModeMetrics.height, IslandHit.minimum, "the pills are 24 pt targets")
+    }
+
+    func testFourPillsAndTheDisconnectFitTheColumnAtTargetSize() {
+        let modes = AirPodsControl.Mode.allCases.count
+        let pill = ListeningModeMetrics.pillWidth(count: modes, in: ControlsSectionView.modesWidth)
+        XCTAssertGreaterThanOrEqual(pill, IslandHit.minimum, "every pill is a target the pointer is owed")
+        // Indent, the pills, the gap and the disconnect: the column's width and no more.
+        let line = ControlsSectionView.modesIndent + ListeningModeMetrics.rowWidth(count: modes, pill: pill)
+            + ControlsSectionView.rowSpacing + IslandHit.minimum
+        XCTAssertLessThanOrEqual(line, ControlsSectionView.columnWidth)
+        XCTAssertGreaterThan(line, ControlsSectionView.columnWidth - CGFloat(modes),
+                             "at most a point lost per pill to rounding")
+        XCTAssertEqual(ControlsSectionView.modesIndent, ControlsSectionView.tickWidth + ControlsSectionView.rowSpacing,
+                       "the pills start under the name, not the tick")
+    }
+
     // MARK: - The level on a device row
 
     func testTheEarThatRunsOutFirstIsTheOneOnTheRow() {

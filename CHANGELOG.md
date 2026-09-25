@@ -6,6 +6,82 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Buttons beside play.** The transport was back, play and forward, which is all Music needs
+  and not what a podcast needs. Settings > Media now has four places, two either side of the
+  three, each holding nothing, shuffle, repeat, favourite, back 15 s or forward 15 s. They are
+  empty out of the box, so the row nobody asked to change does not change; somebody who
+  listens to podcasts will want the fifteen-second pair, somebody who listens to albums
+  shuffle and repeat. They are drawn at the transport's size and weight on its 72-point
+  pitch, blank places balance the shorter side so play stays in the middle, and choosing a
+  button that is already in the row moves it rather than drawing it twice. Shuffle and repeat
+  light up in the cover's colour with a dot under them while they are on, and repeat wears its
+  1 for a single track; the heart fills once pressed. A button the player in front does not
+  honour is drawn at a quarter strength and takes no click. Which buttons a player honours is
+  worked out from whatever evidence there is: the list of supported commands MediaRemote gives
+  the helper (asked for on its own time, so a list that never comes never holds up a
+  payload), a shuffle or repeat mode the player reports, or AppleScript being able to do it —
+  Music and Spotify for shuffle and repeat, Music alone for the favourite, since Spotify's
+  dictionary has no way to save a track. The skips are a seek from where the playhead is,
+  the same seek the scrubber makes, so anything with a length takes them and a live stream
+  does not. The helper's protocol grew `shuffle`, `repeat` and `like` (setting the mode
+  outright with `MRMediaRemoteSetShuffleMode` / `SetRepeatMode` where MediaRemote still
+  exports them, advancing it a step otherwise) and a `supportedCommands` key in its payload;
+  either side ignores what it does not know, so an older helper and a newer app still talk.
+  Where MediaRemote has nothing to say about a button, Music and Spotify are asked with
+  AppleScript, which macOS asks you to allow once for each.
+- **Type a timer, or an alarm.** Start typing a number on the Actions section and a field opens
+  with it, the way a letter opens a find on a list: Return starts a timer for that many
+  minutes; a time on the clock — 7:30, 19:05, 7.30, 7:30pm, 7am, 12am for midnight — sets an
+  alarm for the next time the clock reads it; Escape leaves. The field says what Return would
+  do before it is pressed, so "7:30" can never become a seven-and-a-half-hour timer by
+  surprise. On Actions the digits start the field instead of stepping the switcher; Tab and
+  the arrows still step. Alarms are new: they wait in a list rather than on the island, where
+  a countdown to seven in the morning would sit over the music all night, and they are shown
+  in the timer row, the menu bar and the island's right-click menu, each with a way to take it
+  back. They are written down and come back after a relaunch — timers never were, and are
+  not, since a countdown's moment has passed by the time the app is back. When its time comes
+  an alarm rings the way a timer does — the sound, its card taking the island, a banner if the
+  island cannot be seen — with the time it rang for in place of a countdown and Snooze, nine
+  minutes, in place of Repeat. One that came due while the Mac slept or the app was not
+  running still rings if it is only a few minutes late and is reported as missed otherwise.
+  The card that says an alarm is set also says what it cannot do: it rings only while the Mac
+  is awake, because waking a sleeping Mac at a time of its own choosing is a power-management
+  schedule, and that needs root. Scripts get `notchisland://alarm?at=07:30&label=…` and
+  `notchctl alarm 07:30 [label]`, read with the same rule as the field.
+- **A minute less, as well as a minute more.** A running or paused timer can now be shortened
+  a minute at a time as well as lengthened — `notchisland://timer/add?minutes=-1` takes one
+  off, where it used to be ignored. It is never shortened past the point of ringing:
+  taking off more than is left leaves one second, and a timer at its last second, or one that
+  has already rung, is left as it is.
+- **AirPlay speakers, in the output picker and the Sound list.** Control Centre's Sound module
+  lists the HomePod in the kitchen and the Apple TV under the television; the island listed only
+  what CoreAudio calls a device, and on a Mac that is none of them. Both lists now have an AirPlay
+  group, read the way the Sound pane used to read them: the data sources of the AirPlay device
+  (`kAudioDevicePropertyDataSources` on the output side), each named through
+  `kAudioDevicePropertyDataSourceNameForIDCFString`, and picking one makes the AirPlay device the
+  output and then sets `kAudioDevicePropertyDataSource`. All public CoreAudio — but what the
+  AirPlay device does with these properties on a current macOS is written down nowhere, so what
+  is shown goes through one rule that a test holds: a source with no name, or named after the
+  device itself, is not a receiver, a receiver listed twice is one row, and a tick means the sound
+  is actually there. Every refusal is logged under `audio`. The list follows the device list and
+  the AirPlay device's own changes as they happen. And because it may well come back empty, the
+  Sound list always ends in "AirPlay…", AVKit's own `AVRoutePickerView` — the system's route
+  picker, one click away whatever CoreAudio says. The rail keeps its width: the group is inside
+  the menu the output disc already opens.
+- **Noise Control for AirPods.** Off, Transparency, Adaptive and Noise Cancellation — whichever
+  of them the pair has, in Control Centre's order — as a row of pills on the AirPods card under the
+  readings, and under the pair's row in Controls, which now opens on a click rather than
+  disconnecting (the disconnect moves to the end of the pills). None of it is public API: it is
+  AVFoundation's private `AVOutputContext` (`sharedSystemAudioContext`, `outputDevices`) and
+  `AVOutputDevice` (`availableBluetoothListeningModes`, `currentBluetoothListeningMode`,
+  `setCurrentBluetoothListeningMode:error:`), the calls NoiseBuddy first used. Every class is found
+  by name and every method is asked for, and has its return type checked, before it is called;
+  anything missing and the pills are not drawn. AVFoundation also checks, in the app's own process,
+  for an entitlement to the system's audio context that an ad-hoc signed app does not hold, and the
+  island does not try to get round that check — so on a Mac where it refuses, nothing shows. The
+  route is read every two seconds, slower on battery, and only while a card or the Controls section
+  is on screen. Conversation Awareness and Spatial Audio are not here: neither is a property of
+  the same device object.
 - **Swipe down to open, up to close.** A new choice in the Island pane, "Vertical swipe on the
   island": Volume, which is what two fingers up and down have always done there, or Open and
   close. With the second, a swipe down on the island — bare, a pill, a card, or a panel only

@@ -28,7 +28,9 @@ struct TimerExpandedView: View {
                         // which is why the stack closes up rather than spacing out.
                         VStack(alignment: .leading, spacing: -4) {
                             header
-                            let remaining = state.isFinished ? "0:00" : state.remaining(at: context.date).timerString
+                            // An alarm has no countdown to show: it shows the time it rang for.
+                            let remaining = state.alarmAt.map(IslandAlarm.clock)
+                                ?? (state.isFinished ? "0:00" : state.remaining(at: context.date).timerString)
                             Text(remaining)
                                 .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
                                 .foregroundStyle(.white)
@@ -53,7 +55,10 @@ struct TimerExpandedView: View {
                 // Circles of the same weight, told apart by colour rather than by shape: the
                 // timer's own orange for what it does next, white for the rest.
                 HStack(spacing: 10) {
-                    if state.isFinished {
+                    if state.isAlarm, let id = shownID {
+                        // Repeat means nothing to an alarm. Nine minutes more does.
+                        CircleActionButton(symbol: "zzz", tint: .orange, label: "Snooze") { IslandTimer.shared.snooze(id: id) }
+                    } else if state.isFinished {
                         CircleActionButton(symbol: "arrow.counterclockwise", tint: .orange, label: "Repeat") { IslandTimer.shared.repeatLast() }
                     } else {
                         CircleActionButton(symbol: state.isPaused ? "play.fill" : "pause.fill", tint: .orange,
@@ -97,6 +102,7 @@ struct TimerExpandedView: View {
     }
 
     private var ringSymbol: String {
+        if state.isAlarm { return "alarm.fill" }
         if state.isFinished { return "bell.fill" }
         if let phase = pomodoro, phase.isBreak { return "cup.and.saucer.fill" }
         return "timer"
@@ -122,6 +128,9 @@ struct TimerExpandedView: View {
     /// sentence. Pure and static so the rule can be tested.
     static func headline(for state: TimerState) -> String {
         let name = state.label.trimmingCharacters(in: .whitespaces)
+        // An alarm is not done, it is going off; its name is the whole of what to say, over
+        // the time it went off for.
+        if state.isAlarm { return name.isEmpty ? IslandAlarm.defaultLabel : name }
         let named = !name.isEmpty && name != "Timer"
         if state.isFinished { return named ? "\(name) done" : "Timer done" }
         if state.isPaused { return named ? "\(name) paused" : "Paused" }
@@ -131,6 +140,7 @@ struct TimerExpandedView: View {
     /// "Timer, 4 minutes 59 seconds remaining", "Pasta timer paused, 1 minute remaining",
     /// "Timer done", "Focus, 24 minutes 59 seconds remaining, session 2 of 4".
     private func spokenLabel(at date: Date) -> String {
+        if let alarmAt = state.alarmAt { return "\(Self.headline(for: state)), \(IslandAlarm.clock(alarmAt))" }
         let name: String
         if let phase = pomodoro {
             name = phase.name
@@ -204,7 +214,8 @@ struct TimerExpandedView: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
-            let remaining = entry.state.isFinished ? "0:00" : entry.state.remaining(at: date).timerString
+            let remaining = entry.state.alarmAt.map(IslandAlarm.clock)
+                ?? (entry.state.isFinished ? "0:00" : entry.state.remaining(at: date).timerString)
             Text(remaining)
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.white)

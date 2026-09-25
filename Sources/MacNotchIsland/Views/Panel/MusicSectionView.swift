@@ -116,7 +116,13 @@ struct MusicSectionView: View {
             // One size and one weight for all three, the way the phone's island sets them.
             // A 30 pt `pause.fill` beside 22 pt triangles is a third again as much ink in the
             // middle of the row: the two skips read as faint and the row lost its centre.
+            // The places beside play come either side of the three, at their size and weight and
+            // on the same 72 pt pitch, so the row grows outwards and play never leaves the middle.
+            let sides = TransportSlot.sides(TransportSlot.resolved(stored: prefs.transportSlots))
             HStack(spacing: Self.transportSpacing) {
+                ForEach(Array(sides.left.enumerated()), id: \.offset) { pair in
+                    slotButton(pair.element, info: info)
+                }
                 GlyphButton(symbol: "backward.fill", size: Self.transportGlyph, weight: .medium,
                             hit: Self.transportRow) { service.previous() }
                 GlyphButton(symbol: info.isPlaying ? "pause.fill" : "play.fill",
@@ -124,6 +130,9 @@ struct MusicSectionView: View {
                     .animation(IslandMotion.fade, value: info.isPlaying)
                 GlyphButton(symbol: "forward.fill", size: Self.transportGlyph, weight: .medium,
                             hit: Self.transportRow) { service.next() }
+                ForEach(Array(sides.right.enumerated()), id: \.offset) { pair in
+                    slotButton(pair.element, info: info)
+                }
             }
             .frame(height: Self.transportRow)
             .padding(.top, 4)
@@ -137,6 +146,56 @@ struct MusicSectionView: View {
     private var lyricLine: String? {
         guard prefs.lyricsEnabled, let line = lyrics.currentLine?.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { return nil }
         return line
+    }
+
+    /// One of the places beside play. An empty one is a blank square that keeps play in the
+    /// middle. A button the player does not honour is drawn at a quarter strength and does not
+    /// take the click — the row keeps its shape from one player to the next, and the dim glyph
+    /// says the button is there for the players that do. A lit one — shuffle on, a repeat, a
+    /// favourite — takes the cover's colour, with a dot under it for the covers whose colour
+    /// is nearly white.
+    @ViewBuilder
+    private func slotButton(_ slot: TransportSlot, info: NowPlayingInfo) -> some View {
+        if slot == .empty {
+            Color.clear
+                .frame(width: Self.transportRow, height: Self.transportRow)
+                .accessibilityHidden(true)
+        } else {
+            let liked = service.isLiked(info)
+            let supported = slot.isSupported(by: info)
+            let on = supported && slot.isOn(in: info, liked: liked)
+            let lit = Color(nsColor: info.accent.blended(withFraction: 0.35, of: .white) ?? info.accent)
+            GlyphButton(symbol: slot.symbol(in: info, liked: liked), size: Self.transportGlyph,
+                        tint: !supported ? Color.white.opacity(0.25) : (on ? lit : Color.white),
+                        weight: .medium, label: slot.spokenName, hit: Self.transportRow) {
+                perform(slot)
+            }
+            .overlay(alignment: .bottom) {
+                if on {
+                    Circle()
+                        .fill(lit)
+                        .frame(width: 4, height: 4)
+                        .padding(.bottom, 1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .disabled(!supported)
+            .accessibilityValue(slot.spokenValue(in: info, liked: liked) ?? "")
+            .help(supported ? slot.title : "\(slot.title) — \(info.appName) does not offer this")
+            .animation(IslandMotion.fade, value: on)
+        }
+    }
+
+    private func perform(_ slot: TransportSlot) {
+        switch slot {
+        case .empty: break
+        case .shuffle: service.toggleShuffle()
+        case .cycleRepeat: service.cycleRepeat()
+        case .favourite: service.like()
+        case .back15: service.skip(by: -15)
+        case .forward15: service.skip(by: 15)
+        }
     }
 
     /// The app that last played, else Music.

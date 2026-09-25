@@ -41,11 +41,11 @@ struct ControlRail: View {
         // A reading the brightness service already has, rather than a fresh walk of the display
         // list: the rail is rebuilt on every volume change and every hover.
         let hasBrightness = brightness.isAvailable
-        let hasPicker = outputs.devices.count > 1 || RenderMode.isGallery
+        let hasPicker = outputs.hasChoice || RenderMode.isGallery
         let plan = RailPlan.current(prefs: prefs, showingShelf: showingShelf, showingMirror: showingMirror)
         // The row is not a fixed set: the brightness slider comes with a display that has one,
-        // the picker with a second output, and the buttons with the hardware, the user's choice
-        // and the room left over.
+        // the picker with a second output or an AirPlay receiver, and the buttons with the
+        // hardware, the user's choice and the room left over.
         let shape = [hasBrightness ? "brightness" : "", hasPicker ? "picker" : ""] + plan.rail.map(\.rawValue)
         let motion: Animation? = RailAssembly.slides(mountedAt: mountedAt) ? IslandMotion.content : nil
         // Budget at 672 pt: the sliders with their glyphs (148 and 132), the output picker, a
@@ -144,13 +144,29 @@ struct ControlRail: View {
                     // Both halves of Control Centre's Sound module. The input is the one
                     // nobody can reach without opening System Settings, and it is the one
                     // that matters at the moment a call starts.
-                    Section("Output") {
-                        ForEach(outputs.devices) { device in
+                    Section(SoundList.output) {
+                        ForEach(outputs.shownOutputs) { device in
                             Button(action: { outputs.select(device) }) {
                                 if device == outputs.current {
                                     Label(device.shortName, systemImage: "checkmark")
                                 } else {
                                     Text(device.shortName)
+                                }
+                            }
+                        }
+                    }
+                    // The HomePods and Apple TVs, which Control Centre lists and CoreAudio only
+                    // does as the AirPlay device's data sources. Inside the one menu, so the
+                    // rail keeps its width whatever is on the network.
+                    if !outputs.airPlay.isEmpty {
+                        Section(SoundList.airPlay) {
+                            ForEach(outputs.airPlay) { target in
+                                Button(action: { outputs.selectAirPlay(target) }) {
+                                    if outputs.airPlayCurrent.contains(target.source) {
+                                        Label(target.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(target.name)
+                                    }
                                 }
                             }
                         }
@@ -180,8 +196,8 @@ struct ControlRail: View {
                 .fixedSize()
             }
         }
-        .help(outputs.current.map { "Sound is going to \($0.name)" } ?? "Choose where the sound goes")
-        .accessibilityLabel("Sound: \(outputs.current?.name ?? "unknown")")
+        .help(outputs.destinationName.map { "Sound is going to \($0)" } ?? "Choose where the sound goes")
+        .accessibilityLabel("Sound: \(outputs.destinationName ?? "unknown")")
     }
 
     private var brightnessControl: some View {
@@ -221,7 +237,7 @@ enum RailPlan {
         var controls = RailControl.available(prefs)
         // The Shelf section carries its own AirDrop; see `ControlRail.showingShelf`.
         if showingShelf { controls.removeAll { $0 == .airDrop } }
-        let room = RailMetrics.room(hasPicker: AudioOutputs.shared.devices.count > 1 || RenderMode.isGallery,
+        let room = RailMetrics.room(hasPicker: AudioOutputs.shared.hasChoice || RenderMode.isGallery,
                                     hasBrightness: BrightnessControl.shared.isAvailable)
         var pinned: Set<RailControl> = [.settings]
         if showingMirror { pinned.insert(.mirror) }

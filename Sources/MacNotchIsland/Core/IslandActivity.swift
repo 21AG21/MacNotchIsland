@@ -47,8 +47,12 @@ struct TimerState: Equatable {
     var endDate: Date
     var pausedRemaining: TimeInterval? = nil
     var isFinished = false
+    /// Set on an alarm that is ringing: the time the clock read when it went off, which is what
+    /// its card shows in place of a countdown. Nil on every ordinary timer.
+    var alarmAt: Date? = nil
 
     var isPaused: Bool { pausedRemaining != nil }
+    var isAlarm: Bool { alarmAt != nil }
 
     func remaining(at date: Date) -> TimeInterval {
         if let p = pausedRemaining { return max(0, p) }
@@ -142,6 +146,9 @@ struct BluetoothState: Equatable {
     var batteryCase: Int? = nil
     var batterySingle: Int? = nil
     var isConnected: Bool = true
+    /// The pair was on the route with its listening modes when the card was made, so the card
+    /// is tall enough for their pills under the readings. See `AirPodsControl.offers`.
+    var offersListeningModes: Bool = false
 
     var summaryPercent: Int? {
         if let s = batterySingle { return s }
@@ -244,10 +251,13 @@ struct CustomAction: Equatable {
 enum IslandCommand: Equatable {
     /// Stop the screen recording the island started.
     case stopRecording
+    /// Take back an alarm that was just set, from the card that says it was.
+    case cancelAlarm(id: String)
 
     func perform() {
         switch self {
         case .stopRecording: ScreenRecorder.shared.stop()
+        case .cancelAlarm(let id): IslandTimer.shared.cancelAlarm(id: id)
         }
     }
 }
@@ -535,6 +545,9 @@ enum ActivityContent: Equatable {
     /// panels a call reaches for: 8 pt of air and a 28 pt row of pills. The mute sits in the
     /// header beside the button that goes to the call, where the phone puts it.
     static let cardCallControls: CGFloat = 36
+    /// A pair of AirPods' listening modes under its readings: 8 pt of air and the 24 pt row of
+    /// pills, `ListeningModeMetrics.height`.
+    static let cardListeningModes: CGFloat = 32
 
     var cardHeight: CGFloat {
         switch self {
@@ -548,6 +561,8 @@ enum ActivityContent: Equatable {
         case .calendar: return Self.cardCalendarRow
         // The header row, then the row of call controls under it: 12 + 44 + 8 + 28 + 16.
         case .call: return Self.cardRow + Self.cardCallControls
+        // The readings, then the pills where the pair has listening modes: 12 + 44 + 8 + 24 + 16.
+        case .bluetooth(let b): return b.offersListeningModes ? Self.cardRow + Self.cardListeningModes : Self.cardRow
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
         // The bar is how full the disk is, drawn only where the size could be read and only
         // while there is still a disk to be full.

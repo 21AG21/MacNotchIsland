@@ -71,6 +71,31 @@ final class IslandTimer: ObservableObject {
     @Published private(set) var timers: [TimerEntry] = []
     /// The phase of the Pomodoro run, when one is going.
     @Published private(set) var pomodoro: PomodoroPhase?
+    /// Alarms waiting for their time, soonest first. Not live activities while they wait, see
+    /// `IslandAlarm`; each becomes a timer that has rung when its time comes.
+    @Published private(set) var alarms: [IslandAlarm] = []
+
+    /// Where the alarms are written down so they outlive a relaunch. Timers are not kept —
+    /// a countdown is minutes long and its moment has passed by the time the app is back —
+    /// but an alarm is set for tomorrow morning, across an update or a restart. Swapped for a
+    /// scratch suite by the tests.
+    var alarmDefaults: UserDefaults = .standard
+    static let alarmsKey = "pendingAlarms"
+    /// The card that says an alarm is set, and the one that says one was missed.
+    static let alarmSetAlertID = "alarm-set"
+    static let alarmMissedAlertID = "alarm-missed"
+    /// An alarm noticed this late — the Mac asleep at its time, the app relaunched — still
+    /// rings; any later and it is reported as missed, see `IslandAlarm.triage`.
+    static let missedGrace: TimeInterval = 10 * 60
+    /// The longest the alarm check sleeps between looks. Waking from sleep and the clock being
+    /// set are heard as they happen; this is the net under both.
+    static let alarmCheckCeiling: TimeInterval = 60
+    /// What Snooze gives, the nine minutes every bedside clock has given since the 1950s.
+    static let snoozeInterval: TimeInterval = 9 * 60
+    private var alarmCheck: Timer?
+    private var alarmObservers: [NSObjectProtocol] = []
+    /// Whether the last run's alarms have been read back yet, see `restoreAlarms`.
+    private var alarmsLoaded = false
 
     /// iOS keeps the island readable by showing a couple of timers; four is our ceiling.
     static let maxTimers = 4
@@ -241,17 +266,26 @@ final class IslandTimer: ObservableObject {
     /// out; a paused one has more waiting for it when it resumes. The total moves with it, so
     /// the ring keeps meaning "how much of this timer is left" rather than jumping backwards.
     ///
-    /// A timer that has already rung is not extended: there is nothing left to add to, and
-    /// the card offers Repeat for that instead.
-    func add(seconds: TimeInterval, id: String) {
-        guard seconds > 0, let i = index(of: id) else { return }
+    /// A negative figure takes time off instead — a minute less, in `addStep`s like the minute
+    /// more — and never so much that the timer rings on the spot: at least
+    /// `minimumRemaining` is left, so taking off more than there is lands on one second to go,
+    /// and a timer with a second or less left is not shortened at all. The label and the rest
+    /// of the timer stay as they were.
+    ///
+    /// A timer that has already rung is neither extended nor shortened: there is nothing left
+    /// to add to, and the card offers Repeat for that instead.
+    func add(seconds: TimeInterval, id: String, now: Date = Date()) {
+        guard seconds.isFinite, seconds != 0, let i = index(of: id) else { return }
         var s = timers[i].state
         guard !s.isFinished else { return }
-        s.total += seconds
+        let change = Self.adjustment(seconds, remaining: s.remaining(at: now))
+        guard change != 0 else { return }
+        // The total moves with the end, so the ring keeps its place either way.
+        s.total = max(s.total + change, Self.minimumRemaining)
         if let paused = s.pausedRemaining {
-            s.pausedRemaining = paused + seconds
+            s.pausedRemaining = paused + change
         } else {
-            s.endDate = s.endDate.addingTimeInterval(seconds)
+            s.endDate = s.endDate.addingTimeInterval(change)
         }
         timers[i].state = s
         reprioritize()
@@ -259,8 +293,20 @@ final class IslandTimer: ObservableObject {
         syncTicker()
     }
 
-    /// What one press of "another minute" adds.
+    /// What one press of "another minute" adds, and one press of "a minute less" takes off.
     static let addStep: TimeInterval = 60
+
+    /// The least a shortened timer is left with.
+    static let minimumRemaining: TimeInterval = 1
+
+    /// How far a timer with `remaining` to go actually moves when asked to move by `seconds`:
+    /// all of it forwards, and backwards only as far as leaves `minimumRemaining`. Zero is
+    /// nothing to do. Pure, so the floor is tested.
+    static func adjustment(_ seconds: TimeInterval, remaining: TimeInterval) -> TimeInterval {
+        guard seconds.isFinite else { return 0 }
+        if seconds >= 0 { return seconds }
+        return max(seconds, min(0, minimumRemaining - remaining))
+    }
 
     func cancel(id: String) {
         // Cancelling the Pomodoro's timer ends the whole run, not just this phase.
@@ -370,6 +416,163 @@ final class IslandTimer: ObservableObject {
         pomodoroTimerID = nil
     }
 
+    // MARK: - Alarms
+
+    /// Sets an alarm for `date`, which has to be still to come, and says so on a card with a
+    /// way to take it back. Returns the alarm, or nil for a time that has already gone.
+    @discardableResult
+    func setAlarm(at date: Date, label: String? = nil, announce: Bool = true, now: Date = Date()) -> IslandAlarm? {
+        guard date > now else { return nil }
+        // A URL can set one before launch has read back the last run's; writing first would
+        // write over them.
+        if !alarmsLoaded { restoreAlarms(now: now) }
+        let name = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let alarm = IslandAlarm(label: name.isEmpty ? IslandAlarm.defaultLabel : name, fireDate: date, createdAt: now)
+        alarms = IslandAlarm.sorted(alarms + [alarm])
+        saveAlarms()
+        scheduleAlarmCheck(now: now)
+        if announce { showAlarmSet(alarm, now: now) }
+        return alarm
+    }
+
+    /// Takes an alarm away, whether it is still waiting or already ringing.
+    func cancelAlarm(id: String) {
+        if entry(id: IslandAlarm.ringingID(id)) != nil { cancel(id: IslandAlarm.ringingID(id)) }
+        guard alarms.contains(where: { $0.id == id }) else { return }
+        alarms.removeAll { $0.id == id }
+        saveAlarms()
+        scheduleAlarmCheck()
+        // The card that said it was set would otherwise go on saying so.
+        if ActivityCenter.shared.alert?.id == Self.alarmSetAlertID { ActivityCenter.shared.dismissAlert() }
+    }
+
+    /// Every waiting alarm, gone. A ringing one is a timer by then, and `cancelAll` stops it.
+    func cancelAllAlarms() {
+        alarmsLoaded = true
+        alarms.removeAll()
+        saveAlarms()
+        scheduleAlarmCheck()
+    }
+
+    /// Drops the alarms in hand without writing anything, as a quit would. Used by the test
+    /// suite to stand for a relaunch.
+    func forgetAlarmsForTesting() {
+        alarmCheck?.invalidate()
+        alarmCheck = nil
+        alarms = []
+        alarmsLoaded = false
+    }
+
+    /// Nine minutes more of sleep: the alarm that is ringing stops, and comes back.
+    func snooze(id: String) {
+        guard let ringing = entry(id: id), ringing.state.isAlarm else { return }
+        remove(id: id)
+        setAlarm(at: Date().addingTimeInterval(Self.snoozeInterval), label: ringing.label)
+    }
+
+    /// Reads back the alarms written down by the last run, at launch. Anything already in hand
+    /// — a URL that set one before this was called — is kept. One that came due while the app
+    /// was not running rings now if it is only just late, and is reported as missed otherwise.
+    func restoreAlarms(now: Date = Date()) {
+        alarmsLoaded = true
+        let saved = IslandAlarm.decode(alarmDefaults.data(forKey: Self.alarmsKey))
+        let known = Set(alarms.map(\.id))
+        alarms = IslandAlarm.sorted(alarms + saved.filter { !known.contains($0.id) })
+        saveAlarms()
+        checkAlarms(now: now)
+    }
+
+    /// Rings whatever has come due, reports whatever was missed, and sets the next look.
+    func checkAlarms(now: Date = Date()) {
+        let due = IslandAlarm.triage(alarms, now: now, grace: Self.missedGrace)
+        if due.pending.count != alarms.count {
+            alarms = due.pending
+            saveAlarms()
+        }
+        for alarm in due.ring { ring(alarm, now: now) }
+        for alarm in due.missed { reportMissed(alarm, now: now) }
+        scheduleAlarmCheck(now: now)
+    }
+
+    /// The alarm becomes a timer that has just rung, and goes through the same end as every
+    /// timer: the sound, its card taking the island, and a banner when the island cannot be
+    /// seen. Its card shows the time it rang for, with Snooze where a timer has Repeat.
+    private func ring(_ alarm: IslandAlarm, now: Date) {
+        IslandLog.island.notice("alarm ringing, \(Int(now.timeIntervalSince(alarm.fireDate)), privacy: .public)s after its time")
+        var state = TimerState(label: alarm.label, total: 1, endDate: alarm.fireDate)
+        state.isFinished = true
+        state.alarmAt = alarm.fireDate
+        let entry = TimerEntry(id: IslandAlarm.ringingID(alarm.id), label: alarm.label, state: state,
+                               priority: Self.basePriority, createdAt: now)
+        // Never turned away for want of room: a timer that rang and was not dismissed makes way
+        // first, and past that the alarm rings over the ceiling. An alarm that does not ring
+        // because four pasta timers were running is not an alarm.
+        if timers.count >= Self.maxTimers, let stale = timers.first(where: { $0.state.isFinished }) {
+            remove(id: stale.id)
+        }
+        timers.removeAll { $0.id == entry.id }
+        timers.append(entry)
+        reprioritize()
+        ActivityCenter.shared.dismissAlert()
+        publishAll()
+        finish(entry)
+        syncTicker()
+    }
+
+    private func showAlarmSet(_ alarm: IslandAlarm, now: Date) {
+        var card = CustomActivity(title: "Alarm set for \(IslandAlarm.describe(alarm.fireDate, now: now))")
+        card.subtitle = alarm.hasOwnLabel ? alarm.label : nil
+        card.symbol = "alarm.fill"
+        card.tint = "orange"
+        card.body = IslandAlarm.awakeNote
+        card.actions = [CustomAction(title: "Cancel", command: .cancelAlarm(id: alarm.id))]
+        ActivityCenter.shared.showAlert(IslandActivity(id: Self.alarmSetAlertID, kind: .custom, content: .custom(card),
+                                                       priority: 80, presentation: .expanded), duration: 5)
+    }
+
+    private func reportMissed(_ alarm: IslandAlarm, now: Date) {
+        IslandLog.island.notice("alarm missed by \(Int(now.timeIntervalSince(alarm.fireDate)), privacy: .public)s")
+        var card = CustomActivity(title: "Missed alarm, \(IslandAlarm.describe(alarm.fireDate, now: alarm.fireDate))")
+        card.subtitle = alarm.hasOwnLabel ? alarm.label : nil
+        card.symbol = "alarm"
+        card.tint = "orange"
+        card.body = "The Mac was asleep, or Notch Island was not running, when it was due."
+        ActivityCenter.shared.showAlert(IslandActivity(id: Self.alarmMissedAlertID, kind: .custom, content: .custom(card),
+                                                       priority: 85, presentation: .expanded), duration: 8)
+    }
+
+    private func saveAlarms() {
+        guard let data = IslandAlarm.encode(alarms) else { return }
+        alarmDefaults.set(data, forKey: Self.alarmsKey)
+    }
+
+    /// One look at the clock, set for the soonest alarm or the ceiling, whichever is first —
+    /// and none at all while there is no alarm. Added in the common modes, so a menu held open
+    /// at seven in the morning does not hold the alarm back.
+    private func scheduleAlarmCheck(now: Date = Date()) {
+        alarmCheck?.invalidate()
+        alarmCheck = nil
+        guard let next = alarms.first?.fireDate else { return }
+        watchTheClock()
+        let delay = min(max(0.25, next.timeIntervalSince(now)), Self.alarmCheckCeiling)
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in self?.checkAlarms() }
+        timer.tolerance = delay > 5 ? 1 : 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        alarmCheck = timer
+    }
+
+    /// A timer's clock stops while the Mac sleeps, and knows nothing of the wall clock being
+    /// set. Both are heard here instead, and each is a look straight away.
+    private func watchTheClock() {
+        guard alarmObservers.isEmpty else { return }
+        alarmObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.checkAlarms() })
+        for name in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
+            alarmObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main) { [weak self] _ in self?.checkAlarms() })
+        }
+    }
+
     // MARK: - Ticking
 
     /// One shared ticker for every timer, and none at all while they are all paused or done.
@@ -457,9 +660,12 @@ final class IslandTimer: ObservableObject {
         guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
         let label = entry.label
         let id = entry.id
+        // An alarm's banner says the time it rang for, which is the thing a banner read later
+        // most needs to say.
+        let title = entry.state.alarmAt.map { "Alarm, " + IslandAlarm.describe($0) } ?? "Timer"
         let deliver: () -> Void = {
             let content = UNMutableNotificationContent()
-            content.title = "Timer"
+            content.title = title
             content.body = label
             let request = UNNotificationRequest(identifier: "notchisland.timer.\(id).\(Date().timeIntervalSince1970)",
                                                 content: content, trigger: nil)
