@@ -31,6 +31,15 @@ struct ShelfStripView: View {
     static var stripHeight: CGFloat { ShelfItemView.height + tilePadding * 2 }
     /// Air above and below the tiles: what the selection ring needs, and no more.
     static let tilePadding: CGFloat = 3
+    /// Between one tile and the next.
+    static let tileGap: CGFloat = 12
+    /// How many tiles the strip shows whole across the panel, which is how many it can hold
+    /// before any are out of sight — eight, at the width the panel ships at. The gesture
+    /// router reads it, with the count, to know whether a sideways swipe here has anything to
+    /// scroll (`GestureRouter.stripOverflows`).
+    static var tilesAcross: Int {
+        Int(((IslandLayout.panelContentWidth + tileGap) / (ShelfItemView.column + tileGap)).rounded(.down))
+    }
 
     var isDropTarget: Bool
 
@@ -93,8 +102,12 @@ struct ShelfStripView: View {
 
     /// What the strip shows: everything on the shelf, or the files whose names answer to what
     /// was typed on this section.
-    private var shown: [ShelfItem] {
-        shelf.items.filter { PanelFind.matches([$0.url.lastPathComponent], query: center.findQuery) }
+    private var shown: [ShelfItem] { Self.matching(shelf.items, query: center.findQuery) }
+
+    /// The same, from anywhere: the gesture router counts what the strip is showing, and only
+    /// the same filter counts it right.
+    static func matching(_ items: [ShelfItem], query: String?) -> [ShelfItem] {
+        items.filter { PanelFind.matches([$0.url.lastPathComponent], query: query) }
     }
 
     private var headerTitle: String {
@@ -233,7 +246,7 @@ struct ShelfStripView: View {
 
     private var items: some View {
         IslandScrollStrip(axis: .horizontal) {
-            HStack(spacing: 12) {
+            HStack(spacing: Self.tileGap) {
                 ForEach(shown) { item in
                     ShelfItemView(item: item,
                                   // The tile the arrows are on wears the same ring a picked

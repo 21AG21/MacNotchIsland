@@ -75,6 +75,7 @@ final class HotKeyService: ObservableObject {
     private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
     private var escapeArmed = false
+    private var stepKeysArmed = false
     /// What the panel is allowed to take from the keyboard at this moment, see `claim`.
     private var panelClaim = KeyClaim.nothing
     private var cancellables = Set<AnyCancellable>()
@@ -154,15 +155,25 @@ final class HotKeyService: ObservableObject {
             // Nothing was asked of the system, so nothing was refused.
             registrationFailed = false
         }
-        if escapeArmed { registerWhileOpen() }
+        if escapeArmed { registerEscape() }
+        if stepKeysArmed { registerStepKeys() }
         if panelClaim.bareKeys { registerPanelKeys() }
     }
 
-    /// Escape, and the main combo's modifiers with the arrow keys, are claimed only while the
-    /// island has something open: the arrows step between sections the way a swipe does.
-    private func registerWhileOpen() {
-        // Escape belongs to whatever is open, not to the shortcut that may have opened it.
+    /// Escape belongs to whatever is open, not to the shortcut that may have opened it. It is
+    /// claimed only while the island has something open and the keyboard is its — see
+    /// `ActivityCenter.armsEscape` — so a panel a control click pinned leaves Escape with the
+    /// app in front.
+    private func registerEscape() {
         register(.escape, keyCode: kVK_Escape, modifiers: 0)
+    }
+
+    /// The main combo's modifiers with the arrow keys, which step between sections the way a
+    /// swipe does. Claimed the whole time the island has something open, whether or not it
+    /// asked for the keyboard: the combo is the island's already, and the arrows beside it
+    /// take nothing from anyone. Separate from Escape, which comes and goes with the
+    /// keyboard's invitation.
+    private func registerStepKeys() {
         guard Preferences.shared.hotkeyEnabled else { return }
         let modifiers = Self.currentModifiers
         // Both are registered whatever the other does; `&&` would skip the second.
@@ -174,8 +185,7 @@ final class HotKeyService: ObservableObject {
         if !arrows { IslandLog.keys.notice("arrow keys unavailable: another app owns the combo") }
     }
 
-    private func unregisterWhileOpen() {
-        unregister(.escape)
+    private func unregisterStepKeys() {
         unregister(.left)
         unregister(.right)
     }
@@ -228,13 +238,21 @@ final class HotKeyService: ObservableObject {
         if let ref = hotKeyRefs.removeValue(forKey: slot) { UnregisterEventHotKey(ref) }
     }
 
-    /// Escape is claimed only while the island has something open, so it never interferes
-    /// with other apps the rest of the time.
+    /// Escape is claimed only while the island has something open and the keyboard is its,
+    /// so it never interferes with other apps the rest of the time.
     func setEscapeArmed(_ armed: Bool) {
         guard armed != escapeArmed else { return }
         escapeArmed = armed
         guard handlerRef != nil else { return }
-        if armed { registerWhileOpen() } else { unregisterWhileOpen() }
+        if armed { registerEscape() } else { unregister(.escape) }
+    }
+
+    /// The combo's arrows are claimed for as long as something is open, see `registerStepKeys`.
+    func setStepKeysArmed(_ armed: Bool) {
+        guard armed != stepKeysArmed else { return }
+        stepKeysArmed = armed
+        guard handlerRef != nil else { return }
+        if armed { registerStepKeys() } else { unregisterStepKeys() }
     }
 
     /// The two halves of the claim: the keys the panel answers itself — the arrows, the digits
@@ -314,10 +332,25 @@ final class HotKeyService: ObservableObject {
 
     // MARK: - Actions
 
+    /// How long after the panel opens an Escape is still taken for the tail of the click or
+    /// key press that opened it.
+    static let escapeTail: TimeInterval = 0.3
+
+    /// Whether an Escape `sinceOpened` seconds after the panel opened is the tail of that open
+    /// rather than a press of its own. Measured from the open alone (`ActivityCenter.openedAt`),
+    /// not from the last thing done on the panel: every step, slider, find and pick moves
+    /// `lastInteraction`, so Escape pressed twice to leave a find and then close did nothing
+    /// the second time, Tab-Tab-Escape typed quickly lost the Escape — and Carbon had already
+    /// taken it, so no other app got it either. The click-outside guard learned this first.
+    /// A clock that has gone backwards since the open is not a tail.
+    static func escapeIsTail(sinceOpened: TimeInterval) -> Bool {
+        (0...escapeTail).contains(sinceOpened)
+    }
+
     private static func handle(_ slot: Slot) {
         let center = ActivityCenter.shared
-        let sinceInteraction = Date().timeIntervalSince(center.lastInteraction)
-        IslandLog.keys.notice("hot key \(slot.rawValue, privacy: .public) after \(sinceInteraction, privacy: .public)s")
+        let sinceOpened = Date().timeIntervalSince(center.openedAt)
+        IslandLog.keys.notice("hot key \(slot.rawValue, privacy: .public) \(sinceOpened, privacy: .public)s after opening")
         switch slot {
         case .toggle: center.toggle()
         case .next: center.cycleView(forward: true)
@@ -327,7 +360,7 @@ final class HotKeyService: ObservableObject {
         case .escape:
             // Escape is registered the instant something opens; nothing in the tail of that
             // click may pass for a key press.
-            guard sinceInteraction > 0.3 else { return }
+            guard !escapeIsTail(sinceOpened: sinceOpened) else { return }
             // One step back at a time: a find in progress is what Escape leaves first, the
             // way it does in every window on the Mac that has a search field.
             if center.endFind() { return }

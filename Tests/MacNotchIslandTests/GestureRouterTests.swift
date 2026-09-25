@@ -12,8 +12,8 @@ final class GestureRouterTests: XCTestCase {
     private let left: CGFloat = -80
     private let right: CGFloat = 80
 
-    private func panel(_ index: Int, of count: Int = 4, scrolls: Bool = false) -> Context {
-        .panel(index: index, count: count, scrolls: scrolls)
+    private func panel(_ index: Int, of count: Int = 4, scrolls: Bool = false, sideways: Bool = false) -> Context {
+        .panel(index: index, count: count, scrolls: scrolls, scrollsSideways: sideways)
     }
 
     /// The volume change an action carries, or nil when it is not a volume action.
@@ -74,8 +74,57 @@ final class GestureRouterTests: XCTestCase {
         XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(0, of: 1)), Action.none)
     }
 
-    func testAScrollingSectionStillStepsSideways() {
+    func testAListThatScrollsUpAndDownStillStepsSideways() {
+        // The clipboard, Notes, Controls' columns: their scroll runs the other way, so a
+        // sideways swipe has nothing to do on them but step.
         XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(0, scrolls: true)), Action.stepView(forward: true))
+        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: panel(2, scrolls: true)), Action.stepView(forward: false))
+    }
+
+    func testAStripWithTilesOutOfSightKeepsItsSidewaysScroll() {
+        // The bug: the Shelf's strip and the Windows strip could not be scrolled at all, since
+        // every sideways swipe on them stepped to another section instead.
+        let strip = panel(1, scrolls: true, sideways: true)
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: strip), Action.none)
+        XCTAssertEqual(Router.decide(dx: right, dy: 0, context: strip), Action.none)
+        XCTAssertEqual(Router.decide(dx: 0, dy: -60, context: strip), Action.none, "and it moves no volume either")
+    }
+
+    func testAStripWithNothingHiddenStillSteps() {
+        // Two files on the shelf: nothing to scroll to, so the swipe is still a step.
+        XCTAssertFalse(Router.stripOverflows(count: 2, across: ShelfStripView.tilesAcross))
+        XCTAssertEqual(Router.decide(dx: left, dy: 0, context: panel(1, scrolls: true, sideways: false)),
+                       Action.stepView(forward: true))
+    }
+
+    func testAStripOverflowsOnlyPastWhatFitsAcrossIt() {
+        XCTAssertFalse(Router.stripOverflows(count: 0, across: 8))
+        XCTAssertFalse(Router.stripOverflows(count: 8, across: 8), "exactly full is not out of sight")
+        XCTAssertTrue(Router.stripOverflows(count: 9, across: 8))
+        XCTAssertFalse(Router.stripOverflows(count: WindowsSectionView.tilesAcross, across: WindowsSectionView.tilesAcross))
+        XCTAssertTrue(Router.stripOverflows(count: WindowsSectionView.tilesAcross + 1, across: WindowsSectionView.tilesAcross))
+    }
+
+    func testTheCountAcrossIsWhatTheStripsReallyDraw() {
+        // What a strip says fits across the panel has to fit, and one more tile must not, or
+        // the swipe would step past a tile nobody can see or keep a strip with none hidden.
+        let width = IslandLayout.panelContentWidth
+        let shelf = CGFloat(ShelfStripView.tilesAcross)
+        XCTAssertGreaterThan(shelf, 0)
+        XCTAssertLessThanOrEqual(shelf * ShelfItemView.column + (shelf - 1) * ShelfStripView.tileGap, width)
+        XCTAssertGreaterThan((shelf + 1) * ShelfItemView.column + shelf * ShelfStripView.tileGap, width)
+        let windows = CGFloat(WindowsSectionView.tilesAcross)
+        XCTAssertLessThanOrEqual(windows * WindowsSectionView.tileWidth + (windows - 1) * WindowsSectionView.tileGap, width)
+        XCTAssertGreaterThan((windows + 1) * WindowsSectionView.tileWidth + windows * WindowsSectionView.tileGap, width)
+    }
+
+    func testTheShelfIsCountedAsTheFindHasNarrowedIt() {
+        let screenshots = (1...20).map { ShelfItem(url: URL(fileURLWithPath: "/tmp/Screenshot \($0).png"), addedAt: Date()) }
+        let items = screenshots + [ShelfItem(url: URL(fileURLWithPath: "/tmp/Invoice.pdf"), addedAt: Date())]
+        let across = ShelfStripView.tilesAcross
+        XCTAssertTrue(Router.stripOverflows(count: ShelfStripView.matching(items, query: nil).count, across: across))
+        XCTAssertFalse(Router.stripOverflows(count: ShelfStripView.matching(items, query: "invoice").count, across: across),
+                       "one file left on screen has nothing to scroll to, so the swipe steps again")
     }
 
     // MARK: - Vertical scrolling
@@ -112,6 +161,18 @@ final class GestureRouterTests: XCTestCase {
         XCTAssertEqual(Router.decide(dx: 0, dy: -60, context: .shelf), Action.none)
     }
 
+    func testControlsKeepsItsListsScrollAndTodayHasNoneToKeep() {
+        // Controls is three lists, and a scroll on any of them moved the volume, or closed the
+        // panel with "Open and close" chosen.
+        XCTAssertTrue(Router.scrollingSections.contains(.controls))
+        // Today fits its rows to the room and its hours across the width: a scroll there has
+        // nothing to move but the volume.
+        XCTAssertFalse(Router.scrollingSections.contains(.today))
+        for section in [HomeSection.clipboard, .notes, .notifications, .shelf, .windows] {
+            XCTAssertTrue(Router.scrollingSections.contains(section), "\(section) scrolls by itself")
+        }
+    }
+
     func testNoMovementDoesNothing() {
         XCTAssertEqual(Router.decide(dx: 0, dy: 0, context: .idle), Action.none)
         XCTAssertEqual(Router.decide(dx: 0, dy: 0, context: .compactNowPlaying), Action.none)
@@ -140,6 +201,8 @@ final class GestureRouterTests: XCTestCase {
     func testConsumesHorizontalSwipes() {
         XCTAssertTrue(Router.consumesHorizontalSwipes(.compactNowPlaying))
         XCTAssertTrue(Router.consumesHorizontalSwipes(panel(0)))
+        XCTAssertTrue(Router.consumesHorizontalSwipes(panel(0, scrolls: true)))
+        XCTAssertFalse(Router.consumesHorizontalSwipes(panel(0, scrolls: true, sideways: true)))
         XCTAssertFalse(Router.consumesHorizontalSwipes(panel(0, of: 1)))
         XCTAssertFalse(Router.consumesHorizontalSwipes(.idle))
         XCTAssertFalse(Router.consumesHorizontalSwipes(.otherCompact))

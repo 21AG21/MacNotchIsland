@@ -157,7 +157,9 @@ struct IslandBodyView: View {
     /// drawn in place. A key-press HUD over a live activity keeps that activity's identity:
     /// its glyph stays on the left (`IslandLayout.activityUnder`) and only the trailing half
     /// changes, so the whole view must not be torn down and crossed over — which blurred the
-    /// very glyph that was staying put, twice, on every press of the volume key.
+    /// very glyph that was staying put, twice, on every press of the volume key. The sneak
+    /// peek over Now Playing is drawn the same way, and a track change no longer blurs the
+    /// cover it keeps.
     private var contentID: String {
         if case .compact(let a, _) = presentation, let under = IslandLayout.activityUnder(a, center: center) {
             return "compact-\(under.id)"
@@ -185,7 +187,13 @@ struct IslandBodyView: View {
             }
         }
         .id(contentID)
-        .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
+        // Always the open-and-close swap, never a step's push. Nothing a step changes reaches
+        // this identity — every panel view shares one, and the section makes its own
+        // transition inside `PanelView` — but a view that is removed leaves with the
+        // transition it was last drawn with, and a panel drawn after a sideways step was
+        // drawn with the push, whose removal is a plain fade. So closing after a step faded
+        // flat while closing without one blurred and scaled out: two closes for one panel.
+        .transition(IslandMotion.contentTransition(direction: 0))
         // The content crosses over on its own, shorter curve rather than riding the outline's.
         // The shape is what bounces; the thing inside it settles first and holds still while
         // the outline finishes arriving, which is the layering the phone's island has.

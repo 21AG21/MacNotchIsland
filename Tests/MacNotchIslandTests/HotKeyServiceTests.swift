@@ -142,6 +142,42 @@ final class HotKeyServiceTests: XCTestCase {
         XCTAssertEqual(names, (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) })
     }
 
+    // MARK: - Escape and the tail of the open
+
+    func testEscapeIsTheTailOfTheOpenOnlyRightAfterIt() {
+        XCTAssertTrue(HotKeyService.escapeIsTail(sinceOpened: 0))
+        XCTAssertTrue(HotKeyService.escapeIsTail(sinceOpened: 0.2))
+        XCTAssertTrue(HotKeyService.escapeIsTail(sinceOpened: HotKeyService.escapeTail))
+        XCTAssertFalse(HotKeyService.escapeIsTail(sinceOpened: HotKeyService.escapeTail + 0.01))
+        XCTAssertFalse(HotKeyService.escapeIsTail(sinceOpened: 5))
+        XCTAssertFalse(HotKeyService.escapeIsTail(sinceOpened: Date().timeIntervalSince(.distantPast)),
+                       "never opened is never a tail")
+    }
+
+    func testAClockThatWentBackIsNotATail() {
+        XCTAssertFalse(HotKeyService.escapeIsTail(sinceOpened: -30))
+        XCTAssertFalse(HotKeyService.escapeIsTail(sinceOpened: .nan))
+    }
+
+    /// The rule is measured from the open, and only an open moves that: a step, a find left
+    /// with Escape, a slider — every one of which moves the last interaction — leave it where
+    /// it was. So Escape to leave a find and Escape again to close both land, and so does the
+    /// Escape after Tab-Tab typed quickly.
+    func testSteppingAndLeavingAFindNeverMoveWhereTheTailIsMeasuredFrom() {
+        let center = ActivityCenter.shared
+        center.resetForTesting()
+        defer { center.resetForTesting() }
+        center.open(.home(tab: HomeSection.music.rawValue), panel: "main")
+        let opened = center.openedAt
+        XCTAssertNotEqual(opened, .distantPast, "an open is when the tail starts")
+        center.step(forward: true, wrap: true)
+        center.step(forward: true, wrap: true)
+        _ = center.endFind()
+        center.setControlDragging(true)
+        center.setControlDragging(false)
+        XCTAssertEqual(center.openedAt, opened)
+    }
+
     // MARK: - What the island may take out of the world
 
     /// Every way of asking, with everything else right.

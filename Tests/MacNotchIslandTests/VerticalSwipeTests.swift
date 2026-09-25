@@ -92,7 +92,7 @@ final class VerticalSwipeTests: XCTestCase {
         for (name, context) in contexts {
             let kept = Router.consumesVerticalScroll(context)
             switch context {
-            case .shelf, .panel(_, _, true, _):
+            case .shelf, .panel(_, _, true, _, _):
                 XCTAssertFalse(kept, "\(name) keeps its own scroll")
             default:
                 XCTAssertTrue(kept, "the island keeps a scroll on \(name)")
@@ -151,6 +151,40 @@ final class VerticalSwipeTests: XCTestCase {
         XCTAssertEqual(Router.decide(dx: 0, dy: 4, context: .idle, verticalSwipe: .openClose, travel: 20), Action.none)
         // The volume moves by the part not applied yet, whatever the gesture's total.
         XCTAssertEqual(Router.decide(dx: 0, dy: -4, context: .idle, travel: -400), .volume(delta: 4 * Router.volumeStep))
+    }
+
+    // MARK: - A swipe is the whole gesture
+
+    func testNothingActsOnceTheGestureHasOpenedOrClosedThePanel() {
+        // The bug: a swipe up closes the panel in "Open and close", the island shrinks to a
+        // running timer's pill under the fingers, and they keep going. By then the gesture has
+        // travelled 60 points, which on a pill that has not swiped is two minutes more.
+        XCTAssertEqual(Router.decide(dx: 0, dy: -4, context: .compactTimer, verticalSwipe: .openClose, travel: -60),
+                       .nudgeTimer(steps: 2), "the same travel on a gesture that has not swiped")
+        XCTAssertEqual(Router.decide(dx: 0, dy: -4, context: .compactTimer, verticalSwipe: .openClose, travel: -60,
+                                     swipeFired: true), Action.none, "none of it lands")
+        // And nothing else after a swipe does either, anywhere, in either mode, with a key held.
+        for (name, context) in contexts {
+            for mode in [Router.VerticalSwipe.volume, .openClose] {
+                for dy in [down, up] {
+                    XCTAssertEqual(Router.decide(dx: 0, dy: dy, context: context, verticalSwipe: mode, swipeFired: true),
+                                   Action.none, "\(name), \(mode), \(dy)")
+                    XCTAssertEqual(Router.decide(dx: 0, dy: dy, context: context, wantsBrightness: true,
+                                                 verticalSwipe: mode, swipeFired: true),
+                                   Action.none, "\(name) with Option, \(mode), \(dy)")
+                }
+            }
+        }
+    }
+
+    // MARK: - What a swipe up closes
+
+    func testASwipeUpOnAPeekLeavesThePanelPinnedOnTheOtherDisplay() {
+        // Pinned on display A, peeking on B, swipe up on B: B's peek goes, A's panel stays.
+        XCTAssertEqual(Router.closeTarget(openHere: false, isOpen: true), .peekHere)
+        XCTAssertEqual(Router.closeTarget(openHere: true, isOpen: true), .everything, "pinned here: it closes")
+        XCTAssertEqual(Router.closeTarget(openHere: false, isOpen: false), .everything,
+                       "a peek with nothing pinned anywhere closes the way it always did")
     }
 
     // MARK: - Sensitivity

@@ -9,10 +9,12 @@ import Combine
 /// - The most recently started live activity owns the island; the other becomes the detached
 ///   "minimal" bubble on the right. Clicking the bubble swaps them. A call, or a timer that
 ///   just rang, always wins regardless of age.
-/// - Nothing happens on hover. A click on the island opens it (the activity's expanded view,
-///   or the Home panel when nothing is live); a click on the island again, a click anywhere
-///   else, Escape or the global shortcut closes it. Shortcut modifiers + Tab cycles through
-///   every open-able view; with Shift it cycles back.
+/// - Resting the pointer on the island opens its panel after the hover delay, and leaving
+///   closes it again after a moment's grace ("Open when the pointer rests on the island",
+///   on out of the box); an alert's card or a forced card under the pointer stays a card. A
+///   click pins the panel (the activity's expanded view, or the Home panel when nothing is
+///   live), and a click anywhere else, Escape or the global shortcut closes it. Shortcut
+///   modifiers + Tab cycles through every open-able view; with Shift it cycles back.
 /// - Files dragged onto the island open the shelf for the duration of the drag.
 final class ActivityCenter: ObservableObject {
     static let shared = ActivityCenter()
@@ -296,8 +298,6 @@ final class ActivityCenter: ObservableObject {
     /// Presentation for one panel. Hover and drag only affect the panel they happen on;
     /// alerts, live activities and programmatic expansion show everywhere.
     func presentation(for panel: String?) -> IslandPresentation {
-        let prefs = Preferences.shared
-        let hovering = hoverPanel != nil && (panel == nil || hoverPanel == panel)
         let dragging = dragPanel != nil && (panel == nil || dragPanel == panel)
 
         // A drag means the shelf everywhere but the two sections whose own content takes one:
@@ -305,38 +305,93 @@ final class ActivityCenter: ObservableObject {
         // dropped anywhere else on the island still goes to the shelf.
         // The section on screen, pinned or peeked. Asking only about the pinned one meant a
         // drag over a peeked Actions row turned it into the shelf's well and hid the very
-        // tiles the file was being carried to.
-        let sectionTakesDrops = shownSection.map { Self.dropTargetSections.contains($0) } ?? false
-        if dragging && prefs.shelfEnabled && !sectionTakesDrops { return .shelf }
+        // tiles the file was being carried to. And on this island: with the panel pinned on
+        // one display, a drag over the other's peek was judged by the pinned panel's section.
+        let sectionTakesDrops = shownSection(on: panel).map { Self.dropTargetSections.contains($0) } ?? false
+        if dragging && Preferences.shared.shelfEnabled && !sectionTakesDrops { return .shelf }
+        return presentationUnderTheDrag(for: panel)
+    }
 
+    /// What `panel` shows when no drag is over it — which is also what a drag over it would
+    /// be carried to, so the drag rule above asks this and not `presentation(for:)`.
+    private func presentationUnderTheDrag(for panel: String?) -> IslandPresentation {
+        let prefs = Preferences.shared
+        let hovering = hoverPanel != nil && (panel == nil || hoverPanel == panel)
         let peeking = hovering && prefs.hoverToExpand
+        let live = sortedActivities
+        let forced = Self.forcedCard(primary: live.first, forcedID: forcedExpandedID)
         // An alert takes the island unless a panel is showing; then it is drawn over the panel
-        // instead (`overlayAlert`), so the panel never goes away under the user. A panel that
-        // is only under the pointer does yield to a battery warning.
+        // instead (`overlayAlert`), so the panel never goes away under the user. What it does
+        // under the pointer, and against a card forced up, is `alertTakesIsland`.
         // Open on this island, not merely open: a panel pinned on the other display leaves
         // this one free to show the alert.
         let openHere = openView != nil && Self.shows(openPanel: openPanel, on: panel)
-        if let alert, !openHere, !peeking || Self.alertRank(alert) >= 6 {
-            let large = alert.presentation == .expanded || (hovering && prefs.hoverToExpand && Self.alertRank(alert) > 2)
+        if let alert, !openHere,
+           Self.alertTakesIsland(rank: Self.alertRank(alert), holdsCard: Self.holdsCard(alert),
+                                 peeking: peeking, forcedCardUp: forced != nil) {
+            let large = alert.presentation == .expanded || (peeking && Self.alertRank(alert) > 2)
             if large && alert.content.hasExpandedView { return .card(alert) }
             // A key-press HUD over a live activity keeps that activity's glyph on the left
             // (`IslandLayout.activityUnder`) — and its bubble, which used to pop out and back
-            // on every press of the volume key.
+            // on every press of the volume key. So does the sneak peek over Now Playing.
             let under = IslandLayout.activityUnder(alert, center: self)
-            return .compact(alert, bubble: under == nil ? nil : sortedActivities.dropFirst().first)
+            return .compact(alert, bubble: under == nil ? nil : live.dropFirst().first)
         }
 
-        if let view = openView, Self.shows(openPanel: openPanel, on: panel) { return .panel(validated(view)) }
+        if let view = openView, openHere { return .panel(validated(view)) }
 
-        let live = sortedActivities
-        if let primary = live.first, forcedExpandedID == primary.id, primary.content.hasExpandedView {
-            return .card(primary)
-        }
+        if let forced { return .card(forced) }
         if peeking, hoverPeeks { return .panel(validated(peekView ?? defaultPeek())) }
         if let primary = live.first {
             return .compact(primary, bubble: live.dropFirst().first)
         }
         return .idle
+    }
+
+    /// Whether an alert takes the island from whatever would be there without it.
+    ///
+    /// A battery about to run out always does. Short of that, a card forced up — a timer
+    /// that has rung, with its Stop; a call — keeps the island: a volume key, a copied line,
+    /// Caps Lock or the next track's sneak peek used to fold the ringing card to a pill in the
+    /// middle of its eight seconds and grow it back after, and those alerts wait their turn
+    /// behind it now (`showAlert`). With neither, an alert has the island unless the pointer is
+    /// resting there, where the panel it opens wins — except over a card that is there to be
+    /// used (`holdsCard`). A screenshot's card turned into the Home peek a quarter of a second
+    /// after the pointer reached it, taking the thumbnail and Copy and Open out from under the
+    /// hand that was going to click them.
+    static func alertTakesIsland(rank: Int, holdsCard: Bool, peeking: Bool, forcedCardUp: Bool) -> Bool {
+        if rank >= 6 { return true }
+        if forcedCardUp { return false }
+        return !peeking || holdsCard
+    }
+
+    /// An alert that came up as a card with its own large view — a screenshot's thumbnail with
+    /// Copy and Open, a finished download's, an update's, a shortcut's result, an alarm set —
+    /// rather than a pill that reads at a glance. The pointer arriving on it is the hand
+    /// going to use it, so it holds against the peek and stays up while the pointer is on it.
+    static func holdsCard(_ alert: IslandActivity) -> Bool {
+        alert.presentation == .expanded && alert.content.hasExpandedView
+    }
+
+    /// The card `forceExpanded` put up, while it is up: it has to be the main activity and
+    /// have a card to show, or nothing visible happens.
+    static func forcedCard(primary: IslandActivity?, forcedID: String?) -> IslandActivity? {
+        guard let primary, let forcedID, primary.id == forcedID, primary.content.hasExpandedView else { return nil }
+        return primary
+    }
+
+    var forcedCard: IslandActivity? { Self.forcedCard(primary: primary, forcedID: forcedExpandedID) }
+
+    /// Whether a forced card is what the islands show: it is up, and no panel is open over it.
+    /// With a panel open an alert is a banner in the panel as ever, and needs no queue.
+    private var forcedCardShowing: Bool { forcedCard != nil && openView == nil }
+
+    /// Whether the island under the pointer is showing this card, an alert's or a forced one.
+    /// Not merely whether the pointer is somewhere: a banner in a pinned panel's rail is under
+    /// a pointer that is there to use the rail, and goes on its own time.
+    private func cardUnderPointer(id: String) -> Bool {
+        guard let hoverPanel, case .card(let shown) = presentation(for: hoverPanel) else { return false }
+        return shown.id == id
     }
 
     /// Whether the open view belongs on `panel`: everywhere when it was opened from
@@ -355,11 +410,13 @@ final class ActivityCenter: ObservableObject {
     }
 
     /// An alert that arrived while the panel is showing (a volume HUD, a finished download, a
-    /// battery warning): drawn over the panel, which stays where it is. The one exception is a
-    /// battery warning over a panel that is merely under the pointer: that takes the island.
+    /// battery warning): drawn over the panel, which stays where it is. The exceptions are the
+    /// ones that take an island that is merely under the pointer: a battery warning, and a
+    /// card there to be used (`holdsCard`), which stays a card rather than shrinking to a
+    /// banner in the peek's rail.
     var overlayAlert: IslandActivity? {
         guard let alert, isPanelShowing else { return nil }
-        if !isOpen, Self.alertRank(alert) >= 6 { return nil }
+        if !isOpen, Self.alertRank(alert) >= 6 || Self.holdsCard(alert) { return nil }
         return alert
     }
 
@@ -433,15 +490,21 @@ final class ActivityCenter: ObservableObject {
     func end(id: String) {
         guard activities.contains(where: { $0.id == id }) else { return }
         activities.removeAll { $0.id == id }
-        heldAlertIDs.remove(id)
+        let wasHeld = heldAlertIDs.remove(id) != nil
         if pinnedID == id { pinnedID = nil }
-        if forcedExpandedID == id { forcedExpandedID = nil }
+        let wasForced = forcedExpandedID == id
+        if wasForced { forcedExpandedID = nil }
         if openView == .activity(id: id) {
             IslandLog.island.notice("closing: activity \(id, privacy: .public) ended")
             closedUnderPointer()
             openView = nil
             openPanel = nil
         }
+        // An alert the user was holding, or a card forced up, ended before its time — its own
+        // close button, a Stop. What waited behind it gets its turn now, as it does when the
+        // panel closes; it used to wait for some later alert to expire, by when its patience
+        // had usually run out and it was dropped unseen.
+        if wasHeld || wasForced, alert == nil { showNextPendingAlert() }
     }
 
     func end(kind: ActivityKind) {
@@ -460,10 +523,41 @@ final class ActivityCenter: ObservableObject {
         forcedExpandedID = id
         // A forced activity must be the primary one, or nothing visible happens.
         if activities.contains(where: { $0.id == id }) { pinnedID = id }
+        // An alert already up goes behind the card rather than under it, the way a louder
+        // alert keeps a quieter one for afterwards: a finished download that a ringing timer
+        // covered ran out its time there unseen. A key press's HUD is stale by then, and is
+        // left to run out under the card.
+        if forcedCardShowing, let shown = alert, (3..<6).contains(Self.alertRank(shown)) {
+            alertWork?.cancel()
+            alert = nil
+            enqueue(shown, duration: nil)
+        }
         Haptics.tap()
+        scheduleForcedExpiry(id: id, after: seconds, heldFor: 0)
+    }
+
+    /// How long a pointer resting on a forced card can keep it past its own time. A ringing
+    /// timer's card grew into the peek panel under a pointer that was on its way to Stop, and
+    /// moved Stop; it waits for the pointer to leave now, but not for ever — a hand left on
+    /// the trackpad over the notch is not somebody still deciding.
+    static let forcedHoldLimit: TimeInterval = 60
+
+    /// Whether a forced card whose time is up stays another second: the pointer is on it, and
+    /// it has not been kept that way for `forcedHoldLimit` already.
+    static func forcedCardHolds(underPointer: Bool, heldFor: TimeInterval) -> Bool {
+        underPointer && heldFor < forcedHoldLimit
+    }
+
+    private func scheduleForcedExpiry(id: String, after seconds: TimeInterval, heldFor: TimeInterval) {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.forcedExpandedID == id else { return }
+            if Self.forcedCardHolds(underPointer: self.cardUnderPointer(id: id), heldFor: heldFor) {
+                self.scheduleForcedExpiry(id: id, after: 1, heldFor: heldFor + 1)
+                return
+            }
             self.forcedExpandedID = nil
+            // What waited behind the card gets its turn now.
+            if self.alert == nil { self.showNextPendingAlert() }
         }
         forcedWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -568,7 +662,10 @@ final class ActivityCenter: ObservableObject {
             return
         }
         let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
-        if outranked {
+        // Behind a card forced up — a timer that has rung, a call — as behind a louder alert,
+        // while that card is what the islands show (`alertTakesIsland`).
+        let behindForcedCard = forcedCardShowing && Self.alertRank(activity) < 6
+        if outranked || behindForcedCard {
             // Behind the more important alert: a volume tick must not hide a low-battery warning.
             // It keeps its exact duration for when its turn comes.
             enqueue(activity, duration: duration, exact: exact)
@@ -598,17 +695,19 @@ final class ActivityCenter: ObservableObject {
     }
 
     private func enqueue(_ activity: IslandActivity, duration: TimeInterval?, exact: Bool = false) {
-        pendingAlerts.removeAll { $0.activity.id == activity.id }
-        if pendingAlerts.count < 3 { pendingAlerts.append((activity, Date(), duration, exact)) }
+        let now = Date()
+        // What has gone stale leaves first: the three places hold alerts still worth showing,
+        // not a Caps Lock and a mute from ten seconds ago ahead of a finished download that
+        // arrives behind the same ringing timer.
+        pendingAlerts.removeAll { $0.activity.id == activity.id || now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
+        if pendingAlerts.count < 3 { pendingAlerts.append((activity, now, duration, exact)) }
     }
 
     private func scheduleAlertDismiss(id: String, after seconds: TimeInterval) {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.alert?.id == id else { return }
-            // Keep a real alert up while the pointer is on it, like holding a finger on the island;
-            // very short confirmations ("Copied") expire regardless, since a click leaves the pointer
-            // there, and so does a banner over the panel, whose rail the pointer is there to use.
-            if (self.isHovering || self.isDragTargeted) && seconds > 1.5 && !self.isPanelShowing {
+            if Self.alertHolds(seconds: seconds, pointerOn: self.isHovering || self.isDragTargeted,
+                               panelShowing: self.isPanelShowing, cardUnderPointer: self.cardUnderPointer(id: id)) {
                 self.scheduleAlertDismiss(id: id, after: 1.0)
             } else {
                 self.alert = nil
@@ -625,7 +724,23 @@ final class ActivityCenter: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
+    /// Whether an alert whose time is up stays another second.
+    ///
+    /// A real alert stays up while the pointer is on it, like holding a finger on the island;
+    /// very short confirmations ("Copied") expire regardless, since a click leaves the pointer
+    /// there. A banner over the panel goes on its own time too, since the pointer is there to
+    /// use the rail — but a card that held against the peek (`holdsCard`) is not a banner, and
+    /// with the pointer opening the panel, which is how the app ships, the panel always counted
+    /// as showing under it: a screenshot's card ran out on schedule with the hand on it.
+    static func alertHolds(seconds: TimeInterval, pointerOn: Bool, panelShowing: Bool, cardUnderPointer: Bool) -> Bool {
+        guard pointerOn, seconds > 1.5 else { return false }
+        return !panelShowing || cardUnderPointer
+    }
+
     private func showNextPendingAlert() {
+        // Still behind a forced card: the queue waits for it rather than going round again,
+        // which would restart every waiting alert's patience. Its expiry drains the queue.
+        guard !forcedCardShowing else { return }
         let now = Date()
         pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
         pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
@@ -643,8 +758,10 @@ final class ActivityCenter: ObservableObject {
 
     // MARK: - Interaction
 
-    /// Tracks which panel the pointer is over. Nothing opens because of it unless the user
-    /// switched the hover options on; alerts merely stay up a little longer under the pointer.
+    /// Tracks which panel the pointer is over. With "Open when the pointer rests on the
+    /// island" on, which is how the app ships, resting there opens the panel as a peek —
+    /// unless a card is up that holds against it — and a click pins it; with it off, nothing
+    /// opens until a click. Either way an alert stays up a little longer under the pointer.
     /// The pointer arrived on or left the island. Arrival waits the hover delay, so a pointer
     /// crossing the notch on its way to the clock opens nothing; departure waits a grace
     /// period, so a slip off the panel's edge does not close it.
@@ -652,6 +769,14 @@ final class ActivityCenter: ObservableObject {
         // The same request again, while the first is still on the timer, is that request.
         if let pending = pendingHover, pending.hovering == hovering, pending.panel == panel { return }
         hoverWork?.cancel()
+        // One timer serves every island, so news from another island cancels a departure
+        // still in its grace. The pointer is on another display: that is no slip off the
+        // edge, and the departure is applied now rather than dropped. Dropped, it left the
+        // island it came from suppressed for its next visit, or — when the pointer only
+        // crossed the other island — still peeking with nobody on it.
+        if let pending = pendingHover, !pending.hovering, pending.panel != panel {
+            applyHoverExit(pending.panel)
+        }
         pendingHover = (hovering, panel)
         let delay = hovering ? Preferences.shared.hoverDelay : Self.hoverExitGrace
         let work = DispatchWorkItem { [weak self] in
@@ -663,28 +788,33 @@ final class ActivityCenter: ObservableObject {
                 if self.peekView == nil, self.hoverPeeks { self.peekView = self.defaultPeek() }
                 self.hoverPanel = panel
             } else {
-                if self.peekSuppressed == panel { self.peekSuppressed = nil }
-                guard self.hoverPanel == panel else { return }
-                // A slider or the scrubber being dragged keeps the panel: the pointer is
-                // allowed to run past the end of the track, the way it may on a menu bar
-                // slider. The exit is applied the moment the button comes up.
-                guard !self.controlDragging else {
-                    self.deferredHoverExit = panel
-                    return
-                }
-                self.hoverPanel = nil
-                if self.openView == nil { self.peekView = nil }
-                // Forget which way the last step went. Only `open` and `collapse` used to
-                // clear this, and a hover exit goes through neither — so after ever stepping
-                // sideways in a peeked panel, every hover-open afterwards grew on the flat
-                // navigate spring instead of the open one, and its content slid in from the
-                // side instead of crossing over. It healed only when something was clicked,
-                // which is why opening the same panel twice could look like two apps.
-                self.navigationDirection = 0
+                self.applyHoverExit(panel)
             }
         }
         hoverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// The pointer has left `panel`'s island, its grace over.
+    private func applyHoverExit(_ panel: String) {
+        if peekSuppressed == panel { peekSuppressed = nil }
+        guard hoverPanel == panel else { return }
+        // A slider or the scrubber being dragged keeps the panel: the pointer is allowed to
+        // run past the end of the track, the way it may on a menu bar slider. The exit is
+        // applied the moment the button comes up.
+        guard !controlDragging else {
+            deferredHoverExit = panel
+            return
+        }
+        hoverPanel = nil
+        if openView == nil { peekView = nil }
+        // Forget which way the last step went. Only `open` and `collapse` used to clear this,
+        // and a hover exit goes through neither — so after ever stepping sideways in a peeked
+        // panel, every hover-open afterwards grew on the flat navigate spring instead of the
+        // open one, and its content slid in from the side instead of crossing over. It healed
+        // only when something was clicked, which is why opening the same panel twice could
+        // look like two apps.
+        navigationDirection = 0
     }
 
     /// A control inside the panel is being dragged. Nothing about the pointer leaving the
@@ -800,9 +930,11 @@ final class ActivityCenter: ObservableObject {
         case .shelf:
             break
         }
-        // Only a click that left something open has asked for the keyboard; one on a
-        // key-press HUD, or on a card that performs an action, opened nothing.
-        if isOpen { keyboardInvited = true }
+        // Only a click that left something open on this island has asked for the keyboard;
+        // one on a key-press HUD, or on a card that performs an action, opened nothing — and
+        // with the panel pinned on the other display, a click here that opened nothing asked
+        // for nothing either, and used to hand that panel the keyboard all the same.
+        if openHere(panel) { keyboardInvited = true }
     }
 
     /// A swipe down on the island, with "Open and close" chosen for the vertical swipe: the
@@ -867,9 +999,13 @@ final class ActivityCenter: ObservableObject {
             if openPanel != island { openPanel = nil }
             return
         }
+        // The peek this was, if it was one. A peek on another display's island is not this
+        // panel and stays where it is: stepping the panel pinned on one display put the other
+        // display's peek back on its first view.
+        let peekElsewhere = hoverPanel != nil && island != nil && hoverPanel != island
         withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
             if case .home(let tab) = target { Self.selectHomeTab(tab) }
-            peekView = nil
+            if !peekElsewhere { peekView = nil }
             openPanel = island
             openView = target
         }
@@ -878,13 +1014,16 @@ final class ActivityCenter: ObservableObject {
     /// Shows `view` in the panel: pinned if the panel is pinned, under the pointer if it is
     /// only peeking, and opened outright when nothing is showing (a keyboard step).
     func select(_ view: IslandView, direction: Int = 0, panel: String? = nil) {
-        // Opened here, or nothing to peek on: an open. Peeking here while the panel is
-        // pinned on another display's island: the peek steps, and that panel stays.
-        if openHere(panel ?? hoverPanel) || hoverPanel == nil || !Preferences.shared.hoverToExpand {
+        // The island this is for: the one named, else the one under the pointer. Opened
+        // there, or no peek there to move — no pointer, the hover option off, a card up under
+        // the pointer — an open. Peeking there while the panel is pinned on another display's
+        // island: the peek steps, and that panel stays.
+        let island = panel ?? hoverPanel
+        guard let peeked = island, peeks(on: peeked) else {
             open(view, direction: direction, panel: panel)
             return
         }
-        guard !isSuppressed(panel: hoverPanel) else { return }
+        guard !isSuppressed(panel: peeked) else { return }
         lastInteraction = Date()
         navigationDirection = direction
         let target = validated(view)
@@ -903,10 +1042,13 @@ final class ActivityCenter: ObservableObject {
         let ring = self.ring
         guard ring.indices.contains(index) else { return false }
         let target = ring[index]
-        guard target != currentView else { return true }
+        // On the island that has the keyboard, the same as a step from it.
+        let island = keyedPanel
+        let current = shownView(on: island)
+        guard target != current else { return true }
         // The disc travels the way you are going, the same as a step or a swipe.
-        let here = currentView.flatMap { ring.firstIndex(of: $0) } ?? 0
-        select(target, direction: index > here ? 1 : -1)
+        let here = current.flatMap { ring.firstIndex(of: $0) } ?? 0
+        select(target, direction: index > here ? 1 : -1, panel: stepPanel(for: island))
         return true
     }
 
@@ -916,8 +1058,11 @@ final class ActivityCenter: ObservableObject {
 
     /// The section on screen, whether the panel is pinned open or only under the pointer.
     /// What the user is looking at, as opposed to what they have committed to.
-    var shownSection: HomeSection? {
-        guard case .home(let tab)? = currentView else { return nil }
+    var shownSection: HomeSection? { shownSection(on: nil) }
+
+    /// The section on `panel`'s island; nil asks about no island in particular.
+    func shownSection(on panel: String?) -> HomeSection? {
+        guard case .home(let tab)? = shownView(on: panel) else { return nil }
         return HomeSection(rawValue: tab)
     }
 
@@ -1066,16 +1211,27 @@ final class ActivityCenter: ObservableObject {
     private func keyboardControlChanged() {
         HotKeyService.shared.setPanelKeys(currentClaim)
         HotKeyService.shared.setEscapeArmed(escapeArmed)
+        // The combo's arrows stay claimed the whole time something is open, invited or not.
+        HotKeyService.shared.setStepKeysArmed(openView != nil)
     }
 
     /// Escape closes the panel from anywhere, as a global key — except while another of this
     /// app's own windows has the keyboard. Quick Look opened from the shelf, or Settings from
     /// the rail, took the key from the panel: the island closed and the window the key was
-    /// meant for stayed, and a second Escape was needed.
-    private var escapeArmed: Bool {
+    /// meant for stayed, and a second Escape was needed. See `armsEscape`.
+    var escapeArmed: Bool {
         guard openView != nil else { return false }
         let windows = (NSApp?.windows ?? []).map { (isKey: $0.isKeyWindow, isPanel: $0 is NotchPanel) }
-        return !PanelKeyboard.heldByAnotherOfOurs(windows)
+        return Self.armsEscape(isOpen: true, invited: keyboardInvited, holdsKeyboard: holdsKeyboard,
+                               heldByAnotherOfOurs: PanelKeyboard.heldByAnotherOfOurs(windows))
+    }
+
+    /// Whether Escape is the island's: something is open, and the keyboard was asked for — a
+    /// click on the island, the shortcut, Tab — or the island holds it anyway. Not for a panel
+    /// a click on a control pinned (`pinPeek`): that hand is going back to Pages, and Escape
+    /// taken system-wide closed the island instead of the autocomplete it was pressed for.
+    static func armsEscape(isOpen: Bool, invited: Bool, holdsKeyboard: Bool, heldByAnotherOfOurs: Bool) -> Bool {
+        isOpen && (invited || holdsKeyboard) && !heldByAnotherOfOurs
     }
 
     /// Key status moving between this app's own windows re-reads `escapeArmed`. Armed only
@@ -1095,14 +1251,23 @@ final class ActivityCenter: ObservableObject {
 
     /// One step along the ring. Without `wrap` the ends are ends (a swipe is spatial); with it
     /// the ring is a cycle (Tab). Returns false when there was nowhere to go.
+    ///
+    /// `panel` is the island the step is on: a swipe names the one under the fingers. A key
+    /// names none, and goes to the island that has the keyboard — the one with the panel open
+    /// — and, with nothing open, to the one under the pointer. With the panel pinned on one
+    /// display and the pointer resting on the other's island, Tab stepped that island's peek
+    /// instead, from the pinned panel's place in the ring; a swipe there started from the
+    /// pinned panel's place as well.
     @discardableResult
-    func step(forward: Bool, wrap: Bool) -> Bool {
+    func step(forward: Bool, wrap: Bool, panel: String? = nil) -> Bool {
         let ring = self.ring
         guard !ring.isEmpty else { return false }
-        guard let current = currentView, let i = ring.firstIndex(of: current) else {
+        let island = panel ?? keyedPanel
+        let target = stepPanel(for: island)
+        guard let current = shownView(on: island), let i = ring.firstIndex(of: current) else {
             // Nothing is showing: this is an open, not a step, and it grows on the open
             // spring with its content crossing over — not sliding in from the side.
-            select(forward ? ring[0] : ring[ring.count - 1], direction: 0)
+            select(forward ? ring[0] : ring[ring.count - 1], direction: 0, panel: target)
             return true
         }
         var next = i + (forward ? 1 : -1)
@@ -1110,8 +1275,31 @@ final class ActivityCenter: ObservableObject {
             guard wrap else { return false }
             next = (next + ring.count) % ring.count
         }
-        select(ring[next], direction: forward ? 1 : -1)
+        select(ring[next], direction: forward ? 1 : -1, panel: target)
         return true
+    }
+
+    /// The island a key press is for: the one the panel is open on, which is where the
+    /// keyboard is, and with nothing open the one under the pointer. Nil is every island — a
+    /// panel open everywhere, or nothing open and no pointer on any island.
+    private var keyedPanel: String? { openView != nil ? openPanel : hoverPanel }
+
+    /// The view on `island`, or on no island in particular when it is nil.
+    private func shownView(on island: String?) -> IslandView? {
+        guard let island else { return currentView }
+        return currentView(on: island)
+    }
+
+    /// Where a step taken on `island` goes. An open panel stays wherever it is open — a step
+    /// changes its view, not the display it is on, and a panel open everywhere stays open
+    /// everywhere — and a peek is stepped on the island it is on.
+    private func stepPanel(for island: String?) -> String? {
+        openHere(island) ? openPanel : island
+    }
+
+    /// Whether `panel`'s island is showing the panel only because the pointer rests there.
+    private func peeks(on panel: String) -> Bool {
+        hoverPanel == panel && !openHere(panel) && currentView(on: panel) != nil
     }
 
     /// Sections the user types into. While one of them is pinned open, and only then, the
@@ -1139,6 +1327,16 @@ final class ActivityCenter: ObservableObject {
         if let openView { return validated(openView) }
         if hoverPanel != nil, Preferences.shared.hoverToExpand, hoverPeeks { return validated(peekView ?? defaultPeek()) }
         return nil
+    }
+
+    /// The view one island's panel is on: the panel pinned there (or everywhere), or the peek
+    /// under the pointer there; nil when that island shows no panel — a pill, a card, a panel
+    /// pinned on the other display. `currentView` answers for no island in particular,
+    /// and with an island on each of two displays that is the wrong island's view as often as
+    /// not. A drag over the island does not change it: it is what the drag is judged by.
+    func currentView(on panel: String) -> IslandView? {
+        guard case .panel(let view) = presentationUnderTheDrag(for: panel) else { return nil }
+        return view
     }
 
     /// An alert the user opens stops being transient: it becomes a live activity that stays
@@ -1241,10 +1439,45 @@ final class ActivityCenter: ObservableObject {
         peekSuppressed = panel
     }
 
+    /// Drops the peek on one island and nothing else: a swipe up on a peeked island while the
+    /// panel is pinned on the other display. That swipe went to `collapse()`, which closed the
+    /// other display's panel as well. The peek stays down while the pointer rests there, as
+    /// after any close under the pointer (`closedUnderPointer`), and comes back once it has
+    /// left and returned. A panel pinned on this island, or everywhere, is not a peek and is
+    /// left to `collapse()`.
+    func closePeek(panel: String) {
+        guard !openHere(panel) else { return }
+        IslandLog.island.notice("closing the peek on \(panel, privacy: .public)")
+        // An arrival on that island still on its timer would grow the peek straight back.
+        let arriving = pendingHover.map { $0.hovering && $0.panel == panel } ?? false
+        withAnimation(IslandMotion.close) {
+            if hoverPanel == panel {
+                closedUnderPointer()
+            } else if arriving {
+                hoverWork?.cancel()
+                hoverWork = nil
+                pendingHover = nil
+                peekSuppressed = panel
+            }
+            // Whatever the panel pinned on the other display is doing, this was the peek there
+            // was — `open` keeps `peekView` only for a peek on another island — unless the
+            // pointer is on some third island, whose peek it is.
+            if hoverPanel == nil { peekView = nil }
+            navigationDirection = 0
+        }
+    }
+
     /// Menus and share sheets used to need this to survive the pointer leaving; an open island
-    /// no longer closes on its own, so this only cancels a pending timed close.
+    /// no longer closes on its own, so this cancels a pending timed close — and a peek still
+    /// waiting out the hover delay. A right-click inside that quarter of a second let the peek
+    /// grow behind the menu it had just opened.
     func holdOpen(for seconds: TimeInterval = 10) {
         homeWork?.cancel()
+        if let pending = pendingHover, pending.hovering {
+            hoverWork?.cancel()
+            hoverWork = nil
+            pendingHover = nil
+        }
     }
 
     /// Open the Home panel programmatically (menu bar, URL scheme, the welcome tour). With a

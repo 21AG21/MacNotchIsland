@@ -35,6 +35,7 @@ struct IslandPane: View {
                 if prefs.panelKeysEnabled {
                     LabeledContent("Step between views", value: "← and →")
                     LabeledContent("Go straight to a view", value: "1 to 9")
+                    LabeledContent("Type a timer, on Actions", value: "0 to 9")
                     LabeledContent("Play or pause", value: "Space")
                     LabeledContent("Quick Look the shelf", value: "Space")
                     LabeledContent("Volume", value: "↑ and ↓")
@@ -46,7 +47,7 @@ struct IslandPane: View {
             } header: {
                 Text("While the panel is open")
             } footer: {
-                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes is showing, where every key is yours to type. The digits count the switcher's slots from the left, and Space is Quick Look while the shelf is the section on screen. The letters are claimed only on Windows, the Clipboard and the Shelf, which are the sections that are lists of things: typing on one of them narrows it, the vertical arrows walk what is left, Return takes the one you are on, and Escape leaves the find without closing the panel.")
+                Text("Only while the panel is pinned open — resting the pointer on the island takes nothing from the keyboard — and never while Notes is showing, where every key is yours to type. The digits count the switcher's slots from the left, and Space is Quick Look while the shelf is the section on screen. On Actions the digits type a timer's minutes or an alarm's time instead; Tab and the arrows still step. The letters are claimed only on Windows, the Clipboard and the Shelf, which are the sections that are lists of things: typing on one of them narrows it, the vertical arrows walk what is left, Return takes the one you are on, and Escape leaves the find without closing the panel.")
             }
 
             Section {

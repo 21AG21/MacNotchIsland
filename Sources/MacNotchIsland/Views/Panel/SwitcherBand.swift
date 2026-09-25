@@ -87,10 +87,13 @@ struct SwitcherBand: View {
             // A floating panel's top is an edge of its own, lit, and the row sat 2 pt under it.
             // The layout makes the panel this much taller to match.
             .padding(.top, geometry.hasPhysicalNotch ? 0 : IslandLayout.floatingBandTop)
-            // The slots themselves arrive and leave; the name under the pointer and the disc
-            // that marks the view you are on only change where they are or how they look.
+            // The slots themselves arrive and leave; the disc that marks the view you are on
+            // only changes where it is. The name under the pointer fades where it stands, but
+            // on the hover that changes it (`onHover`), not here: a click changes the name and
+            // `current` in the same update, and an animation keyed on the name, being the
+            // inner one, won — the disc crossed on the name's 0.18 s ease while the section
+            // slid on the navigate spring, where a key press moved both on the spring.
             .animation(IslandMotion.content, value: ring)
-            .animation(IslandMotion.fade, value: label)
             .animation(IslandMotion.navigate, value: current)
     }
 
@@ -179,9 +182,11 @@ struct SwitcherBand: View {
         .accessibilityHidden(true)
     }
 
-    /// The digit that jumps to the slot the pointer is on, when there is one.
+    /// The digit that jumps to the slot the pointer is on, when there is one. Not on Actions,
+    /// where a digit types a timer's minutes instead (`PanelFind.takesEntry`): the band
+    /// offering a key that does something else there is the band being wrong about itself.
     private var hoveredDigit: String? {
-        guard center.panelKeysActive, let hovered,
+        guard center.panelKeysActive, !PanelFind.takesEntry(center.openSection), let hovered,
               let index = center.ring.firstIndex(of: hovered), index < 9 else { return nil }
         return String(index + 1)
     }
@@ -220,11 +225,12 @@ struct SwitcherBand: View {
         // A slot taking the drag takes it off the island's own drop target, and the island is
         // told the drag has left. It has not: it is right here.
         center.holdDrag(inside)
+        // The slot's name comes and goes on the same fade a hover's does.
         guard inside else {
-            if springTarget == view { springTarget = nil }
+            if springTarget == view { withAnimation(IslandMotion.fade) { springTarget = nil } }
             return
         }
-        springTarget = view
+        withAnimation(IslandMotion.fade) { springTarget = view }
         guard view != current, Self.takesDrops(view) else { return }
         // Settled now rather than in the closure, where the ring may have moved under it.
         let step = direction(to: view)
@@ -235,8 +241,11 @@ struct SwitcherBand: View {
             // Pinned, not peeked. A peek is what the pointer happens to be over; holding a
             // file on a slot is a decision — and only a pinned section counts as one whose
             // own tiles take the drop, so a peek would show the shelf's well over the tiles
-            // the file was being carried to.
-            ActivityCenter.shared.open(view, direction: step)
+            // the file was being carried to. Pinned on this island rather than on every one,
+            // and with no claim on the keyboard: the hand is carrying a file, not typing, and
+            // this open used to put the panel on the other display's island as well and take
+            // the keyboard from the app the file came from. The shelf's well opens the same way.
+            ActivityCenter.shared.open(view, direction: step, panel: panelID, invitesKeyboard: false)
         }
         springWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.springDelay, execute: work)
@@ -343,11 +352,19 @@ struct SwitcherBand: View {
             ZStack {
                 // One disc, moved from slot to slot, rather than one fading out where it was
                 // while another fades in where you are going. A mark that travels tells you
-                // which way you just went; two cross-fades tell you nothing.
+                // which way you just went; two cross-fades tell you nothing — except to the
+                // user who asked for less movement, who gets the two cross-fades
+                // (`IslandMotion.marksTravel`).
                 if selected {
-                    Circle()
-                        .fill(Color.white.opacity(0.14))
-                        .matchedGeometryEffect(id: Self.selectionID, in: selection)
+                    if IslandMotion.marksTravel() {
+                        Circle()
+                            .fill(Color.white.opacity(0.14))
+                            .matchedGeometryEffect(id: Self.selectionID, in: selection)
+                    } else {
+                        Circle()
+                            .fill(Color.white.opacity(0.14))
+                            .transition(.opacity)
+                    }
                 }
                 // Lit the way every other destination in the app is while something is held
                 // over it, so a slot that is about to open looks like one.
@@ -368,7 +385,10 @@ struct SwitcherBand: View {
         .buttonStyle(IslandButtonStyle())
         .animation(IslandMotion.hover, value: springing)
         .onHover { inside in
-            if inside { hovered = view } else if hovered == view { hovered = nil }
+            // The name fades on the ease that says it is only a change of look; see `body`.
+            withAnimation(IslandMotion.fade) {
+                if inside { hovered = view } else if hovered == view { hovered = nil }
+            }
         }
         // Carry a file to a section rather than putting it down first: hold it on a slot and
         // the panel goes there. Dropping on the slot itself is a drop on the island, which

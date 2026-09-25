@@ -22,8 +22,12 @@ struct WindowsSectionView: View {
     /// What the strip shows: everything, or what the letters typed on this section match. A
     /// window is found by its app's name as readily as by its title, because half the time
     /// what you want is "the other Safari one".
-    private var windows: [IslandWindow] {
-        allWindows.filter { PanelFind.matches([$0.appName, $0.label], query: center.findQuery) }
+    private var windows: [IslandWindow] { Self.matching(allWindows, query: center.findQuery) }
+
+    /// The same, from anywhere: the gesture router counts what the strip is showing, and only
+    /// the same filter counts it right.
+    static func matching(_ windows: [IslandWindow], query: String?) -> [IslandWindow] {
+        windows.filter { PanelFind.matches([$0.appName, $0.label], query: query) }
     }
 
     var body: some View {
@@ -128,7 +132,12 @@ struct WindowsSectionView: View {
     /// strip that scrolls. The gap is 8 because that is what divides: 672 less three gaps of
     /// 8 is four tiles of 162, where three of 10 left 160.5, rounded down to 160 and 2 pt short.
     static let tileGap: CGFloat = 8
-    static var tileWidth: CGFloat { ((IslandLayout.panelContentWidth - 3 * tileGap) / 4).rounded(.down) }
+    /// The four, named: how many tiles the strip holds before any are out of sight, which the
+    /// gesture router reads to know whether a sideways swipe here has anything to scroll.
+    static let tilesAcross = 4
+    static var tileWidth: CGFloat {
+        ((IslandLayout.panelContentWidth - CGFloat(tilesAcross - 1) * tileGap) / CGFloat(tilesAcross)).rounded(.down)
+    }
     static let tileHeight: CGFloat = 88
     static let labelHeight: CGFloat = 15
     static let labelGap: CGFloat = 4

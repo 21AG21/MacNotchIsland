@@ -16,8 +16,10 @@ import SwiftUI
 /// - A vertical scroll on a timer's pill moves the timer a minute at a time instead, and in
 ///   "Open and close" a swipe that goes far enough still opens the panel — putting back the
 ///   minutes it moved on its way past a step.
-/// - Anything else is handed straight back to SwiftUI, so the clipboard list and the shelf
-///   strip keep scrolling normally.
+/// - Anything else is handed straight back to SwiftUI, so the lists keep their vertical
+///   scroll — the clipboard, Notes, Notifications, Controls' three columns — and a strip with
+///   tiles out of sight to the side, the Shelf's or the Windows section's, keeps its sideways
+///   one. A strip with nothing hidden still steps.
 ///
 /// The decision is a pure function (`decide`) so it can be tested without AppKit, CoreAudio
 /// or a real trackpad. There are no timers anywhere: throttling and cooldowns compare
@@ -37,9 +39,11 @@ final class GestureRouter {
         /// A system card (an alert with a large view).
         case card
         /// The panel: `index` is the current view's position in the ring of `count` views;
-        /// `scrolls` when the section scrolls by itself (a list, a strip); `pinned` when it was
-        /// opened rather than only shown under the pointer.
-        case panel(index: Int, count: Int, scrolls: Bool, pinned: Bool = true)
+        /// `scrolls` when the section scrolls by itself (a list, a strip); `scrollsSideways`
+        /// when what it scrolls is a strip running sideways with tiles out of sight beyond its
+        /// edge (`stripOverflows`); `pinned` when it was opened rather than only shown under
+        /// the pointer.
+        case panel(index: Int, count: Int, scrolls: Bool, scrollsSideways: Bool = false, pinned: Bool = true)
         case shelf
     }
 
@@ -115,13 +119,24 @@ final class GestureRouter {
     /// UserDefaults key for the Home section the panel last showed.
     static let homeTabKey = "homeTab"
 
-    /// Whether a horizontal swipe means anything here.
+    /// Whether a horizontal swipe means anything here. On the panel it steps to the next view,
+    /// except over a strip with tiles out of sight to the side: two fingers are how anybody
+    /// reaches those, and taking the swipe for a step left the Shelf's files and the Windows
+    /// section's tiles past the fourth with no way to be scrolled to at all. A strip with
+    /// nothing hidden has nothing to scroll, so a Shelf holding two files still steps. Tab,
+    /// the arrows and the switcher step from anywhere.
     static func consumesHorizontalSwipes(_ context: Context) -> Bool {
         switch context {
         case .compactNowPlaying: return true
-        case .panel(_, let count, _, _): return count > 1
+        case .panel(_, let count, _, let sideways, _): return count > 1 && !sideways
         case .idle, .compactTimer, .otherCompact, .card, .shelf: return false
         }
+    }
+
+    /// Whether a sideways strip of `count` tiles, `across` of which fit its width, has any out
+    /// of sight — the only strip a sideways swipe has anything to scroll on.
+    static func stripOverflows(count: Int, across: Int) -> Bool {
+        count > across
     }
 
     /// Whether the island keeps a vertical scroll here, whatever it goes on to do with it. A
@@ -129,7 +144,7 @@ final class GestureRouter {
     static func consumesVerticalScroll(_ context: Context) -> Bool {
         switch context {
         case .idle, .compactNowPlaying, .compactTimer, .otherCompact, .card: return true
-        case .panel(_, _, let scrolls, _): return !scrolls
+        case .panel(_, _, let scrolls, _, _): return !scrolls
         case .shelf: return false
         }
     }
@@ -139,6 +154,24 @@ final class GestureRouter {
     static func openCloseThreshold(sensitivity: Double) -> CGFloat {
         let held = min(sensitivityRange.upperBound, max(sensitivityRange.lowerBound, sensitivity))
         return openCloseDistance / CGFloat(held)
+    }
+
+    /// What a swipe up closes.
+    enum CloseTarget: Equatable {
+        /// Whatever is open, through `ActivityCenter.collapse`: the panel on every island it
+        /// shows on, and the peek under the pointer.
+        case everything
+        /// Only the peek on the island the swipe is on.
+        case peekHere
+    }
+
+    /// A swipe up on a panel that is only peeking, while the panel is pinned on another
+    /// display's island, is about this island's peek and nothing else. `collapse` closes the
+    /// panel wherever it is, so the swipe closed the one pinned over there, which nobody's
+    /// fingers were on. With nothing open, or with the panel open on this island, closing
+    /// everything is closing what is under the fingers, and `collapse` is still the way.
+    static func closeTarget(openHere: Bool, isOpen: Bool) -> CloseTarget {
+        isOpen && !openHere ? .peekHere : .everything
     }
 
     /// Whole minutes a gesture's vertical travel asks of a timer: up is more time, the way up
@@ -211,6 +244,11 @@ final class GestureRouter {
     /// and a timer's minutes are measured on; the level controls move by `dy`, the part not
     /// applied yet. Left out, it is `dy`: one event that is the whole gesture.
     ///
+    /// `swipeFired` is this gesture having already opened or closed the panel. A swipe is the
+    /// whole gesture, so nothing after it acts, whatever the island has become under the
+    /// fingers: a swipe up that closed the panel onto a running timer's pill went on taking a
+    /// minute off the timer for every step the rest of it travelled, with a tap for each.
+    ///
     /// With `.openClose`, a swipe down past `openCloseThreshold(sensitivity:)` on the closed
     /// island — idle, a pill, a card, or a panel that is only under the pointer — opens it,
     /// and a swipe up as far on the panel closes it; a bare scroll does nothing else. On a
@@ -218,7 +256,8 @@ final class GestureRouter {
     /// minute per `timerStepDistance`: a small scroll nudges, a big swipe opens.
     static func decide(dx: CGFloat, dy: CGFloat, context: Context, wantsBrightness: Bool = false,
                        wantsKeyboard: Bool = false, verticalSwipe: VerticalSwipe = .volume,
-                       sensitivity: Double = 1, travel: CGFloat? = nil) -> Action {
+                       sensitivity: Double = 1, travel: CGFloat? = nil, swipeFired: Bool = false) -> Action {
+        guard !swipeFired else { return .none }
         let threshold: CGFloat
         if case .panel = context { threshold = viewSwipeThreshold } else { threshold = swipeThreshold }
         if abs(dx) > threshold, abs(dx) >= abs(dy), consumesHorizontalSwipes(context) {
@@ -226,7 +265,7 @@ final class GestureRouter {
             switch context {
             case .compactNowPlaying:
                 return forward ? .nextTrack : .previousTrack
-            case .panel(let index, let count, _, _):
+            case .panel(let index, let count, _, _, _):
                 let next = index + (forward ? 1 : -1)
                 guard next >= 0, next < count else { return .none }
                 return .stepView(forward: forward)
@@ -244,7 +283,7 @@ final class GestureRouter {
         }
         if verticalSwipe == .openClose {
             let reach = openCloseThreshold(sensitivity: sensitivity)
-            if case .panel(_, _, _, let pinned) = context {
+            if case .panel(_, _, _, _, let pinned) = context {
                 if distance <= -reach { return .closePanel }
                 // A panel only under the pointer is not open yet: the swipe pins it, the way a
                 // click on it would. One already pinned has nothing further to open.
@@ -327,7 +366,10 @@ final class GestureRouter {
             return consumedGesture
         case .horizontal:
             pendingY = 0
-            guard Self.consumesHorizontalSwipes(context) else { return false }
+            // A swipe that has stepped keeps the rest of its gesture, even where the section it
+            // stepped to has a strip that would take it: those fingers were still finishing the
+            // step, and the strip would otherwise scroll off under them.
+            guard firedSwipe || Self.consumesHorizontalSwipes(context) else { return false }
             consumedGesture = true
             guard !firedSwipe else { return true }
             if perform(Self.decide(dx: accumulatedX, dy: 0, context: context), now: now, panel: panel) {
@@ -336,7 +378,10 @@ final class GestureRouter {
             }
             return true
         case .vertical:
-            guard Self.consumesVerticalScroll(context) else { return false }
+            // The same for a swipe that has opened or closed the panel: the rest of the gesture
+            // is still that swipe, even over a list that would scroll, and `decide` lets none of
+            // it act.
+            guard firedSwipe || Self.consumesVerticalScroll(context) else { return false }
             consumedGesture = true
             guard now.timeIntervalSince(lastVolumeAt) >= Self.volumeInterval else { return true }
             // Option turns the scroll into the brightness, the way the rail has a slider for
@@ -350,14 +395,15 @@ final class GestureRouter {
             let action = Self.decide(dx: 0, dy: pendingY, context: context, wantsBrightness: wantsBrightness,
                                      wantsKeyboard: wantsKeyboard,
                                      verticalSwipe: VerticalSwipe(preference: prefs.verticalSwipe),
-                                     sensitivity: prefs.swipeSensitivity, travel: accumulatedY)
+                                     sensitivity: prefs.swipeSensitivity, travel: accumulatedY,
+                                     swipeFired: firedSwipe)
             pendingY = 0
             lastVolumeAt = now
             switch action {
             case .openPanel, .closePanel:
                 // Once per gesture: whatever the fingers do after the panel has opened or
-                // closed is still that swipe, and nothing is ever started on its inertia.
-                guard !firedSwipe else { return true }
+                // closed is still that swipe (`swipeFired`), and nothing is ever started on its
+                // inertia.
                 if perform(action, now: now, panel: panel) { firedSwipe = true }
             default:
                 perform(action, now: now, panel: panel)
@@ -397,7 +443,31 @@ final class GestureRouter {
     // MARK: - Context
 
     /// Sections whose content scrolls by itself, and so keep their vertical scroll events.
-    static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .today, .windows, .notifications]
+    ///
+    /// Controls is three lists — the networks, the devices, where the sound goes — and a
+    /// scroll on any of them changed the volume instead, or closed the panel with "Open and
+    /// close" chosen. Today is not here: it fits its rows to the room and drops what does not
+    /// fit (`TodaySectionView.fit`), and its hours are one row across the width, so it has
+    /// nothing to scroll and a scroll there is the volume, the way it is on Now Playing.
+    static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .windows, .notifications, .controls]
+
+    /// Whether a section on screen has a strip running sideways with tiles out of sight: the
+    /// Shelf's files and the Windows section's windows, counted as the find has narrowed them,
+    /// since the narrowed strip is the one on screen. Read on every event, so the file that
+    /// fills the strip past its width turns the swipe over to it at once, and a find that
+    /// narrows it back hands the swipe back to the step.
+    private static func scrollsSideways(_ section: HomeSection, query: String?) -> Bool {
+        switch section {
+        case .shelf:
+            return stripOverflows(count: ShelfStripView.matching(ShelfStore.shared.items, query: query).count,
+                                  across: ShelfStripView.tilesAcross)
+        case .windows:
+            return stripOverflows(count: WindowsSectionView.matching(WindowsMonitor.shared.windows, query: query).count,
+                                  across: WindowsSectionView.tilesAcross)
+        default:
+            return false
+        }
+    }
 
     /// Also notes which timer's pill is showing, for a scroll that moves it.
     private func currentContext(panel: String) -> Context {
@@ -420,10 +490,13 @@ final class GestureRouter {
             let ring = center.ring
             let index = ring.firstIndex(of: view) ?? 0
             var scrolls = false
+            var sideways = false
             if case .home(let tab) = view, let section = HomeSection(rawValue: tab) {
                 scrolls = Self.scrollingSections.contains(section)
+                sideways = Self.scrollsSideways(section, query: center.findQuery)
             }
-            return .panel(index: index, count: ring.count, scrolls: scrolls, pinned: center.openHere(panel))
+            return .panel(index: index, count: ring.count, scrolls: scrolls, scrollsSideways: sideways,
+                          pinned: center.openHere(panel))
         case .shelf:
             return .shelf
         }
@@ -451,7 +524,9 @@ final class GestureRouter {
         case .stepView(let forward):
             guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
             lastTrackAt = now
-            if ActivityCenter.shared.step(forward: forward, wrap: false) { Haptics.soft() }
+            // This island's view: on a second display, a swipe on the island that is only
+            // peeking steps its own peek, not the panel pinned on the other one.
+            if ActivityCenter.shared.step(forward: forward, wrap: false, panel: panel) { Haptics.soft() }
             return true
         case .volume(let delta):
             return applyVolume(delta: delta)
@@ -474,7 +549,16 @@ final class GestureRouter {
         case .closePanel:
             guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
             lastTrackAt = now
-            ActivityCenter.shared.collapse(reason: "swipe")
+            let center = ActivityCenter.shared
+            switch Self.closeTarget(openHere: center.openHere(panel), isOpen: center.isOpen) {
+            case .everything:
+                center.collapse(reason: "swipe")
+            case .peekHere:
+                // Only this island's peek closes, and it stays closed while the pointer rests
+                // there; the panel pinned on the other display stays exactly as it was.
+                IslandLog.island.notice("swipe closes the peek on \(panel, privacy: .public)")
+                center.closePeek(panel: panel)
+            }
             Haptics.soft()
             return true
         case .nudgeTimer(let steps):

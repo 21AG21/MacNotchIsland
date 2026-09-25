@@ -801,4 +801,233 @@ final class ActivityCenterTests: XCTestCase {
                       "a history worth keeping is a history worth looking through")
     }
 
+    // MARK: - A card under the pointer
+
+    private func settle(_ seconds: TimeInterval) {
+        let exp = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { exp.fulfill() }
+        wait(for: [exp], timeout: seconds + 2)
+    }
+
+    /// A card with something on it to use, the way a screenshot's is.
+    private func finishedDownload() -> IslandActivity {
+        let done = DownloadState(name: "movie.mkv", bytes: 100, total: 100, app: "Safari", isComplete: true)
+        return IslandActivity(id: "download-done", kind: .download, content: .download(done), priority: 85,
+                              presentation: .expanded)
+    }
+
+    private func airPods() -> IslandActivity {
+        IslandActivity(id: "bt", kind: .bluetooth,
+                       content: .bluetooth(BluetoothState(name: "AirPods", address: "", symbol: "airpods", batteryLeft: 50)),
+                       priority: 85)
+    }
+
+    func testACardUnderThePointerStaysACard() {
+        // A quarter of a second after the pointer reached a screenshot's card it turned into
+        // the Home peek, and the thumbnail and its Copy and Open moved out from under the hand
+        // that was going to click them.
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        center.setHovering(true)
+        settle(0.1)
+        XCTAssertTrue(center.isHovering)
+        guard case .card(let shown) = center.presentation else { return XCTFail("the card stays a card under the pointer") }
+        XCTAssertEqual(shown.id, "download-done")
+        XCTAssertNil(center.overlayAlert, "and is not a banner in a peek's rail as well")
+        center.tap()
+        XCTAssertEqual(center.openView, .activity(id: "download-done"), "a click on it opens it, as ever")
+        XCTAssertNil(center.alert, "held, as a clicked alert is")
+    }
+
+    func testAPillAlertStillYieldsToThePeek() {
+        // Only a card there to be used holds. News that reads at a glance becomes a banner in
+        // the panel the pointer opened.
+        center.showAlert(airPods(), duration: 5, haptic: false)
+        center.setHovering(true)
+        settle(0.1)
+        guard case .panel = center.presentation else { return XCTFail("the peek") }
+        XCTAssertEqual(center.overlayAlert?.id, "bt")
+    }
+
+    func testACardOutlastsItsTimeWhileThePointerIsOnIt() {
+        center.showAlert(finishedDownload(), duration: 1.6, exact: true, haptic: false)
+        center.setHovering(true)
+        settle(1.9)
+        XCTAssertEqual(center.alert?.id, "download-done", "its time is up, but the hand is on it")
+        center.setHovering(false)
+        settle(ActivityCenter.hoverExitGrace + 1.2)
+        XCTAssertNil(center.alert, "and it goes once the pointer has")
+    }
+
+    func testWhenAnAlertTakesTheIsland() {
+        XCTAssertTrue(ActivityCenter.alertTakesIsland(rank: 3, holdsCard: false, peeking: false, forcedCardUp: false),
+                      "nothing in its way")
+        XCTAssertFalse(ActivityCenter.alertTakesIsland(rank: 4, holdsCard: false, peeking: true, forcedCardUp: false),
+                       "a pill under the pointer yields to the peek")
+        XCTAssertTrue(ActivityCenter.alertTakesIsland(rank: 3, holdsCard: true, peeking: true, forcedCardUp: false),
+                      "a card there to be used holds against it")
+        XCTAssertFalse(ActivityCenter.alertTakesIsland(rank: 5, holdsCard: true, peeking: false, forcedCardUp: true),
+                       "a ringing timer keeps its card")
+        XCTAssertFalse(ActivityCenter.alertTakesIsland(rank: 1, holdsCard: false, peeking: false, forcedCardUp: true),
+                       "a volume key does not fold it to a pill")
+        XCTAssertTrue(ActivityCenter.alertTakesIsland(rank: 6, holdsCard: false, peeking: true, forcedCardUp: true),
+                      "a battery about to run out goes over everything but a pinned panel")
+    }
+
+    func testWhenAnAlertOutstaysItsTime() {
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, pointerOn: true, panelShowing: false, cardUnderPointer: false),
+                      "the pointer on the pill")
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, pointerOn: true, panelShowing: true, cardUnderPointer: true),
+                      "a card under the pointer, with the pointer opening the panel as it ships")
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, pointerOn: true, panelShowing: true, cardUnderPointer: false),
+                       "a banner in the rail goes on its own time")
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 1, pointerOn: true, panelShowing: false, cardUnderPointer: true),
+                       "a copied line goes whatever, since the click that copied left the pointer there")
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, pointerOn: false, panelShowing: false, cardUnderPointer: false))
+    }
+
+    func testOnlyACardWithAViewOfItsOwnHolds() {
+        XCTAssertTrue(ActivityCenter.holdsCard(finishedDownload()))
+        var pill = finishedDownload()
+        pill.presentation = .compact
+        XCTAssertFalse(ActivityCenter.holdsCard(pill), "a pill is news, not a card to use")
+        let unlock = IslandActivity(id: "unlock", kind: .unlock, content: .unlock, priority: 85, presentation: .expanded)
+        XCTAssertFalse(ActivityCenter.holdsCard(unlock), "asked for a card, but it has none to show")
+    }
+
+    // MARK: - A card forced up
+
+    private func rungTimer() -> IslandActivity {
+        IslandActivity(id: "timer", kind: .timer,
+                       content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(), isFinished: true)), priority: 90)
+    }
+
+    func testARingingTimerKeepsItsCardAgainstALowerAlert() {
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 5)
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        center.showAlert(hud, duration: 1.5, haptic: false)
+        guard case .card(let shown) = center.presentation else { return XCTFail("the ringing card stays a card") }
+        XCTAssertEqual(shown.id, "timer", "with its Stop where it was")
+        let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .low)
+        center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 5, haptic: false)
+        XCTAssertEqual(center.presentation.primary?.id, "battery", "a battery about to run out still goes over it")
+    }
+
+    func testWhatArrivesUnderARingingCardWaitsForIt() {
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 0.2)
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        XCTAssertNil(center.alert, "behind the card, not under it")
+        settle(0.5)
+        XCTAssertNil(center.forcedExpandedID)
+        XCTAssertEqual(center.alert?.id, "download-done", "and its turn comes when the card goes")
+    }
+
+    func testAnAlertAlreadyUpGoesBehindTheRingingCard() {
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 0.2)
+        guard case .card(let shown) = center.presentation else { return XCTFail("the ringing card") }
+        XCTAssertEqual(shown.id, "timer")
+        settle(0.5)
+        XCTAssertEqual(center.alert?.id, "download-done", "a finished download the ring covered is not lost")
+    }
+
+    func testARingingCardUnderThePointerWaitsForItToLeave() {
+        // With the pointer resting on it, the card grew into the peek panel when its eight
+        // seconds ran out, and moved Stop from under the hand on its way there.
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 0.2)
+        center.setHovering(true)
+        settle(0.5)
+        XCTAssertEqual(center.forcedExpandedID, "timer", "its time is up, but the hand is on it")
+        guard case .card = center.presentation else { return XCTFail("still the card, not the peek panel") }
+    }
+
+    func testTheHoldOnAForcedCardHasAnEnd() {
+        XCTAssertTrue(ActivityCenter.forcedCardHolds(underPointer: true, heldFor: 0))
+        XCTAssertFalse(ActivityCenter.forcedCardHolds(underPointer: false, heldFor: 0), "nobody on it: it goes on time")
+        XCTAssertFalse(ActivityCenter.forcedCardHolds(underPointer: true, heldFor: ActivityCenter.forcedHoldLimit),
+                       "a hand left resting over the notch is not somebody still deciding")
+    }
+
+    // MARK: - What waits behind a held alert
+
+    func testEndingAHeldAlertLetsWhatWaitedBehindItThrough() {
+        center.showAlert(airPods(), duration: 5, haptic: false)
+        center.showAlert(custom("note"), duration: 5, haptic: false)
+        XCTAssertEqual(center.alert?.id, "bt", "the quieter alert waits behind the louder one")
+        center.tap()
+        XCTAssertEqual(center.openView, .activity(id: "bt"))
+        // Its own close button, rather than a close of the panel.
+        center.end(id: "bt")
+        XCTAssertFalse(center.isOpen)
+        XCTAssertEqual(center.alert?.id, "note", "what waited behind it is shown now, not dropped when its patience runs out")
+    }
+
+    // MARK: - The sneak peek
+
+    func testTheSneakPeekOverNowPlayingKeepsItsBubble() {
+        // With files on the shelf, every track change popped the bubble out and back and
+        // crossed the whole pill over, the cover that was staying put blurred with it.
+        let track = NowPlayingService.fakeTrack()
+        center.upsert(IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(track), priority: 50))
+        center.upsert(IslandActivity(id: "shelf", kind: .shelf, content: .shelf(ShelfState(count: 2)), priority: 30))
+        guard case .compact(_, let before) = center.presentation, before?.id == "shelf" else {
+            return XCTFail("the shelf waits in the bubble")
+        }
+        let peek = IslandActivity(id: NowPlayingService.peekAlertID, kind: .nowPlaying, content: .nowPlaying(track), priority: 60)
+        center.showAlert(peek, duration: 2.4, haptic: false)
+        guard case .compact(let shown, let bubble) = center.presentation else { return XCTFail("the peek is a pill") }
+        XCTAssertEqual(shown.id, NowPlayingService.peekAlertID)
+        XCTAssertEqual(bubble?.id, "shelf", "the bubble stays where it was")
+        XCTAssertEqual(IslandLayout.activityUnder(peek, center: center)?.id, "nowplaying",
+                       "the pill keeps Now Playing's cover and identity; only the trailing slot changes")
+    }
+
+    func testTheSneakPeekIsDrawnOverOnlyTheMusicItIsAbout() {
+        let track = NowPlayingService.fakeTrack()
+        let peek = IslandActivity(id: NowPlayingService.peekAlertID, kind: .nowPlaying, content: .nowPlaying(track), priority: 60)
+        let music = IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(track), priority: 50)
+        let timer = custom("timer", priority: 90, kind: .timer)
+        XCTAssertTrue(IslandLayout.isDrawnOver(peek, primary: music))
+        XCTAssertFalse(IslandLayout.isDrawnOver(peek, primary: timer), "over a timer the peek is news, and has the pill")
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        XCTAssertTrue(IslandLayout.isDrawnOver(hud, primary: timer), "a key press is drawn over anything live")
+        XCTAssertFalse(IslandLayout.isDrawnOver(custom("note"), primary: music), "news is drawn in its place")
+    }
+
+    // MARK: - A right-click, and Escape
+
+    func testARightClickInsideTheHoverDelayLeavesThePeekUngrown() {
+        // The context menu opens over the island; the peek used to grow behind it.
+        Preferences.shared.hoverDelay = 0.2
+        center.setHovering(true)
+        center.holdOpen(for: 15)
+        settle(0.4)
+        XCTAssertNil(center.hoverPanel, "nothing grew behind the menu")
+        XCTAssertEqual(center.presentation, .idle)
+    }
+
+    func testEscapeIsTheIslandsOnlyOnceTheKeyboardWasAskedFor() {
+        XCTAssertFalse(ActivityCenter.armsEscape(isOpen: true, invited: false, holdsKeyboard: false, heldByAnotherOfOurs: false),
+                       "a click on a control pinned it: Escape is still the app's in front")
+        XCTAssertTrue(ActivityCenter.armsEscape(isOpen: true, invited: true, holdsKeyboard: false, heldByAnotherOfOurs: false))
+        XCTAssertTrue(ActivityCenter.armsEscape(isOpen: true, invited: false, holdsKeyboard: true, heldByAnotherOfOurs: false),
+                      "the island holds the keyboard anyway, as for Notes")
+        XCTAssertFalse(ActivityCenter.armsEscape(isOpen: true, invited: true, holdsKeyboard: true, heldByAnotherOfOurs: true),
+                       "Settings or Quick Look has it")
+        XCTAssertFalse(ActivityCenter.armsEscape(isOpen: false, invited: true, holdsKeyboard: true, heldByAnotherOfOurs: false),
+                       "nothing open, nothing to close")
+    }
+
+    func testAClickOnAControlLeavesEscapeWithTheAppInFront() {
+        center.setHovering(true)
+        settle(0.1)
+        center.pinPeek(panel: "main")
+        XCTAssertTrue(center.isOpen)
+        XCTAssertFalse(center.escapeArmed, "the hand that clicked pause is going back to its typing")
+        center.tap()
+        XCTAssertTrue(center.escapeArmed, "a click on the island's body asks for the keyboard, and Escape comes with it")
+    }
 }

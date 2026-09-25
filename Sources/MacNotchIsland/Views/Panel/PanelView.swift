@@ -22,7 +22,7 @@ struct PanelView: View {
                 } else {
                     section
                         .id(view)
-                        .transition(IslandMotion.contentTransition(direction: center.navigationDirection))
+                        .transition(Self.sectionTransition(direction: center.navigationDirection))
                 }
             }
             .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.sectionHeight, alignment: .top)
@@ -65,6 +65,14 @@ struct PanelView: View {
         .onChange(of: view) { _, _ in showingMirror = false }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Self.title(for: view, center: center))
+    }
+
+    /// A section arrives the way the step went and always leaves the same way, fading where
+    /// it stands. A view that is removed leaves with the transition it was last drawn with,
+    /// so the section a panel opened on — drawn with the open's blur — blurred out on the
+    /// first step, and every section after it, drawn with a step's push, only faded.
+    static func sectionTransition(direction: Int) -> AnyTransition {
+        .asymmetric(insertion: IslandMotion.contentTransition(direction: direction), removal: .opacity)
     }
 
     /// How far past the content column a section may draw sideways before it is cut: more

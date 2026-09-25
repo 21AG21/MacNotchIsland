@@ -56,6 +56,25 @@ final class MotionTests: XCTestCase {
                        "and with it on it becomes a fade, not a shorter spring")
     }
 
+    /// The swap a change of view gets, with the setting handed in. The blur cross-fade was
+    /// Reduce Motion's answer, and it scales the content as it blurs.
+    func testReduceMotionSwapsContentWithAPlainFade() {
+        for direction in [-1, 0, 1] {
+            XCTAssertEqual(IslandMotion.contentSwap(direction: direction, reduceMotion: true), .fade,
+                           "nothing slides, blurs or scales, however the view changed (\(direction))")
+        }
+        XCTAssertEqual(IslandMotion.contentSwap(direction: 0, reduceMotion: false), .blurReplace)
+        XCTAssertEqual(IslandMotion.contentSwap(direction: 1, reduceMotion: false), .push(offset: IslandMotion.slideDistance))
+        XCTAssertEqual(IslandMotion.contentSwap(direction: -1, reduceMotion: false), .push(offset: -IslandMotion.slideDistance))
+        // The transition itself takes the same setting, so a view can be handed either answer.
+        _ = IslandMotion.contentTransition(direction: 1, reduceMotion: true)
+    }
+
+    func testTheSwitchersDiscTravelsOnlyWithoutReduceMotion() {
+        XCTAssertTrue(IslandMotion.marksTravel(reduceMotion: false), "a mark that travels says which way you went")
+        XCTAssertFalse(IslandMotion.marksTravel(reduceMotion: true), "and with less movement asked for, it fades across")
+    }
+
     func testTheSpringsAreAllDifferentFromEachOther() throws {
         try XCTSkipIf(IslandMotion.reduceMotion, "this machine is already asking for less motion")
         XCTAssertNotEqual(IslandMotion.open, IslandMotion.navigate)

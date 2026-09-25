@@ -242,14 +242,50 @@ enum IslandMotion {
     /// suggest a direction, they do not travel the whole width.
     static let slideDistance: CGFloat = 36
 
-    /// The content swap for a change of view: a directional push when the user stepped
-    /// sideways (keyboard, switcher), a blur cross-fade otherwise. Only the incoming view
-    /// moves; the outgoing one fades where it is. A view's removal transition is fixed when
-    /// it arrives, so moving it too would send it the wrong way after a reversal.
-    static func contentTransition(direction: Int) -> AnyTransition {
-        guard direction != 0, !reduceMotion else { return AnyTransition(BlurReplaceTransition.blurReplace) }
-        let distance = direction > 0 ? slideDistance : -slideDistance
-        return .asymmetric(insertion: .offset(x: distance).combined(with: .opacity), removal: .opacity)
+    /// What a change of view does to the content, named, because a transition cannot be
+    /// compared in a test and which one was chosen can.
+    enum ContentSwap: Equatable {
+        /// The incoming view slides in from this far to the side, and fades up.
+        case push(offset: CGFloat)
+        /// The blur cross-fade — which scales as it blurs.
+        case blurReplace
+        /// A plain cross-fade: nothing moves and nothing changes size.
+        case fade
+    }
+
+    /// Which swap a change of view gets: a push when the user stepped sideways (keyboard,
+    /// switcher), the blur cross-fade for an open or a close — and under Reduce Motion a plain
+    /// fade, whichever it was. The blur cross-fade was what Reduce Motion used to get, and it
+    /// scales the content as it blurs, so every open, every close and every first step still
+    /// moved things for the user who had asked the system for less movement.
+    static func contentSwap(direction: Int, reduceMotion: Bool) -> ContentSwap {
+        guard !reduceMotion else { return .fade }
+        guard direction != 0 else { return .blurReplace }
+        return .push(offset: direction > 0 ? slideDistance : -slideDistance)
+    }
+
+    /// The content swap for a change of view, as a transition (see `contentSwap`). Only the
+    /// incoming view moves; the outgoing one fades where it is. A view's removal transition
+    /// is fixed when it arrives, so moving it too would send it the wrong way after a
+    /// reversal. The setting is handed in so both halves can be tested; left out, it is the
+    /// system's.
+    static func contentTransition(direction: Int, reduceMotion: Bool = IslandMotion.reduceMotion) -> AnyTransition {
+        switch contentSwap(direction: direction, reduceMotion: reduceMotion) {
+        case .fade:
+            return .opacity
+        case .blurReplace:
+            return AnyTransition(BlurReplaceTransition.blurReplace)
+        case .push(let offset):
+            return .asymmetric(insertion: .offset(x: offset).combined(with: .opacity), removal: .opacity)
+        }
+    }
+
+    /// Whether a mark that says where you are — the switcher's disc — travels from the slot
+    /// it was on to the one it is going to. Under Reduce Motion it does not: it fades out
+    /// where it was and in where it is, which is the change of state the setting asks for
+    /// rather than a journey to it. The eased stand-in for the spring still slid it across.
+    static func marksTravel(reduceMotion: Bool = IslandMotion.reduceMotion) -> Bool {
+        !reduceMotion
     }
 
     /// A scale-and-fade pop for things that appear inside the island (a bubble, artwork, a

@@ -129,12 +129,24 @@ struct IslandLayout: Equatable {
     /// The trailing slot while a track's title and artist are peeking.
     static let sneakPeekTrailingWidth: CGFloat = 150
 
-    /// The live activity a transient alert is drawn over, when the alert is feedback (a
-    /// volume or brightness HUD, mute) rather than news: its leading glyph stays on the pill.
+    /// The live activity a transient alert is drawn over rather than in place of: its leading
+    /// glyph and its bubble stay on the pill, the pill keeps its identity, and only the
+    /// trailing slot changes. See `isDrawnOver` for which alerts.
     static func activityUnder(_ alert: IslandActivity, center: ActivityCenter) -> IslandActivity? {
-        guard center.alert?.id == alert.id, ActivityCenter.alertRank(alert) <= 2,
-              let primary = center.primary, primary.id != alert.id else { return nil }
+        guard center.alert?.id == alert.id, let primary = center.primary, primary.id != alert.id,
+              isDrawnOver(alert, primary: primary) else { return nil }
         return primary
+    }
+
+    /// Whether `alert` is drawn over `primary`. Feedback is — a volume or brightness HUD,
+    /// mute, Caps Lock — and so is the sneak peek over the Now Playing it is about: the same
+    /// cover on the left, the new title where the bars were. The peek was drawn in its place,
+    /// so on every track change with files on the shelf the bubble popped out and back after
+    /// 2.4 seconds and the whole pill crossed over, the cover that was staying put blurred
+    /// with it. Over anything else the peek is news and has the pill to itself.
+    static func isDrawnOver(_ alert: IslandActivity, primary: IslandActivity) -> Bool {
+        if ActivityCenter.alertRank(alert) <= 2 { return true }
+        return alert.id == NowPlayingService.peekAlertID && primary.kind == .nowPlaying
     }
 
     /// The resting pill on a notchless screen: a handle, not a slab.

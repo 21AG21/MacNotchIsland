@@ -31,11 +31,16 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     /// Controls inside the island react to the first click even when the panel isn't key.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// The press-in is the body's alone. A click on the bubble pressed the pill beside it in,
+    /// as if the click had landed on the pill: feedback on the one thing not being clicked.
     override func mouseDown(with event: NSEvent) {
-        ActivityCenter.shared.setPressed(true, panel: panelID)
+        if islandContains(windowPoint: event.locationInWindow, includingBubble: false) {
+            ActivityCenter.shared.setPressed(true, panel: panelID)
+        }
         super.mouseDown(with: event)
     }
 
+    /// Cleared whatever the press landed on, so nothing can be left pressed in.
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
         ActivityCenter.shared.setPressed(false, panel: panelID)
