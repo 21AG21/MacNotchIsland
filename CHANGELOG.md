@@ -48,6 +48,40 @@ the unreleased section is what the next tag will ship.
   both, the display is put to sleep, which locks every Mac that asks for a password at once.
   Sleep Display is `pmset displaysleepnow`, which any user may run; the Mac stays awake behind
   it. Screenshot opens Apple's own toolbar, with the island out of the way first.
+- **The keyboard's backlight, in the island.** macOS gives no app a way to set it, which is why
+  the island used to leave its keys alone and why a MacBook with no backlight keys on its
+  keyboard sends you to Control Centre for it. It now has three ways in: the backlight keys are
+  answered in the island with the same level display the volume gets, on the same sixteen steps
+  with Shift-Option's quarter steps, whenever the bezel is replaced; a short slider sits on the
+  rail, with automatic adjustment one right-click away; and Control-scroll on the island sets it
+  the way Option-scroll sets the display. A "Keyboard backlight" switch under Activities sits
+  beside Brightness and does the same two jobs. It goes through `KeyboardBrightnessClient`, the
+  private CoreBrightness class Control Centre itself talks to — opened by path, found by name,
+  every method asked for before it is called — so a Mac with no backlight, or a macOS that has
+  changed the class, shows none of it and hands the keys straight back to macOS.
+- **A Display popover, behind the rail's sun.** The sun used to switch between light and dark
+  and nothing else. It now opens what Control Centre's Display module holds: a brightness slider
+  for every display that takes one — the Studio Display on the desk as well as the Mac's own
+  panel — then Dark Mode, Night Shift and True Tone as round switches. Right-click Night Shift
+  for its warmth and to turn it on until tomorrow. None of it is public API: each display's
+  brightness is DisplayServices', the call the brightness display already relied on (the built-in
+  panel is still driven by the one service that owns it, never twice); Night Shift and True Tone
+  are CoreBrightness's `CBBlueLightClient` and `CBTrueToneClient`. Each is looked up by name, a
+  display that refuses the call gets no slider, and a switch this Mac has no call for is not
+  drawn. It reads the displays only while it is open, every two seconds, slower on battery.
+- **Arrange the control rail.** The rail was a fixed row, and every new thing somebody wanted
+  within one click of the notch — lock the screen, mute the microphone, start a recording —
+  had nowhere to go without pushing something else off. It is now a catalog, arranged in Home
+  Panel the way the sections are: a switch on every control, drag to reorder, and a button to
+  put it back as it ships. The seven buttons the rail always had are on out of the box, joined
+  by the keyboard's slider where there is a backlight; Focus, microphone mute, Lock Screen,
+  Sleep Display, Screenshot and screen recording wait to be asked for, so an update does not
+  crowd a rail somebody has already learned. Settings has no switch and is always last. What
+  does not fit waits in a row at the top of the Controls section, in the same order and the
+  same discs, so a control that is switched on is never simply gone; the camera mirror's own
+  button stays on the rail while the mirror is covering that section. A stored order that
+  names a control this version does not have, or leaves out one it does, is made sound the way
+  the sections' is.
 
 ### Changed
 - **The clipboard history lasts until Notch Island quits, unless you keep it.** It is still on

@@ -5,14 +5,25 @@ import SwiftUI
 /// is paired with, and where the sound goes and comes from — each with its own switch above it.
 ///
 /// The rail under every section already carries the toggles — Wi-Fi on, Bluetooth on, the
-/// volume, the brightness, light and dark. What it cannot carry, in thirty-point discs, is a
+/// volume, the brightness, the Display popover. What it cannot carry, in thirty-point discs, is a
 /// *list*: the café's network, the headphones in the drawer, the microphone that is not the
 /// one you meant. Those are the three things that still sent people to the menu bar, and they
 /// are here.
+///
+/// Above them, when there are any, the rail's overflow: the controls somebody switched on that
+/// the rail had no room for, in the same discs and the same order, so a control is never simply
+/// gone because the rail was full. See `RailPlan`.
 struct ControlsSectionView: View {
+    /// The panel's mirror, for the mirror's disc when it is one of the overflow.
+    var showingMirror: Binding<Bool> = .constant(false)
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var wifi = WiFiScanner.shared
     @ObservedObject private var sound = AudioOutputs.shared
+    // Watched for what they decide about the rail's overflow, as the rail watches them.
+    @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var shelf = ShelfStore.shared
+    @ObservedObject private var brightness = BrightnessControl.shared
+    @ObservedObject private var keyboard = KeyboardLight.shared
     @State private var devices: [BluetoothMonitor.Paired] = []
 
     /// Three columns with a gutter between them, filling the section's width.
@@ -22,8 +33,32 @@ struct ControlsSectionView: View {
         ((IslandLayout.panelContentWidth - gutter * CGFloat(columns - 1)) / CGFloat(columns)).rounded(.down)
     }
     static let rowHeight: CGFloat = 26
+    /// Between the overflow row and the columns under it: the gap under a section's header.
+    static let overflowGap: CGFloat = SectionMetrics.gapBelowHeader
 
     var body: some View {
+        // Asked the way the rail asks it, on the one section that is never the shelf, so the two
+        // agree on which controls are where.
+        let overflow = RailPlan.current(prefs: prefs, showingShelf: false,
+                                        showingMirror: showingMirror.wrappedValue).spill
+        return VStack(alignment: .leading, spacing: Self.overflowGap) {
+            if !overflow.isEmpty {
+                HStack(spacing: RailMetrics.gap) {
+                    ForEach(overflow, id: \.self) { control in
+                        RailControlView(control: control, showingMirror: showingMirror)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: RailMetrics.button)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("More controls")
+            }
+            columns
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var columns: some View {
         HStack(alignment: .top, spacing: Self.gutter) {
             column(title: "Wi-Fi",
                    symbol: toggles.wifiOn ? "wifi" : "wifi.slash",

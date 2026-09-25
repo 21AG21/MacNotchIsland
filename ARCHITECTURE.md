@@ -74,11 +74,15 @@ in-process MediaRemote framework where it still works, and AppleScript for Music
 Spotify as a last resort. `ArtworkFetcher` fills in a cover none of them supplied, by
 name, once per track.
 
-Three services are driven by a view being on screen rather than by `ServiceHub`, and count
+Five services are driven by a view being on screen rather than by `ServiceHub`, and count
 their viewers: `WindowsMonitor` (the window list, its ScreenCaptureKit thumbnails, and the
 Accessibility calls that raise, snap and close a window), `SystemToggles` (Wi-Fi through
 CoreWLAN, Bluetooth through IOBluetooth's undeclared power switch, appearance through
-System Events) and `BrightnessControl`. Each one costs nothing while the panel is closed.
+System Events), `BrightnessControl`, `KeyboardLight` (the backlight, through CoreBrightness's
+private `KeyboardBrightnessClient`) and `DisplayControl` (the rail's Display popover: every
+display's brightness through DisplayServices, Night Shift and True Tone through CoreBrightness).
+Each one costs nothing while the panel is closed. Every private class and method they use is
+looked up by name and asked for before it is called; a missing one hides its control.
 
 Everything the app keeps between launches goes through `Core/IslandFiles.swift`: one folder
 in Application Support, made and kept readable by its owner alone — 0700 on the folder, 0600
@@ -100,6 +104,9 @@ right of the cutout), one section (`MusicSectionView`, `TodaySectionView`, the r
 or one activity's card content, and the `ControlRail`; `AlertBanner` draws a transient alert
 over an open panel. Every panel view shares one content identity (`IslandPresentation.contentID`),
 so stepping between sections moves the section and leaves the band and the rail mounted.
+The rail's buttons come from `RailControl`, a catalog the user orders and switches in Home
+Panel the way `HomeSection` is; `RailPlan` fits them to the room the volume and brightness
+leave, and whatever does not fit is drawn by `ControlsSectionView` in a row above its lists.
 `WindowsSectionView` draws the window switcher over `Services/WindowsMonitor.swift`, which
 lists windows from the window server, captures each with ScreenCaptureKit, and raises, snaps
 or closes one through Accessibility. The system cards and the section bodies they share live

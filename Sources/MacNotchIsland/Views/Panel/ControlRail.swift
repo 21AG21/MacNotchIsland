@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The strip under every section: the Mac's two most-reached-for controls, then Wi-Fi,
-/// Bluetooth, appearance, Keep Awake, the mirror, AirDrop and Settings. The same strip
-/// whatever the panel shows, so hands learn where things are — with the two exceptions the
-/// Mac itself makes, a control the hardware does not have, and the one control that would be
-/// on screen twice.
+/// The strip under every section: the Mac's two most-reached-for controls, then the buttons the
+/// user has chosen from `RailControl`'s catalog, in their order, Settings last. Out of the box
+/// that is Wi-Fi, Bluetooth, Display, Keep Awake, the mirror, AirDrop and the keyboard's
+/// backlight. The same strip whatever the panel shows, so hands learn where things are — with
+/// the two exceptions the Mac itself makes, a control the hardware does not have, and the one
+/// control that would be on screen twice. What does not fit goes to the top of the Controls
+/// section rather than nowhere; see `RailPlan`.
 struct ControlRail: View {
     @Binding var showingMirror: Bool
     /// The Shelf section is the one on screen. It carries an AirDrop control of its own, in
@@ -15,10 +17,13 @@ struct ControlRail: View {
     /// it stands down on that one.
     var showingShelf = false
     @ObservedObject private var outputs = AudioOutputs.shared
+    // Watched for what they decide about the rail's shape — whether AirDrop, Wi-Fi, Bluetooth
+    // and the keyboard's slider are on it at all — not for what the buttons show, which each
+    // button watches for itself.
     @ObservedObject private var shelf = ShelfStore.shared
-    @ObservedObject private var keepAwake = KeepAwake.shared
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var toggles = SystemToggles.shared
+    @ObservedObject private var keyboard = KeyboardLight.shared
     @EnvironmentObject private var prefs: Preferences
     /// When the rail went on screen, and nothing until it has. Everything the rail shows is read
     /// just after that moment, over the top of the panel's opening spring. See `RailAssembly`.
@@ -36,56 +41,27 @@ struct ControlRail: View {
         // A reading the brightness service already has, rather than a fresh walk of the display
         // list: the rail is rebuilt on every volume change and every hover.
         let hasBrightness = brightness.isAvailable
-        let showsAirDrop = prefs.shelfEnabled && !shelf.items.isEmpty && !showingShelf
-        // The row is not a fixed set: Wi-Fi and Bluetooth appear with the hardware, the
-        // brightness slider with a display that has one, AirDrop with something on the shelf.
-        let shape = [hasBrightness, toggles.hasWiFi, toggles.hasBluetooth, prefs.mirrorEnabled,
-                     showsAirDrop, outputs.devices.count > 1]
+        let hasPicker = outputs.devices.count > 1 || RenderMode.isGallery
+        let plan = RailPlan.current(prefs: prefs, showingShelf: showingShelf, showingMirror: showingMirror)
+        // The row is not a fixed set: the brightness slider comes with a display that has one,
+        // the picker with a second output, and the buttons with the hardware, the user's choice
+        // and the room left over.
+        let shape = [hasBrightness ? "brightness" : "", hasPicker ? "picker" : ""] + plan.rail.map(\.rawValue)
         let motion: Animation? = RailAssembly.slides(mountedAt: mountedAt) ? IslandMotion.content : nil
-        // Budget at 672 pt with everything showing: two sliders with their glyphs (148 and
-        // 132), the output picker and up to seven 30 pt buttons, 12 pt gaps, and a spacer that
-        // soaks up the rest. `RailMetrics.widest` adds it up.
+        // Budget at 672 pt: the sliders with their glyphs (148 and 132), the output picker, a
+        // spacer that soaks up the rest, and as many of the chosen controls as fit, 12 pt apart.
+        // `RailMetrics.room` adds it up and `RailControl.fit` spends it.
         return HStack(spacing: RailMetrics.gap) {
             volume
             // Beside the volume, not among the toggles: where the sound is going belongs with
             // how loud it is. Only when there is a choice to make — one output is not a
             // picker, it is a label nobody asked for.
-            if outputs.devices.count > 1 || RenderMode.isGallery { outputPicker }
+            if hasPicker { outputPicker }
             if hasBrightness { brightnessControl }
-            Spacer(minLength: 8)
-            if toggles.hasWiFi {
-                railButton(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
-                           label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn) {
-                    toggles.toggleWiFi()
-                }
+            Spacer(minLength: RailMetrics.minSpacer)
+            ForEach(plan.rail, id: \.self) { control in
+                RailControlView(control: control, showingMirror: $showingMirror)
             }
-            if toggles.hasBluetooth {
-                railGlyphButton(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
-                                active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
-                    BluetoothRune()
-                        .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                        .frame(width: 9, height: 14)
-                        .opacity(toggles.bluetoothOn ? 1 : 0.5)
-                }
-            }
-            railButton(symbol: toggles.darkMode ? "moon.fill" : "sun.max.fill",
-                       label: toggles.darkMode ? "Switch to light" : "Switch to dark", active: false) {
-                toggles.toggleAppearance()
-            }
-            railButton(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
-                       label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
-                keepAwake.toggle()
-            }
-            if prefs.mirrorEnabled {
-                railButton(symbol: showingMirror ? "camera.fill" : "camera", label: showingMirror ? "Hide mirror" : "Mirror",
-                           active: showingMirror) {
-                    withAnimation(IslandMotion.fade) { showingMirror.toggle() }
-                }
-            }
-            if showsAirDrop {
-                railButton(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
-            }
-            railButton(symbol: "gearshape", label: "Settings") { SettingsWindow.open() }
         }
         .frame(width: IslandLayout.panelContentWidth, height: IslandLayout.railHeight)
         // Whatever changes, the buttons beside it slide over rather than jumping — everything
@@ -234,24 +210,108 @@ struct ControlRail: View {
         .frame(width: RailMetrics.button, height: RailMetrics.button)
         .contentShape(Circle())
     }
+}
 
-    // MARK: - Buttons
+/// What the rail holds and what it has no room for, from the live readings: the chosen controls
+/// that this Mac has, fitted to what the fixed left-hand end leaves over. The rail and the
+/// Controls section both ask this, so the two agree on which controls are where — the section
+/// shows exactly the ones the rail could not.
+enum RailPlan {
+    static func current(prefs: Preferences, showingShelf: Bool, showingMirror: Bool) -> RailControl.Fit {
+        var controls = RailControl.available(prefs)
+        // The Shelf section carries its own AirDrop; see `ControlRail.showingShelf`.
+        if showingShelf { controls.removeAll { $0 == .airDrop } }
+        let room = RailMetrics.room(hasPicker: AudioOutputs.shared.devices.count > 1 || RenderMode.isGallery,
+                                    hasBrightness: BrightnessControl.shared.isAvailable)
+        var pinned: Set<RailControl> = [.settings]
+        if showingMirror { pinned.insert(.mirror) }
+        return RailControl.fit(controls, room: room, pinned: pinned)
+    }
+}
 
-    private func railButton(symbol: String, label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
-        railGlyphButton(label: label, active: active, action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .contentTransition(.symbolEffect(.replace))
+/// One control from the catalog, drawn the same wherever it lands: on the rail, or in the row the
+/// Controls section keeps for the ones the rail had no room for.
+struct RailControlView: View {
+    let control: RailControl
+    @Binding var showingMirror: Bool
+    @ObservedObject private var toggles = SystemToggles.shared
+    @ObservedObject private var keepAwake = KeepAwake.shared
+    @ObservedObject private var shelf = ShelfStore.shared
+
+    var body: some View {
+        switch control {
+        case .wifi:
+            RailDisc(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
+                     label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn) {
+                toggles.toggleWiFi()
+            }
+        case .bluetooth:
+            // The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
+            RailDisc(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
+                     active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
+                BluetoothRune()
+                    .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                    .frame(width: 9, height: 14)
+                    .opacity(toggles.bluetoothOn ? 1 : 0.5)
+            }
+        case .display:
+            DisplayRailButton()
+        case .keepAwake:
+            RailDisc(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
+                     label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
+                keepAwake.toggle()
+            }
+        case .mirror:
+            RailDisc(symbol: showingMirror ? "camera.fill" : "camera", label: showingMirror ? "Hide mirror" : "Mirror",
+                     active: showingMirror) {
+                withAnimation(IslandMotion.fade) { showingMirror.toggle() }
+            }
+        case .airDrop:
+            RailDisc(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
+        case .focus:
+            // Lit while a Focus is on, as the island last saw it.
+            RailDisc(symbol: RailControl.focus.symbol, label: FocusMonitor.isOn ? "Focus is on — open Focus settings" : "Focus settings",
+                     active: FocusMonitor.isOn) {
+                if let url = RailControl.focusSettings { NSWorkspace.shared.open(url) }
+            }
+        case .microphone:
+            MicrophoneRailButton()
+        case .lock:
+            RailDisc(symbol: RailControl.lock.symbol, label: "Lock the screen") { SystemActions.lockScreen() }
+        case .sleepDisplay:
+            RailDisc(symbol: RailControl.sleepDisplay.symbol, label: "Sleep the display") { SystemActions.sleepDisplay() }
+        case .screenshot:
+            RailDisc(symbol: RailControl.screenshot.symbol, label: "Take a screenshot") { SystemActions.openScreenshotToolbar() }
+        case .record:
+            RecordRailButton()
+        case .keyboardLight:
+            KeyboardLightRailSlider()
+        case .settings:
+            RailDisc(symbol: RailControl.settings.symbol, label: "Settings") { SettingsWindow.open() }
         }
     }
+}
 
-    /// The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
-    private func railGlyphButton<Glyph: View>(label: String, active: Bool = false, action: @escaping () -> Void,
-                                              @ViewBuilder glyph: () -> Glyph) -> some View {
+/// The rail's disc: a white-10% circle with the glyph on it, filled white while what it switches
+/// is on.
+struct RailDisc<Glyph: View>: View {
+    let label: String
+    var active = false
+    let action: () -> Void
+    let glyph: Glyph
+
+    init(label: String, active: Bool = false, action: @escaping () -> Void, @ViewBuilder glyph: () -> Glyph) {
+        self.label = label
+        self.active = active
+        self.action = action
+        self.glyph = glyph()
+    }
+
+    var body: some View {
         Button(action: action) {
             ZStack {
                 Circle().fill(Color.white.opacity(active ? 0.9 : 0.10))
-                glyph()
+                glyph
                     .foregroundStyle(active ? Color.black : Color.white.opacity(0.85))
             }
             .frame(width: RailMetrics.button, height: RailMetrics.button)
@@ -260,6 +320,105 @@ struct ControlRail: View {
         .buttonStyle(IslandButtonStyle())
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+extension RailDisc where Glyph == RailSymbol {
+    /// A disc wearing an SF Symbol. `tint` colours the glyph where its state is worth a colour —
+    /// a recording's red.
+    init(symbol: String, label: String, active: Bool = false, tint: Color? = nil, action: @escaping () -> Void) {
+        self.init(label: label, active: active, action: action) { RailSymbol(name: symbol, tint: tint) }
+    }
+}
+
+struct RailSymbol: View {
+    let name: String
+    var tint: Color? = nil
+
+    var body: some View {
+        if let tint {
+            symbol.foregroundStyle(tint)
+        } else {
+            symbol
+        }
+    }
+
+    private var symbol: some View {
+        Image(systemName: name)
+            .font(.system(size: 13, weight: .semibold))
+            .contentTransition(.symbolEffect(.replace))
+    }
+}
+
+/// The sun on the rail: opens the Display popover.
+private struct DisplayRailButton: View {
+    @State private var open = false
+
+    var body: some View {
+        RailDisc(symbol: RailControl.display.symbol, label: "Display", active: open) { open.toggle() }
+            // Under the rail, where the screen is, rather than over the panel it came from.
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                DisplayModuleView()
+            }
+    }
+}
+
+/// Mutes the microphone and says so: lit while it is muted, the way a mute key's light is. The
+/// state is taken from the microphone service's published value alone.
+private struct MicrophoneRailButton: View {
+    @State private var muted = false
+
+    var body: some View {
+        RailDisc(symbol: muted ? "mic.slash.fill" : "mic.fill",
+                 label: muted ? "Unmute the microphone" : "Mute the microphone", active: muted) {
+            MicrophoneControl.shared.toggle()
+        }
+        .onReceive(MicrophoneControl.shared.$isMuted) { muted = $0 }
+    }
+}
+
+/// Starts and stops a screen recording, red while one is running.
+private struct RecordRailButton: View {
+    @State private var recording = false
+
+    var body: some View {
+        RailDisc(symbol: recording ? "stop.circle.fill" : RailControl.record.symbol,
+                 label: recording ? "Stop recording" : "Record the screen",
+                 tint: recording ? Color(red: 1, green: 0.27, blue: 0.23) : nil) {
+            ScreenRecorder.shared.toggle()
+        }
+        .onReceive(ScreenRecorder.shared.$isRecording) { recording = $0 }
+    }
+}
+
+/// The keyboard's backlight, as a short slider with its lamp beside it. Right-click the lamp for
+/// automatic adjustment, where the keyboard has it.
+private struct KeyboardLightRailSlider: View {
+    @ObservedObject private var light = KeyboardLight.shared
+
+    var body: some View {
+        HStack(spacing: RailMetrics.groupGap) {
+            Image(systemName: light.level < 0.5 ? "light.min" : "light.max")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(width: RailMetrics.glyph, height: 28)
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Toggle("Adjust Keyboard Brightness Automatically", isOn: Binding(
+                        get: { light.isAutomatic },
+                        set: { light.setAutomatic($0) }
+                    ))
+                    .disabled(!light.canSetAutomatic)
+                }
+                .help(light.isAutomatic ? "Keyboard brightness, adjusting automatically" : "Keyboard brightness")
+                .accessibilityHidden(true)
+            IslandSlider(value: light.level, onChange: { light.set($0) })
+                .frame(width: RailMetrics.keyboardSlider)
+                .accessibilityLabel("Keyboard brightness")
+                .accessibilityValue("\(Int((light.level * 100).rounded())) percent")
+        }
+        .onAppear { light.viewerAppeared() }
+        .onDisappear { light.viewerDisappeared() }
     }
 }
 
@@ -293,7 +452,7 @@ enum RailAssembly {
 }
 
 /// Every measure the rail is built from, in one place, because they add up to something that
-/// has to fit: the panel's content width. `RailMetricsTests` adds them up.
+/// has to fit: the panel's content width. `WindowsAndControlsTests` adds them up.
 enum RailMetrics {
     /// The rail's first glyph is the panel's leftmost mark. Centring it in a 24 pt box set it
     /// 6 pt inside the column that the hairline above it, every section title and the switcher
@@ -301,25 +460,41 @@ enum RailMetrics {
     static let glyph: CGFloat = 22
     static let volumeSlider: CGFloat = 120
     static let brightnessSlider: CGFloat = 104
+    /// The keyboard's backlight is set far less often than either, and shares the right-hand
+    /// end with the buttons: a short slider, long enough to land on a level.
+    static let keyboardSlider: CGFloat = 64
     /// Between a glyph and the slider it belongs to.
     static let groupGap: CGFloat = 6
     /// Between one control and the next.
     static let gap: CGFloat = 12
     static let button: CGFloat = 30
-    /// Wi-Fi, Bluetooth, light/dark, Keep Awake, the mirror, AirDrop, Settings.
-    static let maxButtons = 7
     /// The least the spacer in the middle may be.
     static let minSpacer: CGFloat = 8
 
-    /// Every control the rail can show, at once: both sliders, the output picker, and all
-    /// seven buttons. A Mac with a brightness slider, Wi-Fi, Bluetooth, a second output and
-    /// something on the shelf shows exactly this.
-    static var widest: CGFloat {
-        let volume = glyph + groupGap + volumeSlider
-        let brightness = glyph + groupGap + brightnessSlider
-        let buttons = CGFloat(maxButtons + 1) * button          // the seven, and the output
-        let children = 2 + 1 + (maxButtons + 1)                 // sliders, spacer, buttons
-        return volume + brightness + minSpacer + buttons + CGFloat(children - 1) * gap
+    /// The fixed left-hand end: the volume with its glyph, the output picker when there is a
+    /// second output, and the brightness with its glyph when there is a display that has one.
+    static func leading(hasPicker: Bool, hasBrightness: Bool) -> CGFloat {
+        var width = glyph + groupGap + volumeSlider
+        if hasPicker { width += gap + button }
+        if hasBrightness { width += gap + glyph + groupGap + brightnessSlider }
+        return width
+    }
+
+    /// What is left for the catalog's controls after the left-hand end, the gap before the
+    /// spacer and the least the spacer may be. Each control spends `cost(of:)` of it.
+    static func room(hasPicker: Bool, hasBrightness: Bool,
+                     width: CGFloat = IslandLayout.panelContentWidth) -> CGFloat {
+        width - leading(hasPicker: hasPicker, hasBrightness: hasBrightness) - gap - minSpacer
+    }
+
+    /// How wide a control is drawn: a disc, or the keyboard's lamp and slider.
+    static func width(of control: RailControl) -> CGFloat {
+        control == .keyboardLight ? glyph + groupGap + keyboardSlider : button
+    }
+
+    /// A control and the gap in front of it.
+    static func cost(of control: RailControl) -> CGFloat {
+        gap + width(of: control)
     }
 }
 

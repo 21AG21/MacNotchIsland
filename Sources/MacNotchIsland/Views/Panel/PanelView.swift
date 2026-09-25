@@ -88,7 +88,7 @@ struct PanelView: View {
             switch HomeSection(rawValue: tab) ?? .home {
             case .home: HomeGridView()
             case .music: MusicSectionView(geometry: geometry)
-            case .controls: ControlsSectionView()
+            case .controls: ControlsSectionView(showingMirror: $showingMirror)
             case .today: TodaySectionView()
             case .windows: WindowsSectionView()
             case .shelf: ShelfSectionView(isDropTarget: isDropTarget)

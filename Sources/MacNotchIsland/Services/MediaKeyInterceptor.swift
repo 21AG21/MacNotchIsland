@@ -9,8 +9,9 @@ import CoreGraphics
 /// A CGEventTap on `NSEvent.EventType.systemDefined` (raw value 14) sees the media keys
 /// before OSDUIHelper does. For the keys we own we apply the change ourselves, show the
 /// island HUD and swallow the event, so the system bezel never appears; every other event
-/// is passed straight through. Keyboard illumination is deliberately left alone — there is
-/// no reliable API for the backlight, so those keys keep their system behaviour.
+/// is passed straight through. The keyboard illumination keys are taken the same way, but only
+/// while CoreBrightness's keyboard client answers (`KeyboardLight`) — on a Mac or a macOS where
+/// it does not, those keys keep their system behaviour.
 ///
 /// The tap needs Accessibility trust. Without it `CGEvent.tapCreate` returns nil, so we
 /// prompt once and then poll until the user grants it, at which point the tap is installed.
@@ -42,6 +43,8 @@ final class SystemHUDReplacement: ObservableObject {
         var volume = false
         var mute = false
         var brightness = false
+        /// The keyboard's backlight, through `KeyboardLight`.
+        var keyboard = false
     }
 
     private let lock = NSLock()
@@ -66,6 +69,7 @@ final class SystemHUDReplacement: ObservableObject {
     var answersVolume: Bool { isActive && can(\.volume) }
     var answersMute: Bool { isActive && can(\.mute) }
     var answersBrightness: Bool { isActive && can(\.brightness) }
+    var answersKeyboard: Bool { isActive && can(\.keyboard) }
 
     func set(_ active: Bool) {
         guard isActive != active else { return }
@@ -168,10 +172,23 @@ final class MediaKeyInterceptor {
         static let illuminationDown = 22
     }
 
-    /// The keys we take over. Illumination is deliberately absent.
+    /// The keys we can take over. Each is only ever swallowed when the capability behind it
+    /// answers — see `capability(for:)` — so a key in this set is not a key that is taken.
     static let interceptedKeyCodes: Set<Int> = [MediaKey.soundUp, MediaKey.soundDown,
                                                 MediaKey.brightnessUp, MediaKey.brightnessDown,
-                                                MediaKey.mute]
+                                                MediaKey.mute,
+                                                MediaKey.illuminationUp, MediaKey.illuminationDown]
+
+    /// Which of the Mac's capabilities a key needs before the island may take it. Pure, so the
+    /// mapping can be checked without a tap.
+    static func capability(for keyCode: Int) -> KeyPath<SystemHUDReplacement.Capabilities, Bool> {
+        switch keyCode {
+        case MediaKey.brightnessUp, MediaKey.brightnessDown: return \.brightness
+        case MediaKey.mute: return \.mute
+        case MediaKey.illuminationUp, MediaKey.illuminationDown: return \.keyboard
+        default: return \.volume
+        }
+    }
 
     /// `NSEvent.EventType.systemDefined`, which CGEventType has no case for.
     static let systemDefinedEventType: UInt32 = 14
@@ -596,14 +613,7 @@ final class MediaKeyInterceptor {
     /// left for macOS, which still has a bezel for them, rather than swallowed into silence.
     /// Asked from the tap thread.
     private func canAnswer(_ keyCode: Int) -> Bool {
-        switch keyCode {
-        case MediaKey.brightnessUp, MediaKey.brightnessDown:
-            return SystemHUDReplacement.shared.can(\.brightness)
-        case MediaKey.mute:
-            return SystemHUDReplacement.shared.can(\.mute)
-        default:
-            return SystemHUDReplacement.shared.can(\.volume)
-        }
+        SystemHUDReplacement.shared.can(Self.capability(for: keyCode))
     }
 
     /// Asks the hardware what it can do and writes the whole answer at once.
@@ -624,9 +634,13 @@ final class MediaKeyInterceptor {
         // user has switched off is not a key the island should be taking: swallowing it would
         // leave that change with no bezel at all, when macOS still has a perfectly good one
         // for it. Off means off — the key goes back, whatever the hardware can do.
+        // The backlight is answered here too, from what the keyboard client found when it was
+        // made: it is a published main-thread reading, and a keyboard does not come and go.
         let wanted = SystemHUDReplacement.Capabilities(volume: Preferences.shared.volumeHUDEnabled,
                                                        mute: Preferences.shared.volumeHUDEnabled,
-                                                       brightness: Preferences.shared.brightnessHUDEnabled)
+                                                       brightness: Preferences.shared.brightnessHUDEnabled,
+                                                       keyboard: Preferences.shared.keyboardLightHUDEnabled
+                                                           && KeyboardLight.shared.isAvailable)
         Self.capabilityQueue.async { [weak self] in
             guard let self else { return }
             let device = AudioMonitor.defaultOutputDevice()
@@ -636,7 +650,8 @@ final class MediaKeyInterceptor {
             let answer = SystemHUDReplacement.Capabilities(
                 volume: wanted.volume && AudioMonitor.outputHasVolumeControl(device: device),
                 mute: wanted.mute && AudioMonitor.outputHasMuteControl(device: device),
-                brightness: wanted.brightness && self.brightness.currentBrightness() != nil)
+                brightness: wanted.brightness && self.brightness.currentBrightness() != nil,
+                keyboard: wanted.keyboard)
             SystemHUDReplacement.shared.setCapabilities(answer)
             if let finished { DispatchQueue.main.async(execute: finished) }
         }
@@ -680,6 +695,8 @@ final class MediaKeyInterceptor {
         case MediaKey.mute: if !isRepeat { toggleMute() }
         case MediaKey.brightnessUp: adjustBrightness(delta: 1, step: step, isRepeat: isRepeat)
         case MediaKey.brightnessDown: adjustBrightness(delta: -1, step: step, isRepeat: isRepeat)
+        case MediaKey.illuminationUp: adjustKeyboardLight(up: true, fine: step == Self.fineStep, isRepeat: isRepeat)
+        case MediaKey.illuminationDown: adjustKeyboardLight(up: false, fine: step == Self.fineStep, isRepeat: isRepeat)
         default: break
         }
         // A single press picks up a change at once; an auto-repeat does not, because these
@@ -776,6 +793,20 @@ final class MediaKeyInterceptor {
         }
         lastBrightness = target
         brightness.notifyChange(value: target)
+    }
+
+    /// The backlight keys, on the same sixteen-step grid as the display's. The key is only
+    /// ever taken while the keyboard client answers, so there is always a level to step from:
+    /// the one it reports, or the last one it did.
+    private func adjustKeyboardLight(up: Bool, fine: Bool, isRepeat: Bool) {
+        let light = KeyboardLight.shared
+        guard light.isAvailable else { return }
+        let current = light.read() ?? light.level
+        let target = KeyboardLight.stepped(from: current, up: up, fine: fine)
+        // Holding a key against either end should not keep re-announcing the same value.
+        if isRepeat, abs(target - current) < 0.0001 { return }
+        light.set(target)
+        KeyboardLight.showHUD(level: target)
     }
 
     /// Repeats stay quiet: the first press of a held key has already said it.

@@ -61,10 +61,25 @@ final class MediaKeyDecodingTests: XCTestCase {
         XCTAssertTrue(d.isDown)
     }
 
-    func testKeyboardIlluminationIsNotIntercepted() {
-        XCTAssertFalse(MediaKeyInterceptor.interceptedKeyCodes.contains(MediaKeyInterceptor.MediaKey.illuminationUp))
-        XCTAssertFalse(MediaKeyInterceptor.interceptedKeyCodes.contains(MediaKeyInterceptor.MediaKey.illuminationDown))
-        XCTAssertEqual(MediaKeyInterceptor.interceptedKeyCodes, [0, 1, 2, 3, 7])
+    func testKeyboardIlluminationIsTakenOnlyWhenTheBacklightAnswers() {
+        // The illumination keys are among the keys the tap can take…
+        XCTAssertTrue(MediaKeyInterceptor.interceptedKeyCodes.contains(MediaKeyInterceptor.MediaKey.illuminationUp))
+        XCTAssertTrue(MediaKeyInterceptor.interceptedKeyCodes.contains(MediaKeyInterceptor.MediaKey.illuminationDown))
+        XCTAssertEqual(MediaKeyInterceptor.interceptedKeyCodes, [0, 1, 2, 3, 7, 21, 22])
+        // …but each is gated on the keyboard's own capability, which is off until the keyboard
+        // client has answered and the switch for it is on: a Mac without a backlight keeps them
+        // macOS's.
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.illuminationUp), \SystemHUDReplacement.Capabilities.keyboard)
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.illuminationDown), \SystemHUDReplacement.Capabilities.keyboard)
+        XCTAssertFalse(SystemHUDReplacement.Capabilities().keyboard, "nothing is taken before anything has been asked")
+    }
+
+    func testEveryOtherKeyAsksForTheCapabilityItAlwaysDid() {
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.soundUp), \SystemHUDReplacement.Capabilities.volume)
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.soundDown), \SystemHUDReplacement.Capabilities.volume)
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.mute), \SystemHUDReplacement.Capabilities.mute)
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.brightnessUp), \SystemHUDReplacement.Capabilities.brightness)
+        XCTAssertEqual(MediaKeyInterceptor.capability(for: MediaKeyInterceptor.MediaKey.brightnessDown), \SystemHUDReplacement.Capabilities.brightness)
     }
 
     // MARK: Step maths

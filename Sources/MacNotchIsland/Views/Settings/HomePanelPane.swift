@@ -8,6 +8,9 @@ struct HomePanelPane: View {
     /// Watched so the count beside Erase is the count, rather than what it was when this
     /// window was opened.
     @ObservedObject private var inbox = NotificationInbox.shared
+    /// Watched so the rail list can say which controls this Mac has nothing for.
+    @ObservedObject private var toggles = SystemToggles.shared
+    @ObservedObject private var keyboard = KeyboardLight.shared
     @AppStorage("settingsSection") private var selectedSection = SettingsSection.general.rawValue
     /// Held rather than built inside `onReceive`, where it would be a new publisher on every
     /// pass of the body — and this body runs whenever a preference on it changes.
@@ -58,6 +61,85 @@ struct HomePanelPane: View {
         var order = HomeSection.ordered(prefs)
         order.move(fromOffsets: source, toOffset: destination)
         prefs.sectionOrder = order.map(\.rawValue)
+    }
+
+    // MARK: - The control rail's list
+
+    /// Every rail control but Settings, which has no switch and is always last — a row that
+    /// could be dragged anywhere and then snapped back to the end would be a row that lies.
+    private var railControls: [RailControl] {
+        RailControl.ordered(prefs).filter { $0 != .settings }
+    }
+
+    private static var railListHeight: CGFloat {
+        (rowHeight + rowPadding * 2) * CGFloat(RailControl.allCases.count - 1) + 4
+    }
+
+    /// One rail control: its glyph, its name and its switch, and a word when this Mac has
+    /// nothing for it to do — the switch still keeps the choice for a Mac that does.
+    @ViewBuilder
+    private func railRow(_ control: RailControl) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: control.symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+            Toggle(control.label, isOn: Binding(
+                get: { control.isEnabled(prefs) },
+                set: { control.setEnabled($0, in: prefs) }
+            ))
+            .help(Self.railHelp(for: control))
+            if let note = railNote(for: control) {
+                Spacer(minLength: 8)
+                Text(note)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(height: Self.rowHeight)
+    }
+
+    /// The same rule as the sections': the whole order is written, so a control a later version
+    /// adds still lands at the end rather than in the middle.
+    private func moveRail(from source: IndexSet, to destination: Int) {
+        var order = railControls
+        order.move(fromOffsets: source, toOffset: destination)
+        prefs.railOrder = order.map(\.rawValue)
+    }
+
+    /// Whether the rail is anything but the way it ships.
+    private var railIsCustomised: Bool {
+        RailControl.order(stored: prefs.railOrder) != RailControl.defaultOrder
+            || !prefs.railSwitches.isEmpty || !prefs.mirrorEnabled
+    }
+
+    private func railNote(for control: RailControl) -> String? {
+        switch control {
+        case .wifi: return toggles.hasWiFi ? nil : "Not on this Mac"
+        case .bluetooth: return toggles.hasBluetooth ? nil : "Not on this Mac"
+        case .keyboardLight: return keyboard.isAvailable ? nil : "No backlight here"
+        default: return nil
+        }
+    }
+
+    private static func railHelp(for control: RailControl) -> String {
+        switch control {
+        case .wifi: return "Wi-Fi on and off."
+        case .bluetooth: return "Bluetooth on and off."
+        case .display: return "A popover with a brightness slider for every display that takes one, and Dark Mode, Night Shift and True Tone. Right-click Night Shift for its warmth."
+        case .keepAwake: return "Keeps the Mac and its display awake until you switch it off again."
+        case .mirror: return "A mirror button in the rail, to check yourself before a call. Asks for camera access when first opened."
+        case .airDrop: return "Sends everything on the shelf by AirDrop. Shown only while there is something on the shelf and the Shelf section is not the one open."
+        case .focus: return "Lit while a Focus is on. Opens Focus in System Settings."
+        case .microphone: return "Mutes and unmutes the microphone, lit while it is muted."
+        case .lock: return "Locks the screen."
+        case .sleepDisplay: return "Puts the display to sleep. The Mac itself stays awake."
+        case .screenshot: return "Opens the screenshot toolbar."
+        case .record: return "Starts and stops a recording of the screen, red while it runs."
+        case .keyboardLight: return "A slider for the keyboard's backlight, where the keyboard has one. Right-click its lamp to have it follow the room's light."
+        case .settings: return "Always on, and always last."
+        }
     }
 
     private static func help(for section: HomeSection) -> String {
@@ -206,13 +288,32 @@ struct HomePanelPane: View {
             .onReceive(permissionTicker) { _ in windows.refreshPermissions() }
 
             Section {
-                Toggle("Camera mirror", isOn: $prefs.mirrorEnabled)
-                    .help("A mirror button in the rail, to check yourself before a call. Asks for camera access when first opened.")
+                // The same arrangement as the sections above: one list in the rail's order, a
+                // switch on every row, drag to move. The camera mirror's switch is its row here
+                // rather than a second switch beside it.
+                List {
+                    ForEach(railControls, id: \.self) { control in
+                        railRow(control)
+                            .listRowInsets(EdgeInsets(top: Self.rowPadding, leading: 10,
+                                                      bottom: Self.rowPadding, trailing: 10))
+                    }
+                    .onMove(perform: moveRail)
+                }
+                .listStyle(.plain)
+                .alternatingRowBackgrounds(.disabled)
+                .frame(height: Self.railListHeight)
+                if railIsCustomised {
+                    Button("Put the Rail Back as It Ships") {
+                        prefs.railOrder = []
+                        prefs.railSwitches = [:]
+                        prefs.mirrorEnabled = true
+                    }
+                }
             } header: {
                 Text("Control rail")
             } footer: {
                 HStack(spacing: 8) {
-                    Text("Volume, light and dark, Keep Awake and Settings are in the rail under every section; brightness, Wi-Fi and Bluetooth when this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Choose the apps and shortcuts that appear in the Actions section there.")
+                    Text("Drag a control to move it. The volume and the brightness always lead the rail and Settings always ends it; Wi-Fi, Bluetooth and the keyboard's backlight appear where this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Whatever does not fit the rail waits at the top of the Controls section. Choose the apps and shortcuts that appear in the Actions section there.")
                     Button("Open Actions") {
                         selectedSection = SettingsSection.shortcuts.rawValue
                     }

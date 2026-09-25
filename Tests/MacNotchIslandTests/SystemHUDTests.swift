@@ -20,7 +20,8 @@ final class SystemHUDTests: XCTestCase {
         savedActive = hud.isActive
         savedCapabilities = SystemHUDReplacement.Capabilities(volume: hud.can(\.volume),
                                                              mute: hud.can(\.mute),
-                                                             brightness: hud.can(\.brightness))
+                                                             brightness: hud.can(\.brightness),
+                                                             keyboard: hud.can(\.keyboard))
     }
 
     override func tearDown() {
@@ -98,6 +99,58 @@ final class SystemHUDTests: XCTestCase {
         hud.forgetCapabilities()
         XCTAssertFalse(hud.can(\.volume), "a real teardown takes the answers with it")
         XCTAssertFalse(hud.isActive)
+    }
+
+    /// The backlight keys are the island's only while the tap is up and the keyboard answers,
+    /// the same rule every other key follows.
+    func testTheBacklightKeysAreAnsweredOnlyWithATapAndABacklight() {
+        let hud = SystemHUDReplacement.shared
+        hud.set(true)
+        hud.setCapabilities(SystemHUDReplacement.Capabilities(volume: true, mute: true, brightness: true, keyboard: false))
+        XCTAssertFalse(hud.answersKeyboard, "a Mac with no backlight keeps its keys")
+        hud.setCapabilities(SystemHUDReplacement.Capabilities(keyboard: true))
+        XCTAssertTrue(hud.answersKeyboard)
+        hud.set(false)
+        XCTAssertFalse(hud.answersKeyboard, "and nothing is answered without a tap")
+        hud.forgetCapabilities()
+        XCTAssertFalse(hud.can(\.keyboard))
+    }
+
+    /// The keyboard's display says what it is of, in the word every surface uses.
+    func testTheKeyboardDisplayNamesTheKeyboard() {
+        let hud = LevelHUD(kind: .keyboard, level: 0.4)
+        XCTAssertEqual(hud.label, "Keyboard")
+        XCTAssertEqual(hud.title, "Keyboard")
+        XCTAssertEqual(hud.kindName, "Keyboard")
+        XCTAssertEqual(LevelHUD.readout(hud), "40%")
+        XCTAssertEqual(LevelHUD(kind: .keyboard, level: 0).symbolName, "keyboard", "a light that is off is a keyboard")
+        XCTAssertEqual(LevelHUD(kind: .keyboard, level: 0.3).symbolName, "light.min")
+        XCTAssertEqual(LevelHUD(kind: .keyboard, level: 0.9).symbolName, "light.max")
+        // The other two keep their words.
+        XCTAssertEqual(LevelHUD(kind: .brightness, level: 0.4).kindName, "Brightness")
+        XCTAssertEqual(LevelHUD(kind: .volume, level: 0.4).kindName, "Volume")
+    }
+
+    /// Only the keyboard's switch on is still a reason to have the tap: those keys are the
+    /// island's to take as well.
+    func testTheKeyTapIsWantedForTheBacklightAlone() {
+        let prefs = Preferences.shared
+        let saved = (prefs.hudReplacementEnabled, prefs.volumeHUDEnabled, prefs.brightnessHUDEnabled,
+                     prefs.keyboardLightHUDEnabled)
+        defer {
+            (prefs.hudReplacementEnabled, prefs.volumeHUDEnabled, prefs.brightnessHUDEnabled,
+             prefs.keyboardLightHUDEnabled) = saved
+        }
+        prefs.hudReplacementEnabled = true
+        prefs.volumeHUDEnabled = false
+        prefs.brightnessHUDEnabled = false
+        prefs.keyboardLightHUDEnabled = true
+        XCTAssertTrue(ServiceHub.wantsMediaKeys(prefs))
+        prefs.keyboardLightHUDEnabled = false
+        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs), "with every display off there is nothing to take")
+        prefs.keyboardLightHUDEnabled = true
+        prefs.hudReplacementEnabled = false
+        XCTAssertFalse(ServiceHub.wantsMediaKeys(prefs), "and nothing at all while the bezel is macOS's")
     }
 
     func testShiftWithOptionIsAQuarterStepRatherThanAskingForSilence() {

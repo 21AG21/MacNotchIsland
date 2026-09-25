@@ -5,6 +5,7 @@ import SwiftUI
 struct ActivitiesPane: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var hud = SystemHUDReplacement.shared
+    @ObservedObject private var keyboard = KeyboardLight.shared
 
     /// Why the island is or is not answering the volume and brightness keys.
     ///
@@ -23,8 +24,13 @@ struct ActivitiesPane: View {
             return "Waiting for Accessibility access. Until it is granted the media keys still reach macOS, "
                  + "so the island stays quiet rather than showing a bezel next to the system's."
         }
-        return "Hold Shift and Option for quarter steps. The keyboard backlight keys are left to macOS, "
-             + "which has no public API for them."
+        guard keyboard.isAvailable else {
+            return "Hold Shift and Option for quarter steps. The keyboard backlight keys are left to macOS: "
+                 + "this Mac has no backlight the island can set."
+        }
+        return "Hold Shift and Option for quarter steps. The keyboard backlight keys are answered too, "
+             + "through the same private framework Control Centre uses; switch Keyboard backlight off and "
+             + "they go back to macOS. Hold Control and scroll on the island to set the backlight."
     }
 
     /// The choices offered for how long a paused track stays in the island, in minutes.
@@ -92,10 +98,19 @@ struct ActivitiesPane: View {
                 Toggle("Brightness", isOn: $prefs.brightnessHUDEnabled)
                     .help("With the switch above on, this is every brightness change. With it off, "
                           + "it is only the one an Option-scroll on the island makes itself.")
-                // With both displays off there is no key left to take, so the island is not
+                // Beside the brightness, and for the same two things: with the switch above on,
+                // the backlight keys; either way, the display a Control-scroll puts up. Greyed out
+                // only where there is no backlight to set, which is the one case where it would
+                // be a switch for nothing.
+                Toggle("Keyboard backlight", isOn: $prefs.keyboardLightHUDEnabled)
+                    .help(keyboard.isAvailable
+                          ? "With the switch above on, the keyboard backlight keys are answered in the island. "
+                            + "With it off, this is only the display a Control-scroll on the island makes itself."
+                          : "This Mac has no keyboard backlight the island can set.")
+                    .disabled(!keyboard.isAvailable)
+                // With every display off there is no key left to take, so the island is not
                 // asking for Accessibility and must not offer to send anyone looking for it.
-                if prefs.hudReplacementEnabled, prefs.volumeHUDEnabled || prefs.brightnessHUDEnabled,
-                   !hud.isActive {
+                if ServiceHub.wantsMediaKeys(prefs), !hud.isActive {
                     Button("Open Accessibility Settings…") {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                             NSWorkspace.shared.open(url)

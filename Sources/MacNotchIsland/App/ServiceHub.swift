@@ -84,6 +84,13 @@ final class ServiceHub {
         p.notificationsEnabled
     }
 
+    /// Whether the media-key tap is worth having: the bezel is being replaced and at least one
+    /// of the displays it would raise is switched on. The keyboard's counts, so a Mac that wants
+    /// only the backlight keys answered still gets them.
+    static func wantsMediaKeys(_ p: Preferences) -> Bool {
+        p.hudReplacementEnabled && (p.volumeHUDEnabled || p.brightnessHUDEnabled || p.keyboardLightHUDEnabled)
+    }
+
     private func apply() {
         let p = Preferences.shared
         p.nowPlayingEnabled ? nowPlaying.start() : nowPlaying.stop()
@@ -123,10 +130,9 @@ final class ServiceHub {
         // nothing has looked at Notification Centre.
         Self.wantsNotifications(p) ? notifications.start() : notifications.stop()
         (p.nowPlayingEnabled && p.lyricsEnabled) ? lyrics.start() : lyrics.stop()
-        // With both displays switched off there is no key left for the island to take, and
+        // With every display switched off there is no key left for the island to take, and
         // an event tap that swallows nothing is not worth asking anyone for Accessibility.
-        (p.hudReplacementEnabled && (p.volumeHUDEnabled || p.brightnessHUDEnabled))
-            ? mediaKeys.start() : mediaKeys.stop()
+        Self.wantsMediaKeys(p) ? mediaKeys.start() : mediaKeys.stop()
         p.capsLockEnabled ? capsLock.start() : capsLock.stop()
         if p.quickActionsEnabled && !requestedShortcuts {
             requestedShortcuts = true

@@ -51,7 +51,7 @@ struct HUDExpandedView: View {
             .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(state.kind == .volume ? "Volume" : "Brightness")
+            .accessibilityLabel(state.kindName)
             .accessibilityValue(Self.spoken(state))
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)

@@ -80,6 +80,9 @@ final class GalleryTests: XCTestCase {
             AudioOutputs.shared.seedForGallery(outputs: [], current: nil, inputs: [], currentInput: nil,
                                                volume: nil, isMuted: false)
             NotesStore.shared.text = "Call the landlord about the heating.\nPick up the print from the shop before 6."
+            // The rail as it ships, unless the scene is about arranging it.
+            prefs.railOrder = []
+            prefs.railSwitches = [:]
             scene.setup(center)
             // What it asked for is what it got. A section switched off, a tab spelled wrong or
             // an activity that never arrived all end in `resolve` picking something else and
@@ -514,6 +517,8 @@ final class GalleryTests: XCTestCase {
             Scene(name: "alert-focus") { c in c.showAlert(focus(), duration: 60) },
             Scene(name: "alert-volume") { c in c.showAlert(hud(.volume, 0.6), duration: 60) },
             Scene(name: "alert-brightness") { c in c.showAlert(hud(.brightness, 0.4), duration: 60) },
+            // The keyboard's backlight, answered from its keys or a Control-scroll.
+            Scene(name: "alert-keyboard") { c in c.showAlert(hud(.keyboard, 0.7), duration: 60) },
             // The volume display when the sound is somewhere worth naming.
             Scene(name: "alert-volume-airpods") { c in
                 c.showAlert(hud(.volume, 0.35, device: "AirPods Pro", symbol: "airpodspro"), duration: 60)
@@ -561,6 +566,12 @@ final class GalleryTests: XCTestCase {
             Scene(name: "panel-today", expects: .home(tab: "today"), setup: panel("today") { _ in today(); weather() }),
             Scene(name: "panel-today-empty", expects: .home(tab: "today"), setup: panel("today")),
             Scene(name: "panel-controls", expects: .home(tab: "controls"), setup: panel("controls") { _ in controls() }),
+            // Every rail control switched on: more than the rail holds, and the rest waiting in
+            // a row at the top of the Controls section.
+            Scene(name: "panel-controls-overflow", expects: .home(tab: "controls"), setup: panel("controls") { _ in
+                controls()
+                Preferences.shared.railSwitches = Dictionary(uniqueKeysWithValues: RailControl.allCases.map { ($0.rawValue, true) })
+            }),
             Scene(name: "panel-controls-off", expects: .home(tab: "controls"), setup: panel("controls")),
             Scene(name: "panel-windows", expects: .home(tab: "windows"), setup: panel("windows")),
             // Type-to-find, narrowing a list of four to the one window that answers.

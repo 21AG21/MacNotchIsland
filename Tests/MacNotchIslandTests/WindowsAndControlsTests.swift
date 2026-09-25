@@ -230,14 +230,71 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertLessThanOrEqual(row, ShelfItemView.column, "and the outer two stay inside the tile")
     }
 
-    func testEveryControlTheRailCanShowFitsTheRailAtOnce() {
-        // A Mac with a brightness slider, Wi-Fi, Bluetooth, a second output and something on
-        // the shelf shows all of it. The rail has no room to overflow into: it is one row of
-        // the panel's own column.
-        XCTAssertLessThanOrEqual(RailMetrics.widest, IslandLayout.panelContentWidth,
-                                 "the rail overflows by \(RailMetrics.widest - IslandLayout.panelContentWidth) pt")
+    func testTheSevenButtonsTheRailHasAlwaysHadStillFitAtItsWidest() {
+        // A Mac with a brightness slider, a second output and something on the shelf has the
+        // widest fixed end there is, and the rail still holds everything it held before it had
+        // a catalog: six discs and Settings. Nothing that used to be on it moves off it.
+        let room = RailMetrics.room(hasPicker: true, hasBrightness: true)
+        let classic: [RailControl] = [.wifi, .bluetooth, .display, .keepAwake, .mirror, .airDrop, .settings]
+        let fit = RailControl.fit(classic, room: room)
+        XCTAssertEqual(fit.rail, classic)
+        XCTAssertTrue(fit.spill.isEmpty)
         // And not so far short that the row looks lost in the middle of the panel.
-        XCTAssertGreaterThan(RailMetrics.widest, IslandLayout.panelContentWidth - 80)
+        let spent = classic.reduce(CGFloat(0)) { $0 + RailMetrics.cost(of: $1) }
+        XCTAssertLessThan(room - spent, 80)
+    }
+
+    func testWhatTheRailKeepsAlwaysFitsTheRail() {
+        // Every control switched on, against every shape of the fixed end: what stays on the
+        // rail adds up to no more than the column, Settings is its last button, and every
+        // control is in one place or the other — never both, never neither.
+        for picker in [false, true] {
+            for brightness in [false, true] {
+                let room = RailMetrics.room(hasPicker: picker, hasBrightness: brightness)
+                let fit = RailControl.fit(RailControl.defaultOrder, room: room)
+                let spent = fit.rail.reduce(CGFloat(0)) { $0 + RailMetrics.cost(of: $1) }
+                XCTAssertLessThanOrEqual(spent, room, "picker \(picker), brightness \(brightness)")
+                // The whole row, added up the way the HStack lays it out: the fixed end, the gap
+                // before the spacer, the least the spacer may be, and each control with its gap.
+                let row = RailMetrics.leading(hasPicker: picker, hasBrightness: brightness)
+                    + RailMetrics.gap + RailMetrics.minSpacer + spent
+                XCTAssertLessThanOrEqual(row, IslandLayout.panelContentWidth,
+                                         "the rail overflows by \(row - IslandLayout.panelContentWidth) pt")
+                XCTAssertEqual(fit.rail.last, .settings)
+                XCTAssertFalse(fit.spill.contains(.settings), "the one button that has to be found without looking")
+                XCTAssertEqual(fit.rail.count + fit.spill.count, RailControl.defaultOrder.count)
+                XCTAssertEqual(Set(fit.rail + fit.spill), Set(RailControl.defaultOrder))
+            }
+        }
+    }
+
+    func testTheKeyboardSliderFitsBesideTheButtonsThatShipOn() {
+        // One output, a display with a brightness, nothing on the shelf: the everyday laptop.
+        let room = RailMetrics.room(hasPicker: false, hasBrightness: true)
+        let shipped: [RailControl] = [.wifi, .bluetooth, .display, .keepAwake, .mirror, .keyboardLight, .settings]
+        XCTAssertEqual(RailControl.fit(shipped, room: room).rail, shipped)
+        // Plug in a second output and it is the slider that makes room, not a switch.
+        let crowded = RailControl.fit(shipped, room: RailMetrics.room(hasPicker: true, hasBrightness: true))
+        XCTAssertEqual(crowded.spill, [.keyboardLight])
+        XCTAssertEqual(crowded.rail.last, .settings)
+    }
+
+    func testTheRailIsTheFrontOfTheListAndTheOverflowItsBack() {
+        // A narrow control after a wide one that did not fit does not jump the queue: the rail
+        // is always the start of the user's order, the Controls row always the rest of it.
+        let room = RailMetrics.cost(of: .settings) + RailMetrics.cost(of: .wifi) + 1
+        let fit = RailControl.fit([.keyboardLight, .wifi, .settings], room: room)
+        XCTAssertEqual(fit.rail, [.settings])
+        XCTAssertEqual(fit.spill, [.keyboardLight, .wifi])
+    }
+
+    func testTheMirrorsOwnButtonStaysWhileTheMirrorIsShowing() {
+        // The mirror covers the section, the Controls section's overflow row with it; the way
+        // out of the mirror has to be on the rail.
+        let room = RailMetrics.cost(of: .settings) + RailMetrics.cost(of: .mirror)
+        let fit = RailControl.fit([.wifi, .bluetooth, .mirror, .settings], room: room, pinned: [.settings, .mirror])
+        XCTAssertEqual(fit.rail, [.mirror, .settings])
+        XCTAssertEqual(fit.spill, [.wifi, .bluetooth])
     }
 
     func testTheRailsGlyphHangsFromTheSameColumnAsEverythingAboveIt() {

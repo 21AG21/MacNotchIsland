@@ -44,6 +44,8 @@ final class GestureRouter {
         case volume(delta: Double)
         /// The same, for the display's brightness: what the scroll means with Option held.
         case brightness(delta: Double)
+        /// The same, for the keyboard's backlight: what the scroll means with Control held.
+        case keyboard(delta: Double)
         case none
     }
 
@@ -56,6 +58,8 @@ final class GestureRouter {
     /// The same for the brightness, which the scroll moves while Option is held. Its own
     /// constant because the two are free to diverge; they simply have not yet.
     static let brightnessStep: Double = 0.004
+    /// And for the keyboard's backlight, which the scroll moves while Control is held.
+    static let keyboardStep: Double = 0.004
     /// How far a gesture has to travel before it is locked to one axis.
     static let axisLockThreshold: CGFloat = 6
     /// A classic wheel reports lines, not points; this makes one line comparable with a
@@ -98,7 +102,11 @@ final class GestureRouter {
     /// them up a negative `dy`. So a swipe to the left advances (next track, next view) and a
     /// swipe up raises the volume. A step past either end of the ring is `.none`: a swipe is
     /// spatial, only Tab wraps.
-    static func decide(dx: CGFloat, dy: CGFloat, context: Context, wantsBrightness: Bool = false) -> Action {
+    ///
+    /// `wantsBrightness` is Option held, `wantsKeyboard` Control held; with both, neither is
+    /// meant clearly enough to act on, and the scroll stays the volume.
+    static func decide(dx: CGFloat, dy: CGFloat, context: Context, wantsBrightness: Bool = false,
+                       wantsKeyboard: Bool = false) -> Action {
         let threshold: CGFloat
         if case .panel = context { threshold = viewSwipeThreshold } else { threshold = swipeThreshold }
         if abs(dx) > threshold, abs(dx) >= abs(dy), consumesHorizontalSwipes(context) {
@@ -116,8 +124,11 @@ final class GestureRouter {
         }
         if dy != 0, consumesVerticalScroll(context) {
             let travel = Double(-dy)
-            return wantsBrightness ? .brightness(delta: travel * brightnessStep)
-                                   : .volume(delta: travel * volumeStep)
+            switch (wantsBrightness, wantsKeyboard) {
+            case (true, false): return .brightness(delta: travel * brightnessStep)
+            case (false, true): return .keyboard(delta: travel * keyboardStep)
+            default: return .volume(delta: travel * volumeStep)
+            }
         }
         return .none
     }
@@ -195,7 +206,12 @@ final class GestureRouter {
             // Option turns the scroll into the brightness, the way the rail has a slider for
             // each. A Mac whose display will not say what it is set to keeps the volume.
             let wantsBrightness = event.modifierFlags.contains(.option) && brightnessAvailable(now: now)
-            let action = Self.decide(dx: 0, dy: pendingY, context: context, wantsBrightness: wantsBrightness)
+            // Control turns it into the keyboard's backlight, on a Mac that has one to set.
+            // Control with Option is still the brightness, as it always was.
+            let wantsKeyboard = event.modifierFlags.contains(.control) && !event.modifierFlags.contains(.option)
+                && KeyboardLight.shared.isAvailable
+            let action = Self.decide(dx: 0, dy: pendingY, context: context, wantsBrightness: wantsBrightness,
+                                     wantsKeyboard: wantsKeyboard)
             pendingY = 0
             lastVolumeAt = now
             perform(action, now: now)
@@ -206,6 +222,7 @@ final class GestureRouter {
     private func beginGesture(panel: String) {
         activePanel = panel
         brightnessBase = nil
+        keyboardBase = nil
         axis = .undecided
         accumulatedX = 0
         pendingY = 0
@@ -283,9 +300,29 @@ final class GestureRouter {
             return applyVolume(delta: delta)
         case .brightness(let delta):
             return applyBrightness(delta: delta)
+        case .keyboard(let delta):
+            return applyKeyboardLight(delta: delta)
         case .none:
             return false
         }
+    }
+
+    /// Where the backlight was when this gesture started, carried from event to event for the
+    /// brightness's reason.
+    private var keyboardBase: Double?
+
+    @discardableResult
+    private func applyKeyboardLight(delta: Double) -> Bool {
+        guard delta != 0 else { return false }
+        let light = KeyboardLight.shared
+        guard light.isAvailable, let current = keyboardBase ?? light.read() else { return false }
+        let target = KeyboardLight.clamped(current + delta)
+        keyboardBase = target
+        light.set(target)
+        // Nothing else answers a scroll on the island, so this is the only display there is —
+        // the same as the brightness's, and under its own switch.
+        KeyboardLight.showHUD(level: target)
+        return true
     }
 
     /// Whether this Mac's display answers a brightness read at all. Asked at most once a

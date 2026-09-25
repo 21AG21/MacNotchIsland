@@ -1,0 +1,128 @@
+import XCTest
+@testable import MacNotchIsland
+
+/// The control rail's catalog: the order it is in, which controls are switched on, and which this
+/// Mac has. The same soundness the panel's sections have, because it is the same kind of list —
+/// something a user arranges once and an update must not scramble.
+final class RailControlTests: XCTestCase {
+
+    // MARK: - Order
+
+    func testTheRailShipsInTheOrderItIsWrittenIn() {
+        XCTAssertEqual(RailControl.order(stored: []), RailControl.allCases)
+        XCTAssertEqual(RailControl.defaultOrder, RailControl.allCases)
+        XCTAssertEqual(RailControl.defaultOrder.last, .settings)
+    }
+
+    func testAStoredRailOrderIsFollowed() {
+        let order = RailControl.order(stored: [RailControl.record.rawValue, RailControl.wifi.rawValue])
+        XCTAssertEqual(Array(order.prefix(2)), [.record, .wifi])
+        XCTAssertEqual(Set(order), Set(RailControl.allCases), "and nothing is lost")
+        XCTAssertEqual(order.count, RailControl.allCases.count)
+    }
+
+    func testAControlTheStoredOrderNeverMentionedKeepsItsPlaceAtTheEnd() {
+        // What an older build wrote will not name a control a later one added; it has to appear
+        // rather than vanish.
+        let order = RailControl.order(stored: [RailControl.lock.rawValue])
+        XCTAssertEqual(order.first, .lock)
+        XCTAssertEqual(order.count, RailControl.allCases.count)
+        XCTAssertEqual(Array(order.dropFirst().dropLast()),
+                       RailControl.defaultOrder.filter { $0 != .lock && $0 != .settings },
+                       "the rest in the order they ship")
+    }
+
+    func testARailOrderWithRubbishInItIsStillAnOrder() {
+        let order = RailControl.order(stored: ["lock", "lock", "chocolate", ""])
+        XCTAssertEqual(order.first, .lock)
+        XCTAssertEqual(order.count, RailControl.allCases.count, "no duplicates, no ghosts")
+    }
+
+    func testSettingsIsLastWhateverTheStoredOrderSays() {
+        let order = RailControl.order(stored: ["settings", "wifi", "settings"])
+        XCTAssertEqual(order.first, .wifi)
+        XCTAssertEqual(order.last, .settings)
+        XCTAssertEqual(order.filter { $0 == .settings }.count, 1)
+    }
+
+    func testTheUsersOrderIsTheOneTheRailReads() {
+        let prefs = Preferences.shared
+        let saved = prefs.railOrder
+        defer { prefs.railOrder = saved }
+        prefs.railOrder = [RailControl.keepAwake.rawValue, RailControl.display.rawValue]
+        XCTAssertEqual(Array(RailControl.ordered(prefs).prefix(2)), [.keepAwake, .display])
+    }
+
+    // MARK: - Switches
+
+    func testTheButtonsTheRailAlwaysHadShipOnAndTheNewActionsWaitToBeAskedFor() {
+        for control in [RailControl.wifi, .bluetooth, .display, .keepAwake, .mirror, .airDrop, .keyboardLight, .settings] {
+            XCTAssertTrue(RailControl.isSwitchedOn(control, switches: [:]), "\(control) ships on")
+        }
+        for control in [RailControl.focus, .microphone, .lock, .sleepDisplay, .screenshot, .record] {
+            XCTAssertFalse(RailControl.isSwitchedOn(control, switches: [:]), "\(control) ships off")
+        }
+    }
+
+    func testASwitchTheUserThrewIsKeptEitherWay() {
+        XCTAssertTrue(RailControl.isSwitchedOn(.lock, switches: ["lock": true]))
+        XCTAssertFalse(RailControl.isSwitchedOn(.wifi, switches: ["wifi": false]))
+        XCTAssertTrue(RailControl.isSwitchedOn(.settings, switches: ["settings": false]), "Settings has no switch")
+    }
+
+    func testTheMirrorsSwitchIsTheMirrorFeaturesOwn() {
+        let prefs = Preferences.shared
+        let saved = (prefs.mirrorEnabled, prefs.railSwitches)
+        defer { (prefs.mirrorEnabled, prefs.railSwitches) = saved }
+        RailControl.mirror.setEnabled(false, in: prefs)
+        XCTAssertFalse(prefs.mirrorEnabled, "one switch for the mirror, not two that can disagree")
+        XCTAssertNil(prefs.railSwitches[RailControl.mirror.rawValue])
+        XCTAssertFalse(RailControl.mirror.isEnabled(prefs))
+        RailControl.lock.setEnabled(true, in: prefs)
+        XCTAssertTrue(RailControl.lock.isEnabled(prefs))
+        XCTAssertEqual(prefs.railSwitches[RailControl.lock.rawValue], true)
+    }
+
+    // MARK: - What this Mac has
+
+    func testAControlThisMacHasNothingForIsNotOffered() {
+        let bare = RailControl.Presence(hasWiFi: false, hasBluetooth: false, hasKeyboardLight: false, shelfHasFiles: false)
+        let shown = RailControl.available(order: RailControl.defaultOrder, isEnabled: { _ in true }, presence: bare)
+        XCTAssertFalse(shown.contains(.wifi))
+        XCTAssertFalse(shown.contains(.bluetooth))
+        XCTAssertFalse(shown.contains(.keyboardLight), "no backlight, no slider for one")
+        XCTAssertFalse(shown.contains(.airDrop), "nothing on the shelf, nothing to send")
+        XCTAssertEqual(shown.last, .settings)
+        XCTAssertTrue(shown.contains(.display), "every Mac has a display and a Dark Mode")
+
+        let full = RailControl.Presence()
+        XCTAssertEqual(RailControl.available(order: RailControl.defaultOrder, isEnabled: { _ in true }, presence: full),
+                       RailControl.defaultOrder)
+    }
+
+    func testOnlyTheControlsSwitchedOnAreOfferedInTheUsersOrder() {
+        let order = RailControl.order(stored: ["lock", "wifi"])
+        let switches = ["lock": true, "bluetooth": false]
+        let shown = RailControl.available(order: order,
+                                          isEnabled: { RailControl.isSwitchedOn($0, switches: switches) },
+                                          presence: RailControl.Presence())
+        XCTAssertEqual(Array(shown.prefix(2)), [.lock, .wifi])
+        XCTAssertFalse(shown.contains(.bluetooth))
+        XCTAssertFalse(shown.contains(.record), "an action nobody asked for stays off the rail")
+    }
+
+    func testEveryControlCanBeNamedAndDrawn() {
+        for control in RailControl.allCases {
+            XCTAssertFalse(control.label.isEmpty)
+            XCTAssertFalse(control.symbol.isEmpty)
+        }
+        XCTAssertEqual(Set(RailControl.allCases.map(\.label)).count, RailControl.allCases.count, "no two share a name")
+    }
+
+    func testTheKeyboardSliderIsWiderThanADiscAndEverythingElseIsADisc() {
+        XCTAssertGreaterThan(RailMetrics.width(of: .keyboardLight), RailMetrics.button)
+        for control in RailControl.allCases where control != .keyboardLight {
+            XCTAssertEqual(RailMetrics.width(of: control), RailMetrics.button)
+        }
+    }
+}
