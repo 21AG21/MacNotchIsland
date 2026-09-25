@@ -144,7 +144,14 @@ final class LiveActivityAPI {
             }
 
         case ("activity", "end"), ("activity", "stop"):
-            if let id = q["id"] { center.end(id: "api-" + id) } else { center.end(kind: .custom) }
+            // Without an id, every card a script pushed — and only those. The island's own
+            // activities are `.custom` too (the screen recording's, with its Stop button), and
+            // ending by kind took that one down while `screencapture` went on recording.
+            if let id = q["id"] {
+                center.end(id: "api-" + id)
+            } else {
+                for a in center.activities where a.id.hasPrefix("api-") { center.end(id: a.id) }
+            }
 
         case ("alert", _):
             let title = Self.text(q["title"])

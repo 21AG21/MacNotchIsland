@@ -36,6 +36,23 @@ final class LiveActivityAPITests: XCTestCase {
         XCTAssertNil(center.activity(id: "api-build"))
     }
 
+    func testEndingEveryCardLeavesTheIslandsOwnActivitiesAlone() {
+        // The screen recording's activity is `.custom` as well, and carries the only Stop
+        // button for a `screencapture` that keeps running whether the card is there or not.
+        let recording = ScreenRecorder.activity(since: Date(), saving: false, folder: "Desktop")
+        center.upsert(IslandActivity(id: ScreenRecorder.activityID, kind: .custom, content: .custom(recording), priority: 90))
+        handle("notchisland://activity?id=build&title=Building")
+        handle("notchisland://activity?id=deploy&title=Deploying")
+        XCTAssertEqual(center.activities.count, 3)
+
+        handle("notchisland://activity/end")
+        XCTAssertNil(center.activity(id: "api-build"))
+        XCTAssertNil(center.activity(id: "api-deploy"))
+        XCTAssertNotNil(center.activity(id: ScreenRecorder.activityID), "a script ends its own cards, not the island's")
+        XCTAssertEqual(center.activities.map(\.id), [ScreenRecorder.activityID])
+        center.end(id: ScreenRecorder.activityID)
+    }
+
     func testProgressIsClamped() {
         handle("notchisland://activity?id=x&title=T&progress=7")
         guard case .custom(let c)? = center.activity(id: "api-x")?.content else { return XCTFail() }
