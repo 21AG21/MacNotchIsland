@@ -190,6 +190,21 @@ final class SpacesAndDisplaysTests: XCTestCase {
         XCTAssertFalse(center.isSuppressed)
     }
 
+    /// On out of the box wherever the island floats, the watch read every window on the Mac
+    /// every two seconds on every iMac and Mac mini, for a film that was not playing. Going
+    /// full screen, an app coming forward and one quitting are heard as they happen; the timer
+    /// is quick only while something is covered, to see it uncovered.
+    func testTheFullScreenWatchPollsQuicklyOnlyWhileSomethingIsCovered() {
+        let covered = FullscreenMonitor.pollInterval(anyCovered: true, multiplier: 1)
+        let idle = FullscreenMonitor.pollInterval(anyCovered: false, multiplier: 1)
+        XCTAssertEqual(covered, 2, "a film ending brings the island back within a couple of seconds")
+        XCTAssertGreaterThanOrEqual(idle, 5 * covered, "with nothing covered, the list is read rarely")
+        XCTAssertLessThanOrEqual(idle, 30, "but a window no event announces is still seen within half a minute")
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: false, multiplier: 4), 4 * idle,
+                       "and both back off with the energy policy")
+        XCTAssertEqual(FullscreenMonitor.pollInterval(anyCovered: true, multiplier: 2), 2 * covered)
+    }
+
     func testAWindowFillingTheDisplayCoversIt() {
         let plain = FullscreenMonitor.Screen(panelID: "screen-2", rect: CGRect(x: 1710, y: 0, width: 2560, height: 1440), top: 0)
         XCTAssertTrue(FullscreenMonitor.covers(plain, CGRect(x: 1710, y: 0, width: 2560, height: 1440), reportedFullScreen: false))
@@ -447,6 +462,24 @@ final class SpacesAndDisplaysTests: XCTestCase {
         let again: Set = [NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: true),
                           NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: false)]
         XCTAssertFalse(AppDelegate.displaysChanged(now: again, before: before), "nothing moved, nothing to rebuild")
+    }
+
+    /// The floating pill hangs under a menu bar that shows and at the top of a display whose
+    /// menu bar hides itself, and the setting was read only when the panels were built:
+    /// switching it left the pill where the old setting had put it until something else
+    /// rebuilt them.
+    func testTheMenuBarHidingItselfRebuildsTheFloatingIsland() {
+        let external = CGSize(width: 2560, height: 1440)
+        let shows = NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: true, menuBarHides: false)
+        let hides = NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: true, menuBarHides: true)
+        XCTAssertTrue(AppDelegate.displaysChanged(now: [hides], before: [shows]), "switched on: rebuilt")
+        XCTAssertTrue(AppDelegate.displaysChanged(now: [shows], before: [hides]), "and off again")
+        XCTAssertEqual(shows, NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: true),
+                       "a menu bar that stays is the key as it always was")
+        let builtIn = CGSize(width: 1512, height: 982)
+        XCTAssertEqual(NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: true, menuBarHides: true),
+                       NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: true, menuBarHides: false),
+                       "a notched island is as tall as the housing whatever the menu bar does")
     }
 
     func testANotchedIslandIsNotRebuiltForTheMenuBarMoving() {

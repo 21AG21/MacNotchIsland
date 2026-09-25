@@ -224,7 +224,13 @@ run_settings() {
   sleep 1
 }
 
+# A floating island hides in full screen out of the box, and a runner's display is plain. The
+# case clicks the island, so it runs with that switch off: whatever the runner keeps on its
+# screen is no business of this test's, and an island hidden under it would click as broken.
+# Put back to unset afterwards, so the cases after it run as a new Mac would.
+defaults write "$ID" hideInFullscreen -bool false
 run_case floating 21
+defaults delete "$ID" hideInFullscreen 2>/dev/null
 run_case notch 16 "NOTCH_SIMULATE=1"
 # The path users take most: a track is playing, the compact island shows it, a click opens
 # the Now Playing card. Simulated notch and a made-up track, so the runner needs no player.

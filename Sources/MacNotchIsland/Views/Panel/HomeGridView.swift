@@ -19,8 +19,8 @@ struct HomeGridView: View {
     @ObservedObject private var agenda = AgendaStore.shared
     @ObservedObject private var inbox = NotificationInbox.shared
     @State private var hovered: HomeSection?
-    /// Whether this view is one of the agenda's viewers, see `holdAgenda`.
-    @State private var holdsAgenda = false
+    /// How this view holds the agenda, see `agendaHold`.
+    @State private var heldAgenda = AgendaStore.Hold.off
 
     /// Two rows, and as many columns as it takes. Now Playing is two columns wide, so a
     /// five-column grid holds three tiles beside it and five underneath: eight sections.
@@ -85,35 +85,39 @@ struct HomeGridView: View {
         // while somebody is looking at it: unregistered, the tile said "Nothing today" after
         // a fresh launch and, later on, named a meeting that had ended hours before. Held on
         // the same terms as the calendar itself, so the tile never asks for it ahead of the
-        // tour — and, while holding it would still ask, only on a panel somebody opened.
-        .onAppear { holdAgenda(holdsAgendaNow) }
-        .onDisappear { holdAgenda(false) }
-        .onChange(of: holdsAgendaNow) { _, wanted in holdAgenda(wanted) }
+        // tour — and asks only on a panel somebody opened.
+        .onAppear { holdAgenda(agendaHoldNow) }
+        .onDisappear { holdAgenda(.off) }
+        .onChange(of: agendaHoldNow) { _, hold in holdAgenda(hold) }
     }
 
-    /// Whether this grid should be one of the agenda's viewers at this moment, see `holdsAgenda`.
-    private var holdsAgendaNow: Bool {
-        Self.holdsAgenda(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen,
-                         wouldAsk: agenda.wouldAsk)
+    /// How this grid should hold the agenda at this moment, see `agendaHold`. Two stored
+    /// switches and one published flag: nothing here asks macOS anything on a pass of the body.
+    private var agendaHoldNow: AgendaStore.Hold {
+        Self.agendaHold(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen)
     }
 
-    /// Whether the grid holds the agenda.
+    /// How the grid holds the agenda.
     ///
-    /// The first viewer is what asks macOS for Reminders, and the grid is also the peek that
-    /// opens under a pointer resting on the bare notch — so the Reminders sheet came up because
-    /// somebody's pointer had crossed the top of the screen. While holding it would ask, it is
-    /// held only on a panel pinned open, which somebody chose to open; once both questions have
-    /// been put, a peek holds it too, so its Today tile is as fresh as the pinned one. Pure.
-    static func holdsAgenda(wantsCalendar: Bool, pinnedOpen: Bool, wouldAsk: Bool) -> Bool {
-        wantsCalendar && (pinnedOpen || !wouldAsk)
+    /// The grid is also the peek that opens under a pointer resting on the bare notch, and a
+    /// viewer that may ask is what puts the Reminders sheet up — which came up because
+    /// somebody's pointer had crossed the top of the screen. So a peek reads the day and asks
+    /// for nothing (`AgendaStore.Hold.reading`), which keeps its Today tile as fresh as the
+    /// pinned one's with whatever has been granted; a panel pinned open, which somebody chose
+    /// to open, may put the questions. A peek used to stay off the agenda while a question was
+    /// still to be put, and after the tour one always is — Reminders — so a new Mac's peek said
+    /// "Nothing today" over a day of meetings. Pure.
+    static func agendaHold(wantsCalendar: Bool, pinnedOpen: Bool) -> AgendaStore.Hold {
+        guard wantsCalendar else { return .off }
+        return pinnedOpen ? .asking : .reading
     }
 
-    /// Takes or gives back this view's place among the agenda's viewers — what it gave back on
-    /// the way out is what it took, whatever the switch says by then.
-    private func holdAgenda(_ wanted: Bool) {
-        guard wanted != holdsAgenda else { return }
-        holdsAgenda = wanted
-        if wanted { agenda.viewerAppeared() } else { agenda.viewerDisappeared() }
+    /// Moves this view's hold on the agenda — what it gives back on the way out is what it
+    /// took, whatever the switch says by then.
+    private func holdAgenda(_ hold: AgendaStore.Hold) {
+        guard hold != heldAgenda else { return }
+        agenda.move(from: heldAgenda, to: hold)
+        heldAgenda = hold
     }
 
     // MARK: - What is playing

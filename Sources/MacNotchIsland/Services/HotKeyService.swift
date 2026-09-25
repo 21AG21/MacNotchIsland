@@ -1,11 +1,12 @@
 import AppKit
+import Carbon
 import Carbon.HIToolbox
 import Combine
 import Foundation
 
 /// Global shortcuts that drive the island without touching the trackpad. The main combo lives
-/// in preferences (⌃⌥Space out of the box, or ⌃⌥I where macOS has Space, see
-/// `shippingDefault`) and toggles the island; the same modifiers with Tab
+/// in preferences (⌃⌥Space out of the box, or ⌃⌥I where macOS switches input sources with
+/// that, see `shippingDefault`) and toggles the island; the same modifiers with Tab
 /// step forward through every view, with Shift+Tab backward; Escape closes whatever is open,
 /// and the modifiers with the arrow keys step sideways; those are only registered while
 /// something is open. Uses Carbon's RegisterEventHotKey, which works for
@@ -167,9 +168,11 @@ final class HotKeyService: ObservableObject {
             let modifiers = Self.currentModifiers
             registrationFailed = !register(.toggle, keyCode: Self.currentKeyCode, modifiers: modifiers)
             // Asked every time the combination is registered, which is every time it changes:
-            // the list is macOS's, and somebody may have switched one of its entries off since.
-            let taken = Self.systemConflict(keyCode: Self.currentKeyCode, modifiers: modifiers,
-                                            symbolic: Self.systemHotKeys())
+            // the list is macOS's, and somebody may have switched one of its entries off, or
+            // added an input source for the input menu to switch to, since.
+            let taken = Self.systemTakes(keyCode: Self.currentKeyCode, modifiers: modifiers,
+                                         symbolic: Self.systemHotKeys(),
+                                         keyboardSources: Self.selectableKeyboardSources())
             if takenBySystem != taken { takenBySystem = taken }
             // Tab with the same modifiers cycles views; adding Shift reverses. When the main
             // combo already holds Shift the two coincide, and only the forward step registers.
@@ -434,18 +437,69 @@ final class HotKeyService: ObservableObject {
         return mask
     }
 
+    /// Whether the combination is one of the input menu's two as macOS ships them: ⌃Space for
+    /// the previous source and ⌃⌥Space for the next (symbolic hot keys 60 and 61).
+    static func isInputMenuCombination(keyCode: Int, modifiers: Int) -> Bool {
+        guard keyCode == kVK_Space else { return false }
+        let mask = carbonModifiers(symbolic: modifiers)
+        return mask == controlKey || mask == controlKey | optionKey
+    }
+
+    /// Whether switching input sources can do anything: it needs two keyboard sources to
+    /// switch between. Pure over the count `selectableKeyboardSources` reads.
+    static func inputMenuSwitches(keyboardSources: Int) -> Bool {
+        keyboardSources > 1
+    }
+
+    /// Whether macOS answers the combination before the island can, on a Mac with
+    /// `keyboardSources` keyboard input sources to choose from: `systemConflict`, except that
+    /// the input menu's own two take nothing where there is nothing to switch between.
+    ///
+    /// macOS lists the input menu's shortcuts switched on whether there is one source or ten,
+    /// and with one they do nothing and take nothing — ⌃⌥Space reaches the app in front. Read
+    /// as taken, a Mac with one keyboard layout was moved to ⌃⌥I for a shortcut nothing else
+    /// had, and moved back and forth at each launch as a second source came and went. The list
+    /// says which combinations are taken, not by what, so a combination the input menu ships
+    /// with is taken for the input menu's; one somebody has given to Spotlight instead is,
+    /// with one source, missed, and the recorder is where that is put right.
+    static func systemTakes(keyCode: Int, modifiers: Int, symbolic: [[String: Any]], keyboardSources: Int) -> Bool {
+        if isInputMenuCombination(keyCode: keyCode, modifiers: modifiers),
+           !inputMenuSwitches(keyboardSources: keyboardSources) {
+            return false
+        }
+        return systemConflict(keyCode: keyCode, modifiers: modifiers, symbolic: symbolic)
+    }
+
     /// The combination this Mac gets while nobody has recorded one: ⌃⌥Space, or ⌃⌥I where
-    /// macOS already uses ⌃⌥Space — see `fallbackKeyCode`. Pure over `symbolic`.
-    static func shippingDefault(symbolic: [[String: Any]]) -> (keyCode: Int, modifiers: Int) {
-        systemConflict(keyCode: defaultKeyCode, modifiers: defaultModifiers, symbolic: symbolic)
+    /// macOS uses ⌃⌥Space to switch input sources — see `fallbackKeyCode`. Pure over
+    /// `symbolic` and the count of keyboard sources.
+    static func shippingDefault(symbolic: [[String: Any]], keyboardSources: Int) -> (keyCode: Int, modifiers: Int) {
+        systemTakes(keyCode: defaultKeyCode, modifiers: defaultModifiers, symbolic: symbolic,
+                    keyboardSources: keyboardSources)
             ? (fallbackKeyCode, fallbackModifiers)
             : (defaultKeyCode, defaultModifiers)
     }
 
-    /// The same, from this Mac's own list. What Preferences starts from while the shortcut has
-    /// never been recorded, and what the recorder's Reset goes back to.
+    /// The same, from this Mac's own list and input sources. What Preferences writes down the
+    /// first time the app runs, and what the recorder's Reset goes back to. Main thread.
     static var shippingDefaultOnThisMac: (keyCode: Int, modifiers: Int) {
-        shippingDefault(symbolic: systemHotKeys())
+        shippingDefault(symbolic: systemHotKeys(), keyboardSources: selectableKeyboardSources())
+    }
+
+    /// How many keyboard input sources the input menu can switch between: the enabled
+    /// keyboard layouts and input modes that can be selected. Emoji & Symbols and the other
+    /// palettes are not keyboard sources, and a source that cannot be chosen from the menu is
+    /// not one to switch to. None where the list cannot be read.
+    ///
+    /// Main thread only, as the Text Input Sources calls are, and recent macOS traps one made
+    /// from any other. Asked from another thread anyway, it says two without asking, which
+    /// leaves the input menu's shortcuts counted as taken — what this was before it counted.
+    static func selectableKeyboardSources() -> Int {
+        guard Thread.isMainThread else { return 2 }
+        let filter = [kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String,
+                      kTISPropertyInputSourceIsSelectCapable as String: true] as [String: Any]
+        guard let list = TISCreateInputSourceList(filter as CFDictionary, false)?.takeRetainedValue() else { return 0 }
+        return CFArrayGetCount(list)
     }
 
     /// macOS's own shortcuts, as `CopySymbolicHotKeys` lists them; none where it will not say,

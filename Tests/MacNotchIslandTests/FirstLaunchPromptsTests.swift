@@ -12,14 +12,33 @@ final class FirstLaunchPromptsTests: XCTestCase {
     /// The Home peek opens under a pointer resting on the bare notch, and its Today tile was
     /// the agenda's first viewer — which is what asks for Reminders.
     func testAPeekDoesNotAskForTheAgenda() {
-        XCTAssertFalse(HomeGridView.holdsAgenda(wantsCalendar: true, pinnedOpen: false, wouldAsk: true),
+        XCTAssertEqual(HomeGridView.agendaHold(wantsCalendar: true, pinnedOpen: false), .reading,
                        "a pointer passing over is not somebody asking")
-        XCTAssertTrue(HomeGridView.holdsAgenda(wantsCalendar: true, pinnedOpen: true, wouldAsk: true),
-                      "a panel somebody opened may ask")
-        XCTAssertTrue(HomeGridView.holdsAgenda(wantsCalendar: true, pinnedOpen: false, wouldAsk: false),
-                      "once both are answered, a peek keeps its tile fresh too")
-        XCTAssertFalse(HomeGridView.holdsAgenda(wantsCalendar: false, pinnedOpen: true, wouldAsk: false),
+        XCTAssertEqual(HomeGridView.agendaHold(wantsCalendar: true, pinnedOpen: true), .asking,
+                       "a panel somebody opened may ask")
+        XCTAssertEqual(HomeGridView.agendaHold(wantsCalendar: false, pinnedOpen: true), .off,
                        "never ahead of the tour, nor with Today switched off")
+        XCTAssertEqual(HomeGridView.agendaHold(wantsCalendar: false, pinnedOpen: false), .off)
+    }
+
+    /// After the tour Calendars is answered and Reminders is not, since only the agenda's own
+    /// viewer asks for it. A peek that stayed off the agenda until then said "Nothing today"
+    /// over a day of meetings, on every new Mac, until a panel had been pinned open once. It
+    /// reads what has been granted now, and only a panel somebody opened asks.
+    func testAPeekReadsTheDayWithoutAsking() {
+        typealias Hold = AgendaStore.Hold
+        XCTAssertEqual(AgendaStore.change(from: .off, to: .reading), .appear(mayAsk: false),
+                       "a peek is a viewer that asks for nothing")
+        XCTAssertEqual(AgendaStore.change(from: .off, to: .asking), .appear(mayAsk: true))
+        XCTAssertEqual(AgendaStore.change(from: .reading, to: .asking), .ask,
+                       "the peek pinned open: now it may ask, and it stays the viewer it was")
+        XCTAssertEqual(AgendaStore.change(from: .asking, to: .reading), .nothing,
+                       "unpinned: a question already put is not taken back, and the day is still read")
+        XCTAssertEqual(AgendaStore.change(from: .reading, to: .off), .disappear)
+        XCTAssertEqual(AgendaStore.change(from: .asking, to: .off), .disappear)
+        for hold: Hold in [.off, .reading, .asking] {
+            XCTAssertEqual(AgendaStore.change(from: hold, to: hold), .nothing, "\(hold)")
+        }
     }
 
     func testTheAgendaAsksOnceAndOnlyForWhatIsUnanswered() {

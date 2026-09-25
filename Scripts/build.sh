@@ -3,7 +3,7 @@
 #   Scripts/build.sh            # release build -> build/MacNotchIsland.app
 #   Scripts/build.sh --run      # build and launch
 #   Scripts/build.sh --install  # build and copy into /Applications
-#   VERSION=1.2.0 [BUILD_NUMBER=57] Scripts/build.sh
+#   NOTCH_VERSION=1.2.0 [NOTCH_BUILD_NUMBER=57] Scripts/build.sh
 #                               # a release: the bundle says 1.2.0 (build 57, or the commit count)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -19,10 +19,15 @@ CONFIG="release"
 # compiled, so a bad tag costs seconds rather than a whole build. MAJOR.MINOR.PATCH with an
 # optional pre-release ("-beta.1"), which is what UpdateChecker knows how to order; build
 # metadata ("+7") is refused, since the build number is CFBundleVersion's to carry.
+#
+# Read from NOTCH_VERSION and NOTCH_BUILD_NUMBER, names nothing else sets. A plain VERSION was
+# read before, and a developer whose shell exported one for something else — a tool's
+# version, a Node release — found a local build refused as not semantic, or stamped with
+# somebody else's number.
 SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
-VERSION="${VERSION:-}"
-if [[ -n "$VERSION" ]] && ! [[ "$VERSION" =~ $SEMVER ]]; then
-  echo "VERSION must be a semantic version such as 1.2.0 or 1.2.0-beta.1, not \"$VERSION\"." >&2
+NOTCH_VERSION="${NOTCH_VERSION:-}"
+if [[ -n "$NOTCH_VERSION" ]] && ! [[ "$NOTCH_VERSION" =~ $SEMVER ]]; then
+  echo "NOTCH_VERSION must be a semantic version such as 1.2.0 or 1.2.0-beta.1, not \"$NOTCH_VERSION\"." >&2
   exit 1
 fi
 
@@ -107,12 +112,12 @@ cp "$BIN" "$OUT/Contents/MacOS/$APP"
 cp Resources/Info.plist "$OUT/Contents/Info.plist"
 # Into the bundle's copy, never the one in Resources, and before anything is signed: the
 # signature seals Info.plist, and a change after it is a broken seal.
-if [[ -n "$VERSION" ]]; then
+if [[ -n "$NOTCH_VERSION" ]]; then
   # CI passes its run number, which only goes up; a shallow checkout has one commit to count.
-  BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
-  plutil -replace CFBundleShortVersionString -string "$VERSION" "$OUT/Contents/Info.plist"
-  plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$OUT/Contents/Info.plist"
-  echo "Version $VERSION ($BUILD_NUMBER)"
+  NOTCH_BUILD_NUMBER="${NOTCH_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
+  plutil -replace CFBundleShortVersionString -string "$NOTCH_VERSION" "$OUT/Contents/Info.plist"
+  plutil -replace CFBundleVersion -string "$NOTCH_BUILD_NUMBER" "$OUT/Contents/Info.plist"
+  echo "Version $NOTCH_VERSION ($NOTCH_BUILD_NUMBER)"
 fi
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"

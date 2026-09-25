@@ -90,11 +90,15 @@ final class UpdateCheckerTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let build = try String(contentsOf: root.appendingPathComponent("Scripts/build.sh"), encoding: .utf8)
-        XCTAssertTrue(build.contains("plutil -replace CFBundleShortVersionString -string \"$VERSION\""))
-        XCTAssertTrue(build.contains("plutil -replace CFBundleVersion -string \"$BUILD_NUMBER\""))
+        XCTAssertTrue(build.contains("plutil -replace CFBundleShortVersionString -string \"$NOTCH_VERSION\""))
+        XCTAssertTrue(build.contains("plutil -replace CFBundleVersion -string \"$NOTCH_BUILD_NUMBER\""))
+        XCTAssertFalse(build.contains("${VERSION:-}"),
+                       "a VERSION a developer's shell exports for something else is not the app's")
         let release = try String(contentsOf: root.appendingPathComponent(".github/workflows/release.yml"),
                                  encoding: .utf8)
         XCTAssertTrue(release.contains("${GITHUB_REF_NAME#v}"), "the version comes from the tag")
+        XCTAssertTrue(release.contains("NOTCH_VERSION="), "handed to the build by the name it reads")
+        XCTAssertTrue(release.contains("NOTCH_BUILD_NUMBER="))
     }
 
     // MARK: - parse

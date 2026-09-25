@@ -142,7 +142,7 @@ struct GeneralPane: View {
     /// follows the island (`FloatingDefaults.hidesInFullScreen`), and a switch that reads off
     /// on one Mac and on on the next with nothing said looks like a setting that was lost.
     static func hidingFooter(needsAccessibility: Bool) -> String {
-        let base = "The island returns as soon as you leave full screen. The menu bar can also hide it for an hour at a time. Until you set it, this is on while the island floats on a display without a notch, since there it hangs over the top of whatever is full screen, and off while it sits beside the camera in a notch."
+        let base = "The island returns as soon as you leave full screen. The menu bar can also hide it for an hour at a time. Until you set it, this is on for a Mac without a notch, where the island floats over the top of whatever is full screen, and off for one whose island sits beside the camera in a notch."
         guard needsAccessibility else { return base }
         return base + " On the display with the notch, a full-screen window is the same size as one zoomed under the menu bar, and telling them apart for certain takes Accessibility. Without it the island goes by whether that display's menu bar has gone — so with the menu bar set to hide automatically, a zoomed window there hides the island too."
     }

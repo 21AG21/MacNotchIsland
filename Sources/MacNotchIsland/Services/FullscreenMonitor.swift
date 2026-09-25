@@ -3,8 +3,9 @@ import ApplicationServices
 import Combine
 
 /// Hides an island while an app has a window covering that island's whole display (full-screen
-/// video, games, presentations). Polls the window list every 2 s, scaled by EnergyPolicy, and
-/// only while the preference is on.
+/// video, games, presentations). Only while the preference is on, and led by events: the
+/// window list is read when the Space changes, an app comes to the front or quits, and on a
+/// timer that is quick only while something is covered (`pollInterval`).
 ///
 /// Per display. A film full screen on the external display hides that display's island and
 /// leaves the MacBook's alone; one flag for every island hid the lot, and closed whatever
@@ -23,20 +24,52 @@ import Combine
 /// belongs to (`home`).
 final class FullscreenMonitor {
     private var timer: Timer?
+    /// What the timer was set to, so that it is set again only when that changes.
+    private var interval: TimeInterval = 0
+    /// Whether the last reading found any island covered, which is what the timer's pace
+    /// follows (`pollInterval`).
+    private var anyCovered = false
     private var energyCancellable: AnyCancellable?
-    private var spaceObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+
+    /// How often the window list is read while something is covered: the film ending has to
+    /// bring the island back promptly, and a window leaving full screen by itself — a game's
+    /// own full-screen window closing, a player that is not in a Space of its own — tells
+    /// nobody.
+    static let coveredPoll: TimeInterval = 2
+    /// How often it is read while nothing is: only for the covering that no event announces,
+    /// a display-sized window put up inside the app already in front.
+    static let idlePoll: TimeInterval = 20
+
+    /// How long the timer waits between readings, scaled by EnergyPolicy's multiplier.
+    ///
+    /// The window list was read every two seconds whatever was on screen, and since the switch
+    /// is on out of the box wherever the island floats, that was every iMac and Mac mini
+    /// running the app, reading every window on the Mac around the clock to be ready for a
+    /// film. Going full screen changes the Space, and bringing another app forward or quitting
+    /// one is what changes what is in front; those are heard as they happen (`start`), and the
+    /// timer is left to what they cannot say. Pure.
+    static func pollInterval(anyCovered: Bool, multiplier: Double) -> TimeInterval {
+        (anyCovered ? coveredPoll : idlePoll) * multiplier
+    }
 
     func start() {
         guard timer == nil else { return }
+        anyCovered = !ActivityCenter.shared.fullscreenPanels.isEmpty
         scheduleTimer()
         energyCancellable = EnergyPolicy.shared.objectWillChange
             .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.scheduleTimer() }
-        // Entering full screen creates a Space; check at once rather than on the next poll,
-        // so the island never lingers over a freshly full-screen app.
-        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.tick()
+        // Entering full screen creates a Space, and another app coming forward or one quitting
+        // changes what is at the front of a display: each is looked at once, at once, rather
+        // than on the next poll, so the island never lingers over a freshly full-screen app.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.activeSpaceDidChangeNotification,
+                     NSWorkspace.didActivateApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification] {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.tick()
+            })
         }
         tick()
     }
@@ -44,17 +77,22 @@ final class FullscreenMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+        interval = 0
+        anyCovered = false
         energyCancellable = nil
-        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
-        spaceObserver = nil
+        for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        observers.removeAll()
         if !ActivityCenter.shared.fullscreenPanels.isEmpty { ActivityCenter.shared.fullscreenPanels = [] }
     }
 
+    /// Sets the timer to the pace `pollInterval` gives, if it is not at it already.
     private func scheduleTimer() {
+        let next = Self.pollInterval(anyCovered: anyCovered, multiplier: EnergyPolicy.shared.pollingMultiplier)
+        guard timer == nil || next != interval else { return }
         timer?.invalidate()
-        let interval = 2.0 * EnergyPolicy.shared.pollingMultiplier
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
-        t.tolerance = interval * 0.25
+        interval = next
+        let t = Timer(timeInterval: next, repeats: true) { [weak self] _ in self?.tick() }
+        t.tolerance = next * 0.25
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
@@ -90,6 +128,11 @@ final class FullscreenMonitor {
 
     private func apply(_ covered: Set<String>) {
         guard timer != nil else { return }
+        // Quick while something is covered, to notice it uncovered; slow while nothing is.
+        if anyCovered != !covered.isEmpty {
+            anyCovered = !covered.isEmpty
+            scheduleTimer()
+        }
         let center = ActivityCenter.shared
         guard center.fullscreenPanels != covered else { return }
         let newlyCovered = covered.subtracting(center.fullscreenPanels)
@@ -356,6 +399,9 @@ final class FullscreenMonitor {
         guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windowsValue) == .success,
               let windows = windowsValue as? [AXUIElement] else { return [] }
         return windows.compactMap { window in
+            // The window's own: an element read out of another starts with the process's
+            // default, which is the six seconds again.
+            _ = AXUIElementSetMessagingTimeout(window, 1)
             var fullValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &fullValue) == .success,
                   (fullValue as? Bool) == true else { return nil }

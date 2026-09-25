@@ -166,14 +166,18 @@ final class Preferences: ObservableObject {
     /// islands just built, one entry per panel, true where it floats. A switch that has been
     /// set is left as it was set.
     ///
+    /// The floating defaults only while every island floats (`FloatingDefaults.floats`): one
+    /// island in a notch keeps the notch's, whatever else is plugged in. Any floating island
+    /// used to be enough, so with "Show on all displays" on a monitor gave the MacBook's
+    /// island the floating pill's defaults, and took them away again when it was unplugged.
+    ///
     /// Called whenever the panels are built, because what was read at load can stop being
     /// true while the app runs: a MacBook opened after launching with the lid shut and a
-    /// monitor attached, or "Show on all displays" switched on, gives the island a notch it
-    /// did not have or a display where it floats. No panels says nothing about the island —
-    /// a display that has not come back yet — and moves nothing.
+    /// monitor attached gives the island the notch it did not have. No panels says nothing
+    /// about the island — a display that has not come back yet — and moves nothing.
     func followFloatingDefaults(panelsFloating: [Bool]) {
         guard !panelsFloating.isEmpty else { return }
-        let floating = panelsFloating.contains(true)
+        let floating = !panelsFloating.contains(false)
         let hides = FloatingDefaults.hidesInFullScreen(stored: Self.storedBool("hideInFullscreen"), floating: floating)
         let opens = FloatingDefaults.idleHoverOpens(stored: Self.storedBool("expandOnIdleHover"), floating: floating)
         followingIsland = true
@@ -233,7 +237,7 @@ final class Preferences: ObservableObject {
         // Whether the island will float, read from the displays before any panel is built, for
         // the two switches that follow it while nobody has set them (`FloatingDefaults`). The
         // panels say so again once they are built, see `followFloatingDefaults`.
-        let floating = FloatingDefaults.floatsOnThisMac(onAllDisplays: onAllDisplays)
+        let floating = FloatingDefaults.floatsOnThisMac()
         showOnAllDisplays = onAllDisplays
         staysPutAcrossSpaces = bool("staysPutAcrossSpaces", true)
         hoverToExpand = bool("hoverToExpand", true)
@@ -299,14 +303,19 @@ final class Preferences: ObservableObject {
         weatherEnabled = bool("weatherEnabled", false)
         hideInFullscreen = FloatingDefaults.hidesInFullScreen(stored: Self.storedBool("hideInFullscreen"), floating: floating)
         reactiveVisualizerEnabled = bool("reactiveVisualizerEnabled", false)
-        // ⌃⌥Space, unless macOS already uses it — see `HotKeyService.shippingDefault`. Asked
-        // only while nothing has been recorded, and not written down: the combination follows
-        // the Mac's own list until somebody chooses one.
-        let shipping = d.object(forKey: "hotkeyKeyCode") == nil
-            ? HotKeyService.shippingDefaultOnThisMac
-            : (keyCode: HotKeyService.defaultKeyCode, modifiers: HotKeyService.defaultModifiers)
-        hotkeyKeyCode = double("hotkeyKeyCode", Double(shipping.keyCode))
-        hotkeyModifiers = double("hotkeyModifiers", Double(shipping.modifiers))
+        // ⌃⌥Space, unless macOS switches input sources with it — see
+        // `HotKeyService.shippingDefault`. Asked only while nothing has been recorded, and
+        // written down the first time it is: left to follow the Mac, it was asked again at
+        // every launch, and an input source added or taken away since the last one moved the
+        // shortcut the tour had taught without a word. Once written it stays, as a recorded
+        // one does; the recorder's Reset asks again.
+        if d.object(forKey: "hotkeyKeyCode") == nil {
+            let shipping = HotKeyService.shippingDefaultOnThisMac
+            d.set(Double(shipping.keyCode), forKey: "hotkeyKeyCode")
+            d.set(Double(shipping.modifiers), forKey: "hotkeyModifiers")
+        }
+        hotkeyKeyCode = double("hotkeyKeyCode", Double(HotKeyService.defaultKeyCode))
+        hotkeyModifiers = double("hotkeyModifiers", Double(HotKeyService.defaultModifiers))
         pausedUntil = double("pausedUntil", 0)
         hiddenAppBundleIDs = UserDefaults.standard.stringArray(forKey: "hiddenAppBundleIDs") ?? []
         sectionOrder = UserDefaults.standard.stringArray(forKey: "sectionOrder") ?? []

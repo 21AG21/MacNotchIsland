@@ -99,31 +99,56 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertEqual(mute.owed, [airPods], "but the AirPods are owed their unmute")
         XCTAssertFalse(mute.reappeared(builtIn), "nothing is owed to a microphone that was there to be given back")
         XCTAssertTrue(mute.reappeared(airPods), "back, with no mute in force: unmuted")
-        XCTAssertEqual(mute.owed, [airPods], "still owed until the unmute has gone through")
-        mute.settled(airPods)
+        XCTAssertEqual(mute.owed, [airPods], "still owed until a look at it settles it")
+        XCTAssertFalse(mute.looked(at: airPods, readMuted: true), "read muted and given its unmute: settled")
         XCTAssertEqual(mute.owed, [])
         XCTAssertFalse(mute.reappeared(airPods), "and only the once")
     }
 
-    /// AirPods that have only just appeared can have no mute to read yet, or none that can be
-    /// set. The debt was struck off before the unmute was tried, the unmute was passed over,
-    /// and they stayed muted for good.
-    func testAnUnmuteOwedIsPaidOnlyOnceItHasGoneThrough() {
+    /// AirPods that have only just appeared can have no mute to read yet. The debt was struck
+    /// off before the unmute was tried, and they stayed muted for good; then it stood until an
+    /// unmute went through, which for a microphone that can never say was for the rest of the
+    /// run, and one that could not say when it came back and was then muted by its owner was
+    /// unmuted over them at the next change of devices. The first answer settles it, either
+    /// way, and a microphone with none is given a few looks.
+    func testAnUnmuteOwedIsSettledByTheFirstAnswerAndGivenAFewLooksWithout() {
         typealias Held = MicrophoneControl.HeldMute
-        XCTAssertTrue(Held.owedUnmutePaid(readMuted: true, unmuted: true), "read muted, and unmuted")
-        XCTAssertFalse(Held.owedUnmutePaid(readMuted: true, unmuted: false), "the unmute was refused: asked again next time")
-        XCTAssertFalse(Held.owedUnmutePaid(readMuted: nil, unmuted: false),
-                       "could not say whether it is muted: nothing is known to be paid")
-        XCTAssertTrue(Held.owedUnmutePaid(readMuted: false, unmuted: false),
-                      "already live, whoever made it so: nothing is left to give")
+        XCTAssertTrue(Held.owedUnmuteSettles(readMuted: true, looks: 1), "read muted: unmuted there and then, and done")
+        XCTAssertTrue(Held.owedUnmuteSettles(readMuted: false, looks: 1), "already live, whoever made it so: nothing to give")
+        XCTAssertFalse(Held.owedUnmuteSettles(readMuted: nil, looks: 1), "no answer yet: looked at again")
+        XCTAssertFalse(Held.owedUnmuteSettles(readMuted: nil, looks: Held.owedLooks - 1))
+        XCTAssertTrue(Held.owedUnmuteSettles(readMuted: nil, looks: Held.owedLooks), "and not for ever")
+        XCTAssertGreaterThanOrEqual(Held.owedLooks, 2, "a device just appeared gets another look")
+        XCTAssertLessThanOrEqual(Held.owedLooks, 5)
 
         var mute = Held()
         mute.muted(airPods)
         let away = mute.release(except: builtIn)
         mute.unreachable(away)
         XCTAssertTrue(mute.reappeared(airPods), "back, and nothing could be read")
-        XCTAssertTrue(mute.reappeared(airPods), "so at the next change of devices it is tried again")
-        XCTAssertEqual(mute.owed, [airPods])
+        XCTAssertTrue(mute.looked(at: airPods, readMuted: nil), "so it stays owed")
+        XCTAssertTrue(mute.reappeared(airPods), "and at the next change of devices it is tried again")
+        XCTAssertFalse(mute.looked(at: airPods, readMuted: false),
+                       "live by then: settled, so a mute its owner puts on later is left alone")
+        XCTAssertEqual(mute.owed, [])
+        XCTAssertFalse(mute.reappeared(airPods))
+
+        mute.muted(builtIn)
+        mute.muted(airPods)
+        mute.unreachable(mute.release(except: builtIn))
+        for look in 1..<Held.owedLooks {
+            XCTAssertTrue(mute.reappeared(airPods))
+            XCTAssertTrue(mute.looked(at: airPods, readMuted: nil), "look \(look): still owed")
+        }
+        XCTAssertTrue(mute.reappeared(airPods))
+        XCTAssertFalse(mute.looked(at: airPods, readMuted: nil), "a microphone that never says is written off")
+        XCTAssertEqual(mute.owed, [])
+        XCTAssertTrue(mute.looks.isEmpty, "and nothing is kept about it")
+
+        mute.muted(airPods)
+        mute.unreachable(mute.release(except: builtIn))
+        XCTAssertTrue(mute.reappeared(airPods))
+        XCTAssertTrue(mute.looked(at: airPods, readMuted: nil), "a new debt starts its looks afresh")
         mute.muted(builtIn)
         XCTAssertFalse(mute.reappeared(airPods), "a mute put on meanwhile takes it over")
         XCTAssertEqual(mute.owed, [])
@@ -361,16 +386,15 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertFalse(SystemActions.lockFlags.contains(.maskAlternate))
     }
 
-    /// Nought from the login framework's call is its word that it locked, and is believed:
-    /// looked at half a second later, a screen whose session flag had not turned yet had
-    /// Control-Command-Q pressed into its lock screen, or the display put to sleep after a lock
-    /// that worked. Anything else is written down nowhere, and there the screen says whether
-    /// it worked: anything but nought used to press the keystroke too, on top of a lock that
-    /// had happened.
-    func testTheLockGoesAnotherWayOnlyIfTheCallDidNotSayItLockedAndTheScreenDidNotLock() {
+    /// What the login framework's call returns is written down nowhere, so the screen says
+    /// whether it worked, nought or not: anything but nought used to press the keystroke too,
+    /// on top of a lock that had happened, and a nought was for a while believed outright. The
+    /// wait is two seconds, ended early by the system's own word, which is long enough for a
+    /// busy Mac's lock screen — the reason a nought had stopped being checked.
+    func testTheLockGoesAnotherWayOnlyIfTheScreenDidNotLock() {
         XCTAssertFalse(SystemActions.lockFallback(status: 0, lockedAfter: true))
-        XCTAssertFalse(SystemActions.lockFallback(status: 0, lockedAfter: false),
-                       "a nought is taken at its word, however slow the screen is to say so")
+        XCTAssertTrue(SystemActions.lockFallback(status: 0, lockedAfter: false),
+                      "a nought that locked nothing is not a lock either")
         XCTAssertFalse(SystemActions.lockFallback(status: 1, lockedAfter: true),
                        "locked in time, whatever the call answered: nothing more is pressed")
         XCTAssertTrue(SystemActions.lockFallback(status: -1, lockedAfter: false))

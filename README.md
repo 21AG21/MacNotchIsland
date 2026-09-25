@@ -28,7 +28,7 @@ and the same content layout as iOS.
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
 | Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap: the most recently started activity owns the island, a call or a timer that just rang always does, and the shelf waits in the bubble while something plays. Alerts are ranked so a volume tick never hides a low-battery warning. |
 | Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. The Today section lists the next 24 hours and today's reminders. |
-| Long-press to expand, tap to open | Rest the pointer on the island to peek at the panel; click to keep it open, click anywhere else (or press Escape) to close it. What you open stays open across desktops. A global shortcut (⌃⌥Space by default) toggles it, the same modifiers with Tab step through every section and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
+| Long-press to expand, tap to open | Rest the pointer on the island to peek at the panel; click to keep it open, click anywhere else (or press Escape) to close it. What you open stays open across desktops. A global shortcut (⌃⌥Space by default, or ⌃⌥I where macOS uses that to switch input sources) toggles it, the same modifiers with Tab step through every section and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
 | — | A URL scheme and `notchctl` for scripts: push your own Live Activity with a title, a progress ring and up to two named buttons that open a link or run a Shortcut. |
 | — | Ask from a script: `notchctl ask "Deploy to production?"` holds the question on the island with two buttons (Yes and No, or names of your own) until you click one or press Control-Y or Control-N, or its time runs out. It prints yes, no or timeout and exits 0, 1 or 2, so `if notchctl ask "Deploy?"; then …` does what it says. |
 | — | Tell me when the battery has had enough charge: pick 70, 80, 85 or 90 per cent and the island says so once per charge, which is the thing macOS never does. |
@@ -61,7 +61,7 @@ and the same content layout as iOS.
 | — | Energy discipline: animations slow on battery and stop in Low Power Mode or sleep; every poller backs off; idle CPU stays near zero. |
 | — | Hide the island automatically while chosen apps are in front (Keynote, a game, a screen-sharing client). Screenshots land on the shelf as well as on their card. |
 | — | VoiceOver labels: the pill says in one line what it is showing — the track, the time left, the charge — and the panel's buttons, sliders and tiles carry names of their own. Not every corner has been through VoiceOver yet. |
-| — | On a Mac without a notch, or on an external display, the island floats at the top centre with the same morphs — just under the top edge when the menu bar hides itself — and out of the box it hides in full-screen apps and opens from the bare pill on a click rather than a resting pointer. |
+| — | On a Mac without a notch, or on an external display, the island floats at the top centre with the same morphs — just under the top edge when the menu bar hides itself. On a Mac with no notch at all, out of the box it hides in full-screen apps and opens from the bare pill on a click rather than a resting pointer; a MacBook's notch keeps its own defaults with a monitor plugged in. |
 
 ## Build
 
@@ -88,8 +88,9 @@ make dmg        # builds a drag-to-Applications disk image
 
 The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the
 demo menu, and Quit — or right-click the island itself for the short version of the same menu. Turn on "Open at login" under General in Settings once you're happy with it.
-Press ⌃⌥Space anywhere to summon the island; with it open, the arrows, the digits and Space
-drive it without a modifier.
+Press ⌃⌥Space anywhere to summon the island — or ⌃⌥I where macOS uses ⌃⌥Space to switch input
+sources; Settings shows which — and with it open, the arrows, the digits and Space drive it
+without a modifier.
 
 `Scripts/make-dmg.sh` builds a drag-to-Applications disk image; pushing a `v*` tag runs the
 Release workflow, which attaches the DMG and a zip to a GitHub Release.

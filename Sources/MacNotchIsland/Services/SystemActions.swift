@@ -7,23 +7,22 @@ import CoreGraphics
 /// the screen, put the display to sleep, and open the screenshot toolbar.
 ///
 /// The lock is the call the menu bar's own Lock Screen item makes, looked up by name in a
-/// private framework and walked past when it is not there, or when it answers something other
-/// than nought and the screen has not locked a couple of seconds later; behind it is
-/// Control-Command-Q, posted as if typed, which needs Accessibility. The display goes to sleep through `pmset`, which any user may run, and the
-/// toolbar is Apple's own Screenshot app.
+/// private framework and walked past when it is not there, or when the screen has not locked
+/// a couple of seconds after it, whatever it answered; behind it is Control-Command-Q, posted
+/// as if typed, which needs Accessibility. The display goes to sleep through `pmset`, which
+/// any user may run, and the toolbar is Apple's own Screenshot app.
 enum SystemActions {
     /// Locks the screen at once, the way Control-Command-Q does.
     ///
     /// The menu's own call first, because it depends on nothing: no permission, no keyboard
     /// layout. The keystroke used to come first, and on a French keyboard it was
     /// Control-Command-A — see `lockKeyCode(characterFor:)` — which locks nothing; and since
-    /// posting it counted as success, nothing else was tried. A nought from the call is taken
-    /// at its word, at once; anything else is not taken for a failure until the screen has had
-    /// a couple of seconds to lock (`lockFallback`, `LockWatch`).
+    /// posting it counted as success, nothing else was tried. Whatever the call answers, the
+    /// screen is given a couple of seconds to lock before the lock goes another way
+    /// (`lockFallback`, `LockWatch`).
     static func lockScreen() {
         guard let lock = loginLockScreen else { return lockAnotherWay() }
         let status = lock()
-        guard status != 0 else { return }
         LockWatch.start { locked in
             guard Self.lockFallback(status: status, lockedAfter: locked) else { return }
             IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock, and the screen did not lock")
@@ -31,10 +30,10 @@ enum SystemActions {
         }
     }
 
-    /// How long the screen is given to lock after the login framework's call answered
-    /// something other than nought, before the lock goes another way. The lock screen can take
-    /// more than half a second to come up on a busy Mac, and half a second, as this was,
-    /// pressed Control-Command-Q into a lock screen already on its way.
+    /// How long the screen is given to lock after the login framework's call, before the lock
+    /// goes another way. The lock screen can take more than half a second to come up on a busy
+    /// Mac, and half a second, as this was, pressed Control-Command-Q into a lock screen
+    /// already on its way.
     static let lockPatience: TimeInterval = 2
 
     /// How often the session is read while waiting, for when the system's "locked"
@@ -44,15 +43,16 @@ enum SystemActions {
     /// Whether the lock goes another way: the keystroke, else the display put to sleep.
     ///
     /// `status` is what the login framework's call returned, nil when it is not there to call;
-    /// `lockedAfter` is whether the screen locked within `lockPatience` of it. Nought is the
-    /// call's word that it locked, and it is believed whatever the screen says yet: the
-    /// session's flag can be slower to turn than any fixed wait, and not believing it pressed
-    /// Control-Command-Q into the lock screen, or put the display to sleep after a lock that
-    /// had worked. What anything else means is written down nowhere, so there the screen
-    /// decides: locked in time, the call worked, whatever it said; not locked, it did not.
+    /// `lockedAfter` is whether the screen locked within `lockPatience` of it. What the call
+    /// returns is written down nowhere, so the screen decides, nought or not: locked in time,
+    /// the call worked, whatever it said; not locked, it did not. A nought was believed at
+    /// once for a while, because the screen was looked at after half a second and a session
+    /// flag slow to turn had Control-Command-Q pressed into a lock screen on its way; the wait
+    /// is two seconds now, and ends early on the system's own word that the screen is locked,
+    /// so a nought that locked nothing is caught rather than believed. No call to make goes
+    /// the other way at once.
     static func lockFallback(status: Int32?, lockedAfter: Bool) -> Bool {
-        guard let status else { return true }
-        guard status != 0 else { return false }
+        guard status != nil else { return true }
         return !lockedAfter
     }
 

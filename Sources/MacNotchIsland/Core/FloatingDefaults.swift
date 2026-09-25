@@ -35,15 +35,21 @@ enum FloatingDefaults {
         stored ?? !floating
     }
 
-    /// Whether any island floats, given whether each display has a notch and whether every
-    /// display carries an island — the choice `AppDelegate.targetScreens` makes. With "Show on
-    /// all displays" off the island goes on the notched displays, or on the primary where
-    /// there are none, so it floats only on a Mac with no notch at all; with it on, any
-    /// display without a notch carries a floating one. Nil with no displays to go by: a
-    /// display that has not come back yet says nothing about the island.
-    static func floats(notched: [Bool], onAllDisplays: Bool) -> Bool? {
+    /// Whether the island floats everywhere it is, given whether each display has a notch:
+    /// true only where none of them has one. Nil with no displays to go by: a display that
+    /// has not come back yet says nothing about the island.
+    ///
+    /// Every island, not any. The two switches are one pair for every island, and a notch
+    /// among the displays keeps the notch's defaults — with "Show on all displays" off the
+    /// island is on the notch alone (`AppDelegate.targetScreens`), and with it on the notch
+    /// still carries one. Any island used to be enough, so a MacBook with a monitor and that
+    /// switch on had its notch island hide in full screen and stop opening under a resting
+    /// pointer, and both flipped each time the monitor was plugged in or out. So "Show on all
+    /// displays" decides nothing here: a Mac floats its island out of the box only when it has
+    /// no notch to sit in, the lid shut on a MacBook included.
+    static func floats(notched: [Bool]) -> Bool? {
         guard !notched.isEmpty else { return nil }
-        return onAllDisplays ? notched.contains(false) : !notched.contains(true)
+        return !notched.contains(true)
     }
 
     /// The same, from this Mac's displays, for Preferences to start from before any panel has
@@ -51,8 +57,8 @@ enum FloatingDefaults {
     /// preferences that are being loaded. A notch `NOTCH_SIMULATE` puts on a plain display
     /// counts, as it does there. No displays at all reads as the notch's defaults, which were
     /// every Mac's before this.
-    static func floatsOnThisMac(onAllDisplays: Bool) -> Bool {
+    static func floatsOnThisMac() -> Bool {
         let notched = NSScreen.screens.map { $0.safeAreaInsets.top > 0 || NotchGeometry.simulatesNotch }
-        return floats(notched: notched, onAllDisplays: onAllDisplays) ?? false
+        return floats(notched: notched) ?? false
     }
 }

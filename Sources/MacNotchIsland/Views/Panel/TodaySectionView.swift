@@ -7,10 +7,11 @@ struct TodaySectionView: View {
     @ObservedObject private var agenda = AgendaStore.shared
     @ObservedObject private var weather = WeatherService.shared
     @EnvironmentObject private var prefs: Preferences
-    /// Whether this view holds one of the weather's claims, see `holdWeather`.
     @EnvironmentObject private var center: ActivityCenter
+    /// Whether this view holds one of the weather's claims, see `holdWeather`.
     @State private var holdsWeather = false
-    @State private var holdsAgenda = false
+    /// How this view holds the agenda, see `agendaHoldNow`.
+    @State private var heldAgenda = AgendaStore.Hold.off
 
     private static let eventRow: CGFloat = 36
     static let reminderRow: CGFloat = 28
@@ -163,36 +164,35 @@ struct TodaySectionView: View {
             if showsHours { hourly }
         }
         .onAppear {
-            holdAgenda(holdsAgendaNow)
+            holdAgenda(agendaHoldNow)
             holdWeather(prefs.weatherEnabled)
         }
         .onDisappear {
-            holdAgenda(false)
+            holdAgenda(.off)
             holdWeather(false)
         }
-        .onChange(of: holdsAgendaNow) { _, wanted in holdAgenda(wanted) }
+        .onChange(of: agendaHoldNow) { _, hold in holdAgenda(hold) }
         .onChange(of: prefs.weatherEnabled) { _, on in holdWeather(on) }
+    }
+
+    /// How this section holds the agenda: the same rule as the Home grid's Today tile, so a
+    /// peek that lands here reads the day and does not put up the Reminders sheet because a
+    /// pointer crossed the top of the screen. See `HomeGridView.agendaHold`.
+    private var agendaHoldNow: AgendaStore.Hold {
+        HomeGridView.agendaHold(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen)
+    }
+
+    /// What it gives back on the way out is what it took, whatever the rule says by then.
+    private func holdAgenda(_ hold: AgendaStore.Hold) {
+        guard hold != heldAgenda else { return }
+        agenda.move(from: heldAgenda, to: hold)
+        heldAgenda = hold
     }
 
     /// Takes or gives back this view's claim on the weather. What it gives back on the way out
     /// is what it took, rather than what the switch says by then: turning Weather off with
     /// Today on screen skipped the `stop()`, and the service went on polling with its switch
     /// off for the rest of the session.
-    /// Whether this section holds the agenda: the same rule as the Home grid's Today tile, so
-    /// a peek that lands here does not put up the Reminders sheet because a pointer crossed
-    /// the top of the screen. See `HomeGridView.holdsAgenda`.
-    private var holdsAgendaNow: Bool {
-        HomeGridView.holdsAgenda(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen,
-                                 wouldAsk: agenda.wouldAsk)
-    }
-
-    /// What it gave back on the way out is what it took, whatever the rule says by then.
-    private func holdAgenda(_ wanted: Bool) {
-        guard wanted != holdsAgenda else { return }
-        holdsAgenda = wanted
-        if wanted { agenda.viewerAppeared() } else { agenda.viewerDisappeared() }
-    }
-
     private func holdWeather(_ wanted: Bool) {
         guard wanted != holdsWeather else { return }
         holdsWeather = wanted

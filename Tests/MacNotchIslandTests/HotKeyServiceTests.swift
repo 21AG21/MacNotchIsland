@@ -44,7 +44,47 @@ final class HotKeyServiceTests: XCTestCase {
         XCTAssertFalse(HotKeyService.systemConflict(keyCode: 34, modifiers: control | option, symbolic: inputMenu),
                        "and so is a different key")
         XCTAssertFalse(HotKeyService.systemConflict(keyCode: 49, modifiers: control | option, symbolic: []),
-                       "a Mac with one input source has nothing there")
+                       "nothing listed, nothing taken")
+    }
+
+    /// macOS lists the input menu's shortcuts switched on whether there is one source to
+    /// choose from or ten, and with one they take nothing. Read as taken, a Mac with one
+    /// keyboard layout was moved to ⌃⌥I, and moved back at the next launch after a second
+    /// source was added — or the other way about.
+    func testTheInputMenuTakesNothingWithOneKeyboardSource() {
+        let inputMenu = [symbolic(49, control, enabled: true), symbolic(49, control | option, enabled: true)]
+        XCTAssertFalse(HotKeyService.inputMenuSwitches(keyboardSources: 1))
+        XCTAssertFalse(HotKeyService.inputMenuSwitches(keyboardSources: 0), "a list that could not be read")
+        XCTAssertTrue(HotKeyService.inputMenuSwitches(keyboardSources: 2))
+
+        XCTAssertFalse(HotKeyService.systemTakes(keyCode: 49, modifiers: control | option, symbolic: inputMenu,
+                                                 keyboardSources: 1), "nothing to switch to: ⌃⌥Space is free")
+        XCTAssertFalse(HotKeyService.systemTakes(keyCode: 49, modifiers: control, symbolic: inputMenu,
+                                                 keyboardSources: 1), "and so is ⌃Space")
+        XCTAssertTrue(HotKeyService.systemTakes(keyCode: 49, modifiers: control | option, symbolic: inputMenu,
+                                                keyboardSources: 2), "two sources: the input menu has it")
+        XCTAssertTrue(HotKeyService.systemTakes(keyCode: 49, modifiers: (1 << 18) | (1 << 19), symbolic: inputMenu,
+                                                keyboardSources: 2), "in either spelling")
+        let spotlight = [symbolic(49, cmd, enabled: true)]
+        XCTAssertTrue(HotKeyService.systemTakes(keyCode: 49, modifiers: cmd, symbolic: spotlight, keyboardSources: 1),
+                      "every other shortcut of the system's is taken as it is listed")
+        XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: 34, modifiers: control | option))
+        XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: 49, modifiers: control | option | shift))
+
+        let one = HotKeyService.shippingDefault(symbolic: inputMenu, keyboardSources: 1)
+        XCTAssertEqual(one.keyCode, HotKeyService.defaultKeyCode, "one layout keeps the shortcut the README names")
+        XCTAssertEqual(one.modifiers, HotKeyService.defaultModifiers)
+        let two = HotKeyService.shippingDefault(symbolic: inputMenu, keyboardSources: 2)
+        XCTAssertEqual(two.keyCode, HotKeyService.fallbackKeyCode)
+        XCTAssertEqual(two.modifiers, HotKeyService.fallbackModifiers)
+    }
+
+    /// Whatever the shortcut starts at, it is written down the first time the app runs, so an
+    /// input source added or taken away later cannot move it at the next launch.
+    func testTheShippingShortcutIsWrittenDownOnce() {
+        _ = Preferences.shared
+        XCTAssertNotNil(UserDefaults.standard.object(forKey: "hotkeyKeyCode"))
+        XCTAssertNotNil(UserDefaults.standard.object(forKey: "hotkeyModifiers"))
     }
 
     func testASystemShortcutThatIsSwitchedOffTakesNothing() {
@@ -68,11 +108,12 @@ final class HotKeyServiceTests: XCTestCase {
 
     /// A Mac where macOS has ⌃⌥Space starts on ⌃⌥I, which the tour then names.
     func testTheShippingShortcutStepsAsideForTheSystem() {
-        let free = HotKeyService.shippingDefault(symbolic: [])
+        let free = HotKeyService.shippingDefault(symbolic: [], keyboardSources: 2)
         XCTAssertEqual(free.keyCode, HotKeyService.defaultKeyCode)
         XCTAssertEqual(free.modifiers, HotKeyService.defaultModifiers)
 
-        let taken = HotKeyService.shippingDefault(symbolic: [symbolic(49, control | option, enabled: true)])
+        let taken = HotKeyService.shippingDefault(symbolic: [symbolic(49, control | option, enabled: true)],
+                                                  keyboardSources: 2)
         XCTAssertEqual(taken.keyCode, HotKeyService.fallbackKeyCode)
         XCTAssertEqual(taken.modifiers, HotKeyService.fallbackModifiers)
         XCTAssertEqual(HotKeyService.displayString(keyCode: taken.keyCode, carbonModifiers: taken.modifiers), "⌃⌥I")
@@ -80,7 +121,7 @@ final class HotKeyServiceTests: XCTestCase {
                      "and the fallback is one the recorder would have taken")
 
         let both = [symbolic(49, control | option, enabled: true), symbolic(34, control | option, enabled: true)]
-        XCTAssertEqual(HotKeyService.shippingDefault(symbolic: both).keyCode, HotKeyService.fallbackKeyCode,
+        XCTAssertEqual(HotKeyService.shippingDefault(symbolic: both, keyboardSources: 2).keyCode, HotKeyService.fallbackKeyCode,
                        "the fallback is not second-guessed: it is the one default there is")
     }
 

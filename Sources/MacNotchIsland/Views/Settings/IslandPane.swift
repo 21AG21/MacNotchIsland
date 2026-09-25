@@ -123,7 +123,7 @@ struct IslandPane: View {
     /// because that follows the island until it is set (`FloatingDefaults.idleHoverOpens`),
     /// and a switch found off on one Mac and on on the next with nothing said about it reads
     /// as a setting that was lost.
-    static let pointerFooter = "What the pointer opens closes when it leaves. A click anywhere on the panel — its background or one of its controls — keeps it open until you click somewhere else, press Escape, or use the shortcut. While the island floats on a display without a notch, opening from the empty island starts off until you set it: there it hangs over the top of your windows, where the pointer is usually on its way to a tab or a toolbar. Resting on something live still opens the panel, and so does a click."
+    static let pointerFooter = "What the pointer opens closes when it leaves. A click anywhere on the panel — its background or one of its controls — keeps it open until you click somewhere else, press Escape, or use the shortcut. On a Mac without a notch, opening from the empty island starts off until you set it: there the island floats over the top of your windows, where the pointer is usually on its way to a tab or a toolbar. Resting on something live still opens the panel, and so does a click."
 
     /// The sections that take the letters, named from `PanelFind.sections` itself in the order
     /// the panel ships them, so a list that gains a find is named here without anybody having

@@ -55,6 +55,18 @@ struct NotchGeometry: Equatable {
     /// twenty-eight points down — under a menu bar that was not there, over windows that reach
     /// the top of the display. Now it hangs at the top, the way it does on a display with no
     /// menu bar.
+    ///
+    /// At the top is still 4 pt down (`IslandLayout.make`), and the edge above it is left to
+    /// the menu bar: that is where the pointer goes to bring a hidden one down. The window
+    /// takes the mouse only on the island's outline (`NotchPanel.passesThrough`), so the edge
+    /// is never ours to hit-test; the ring it keeps a moment longer on a pointer leaving the
+    /// pill (`NotchPanel.passThroughMargin`) reaches over it, but the menu bar comes down for
+    /// the pointer being at the edge, not for the window under it, as it does over a
+    /// full-screen window that reaches the top. Nothing there to move the pill further for.
+    ///
+    /// Measured when the panel is built, like the rest of this, so the setting is part of
+    /// what the panels were built for (`NotchPanel.displayKey`), and switching it rebuilds
+    /// them rather than leaving the pill where the old setting put it.
     static func menuBarHeight(notchTop: CGFloat, carriesMenuBar: Bool, autoHides: Bool, thickness: CGFloat) -> CGFloat {
         if notchTop > 0 { return notchTop }
         return carriesMenuBar && !autoHides ? thickness : 0

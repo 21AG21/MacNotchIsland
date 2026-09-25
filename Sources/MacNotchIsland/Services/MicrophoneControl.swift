@@ -92,8 +92,11 @@ final class MicrophoneControl: ObservableObject {
         /// Microphones the mute was on when it ended, that were not there to be given back: the
         /// AirPods that inherited it and went before the unmute. CoreAudio keeps a mute with
         /// the device, and they came back still muted with nothing left to say so. Each is
-        /// owed its unmute until it has been given (`settled`), or a new mute takes it over.
+        /// owed its unmute until it is settled (`looked`), or a new mute takes it over.
         private(set) var owed: [String] = []
+        /// How many times each microphone owed its unmute has been looked at back and could
+        /// not say whether it is muted, see `owedUnmuteSettles`.
+        private(set) var looks: [String: Int] = [:]
 
         /// Whether the island's mute is in force, which is whether a new microphone inherits it.
         var isHeld: Bool { !devices.isEmpty }
@@ -102,22 +105,26 @@ final class MicrophoneControl: ObservableObject {
         /// when it became the one in use. Whatever it was owed is settled by that.
         mutating func muted(_ uid: String) {
             if !devices.contains(uid) { devices.append(uid) }
-            owed.removeAll { $0 == uid }
+            settled(uid)
         }
 
-        /// These were not connected to be given back when the mute ended; they are owed it.
+        /// These were not connected to be given back when the mute ended; they are owed it,
+        /// a debt of its own with its own looks.
         mutating func unreachable(_ uids: [String]) {
-            for uid in uids where !owed.contains(uid) { owed.append(uid) }
+            for uid in uids where !owed.contains(uid) {
+                owed.append(uid)
+                looks[uid] = nil
+            }
         }
 
         /// A microphone owed an unmute is connected again. Whether to unmute it now: yes while
         /// no mute is in force. With one in force it stays silent and is under that mute now,
         /// to be given back when it ends — the mute it had was carried, and it still stands.
         ///
-        /// A yes is not the debt paid: it stays owed until the unmute has gone through
-        /// (`settled`). It used to be struck off here, before anybody knew whether the unmute
-        /// could be given, and AirPods that had only just appeared — with no mute to read yet,
-        /// or none that could be set — were passed over and came back muted for good.
+        /// A yes is not the debt paid: it stays owed until a look at it settles it (`looked`).
+        /// It used to be struck off here, before anybody knew whether the unmute could be
+        /// given, and AirPods that had only just appeared — with no mute to read yet — were
+        /// passed over and came back muted for good.
         mutating func reappeared(_ uid: String) -> Bool {
             guard owed.contains(uid) else { return false }
             if isHeld {
@@ -127,20 +134,46 @@ final class MicrophoneControl: ObservableObject {
             return true
         }
 
-        /// Whether an unmute owed to a microphone that is back is paid, from what giving it
-        /// found. `readMuted` is what the microphone read, nil when it could not say — a device
-        /// that has only just appeared often cannot; `unmuted` is whether the write that gives
-        /// it back went through. Paid once it reads live, whoever made it so, or read muted and
-        /// was unmuted. Anything else leaves it owed, for the next time a microphone comes or
-        /// goes or the one in use changes.
-        static func owedUnmutePaid(readMuted: Bool?, unmuted: Bool) -> Bool {
-            guard let readMuted else { return false }
-            return !readMuted || unmuted
+        /// How many times a microphone back and owed its unmute is looked at while it cannot
+        /// say whether it is muted, before the debt is written off. A look is a change of
+        /// devices — a microphone coming or going, the one in use changing — so three is a
+        /// connection's own burst of changes and then some.
+        static let owedLooks = 3
+
+        /// Whether a look at a microphone owed its unmute settles the debt. `readMuted` is what
+        /// it read, nil when it could not say — a device that has only just appeared often
+        /// cannot, and one with neither a mute nor a level never can; `looks` counts this one.
+        ///
+        /// Any answer settles it. Read muted, it is given its unmute there and then, and that
+        /// is the end of it whether or not the write went through; read live, there is nothing
+        /// left to give. The debt used to stand until an unmute had gone through, and that was
+        /// for ever for a microphone that could never say — noted at every change of devices
+        /// for the rest of the run — and a microphone that could not say when it came back and
+        /// was then muted by its owner was unmuted, over them, at the next change. With no
+        /// answer it is looked at again, `owedLooks` times in all.
+        static func owedUnmuteSettles(readMuted: Bool?, looks: Int) -> Bool {
+            readMuted != nil || looks >= owedLooks
         }
 
-        /// The unmute this microphone was owed has been given (`owedUnmutePaid`).
+        /// A look at a microphone owed its unmute, back with no mute in force (`reappeared`),
+        /// that read `readMuted`. Counted, and settled when `owedUnmuteSettles` says so.
+        /// Returns whether the debt still stands.
+        @discardableResult
+        mutating func looked(at uid: String, readMuted: Bool?) -> Bool {
+            guard owed.contains(uid) else { return false }
+            let count = (looks[uid] ?? 0) + 1
+            if Self.owedUnmuteSettles(readMuted: readMuted, looks: count) {
+                settled(uid)
+                return false
+            }
+            looks[uid] = count
+            return true
+        }
+
+        /// This microphone is owed nothing any more: its debt is settled, or a mute took it over.
         mutating func settled(_ uid: String) {
             owed.removeAll { $0 == uid }
+            looks[uid] = nil
         }
 
         /// Whether the microphone in use reading unmuted ends the mute: only if the mute is on
@@ -308,20 +341,25 @@ final class MicrophoneControl: ObservableObject {
 
     /// Gives a microphone owed its unmute (`HeldMute.reappeared`) that unmute, now that it is
     /// connected again and no mute is in force — before the default is looked at, so a mute
-    /// in force that it arrives into is carried to it as to any other. Struck off only once
-    /// it is paid (`HeldMute.owedUnmutePaid`): a microphone that cannot say yet whether it is
-    /// muted, or will not take the unmute, is asked again at the next change of devices.
+    /// in force that it arrives into is carried to it as to any other. The first answer it
+    /// gives settles the debt (`HeldMute.owedUnmuteSettles`): muted, it is unmuted once; live,
+    /// it is left be. One that cannot say is asked again at the next change of devices, a few
+    /// times, and then written off.
     private func settleOwed() {
         for uid in held.owed {
             guard let back = Self.connectedDevice(uid: uid), held.reappeared(uid) else { continue }
             let reading = Self.mutedReading(back)
-            let unmuted = reading == true && write(false, to: back)
-            if HeldMute.owedUnmutePaid(readMuted: reading, unmuted: unmuted) {
-                held.settled(uid)
-            } else if reading == true {
-                IslandLog.audio.error("could not give back the microphone \(back, privacy: .public); it stays owed")
-            } else {
+            if reading == true, !write(false, to: back) {
+                IslandLog.audio.error("could not give back the microphone \(back, privacy: .public); it is left as it is")
+            }
+            guard reading == nil else {
+                held.looked(at: uid, readMuted: reading)
+                continue
+            }
+            if held.looked(at: uid, readMuted: nil) {
                 IslandLog.audio.notice("the microphone \(back, privacy: .public) is back but cannot say whether it is muted; it stays owed")
+            } else {
+                IslandLog.audio.notice("the microphone \(back, privacy: .public) never said whether it is muted; its unmute is written off")
             }
         }
     }

@@ -164,21 +164,19 @@ final class SettingsRulesTests: XCTestCase {
             hasLiveActivity: true, idleHover: FloatingDefaults.idleHoverOpens(stored: nil, floating: true)))
     }
 
-    /// Which island floats, by the choice `AppDelegate.targetScreens` makes.
+    /// The island floats, for the two switches, only where no display has a notch for it to
+    /// sit in. A monitor beside a MacBook, with or without "Show on all displays", leaves the
+    /// notch's defaults alone: they flipped every time it was plugged in or out.
     func testTheIslandFloatsWhereItHasNoNotchToSitIn() {
-        XCTAssertEqual(FloatingDefaults.floats(notched: [false], onAllDisplays: false), true, "a Mac without a notch")
-        XCTAssertEqual(FloatingDefaults.floats(notched: [true], onAllDisplays: false), false, "a MacBook on its own")
-        XCTAssertEqual(FloatingDefaults.floats(notched: [true, false], onAllDisplays: false), false,
-                       "a MacBook and a monitor: the island is on the notch alone")
-        XCTAssertEqual(FloatingDefaults.floats(notched: [true, false], onAllDisplays: true), true,
-                       "on every display, the monitor's floats")
-        XCTAssertEqual(FloatingDefaults.floats(notched: [false, false], onAllDisplays: false), true,
-                       "two plain displays: the primary's floats")
-        XCTAssertNil(FloatingDefaults.floats(notched: [], onAllDisplays: false),
-                     "no displays says nothing about the island")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [false]), true, "a Mac without a notch")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [true]), false, "a MacBook on its own")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [true, false]), false,
+                       "a MacBook and a monitor, whether or not the monitor carries a floating island too")
+        XCTAssertEqual(FloatingDefaults.floats(notched: [false, false]), true, "two plain displays")
+        XCTAssertNil(FloatingDefaults.floats(notched: []), "no displays says nothing about the island")
     }
 
-    /// The panels say whether any of them floats each time they are built, and a switch nobody
+    /// The panels say whether each of them floats each time they are built, and a switch nobody
     /// has set moves with it, without being written down; one somebody has set stays put.
     func testASwitchNobodySetMovesWithTheIslandAndOneSomebodySetStays() {
         let d = UserDefaults.standard
@@ -208,7 +206,12 @@ final class SettingsRulesTests: XCTestCase {
         XCTAssertTrue(prefs.expandOnIdleHover)
 
         prefs.followFloatingDefaults(panelsFloating: [false, true])
-        XCTAssertTrue(prefs.hideInFullscreen, "one floating island among them is enough")
+        XCTAssertFalse(prefs.hideInFullscreen,
+                       "a monitor's floating island beside the notch's: the notch keeps its defaults")
+        XCTAssertTrue(prefs.expandOnIdleHover)
+
+        prefs.followFloatingDefaults(panelsFloating: [true, true])
+        XCTAssertTrue(prefs.hideInFullscreen, "every island floating: the floating defaults")
         XCTAssertFalse(prefs.expandOnIdleHover)
 
         prefs.followFloatingDefaults(panelsFloating: [])

@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var screenRebuildWork: DispatchWorkItem?
     private var wakeCheckWork: DispatchWorkItem?
+    /// Whether the menu bar was set to hide itself when the defaults were last looked at, so
+    /// that only a change to it goes to the screen-parameters path. See `menuBarSettingChanged`.
+    private var menuBarHid = NotchGeometry.menuBarAutoHides
     /// Read-only from outside: only the rebuild paths may say a rebuild happened.
     private(set) var panelHealth = PanelHealth()
 
@@ -102,6 +105,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification,
+                                               object: nil)
+        // "Automatically hide and show the menu bar" moves the floating pill, and is part of
+        // what the panels were built for (`NotchPanel.displayKey`). Switching it changes the
+        // display's visible frame, which the path above hears; the defaults changing is heard
+        // here too, and goes the same way, settled and compared before anything is rebuilt.
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(menuBarSettingChanged),
+                                               name: UserDefaults.didChangeNotification,
                                                object: nil)
         // The island belongs to the notch, not to a Space or an app: whenever the desktop
         // underneath changes, put every panel back on top and over its notch.
@@ -267,6 +278,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for panel in panels { panel.refit() }
     }
 
+    /// Any default changing, this app's own included, which is most of them: only the menu
+    /// bar's hide setting moving on from what it was goes on to `screensChanged`. Posted on
+    /// whichever thread wrote the default, and looked at on the main one.
+    @objc private func menuBarSettingChanged() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.menuBarSettingChanged() }
+            return
+        }
+        let hides = NotchGeometry.menuBarAutoHides
+        guard hides != menuBarHid else { return }
+        menuBarHid = hides
+        IslandLog.panel.notice("the menu bar \(hides ? "hides itself" : "stays", privacy: .public) now")
+        screensChanged()
+    }
+
     @objc private func screensChanged() {
         // didChangeScreenParameters fires several times per physical event, and also when a
         // full-screen app hides the menu bar. Settle first, then rebuild only if the displays
@@ -406,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderFrontRegardless()
             panels.append(panel)
         }
-        // Whether any island floats decides where two switches nobody has set start
+        // Whether every island floats decides where two switches nobody has set start
         // (`FloatingDefaults`), and a rebuild is where that can change. The hub hears it as a
         // preference change, and starts or stops the full-screen watch by the switch as ever.
         Preferences.shared.followFloatingDefaults(panelsFloating: panels.map { !$0.geometry.hasPhysicalNotch })

@@ -40,9 +40,10 @@ final class NotchPanel: NSPanel {
     let panelID: String
     /// Identifies the display this panel was built for, in the terms that decide whether it
     /// must be rebuilt: which screen, its size, the notch's height, and — for a display
-    /// without a notch — whether it is the primary display. Menu-bar-derived values are left
-    /// out on purpose, since a full-screen app changes those; see
-    /// `displayKey(number:size:safeAreaTop:isPrimary:)`.
+    /// without a notch — whether it is the primary display and whether the menu bar is set to
+    /// hide itself. Measurements of the menu bar are left out on purpose, since a full-screen
+    /// app changes those, and the setting is not one of them; see
+    /// `displayKey(number:size:safeAreaTop:isPrimary:menuBarHides:)`.
     let displayKey: String
     private let screenNumber: NSNumber?
     private var hosting: NotchHostingView<AnyView>?
@@ -697,7 +698,7 @@ final class NotchPanel: NSPanel {
     static func displayKey(for screen: NSScreen) -> String {
         let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
         return displayKey(number: number, size: screen.frame.size, safeAreaTop: screen.safeAreaInsets.top,
-                          isPrimary: NotchGeometry.isPrimary(screen))
+                          isPrimary: NotchGeometry.isPrimary(screen), menuBarHides: NotchGeometry.menuBarAutoHides)
     }
 
     /// The key itself, from what it is made of, so the rule can be checked without a display.
@@ -711,10 +712,17 @@ final class NotchPanel: NSPanel {
     /// pill stayed hanging under a menu bar that had gone, or over one that had arrived. A
     /// notched island is as tall as the housing wherever the menu bar is, so its key leaves
     /// the primary out, and plugging in a monitor that takes the menu bar does not rebuild it.
-    static func displayKey(number: String, size: CGSize, safeAreaTop: CGFloat, isPrimary: Bool) -> String {
+    ///
+    /// Whether the menu bar hides itself is part of it for the same reason: the pill hangs at
+    /// the top under a menu bar that hides (`NotchGeometry.menuBarHeight(notchTop:…)`), and
+    /// the setting was read only when the panels were built, so switching it left the pill
+    /// 28 pt down over nothing, or at the top under a menu bar that now stays. A notched key
+    /// leaves this out too.
+    static func displayKey(number: String, size: CGSize, safeAreaTop: CGFloat, isPrimary: Bool,
+                           menuBarHides: Bool = false) -> String {
         let key = "\(number)|\(Int(size.width))x\(Int(size.height))|\(Int(safeAreaTop))"
         guard safeAreaTop == 0 else { return key }
-        return key + (isPrimary ? "|primary" : "|secondary")
+        return key + (isPrimary ? "|primary" : "|secondary") + (menuBarHides ? "|menu-bar-hides" : "")
     }
 
     /// Whether a point in screen coordinates lies on this panel's island (not merely inside

@@ -17,7 +17,7 @@ jobs:
       # tag, a fresh install asked GitHub for the latest release on its first launch, heard its
       # own version, and offered itself as the update. A tag that is not a semantic version
       # stops here, before the build, rather than shipping an app that cannot compare itself
-      # with its own releases; build.sh holds VERSION to the same rule. Run by hand from a
+      # with its own releases; build.sh holds NOTCH_VERSION to the same rule. Run by hand from a
       # branch there is no tag, and the build keeps Resources/Info.plist's version: that is an
       # artifact to try, and the release step below only publishes a tag.
       - name: Version from the tag
@@ -30,10 +30,11 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME is not a semantic version: expected vMAJOR.MINOR.PATCH, optionally with a pre-release such as v1.2.0-beta.1"
             exit 1
           fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          # The names build.sh reads, which nothing else on the runner sets.
+          echo "NOTCH_VERSION=$VERSION" >> "$GITHUB_ENV"
           # CFBundleVersion: the run number only ever goes up, and a shallow checkout has one
           # commit to count.
-          echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "NOTCH_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
           echo "Building $VERSION ($GITHUB_RUN_NUMBER)"
       - name: Build and package
         run: |

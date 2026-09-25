@@ -5,8 +5,9 @@ import Foundation
 
 /// Today, for the Home panel: the calendar events still ahead in the next 24 hours and the
 /// reminders due by the end of the day. Nothing is asked of EventKit until a view that shows
-/// the agenda appears; access is requested then, once, and the store keeps itself fresh with
-/// the system's change notification plus a slow timer while such a view is on screen.
+/// the agenda appears; access is requested once, from a view somebody pinned open (`Hold`),
+/// and the store keeps itself fresh with the system's change notification plus a slow timer
+/// while such a view is on screen.
 ///
 /// None of that asking happens on the main thread. A calendar in an Exchange or CalDAV
 /// account is not a file on this Mac: reading it is a round trip to somebody's mail server,
@@ -90,11 +91,58 @@ final class AgendaStore: ObservableObject {
 
     // MARK: - Lifetime
 
-    /// A view that shows the agenda appeared. The first viewer asks for access.
-    func viewerAppeared() {
+    /// How a view that shows the day holds the agenda.
+    ///
+    /// Reading and asking are two things. The first viewer used to be what asked macOS for
+    /// Reminders, so a peek — the Home grid opens under a pointer resting on the bare notch —
+    /// was kept off the agenda altogether while a question was still to be put, and after the
+    /// tour that is every new Mac: the tour answers Calendars, and Reminders waits for the
+    /// agenda's first viewer. The peek's Today tile said "Nothing today" over a day of
+    /// meetings until a panel had been pinned open once. A peek reads now, whatever it may
+    /// not ask for; only a panel somebody opened asks.
+    enum Hold: Equatable {
+        /// Not a viewer.
+        case off
+        /// A viewer that reads what has already been granted and asks for nothing.
+        case reading
+        /// A viewer that may put the questions never answered, once a session.
+        case asking
+    }
+
+    /// What moving one view's hold from `old` to `new` asks of the store.
+    enum HoldChange: Equatable {
+        case nothing
+        case appear(mayAsk: Bool)
+        case ask
+        case disappear
+    }
+
+    /// Pure, so the steps are tested. A viewer that stops being allowed to ask stays a viewer:
+    /// a question already on screen is not taken back, and the day it reads is as good as ever.
+    static func change(from old: Hold, to new: Hold) -> HoldChange {
+        guard old != new else { return .nothing }
+        if old == .off { return .appear(mayAsk: new == .asking) }
+        if new == .off { return .disappear }
+        return new == .asking ? .ask : .nothing
+    }
+
+    /// Moves one view's hold on the agenda from `old` to `new`. Main thread, from the view.
+    func move(from old: Hold, to new: Hold) {
+        switch Self.change(from: old, to: new) {
+        case .nothing: break
+        case .appear(let mayAsk): viewerAppeared(mayAsk: mayAsk)
+        case .ask: requestAccessIfNeeded()
+        case .disappear: viewerDisappeared()
+        }
+    }
+
+    /// A view that shows the agenda appeared. One that `mayAsk` puts the questions never
+    /// answered, the first time any viewer may; one that may not reads only what has already
+    /// been granted.
+    func viewerAppeared(mayAsk: Bool) {
         viewers += 1
+        if mayAsk { requestAccessIfNeeded() }
         guard viewers == 1 else { return }
-        requestAccessIfNeeded()
         observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
             self?.refresh()
         }
@@ -114,10 +162,19 @@ final class AgendaStore: ObservableObject {
         observer = nil
     }
 
+    /// Puts the questions never answered, once a session. Read live rather than from the
+    /// published pair, which are only brought up to date by a reading — and the calendar's is
+    /// usually answered by `CalendarMonitor`, while nothing here was looking. Main thread,
+    /// and only for a viewer somebody opened (`Hold.asking`).
     private func requestAccessIfNeeded() {
-        guard !requested else { return }
+        // The gallery is handed its day, and a question from it would stand over every
+        // picture taken after it: the seeded pair kept it from asking when the pair was read.
+        guard !RenderMode.isGallery else { return }
+        let events = EKEventStore.authorizationStatus(for: .event)
+        let reminders = EKEventStore.authorizationStatus(for: .reminder)
+        guard Self.wouldAsk(requested: requested, events: events, reminders: reminders) else { return }
         requested = true
-        if eventsAccess == .notDetermined {
+        if events == .notDetermined {
             store.requestFullAccessToEvents { [weak self] _, _ in
                 DispatchQueue.main.async {
                     self?.eventsAccess = EKEventStore.authorizationStatus(for: .event)
@@ -125,7 +182,7 @@ final class AgendaStore: ObservableObject {
                 }
             }
         }
-        if remindersAccess == .notDetermined {
+        if reminders == .notDetermined {
             store.requestFullAccessToReminders { [weak self] _, _ in
                 DispatchQueue.main.async {
                     self?.remindersAccess = EKEventStore.authorizationStatus(for: .reminder)
@@ -135,18 +192,10 @@ final class AgendaStore: ObservableObject {
         }
     }
 
-    /// Whether the next viewer to appear would put a question on screen: nothing asked yet this
-    /// session, and one of the two permissions never answered. Read live rather than from the
-    /// published pair, which are only brought up to date by a reading — and the calendar's is
-    /// usually answered by `CalendarMonitor`, while nothing here was looking. Main thread.
-    var wouldAsk: Bool {
-        Self.wouldAsk(requested: requested,
-                      events: EKEventStore.authorizationStatus(for: .event),
-                      reminders: EKEventStore.authorizationStatus(for: .reminder))
-    }
-
     /// Pure: `requestAccessIfNeeded` asks once a session, and only for a permission not yet
-    /// answered either way.
+    /// answered either way. No view reads this to decide whether to hold the agenda any more
+    /// — a peek holds it to read (`Hold.reading`) — so nothing reads the two permissions on
+    /// every pass of a view's body either.
     static func wouldAsk(requested: Bool, events: EKAuthorizationStatus, reminders: EKAuthorizationStatus) -> Bool {
         !requested && (events == .notDetermined || reminders == .notDetermined)
     }
