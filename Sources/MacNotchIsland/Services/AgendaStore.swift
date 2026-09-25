@@ -187,14 +187,26 @@ final class AgendaStore: ObservableObject {
                 self.publish(events: day, reminders: [], answering: answering)
                 return
             }
-            let endOfDay = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 3600)
-            let predicate = self.store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: endOfDay, calendars: nil)
+            let predicate = self.store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: Self.endOfDay(for: now),
+                                                                       calendars: nil)
             // Answers on a queue of EventKit's own choosing, which is why the pass is not
             // finished until this half is in too.
             self.store.fetchReminders(matching: predicate) { [weak self] found in
                 self?.publish(events: day, reminders: Self.dueReminders(from: found ?? []), answering: answering)
             }
         }
+    }
+
+    /// The midnight that ends the day `now` is in: the start of the next day by the calendar,
+    /// not twenty-four hours after this one's. On the day the clocks change those are an hour
+    /// apart — the autumn day is twenty-five hours long, so an 11:30 PM meeting read as
+    /// tomorrow's and the reminders due in the last hour were left out of today's; the spring
+    /// one is twenty-three, and the first hour of tomorrow was counted as today's.
+    ///
+    /// Pure, so the two awkward days can be tested with a calendar of their own.
+    static func endOfDay(for now: Date, calendar: Calendar = .current) -> Date {
+        let start = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(24 * 3600)
     }
 
     /// Where every reading lands, and the only place any of this is written: the main queue.

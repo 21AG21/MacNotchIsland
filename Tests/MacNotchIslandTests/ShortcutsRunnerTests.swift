@@ -49,6 +49,24 @@ final class ShortcutsRunnerTests: XCTestCase {
         XCTAssertEqual(ShortcutsRunner.parseList("\n\n   \n"), [])
     }
 
+    // MARK: - The room the apps leave
+
+    func testAFavouriteIsNotTurnedOnPastTheRoomTheAppsLeave() {
+        let runner = ShortcutsRunner.shared
+        let saved = runner.favorites
+        defer { runner.favorites = saved }
+        runner.favorites = []
+        runner.toggleFavorite("One", room: 2)
+        runner.toggleFavorite("Two", room: 2)
+        runner.toggleFavorite("Three", room: 2)
+        XCTAssertEqual(runner.favorites, ["One", "Two"], "a third would be a button the row never draws")
+        runner.toggleFavorite("One", room: 0)
+        XCTAssertEqual(runner.favorites, ["Two"], "turning one off is always allowed")
+        runner.favorites = []
+        for index in 0..<12 { runner.toggleFavorite("Shortcut \(index)", room: 99) }
+        XCTAssertEqual(runner.favorites.count, ShortcutsRunner.maxFavorites, "and never more than eight, whatever the room")
+    }
+
     // MARK: - What a failed shortcut says
 
     func testAFailureWithNothingToSayStillSaysSomething() {

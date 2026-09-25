@@ -148,7 +148,7 @@ struct HomePanelPane: View {
         case .music: return "What is playing, wherever it is playing."
         case .controls: return "The networks in range, the devices you are paired with, and where the sound goes and comes from, each list with its own switch — and above them, any control the rail had no room for."
         case .today: return "Your next events and reminders, and the card that appears on the island before a meeting with its Join button — switching this off turns that card off too. Asks for calendar and reminders access when first opened."
-        case .windows: return "The windows on this desktop as live tiles, minimised ones and a hidden app's dimmed after the rest: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows."
+        case .windows: return "The windows on this desktop as live tiles, minimised ones and a hidden app's dimmed after the rest: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows and to find the ones put away."
         case .shelf: return "Drag files onto the island to keep them within reach."
         case .clipboard: return "Recent copies, pinned ones first."
         case .actions: return "Your favourite apps and shortcuts, timers you tap or type, alarms and the stopwatch."

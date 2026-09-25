@@ -182,10 +182,56 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     /// True while at least one view is on screen asking for weather.
     private var isRunning: Bool { subscribers > 0 }
 
-    /// True when the cached reading is old enough (or missing) to be worth a request.
+    /// True when the cached reading is old enough (or missing) to be worth a request. Either
+    /// way from now: a reading stamped in the future is a clock that was set back, and it was
+    /// never going to come due.
     private var isStale: Bool {
         guard let updatedAt = updatedAt else { return true }
-        return Date().timeIntervalSince(updatedAt) >= Self.refreshInterval
+        return abs(Date().timeIntervalSince(updatedAt)) >= Self.refreshInterval
+    }
+
+    // MARK: - How old a reading is
+
+    /// What a reading is worth showing as, by its age.
+    enum Age: Equatable {
+        /// Young enough to be the weather.
+        case current
+        /// Old enough that it has to say so: "3 hrs ago", after the figure.
+        case old(String)
+        /// Too old to be shown at all.
+        case expired
+    }
+
+    /// How many refreshes a reading may miss before it stops being the weather. One late
+    /// answer is a slow network; three is a Mac that is offline, or has lost its location.
+    static let missedRefreshes: Double = 3
+    /// The age past which a reading is not shown, whatever it says: yesterday's temperature is
+    /// not a fact about today.
+    static let longestShown: TimeInterval = 24 * 3600
+
+    /// How a reading taken at `updatedAt` should be shown at `now`, for a service refreshing
+    /// every `interval` — which is stretched on battery, so the reading that is due in two
+    /// hours in Low Power Mode is not called old after ninety minutes.
+    ///
+    /// The cache kept a reading of any age and the line showed it as the weather: after one
+    /// good day, a Mac that went offline or refused its location said "18° · Clear" for good.
+    ///
+    /// Pure, so the ages can be tested without a clock.
+    static func age(of updatedAt: Date?, interval: TimeInterval = WeatherService.refreshInterval,
+                    at now: Date = Date()) -> Age {
+        guard let updatedAt else { return .expired }
+        // A reading from the future is a clock that was set back: how old it is cannot be
+        // known, so it is taken as the distance either way.
+        let seconds = abs(now.timeIntervalSince(updatedAt))
+        if seconds < missedRefreshes * interval { return .current }
+        guard seconds < longestShown else { return .expired }
+        let hours = max(1, Int(seconds / 3600))
+        return .old(hours == 1 ? "1 hr ago" : "\(hours) hrs ago")
+    }
+
+    /// The reading on screen, aged at `now` against the refresh the energy policy allows.
+    func age(at now: Date = Date()) -> Age {
+        Self.age(of: updatedAt, interval: interval, at: now)
     }
 
     // MARK: - Timer
@@ -235,10 +281,28 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             // same value, so this arm covers it too.
             requestLocation()
         case .denied, .restricted:
-            state = .denied
+            refused()
         @unknown default:
             if snapshot == nil { state = .failed }
         }
+    }
+
+    /// Location was refused. The reading on screen goes with it, and the cached one: there is
+    /// no next one coming to replace it, and kept, it stood in for the weather at every launch
+    /// and hid the "Allow Location" offer that is the only way to get the weather back.
+    private func refused() {
+        state = .denied
+        guard snapshot != nil || updatedAt != nil else { return }
+        snapshot = nil
+        temperatureC = nil
+        highC = nil
+        lowC = nil
+        isDay = true
+        conditionSymbol = "cloud"
+        conditionText = ""
+        updatedAt = nil
+        hours = []
+        UserDefaults.standard.removeObject(forKey: Self.cacheKey)
     }
 
     private func requestLocation() {
@@ -261,7 +325,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         case .authorizedAlways, .authorizedWhenInUse:
             requestLocation()
         case .denied, .restricted:
-            state = .denied
+            refused()
         case .notDetermined:
             break
         @unknown default:
@@ -498,6 +562,9 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         if cache { writeCache(fresh) }
     }
 
+    /// The last reading, put up at launch so Today has something to show the instant it
+    /// opens. Nothing on screen takes it at its word: the line ages it (`age(at:)`) before
+    /// showing it, so a reading from last week is not what greets somebody offline.
     private func applyCachedSnapshot() {
         guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
               let cached = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }

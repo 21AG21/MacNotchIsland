@@ -2,8 +2,10 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Every window on the Mac as a strip of live tiles: click one to bring it to the front, or
-/// use the row of zones that appears on it to put it somewhere. Mission Control, in the notch.
+/// Every window on this desktop as a strip of live tiles: click one to bring it to the front,
+/// or use the row of zones that appears on it to put it somewhere. Mission Control, in the
+/// notch. Windows put away — in the Dock, or behind a hidden app — are drawn dimmed after the
+/// rest, and a click brings them back.
 struct WindowsSectionView: View {
     @ObservedObject private var monitor = WindowsMonitor.shared
     /// Watched for the find, which lives on the panel rather than on this view.
@@ -30,51 +32,63 @@ struct WindowsSectionView: View {
         windows.filter { PanelFind.matches([$0.appName, $0.label], query: query) }
     }
 
+    // MARK: - The header
+
+    /// What the header carries after its title, in order.
+    enum HeaderItem: Hashable {
+        /// The glass, or the field once a find is under way.
+        case find
+        /// The permission that draws the pictures, offered.
+        case showPictures
+        /// The permission that moves, minimises and closes the windows, offered.
+        case allowMoving
+        /// What has been Command-clicked, and what can be done with it.
+        case picked
+        /// How many windows there are, and where.
+        case count
+    }
+
+    /// The header's contents, from what the section knows.
+    ///
+    /// The find comes first and is there whenever a find is under way, whatever else is
+    /// missing. It used to stand in an if/else behind the two permission pills, so with either
+    /// permission refused a letter typed here still narrowed the strip — the letters are
+    /// claimed by section, not by permission — while no field appeared to show what had been
+    /// typed, or to take it back. A field that holds the keyboard has to be somewhere you can
+    /// see it, so the pill for what is missing now stands beside it instead of in its place.
+    ///
+    /// The count is only there with nothing else to say: the field counts its own matches, a
+    /// selection has its pills, and while a permission is missing the list is not the whole
+    /// story (the windows in the Dock need Accessibility to be found), so a tally of it would
+    /// be a wrong number stated plainly.
+    static func header(windows: Int, finding: Bool, picked: Int,
+                       canCapture: Bool, canMove: Bool) -> [HeaderItem] {
+        var items: [HeaderItem] = []
+        if windows > 0 || finding { items.append(.find) }
+        if !canCapture {
+            items.append(.showPictures)
+        } else if !canMove {
+            items.append(.allowMoving)
+        }
+        if picked > 0 {
+            items.append(.picked)
+        } else if !finding, windows > 0, canCapture, canMove {
+            items.append(.count)
+        }
+        return items
+    }
+
+    /// "4 on this desktop": the windows on other desktops are not in the list, because nothing
+    /// short of going there can see them, and "4 open" on a Mac with nine said otherwise.
+    static func tally(_ count: Int) -> String { "\(count) on this desktop" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
             SectionHeader("Windows") {
-                // Each permission does half of this section: one draws the pictures, the other
-                // moves and closes the windows. Whichever is missing is offered here, because
-                // a tile with no picture and a zone button that quietly does nothing are not
-                // explanations.
-                if !monitor.canCapture {
-                    PillButton(title: "Show pictures", tint: .white.opacity(0.85)) { monitor.requestCapture() }
-                } else if !monitor.canMove {
-                    PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
-                } else if !allWindows.isEmpty || center.findQuery != nil {
-                    // Return brings the first match forward: type "mai", press Return, and
-                    // Mail is in front — a window switcher that needs no window switcher. The
-                    // field stays whatever else is on this line: a find that is under way
-                    // holds the keyboard, and a field that is holding the keyboard has to be
-                    // somewhere you can see it.
-                    FindField(matches: windows.count) {
-                        guard let index = center.findTarget(of: windows.count) else { return }
-                        monitor.focus(windows[index])
-                    }
-                    if !selected.isEmpty {
-                        // Two or more is a layout; one is a selection on its way to being one,
-                        // and saying so is how somebody learns the Command-click did anything.
-                        if selected.count > 1 {
-                            PillButton(title: "Tile \(selected.count)", symbol: "rectangle.split.2x1",
-                                       prominent: true) {
-                                monitor.tile(selected)
-                                selection.removeAll()
-                            }
-                        } else {
-                            Text("1 picked")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
-                        PillButton(title: "Clear", tint: .white.opacity(0.85)) { selection.removeAll() }
-                    } else if center.findQuery == nil {
-                        // The field counts the matches itself while it is up, so the tally
-                        // that lives here the rest of the time steps aside rather than saying
-                        // the same thing twice on one line.
-                        Text(allWindows.count == 1 ? "1 open" : "\(allWindows.count) open")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.4))
-                    }
-                }
+                let items = Self.header(windows: allWindows.count, finding: center.findQuery != nil,
+                                        picked: selected.count, canCapture: monitor.canCapture,
+                                        canMove: monitor.canMove)
+                ForEach(items, id: \.self) { item in headerItem(item) }
             }
             content
         }
@@ -97,6 +111,46 @@ struct WindowsSectionView: View {
     }
 
     @ViewBuilder
+    private func headerItem(_ item: HeaderItem) -> some View {
+        switch item {
+        case .find:
+            // Return brings the first match forward: type "mai", press Return, and Mail is in
+            // front — a window switcher that needs no window switcher.
+            FindField(matches: windows.count) {
+                guard let index = center.findTarget(of: windows.count) else { return }
+                monitor.focus(windows[index])
+            }
+        case .showPictures:
+            // Each permission does half of this section: one draws the pictures, the other
+            // moves and closes the windows. Whichever is missing is offered here, because a
+            // tile with no picture and a zone button that quietly does nothing are not
+            // explanations.
+            PillButton(title: "Show pictures", tint: .white.opacity(0.85)) { monitor.requestCapture() }
+        case .allowMoving:
+            PillButton(title: "Allow moving", tint: .white.opacity(0.85)) { monitor.requestMove() }
+        case .picked:
+            // Two or more is a layout; one is a selection on its way to being one, and saying
+            // so is how somebody learns the Command-click did anything.
+            if selected.count > 1 {
+                PillButton(title: "Tile \(selected.count)", symbol: "rectangle.split.2x1",
+                           prominent: true) {
+                    monitor.tile(selected)
+                    selection.removeAll()
+                }
+            } else {
+                Text("1 picked")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+            PillButton(title: "Clear", tint: .white.opacity(0.85)) { selection.removeAll() }
+        case .count:
+            Text(Self.tally(allWindows.count))
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.4))
+        }
+    }
+
+    @ViewBuilder
     private var content: some View {
         if allWindows.isEmpty && !monitor.canCapture {
             SectionEmptyState(symbol: "macwindow.on.rectangle",
@@ -105,8 +159,12 @@ struct WindowsSectionView: View {
                 PillButton(title: "Allow", prominent: true) { monitor.requestCapture() }
             }
         } else if allWindows.isEmpty {
-            SectionEmptyState(symbol: "macwindow", title: "No windows open",
-                              subtitle: "Everything you open shows up here.")
+            // Not "everything you open shows up here": a window on another desktop does not,
+            // and without Accessibility neither does one in the Dock.
+            SectionEmptyState(symbol: "macwindow", title: "No windows on this desktop",
+                              subtitle: monitor.canMove
+                                ? "Windows on other desktops show up here when you go to them."
+                                : "Allow moving, and windows in the Dock show up here too.")
         } else if windows.isEmpty {
             // Windows are open; none of them answers to what was typed.
             SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
@@ -167,6 +225,10 @@ struct WindowsSectionView: View {
         if selection.contains(window.id) { selection.remove(window.id) } else { selection.insert(window.id) }
     }
 
+    /// How strongly a window put away is drawn: there to be found and clicked, and plainly
+    /// not one of the windows in front of you.
+    static let awayOpacity: Double = 0.4
+
     private func tile(_ window: IslandWindow, isFound: Bool = false) -> some View {
         let showsZones = hovered == window.id
         let dropping = dropTarget == window.id
@@ -178,24 +240,12 @@ struct WindowsSectionView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.white.opacity(0.08))
-                if let thumbnail = window.thumbnail {
-                    Image(nsImage: thumbnail)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: Self.tileWidth, height: Self.tileHeight)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                } else if let icon = window.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 34, height: 34)
-                } else {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: 20, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.4))
-                }
+                picture(window)
+                    .opacity(window.away == nil ? 1 : Self.awayOpacity)
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(marked ? Color.accentColor : Color.white.opacity(showsZones ? 0.35 : 0.12),
                                   lineWidth: marked ? 2 : 1)
+                if let away = window.away, !showsZones { awayBadge(away) }
                 if picked { pickedBadge }
                 if showsZones { zones(window) }
             }
@@ -224,7 +274,7 @@ struct WindowsSectionView: View {
                 }
                 Text(window.label)
                     .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.white.opacity(window.away == nil ? 0.6 : 0.35))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -232,16 +282,58 @@ struct WindowsSectionView: View {
         }
         .animation(IslandMotion.hover, value: showsZones)
         .animation(IslandMotion.hover, value: marked)
+        .animation(IslandMotion.hover, value: window.away)
         // Everything a tile can do to a window, in words — including the two that belong to
         // the app rather than the window, which nothing else on the Mac offers from a picture
         // of it.
         .contextMenu { menu(window) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(window.appName), \(window.label)")
+        .accessibilityLabel("\(window.appName), \(window.label)" + Self.awaySuffix(window.away))
         .accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { monitor.focus(window) }
         .accessibilityAction(named: picked ? "Leave it out" : "Pick it out to tile") {
             if picked { selection.remove(window.id) } else { selection.insert(window.id) }
+        }
+    }
+
+    /// The window's picture, its app's icon until there is one, or a window glyph failing both.
+    @ViewBuilder
+    private func picture(_ window: IslandWindow) -> some View {
+        if let thumbnail = window.thumbnail {
+            Image(nsImage: thumbnail)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: Self.tileWidth, height: Self.tileHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else if let icon = window.icon {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: 34, height: 34)
+        } else {
+            Image(systemName: "macwindow")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.white.opacity(0.4))
+        }
+    }
+
+    /// Where a window put away has gone, in the corner the picked tick and the zones leave free.
+    private func awayBadge(_ away: IslandWindow.Away) -> some View {
+        Image(systemName: away == .minimised ? "dock.arrow.down.rectangle" : "eye.slash")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.75))
+            .padding(6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .transition(.opacity)
+            .accessibilityHidden(true)
+    }
+
+    /// What VoiceOver adds to a tile's name for a window that is put away: the dimming says it
+    /// to the eye, and this says it to the ear.
+    static func awaySuffix(_ away: IslandWindow.Away?) -> String {
+        switch away {
+        case nil: return ""
+        case .minimised?: return ", in the Dock"
+        case .hidden?: return ", app hidden"
         }
     }
 
@@ -250,8 +342,12 @@ struct WindowsSectionView: View {
     /// cannot: hiding the app, and quitting it.
     @ViewBuilder
     private func menu(_ window: IslandWindow) -> some View {
-        Button("Bring to Front") { monitor.focus(window) }
-        Button("Minimise") { monitor.minimise(window) }
+        // A window put away is brought back by the same click that brings one forward; the
+        // menu names it for what it does to that window.
+        Button(window.away == nil ? "Bring to Front" : "Show Window") { monitor.focus(window) }
+        if window.away == nil {
+            Button("Minimise") { monitor.minimise(window) }
+        }
         Divider()
         ForEach(SnapZone.allCases) { zone in
             Button(zone.title) { monitor.snap(window, to: zone) }
@@ -261,8 +357,13 @@ struct WindowsSectionView: View {
         }
         Divider()
         Button("Close Window") { monitor.close(window) }
-        // The app's own two. Named, so nobody quits something by reaching for a glyph.
-        Button("Hide \(window.appName)") { NSRunningApplication(processIdentifier: window.pid)?.hide() }
+        // The app's own two. Named, so nobody quits something by reaching for a glyph. A
+        // hidden app's windows stay in the strip, so the menu that hid it can show it again.
+        if window.away == .hidden {
+            Button("Show \(window.appName)") { monitor.setHidden(false, appOf: window) }
+        } else {
+            Button("Hide \(window.appName)") { monitor.setHidden(true, appOf: window) }
+        }
         Button("Quit \(window.appName)") { NSRunningApplication(processIdentifier: window.pid)?.terminate() }
     }
 
@@ -340,9 +441,12 @@ struct WindowsSectionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // The tile's own two traffic lights, in the corners the real ones live in: put it
             // away on the left, close it on the right. The row of zones in the middle moves a
-            // window around this screen; these two take it off the screen.
-            cornerButton(symbol: "minus", label: "Minimise \(window.label)") { monitor.minimise(window) }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // window around this screen; these two take it off the screen. A window already
+            // put away has nowhere further to go, so it has no minus.
+            if window.away == nil {
+                cornerButton(symbol: "minus", label: "Minimise \(window.label)") { monitor.minimise(window) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
             cornerButton(symbol: "xmark", label: "Close \(window.label)") { monitor.close(window) }
         }
         .transition(.opacity)

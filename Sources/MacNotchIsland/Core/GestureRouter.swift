@@ -446,9 +446,10 @@ final class GestureRouter {
     ///
     /// Controls is three lists — the networks, the devices, where the sound goes — and a
     /// scroll on any of them changed the volume instead, or closed the panel with "Open and
-    /// close" chosen. Today is not here: it fits its rows to the room and drops what does not
-    /// fit (`TodaySectionView.fit`), and its hours are one row across the width, so it has
-    /// nothing to scroll and a scroll there is the volume, the way it is on Now Playing.
+    /// close" chosen. Today is not here: it fits its rows to the room and its hours are one
+    /// row across the width, so on an ordinary day it has nothing to scroll and a scroll
+    /// there is the volume, the way it is on Now Playing. On a day with more than fits, the
+    /// list scrolls (`TodaySectionView.overflows`), and `currentContext` asks it.
     static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .windows, .notifications, .controls]
 
     /// Whether a section on screen has a strip running sideways with tiles out of sight: the
@@ -492,7 +493,7 @@ final class GestureRouter {
             var scrolls = false
             var sideways = false
             if case .home(let tab) = view, let section = HomeSection(rawValue: tab) {
-                scrolls = Self.scrollingSections.contains(section)
+                scrolls = Self.scrollingSections.contains(section) || (section == .today && TodaySectionView.overflows)
                 sideways = Self.scrollsSideways(section, query: center.findQuery)
             }
             return .panel(index: index, count: ring.count, scrolls: scrolls, scrollsSideways: sideways,

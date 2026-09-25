@@ -33,15 +33,22 @@ final class WindowsAndControlsTests: XCTestCase {
 
     // MARK: - Listing windows
 
+    /// One entry of the window server's list. `onScreen` nil leaves the key out, which is how
+    /// a list taken with `.optionAll` reports a window that is not on screen.
     private func entry(id: CGWindowID, layer: Int = 0, owner: String = "Safari", name: String = "A page",
-                       bounds: CGRect = CGRect(x: 0, y: 0, width: 800, height: 600), alpha: Double = 1) -> [String: Any] {
-        [kCGWindowNumber as String: NSNumber(value: id),
-         kCGWindowLayer as String: layer,
-         kCGWindowOwnerPID as String: pid_t(1),
-         kCGWindowOwnerName as String: owner,
-         kCGWindowName as String: name,
-         kCGWindowAlpha as String: alpha,
-         kCGWindowBounds as String: CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height).dictionaryRepresentation]
+                       bounds: CGRect = CGRect(x: 0, y: 0, width: 800, height: 600), alpha: Double = 1,
+                       pid: pid_t = 1, onScreen: Bool? = true) -> [String: Any] {
+        var entry: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: id),
+            kCGWindowLayer as String: layer,
+            kCGWindowOwnerPID as String: pid,
+            kCGWindowOwnerName as String: owner,
+            kCGWindowName as String: name,
+            kCGWindowAlpha as String: alpha,
+            kCGWindowBounds as String: CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height).dictionaryRepresentation,
+        ]
+        if let onScreen { entry[kCGWindowIsOnscreen as String] = onScreen }
+        return entry
     }
 
     func testOnlyRealWindowsAreListed() {
@@ -61,6 +68,78 @@ final class WindowsAndControlsTests: XCTestCase {
     func testTheListIsCapped() {
         let many = (1...40).map { entry(id: CGWindowID($0)) }
         XCTAssertEqual(WindowsMonitor.list(now: many).count, WindowsMonitor.maxWindows)
+    }
+
+    // MARK: - Windows put away
+
+    private func away(pid: pid_t = 1, frame: CGRect = CGRect(x: 0, y: 0, width: 800, height: 600),
+                      title: String = "", _ reason: IslandWindow.Away = .minimised) -> PutAwayWindow {
+        PutAwayWindow(pid: pid, frame: frame, title: title, away: reason)
+    }
+
+    /// The minus on a tile put its window in the Dock and the tile went with it — the list was
+    /// of the windows on screen and nothing else — and "Hide Safari" did the same to every
+    /// Safari window. A window Accessibility says is minimised, or behind its hidden app, stays:
+    /// after the ones in view, and marked as put away so it can be drawn dimmed.
+    func testAWindowPutAwayStaysInTheListAfterTheOnesOnScreen() {
+        let notes = CGRect(x: 40, y: 60, width: 500, height: 400)
+        let windows = WindowsMonitor.list(now: [
+            entry(id: 1, onScreen: false),                                              // in the Dock
+            entry(id: 2, owner: "Mail", name: "Inbox", pid: 2),
+            entry(id: 3, owner: "Notes", name: "Groceries", bounds: notes, pid: 3, onScreen: nil),
+        ], putAway: [
+            away(),
+            away(pid: 3, frame: notes, .hidden),
+        ])
+        XCTAssertEqual(windows.map(\.id), [2, 1, 3], "what is in view first, then what was put away")
+        XCTAssertNil(windows[0].away)
+        XCTAssertEqual(windows[1].away, .minimised)
+        XCTAssertEqual(windows[2].away, .hidden)
+    }
+
+    /// Off screen is also every window on another desktop and every window an app keeps
+    /// ordered out, none of which a click on a tile could bring back. Without Accessibility
+    /// vouching for one, it stays out — and the section says "on this desktop".
+    func testAWindowOutOfSightIsOnlyListedWhenItWasPutAway() {
+        let info = [entry(id: 1), entry(id: 2, onScreen: false), entry(id: 3, onScreen: nil)]
+        XCTAssertEqual(WindowsMonitor.list(now: info).map(\.id), [1], "on another desktop, or never shown")
+        let elsewhere = away(frame: CGRect(x: 900, y: 0, width: 800, height: 600))
+        XCTAssertEqual(WindowsMonitor.list(now: info, putAway: [elsewhere]).map(\.id), [1],
+                       "a window put away somewhere else is not one of these")
+        XCTAssertEqual(WindowsMonitor.list(now: info, putAway: [away(pid: 9)]).map(\.id), [1],
+                       "nor is another app's")
+    }
+
+    /// Where the window goes back to is what the two sides always share: Accessibility reads a
+    /// title without Screen Recording, and the window list does not.
+    func testAPutAwayWindowIsKnownByWhereItGoesBackToOrByItsName() {
+        let untitled = entry(id: 1, name: "", onScreen: false)
+        XCTAssertEqual(WindowsMonitor.list(now: [untitled], putAway: [away(title: "Report.pdf")]).first?.away,
+                       .minimised)
+        let neighbour = entry(id: 2, name: "Other.pdf", onScreen: false)
+        XCTAssertTrue(WindowsMonitor.list(now: [neighbour], putAway: [away(title: "Report.pdf")]).isEmpty,
+                      "a title that disagrees rules out a window of the same size")
+        let placedApart = entry(id: 3, name: "Report.pdf", bounds: CGRect(x: 300, y: 200, width: 800, height: 600),
+                                onScreen: false)
+        XCTAssertEqual(WindowsMonitor.list(now: [placedApart], putAway: [away(title: "Report.pdf")]).map(\.id), [3],
+                       "and the name alone finds one the two sides place differently")
+    }
+
+    func testOneWindowPutAwayAnswersForOneListedWindow() {
+        let twins = [entry(id: 1, name: "", onScreen: false), entry(id: 2, name: "", onScreen: false)]
+        XCTAssertEqual(WindowsMonitor.list(now: twins, putAway: [away()]).map(\.id), [1],
+                       "two entries the same size cannot both be the one window in the Dock")
+    }
+
+    func testOnlyAppsWithAWindowOutOfSightAreAskedAboutIt() {
+        let info = [
+            entry(id: 1, pid: 1),
+            entry(id: 2, pid: 2, onScreen: false),
+            entry(id: 3, layer: 25, pid: 3, onScreen: false),                                  // a status item
+            entry(id: 4, bounds: CGRect(x: 0, y: 0, width: 60, height: 40), pid: 4, onScreen: false),   // a palette
+        ]
+        XCTAssertEqual(WindowsMonitor.appsWithWindowsOutOfSight(in: info), [2],
+                       "an app with everything in view has nothing put away, and is not asked")
     }
 
     // MARK: - The switcher band
@@ -190,10 +269,32 @@ final class WindowsAndControlsTests: XCTestCase {
         let plain = TodaySectionView.fit(events: 2, reminders: 2, in: SectionMetrics.bodyHeight)
         XCTAssertEqual(plain.events, 2)
         XCTAssertEqual(plain.reminders, 1, "36 + 36 + 28 = 100 of 110; a second reminder is 128")
+        XCTAssertEqual(plain.left, 1, "and the reminder that did not fit is counted, not lost")
         let hours = TodaySectionView.fit(events: 2, reminders: 2, in: withHours)
         XCTAssertEqual(hours.events, 1, "36 of 60; a second event is 72")
         XCTAssertEqual(hours.reminders, 0, "and a reminder after it is 64")
-        XCTAssertEqual(TodaySectionView.fit(events: 5, reminders: 0, in: 1000).events, 3, "never more than three events")
+        XCTAssertEqual(hours.left, 3)
+        let many = TodaySectionView.fit(events: 5, reminders: 0, in: 1000)
+        XCTAssertEqual(many.events, 3, "never more than three events")
+        XCTAssertEqual(many.left, 2, "and the rest are counted too")
+    }
+
+    /// With the weather on there is room for one event, and a second event or every reminder
+    /// of the day went missing with nothing to say so and nothing to scroll. What the room
+    /// leaves out goes in the header, and every row is either shown or counted.
+    func testWhatTheRoomLeavesOutIsSaidInTheHeader() {
+        XCTAssertEqual(TodaySectionView.title(left: 0), "Today", "a day that fits says nothing more")
+        XCTAssertEqual(TodaySectionView.title(left: 2), "Today · 2 more")
+        let room = TodaySectionView.listHeight(showingHours: true)
+        XCTAssertEqual(TodaySectionView.fit(events: 1, reminders: 0, in: room).left, 0,
+                       "one event fits beside the hours, and nothing is said")
+        for (events, reminders) in [(0, 5), (3, 4), (6, 1), (2, 0)] {
+            for height in [room, TodaySectionView.listHeight(showingHours: false)] {
+                let fitted = TodaySectionView.fit(events: events, reminders: reminders, in: height)
+                XCTAssertEqual(fitted.events + fitted.reminders + fitted.left, events + reminders,
+                               "\(events) events and \(reminders) reminders in \(height) pt")
+            }
+        }
     }
 
     /// The transport row takes what the rows above it leave, and the buttons take their clicks
@@ -537,10 +638,46 @@ final class WindowsAndControlsTests: XCTestCase {
         let overhang = (ActionTile.label - ActionTile.diameter) / 2
         XCTAssertGreaterThan(overhang, 0, "the name is the wider of the two")
         XCTAssertGreaterThan(ActionTile.gap, overhang * 2, "and the row leaves air between them")
-        // Eight of them is what the row holds; they still fit the panel's content column.
+        // Ten of them is what the row holds; their discs still fit the panel's content column,
+        // and the last name overhangs into the panel's margin as the first always has, never
+        // out of the panel.
         let count: CGFloat = CGFloat(QuickActionsRowView.capacity)
         let used = count * ActionTile.diameter + (count - 1) * ActionTile.gap
         XCTAssertLessThanOrEqual(used, IslandLayout.panelContentWidth)
+        XCTAssertLessThanOrEqual(used + overhang - IslandLayout.panelContentWidth, IslandLayout.panelInset)
+    }
+
+    /// Six apps and eight favourites were fourteen buttons chosen for a row that drew eight:
+    /// two of the favourites appeared and six were dropped, under a pane saying "8 of 8
+    /// chosen". The row holds ten, and Settings counts the two lists against it together.
+    func testTheActionsRowSharesItsTenButtonsBetweenAppsAndShortcuts() {
+        let capacity = QuickActionsRowView.capacity
+        XCTAssertEqual(capacity, 10)
+        XCTAssertEqual(CGFloat(capacity) * ActionTile.diameter + CGFloat(capacity - 1) * ActionTile.gap, 670,
+                       "ten discs and nine gaps, 2 pt inside the 672 pt column")
+        XCTAssertEqual(QuickActionsRowView.shortcutRoom(besideApps: FavoriteApps.maximum), 4, "six apps leave four")
+        XCTAssertEqual(QuickActionsRowView.shortcutRoom(besideApps: 0), ShortcutsRunner.maxFavorites,
+                       "and no apps leave the runner its own eight")
+        XCTAssertEqual(QuickActionsRowView.appRoom(besideShortcuts: ShortcutsRunner.maxFavorites), 2)
+        XCTAssertEqual(QuickActionsRowView.appRoom(besideShortcuts: 0), FavoriteApps.maximum)
+        // Whatever Settings allows, the row draws.
+        for apps in 0...FavoriteApps.maximum {
+            let shortcuts = QuickActionsRowView.shortcutRoom(besideApps: apps)
+            XCTAssertLessThanOrEqual(apps + shortcuts, capacity)
+            XCTAssertLessThanOrEqual(apps, QuickActionsRowView.appRoom(besideShortcuts: shortcuts),
+                                     "\(apps) apps and a full list of favourites still leave the apps room")
+            let fit = QuickActionsRowView.fit(apps: apps, shortcuts: shortcuts)
+            XCTAssertEqual(fit.apps, apps)
+            XCTAssertEqual(fit.shortcuts, shortcuts, "\(apps) apps: every favourite Settings allows is drawn")
+        }
+        // A list chosen before the room was shared keeps its apps, and Settings says how many of
+        // its favourites the row can show rather than calling it eight of eight.
+        let chosenBefore = QuickActionsRowView.fit(apps: 6, shortcuts: 8)
+        XCTAssertEqual(chosenBefore.apps, 6)
+        XCTAssertEqual(chosenBefore.shortcuts, 4)
+        XCTAssertEqual(QuickActionsRowView.tally(favourites: 8, apps: 6), "8 chosen; 4 fit beside your apps")
+        XCTAssertEqual(QuickActionsRowView.tally(favourites: 3, apps: 6), "3 of 4 chosen")
+        XCTAssertEqual(QuickActionsRowView.tally(favourites: 8, apps: 0), "8 of 8 chosen")
     }
 
     // MARK: - Laying several windows out at once

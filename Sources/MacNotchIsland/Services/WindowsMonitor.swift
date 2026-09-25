@@ -15,10 +15,51 @@ struct IslandWindow: Identifiable, Equatable {
     var frame: CGRect
     var icon: NSImage?
     var thumbnail: NSImage?
+    /// Why the window is out of sight, for one that is still open but put away: nil for a
+    /// window on screen.
+    var away: Away? = nil
+
+    /// The two ways a window is put away without being closed. Both leave it out of the
+    /// window server's on-screen list, which is how a minimised window used to vanish from the
+    /// strip the moment its own tile's minus button was pressed.
+    enum Away: Equatable {
+        /// In the Dock.
+        case minimised
+        /// Behind its app, which was hidden.
+        case hidden
+    }
 
     /// What to show under a tile: the window's own title where there is one (reading it needs
     /// the Screen Recording permission), the app's name otherwise.
     var label: String { title.isEmpty ? appName : title }
+}
+
+/// A window Accessibility reports as put away — minimised, or belonging to a hidden app — as
+/// much of it as it takes to find that window again in the window server's list: whose it
+/// is, where it goes back to, and what it is called.
+struct PutAwayWindow: Equatable {
+    var pid: pid_t
+    var frame: CGRect
+    var title: String
+    var away: IslandWindow.Away
+
+    /// Whether this is the window the window server listed. Where it is decides it, the way
+    /// `axWindow(for:)` decides it; a title that disagrees rules a same-sized neighbour out.
+    func sits(on window: IslandWindow) -> Bool {
+        guard pid == window.pid, titlesAgree(with: window) else { return false }
+        return abs(frame.minX - window.frame.minX) < 4 && abs(frame.minY - window.frame.minY) < 4
+            && abs(frame.width - window.frame.width) < 4 && abs(frame.height - window.frame.height) < 4
+    }
+
+    /// Whether this is the window by name alone: the fallback for a window whose frame the two
+    /// sides do not agree on, and only where both sides have a name to go on.
+    func isNamed(like window: IslandWindow) -> Bool {
+        pid == window.pid && !title.isEmpty && title == window.title
+    }
+
+    private func titlesAgree(with window: IslandWindow) -> Bool {
+        title.isEmpty || window.title.isEmpty || title == window.title
+    }
 }
 
 /// Where a window goes when it is snapped. The zones are the ones people reach for on a
@@ -65,13 +106,20 @@ enum SnapZone: String, CaseIterable, Identifiable {
     }
 }
 
-/// Every window open on the Mac, with a live picture of each, plus the two things you want to
-/// do with one from the notch: bring it to the front, or put it somewhere.
+/// Every window open on this desktop, with a live picture of each, plus the two things you
+/// want to do with one from the notch: bring it to the front, or put it somewhere.
 ///
 /// Pictures come from ScreenCaptureKit, which needs the Screen Recording permission. Without
 /// it the windows are still listed — from the window list, which needs no permission — as app
 /// tiles, and the section says what is missing and where to grant it. Moving a window needs
 /// the Accessibility permission, the same one the media keys already ask for.
+///
+/// Windows that are put away — minimised into the Dock, or behind an app that was hidden —
+/// are out of the window server's sight, and only Accessibility can say which of the windows
+/// it lists as off screen are those rather than windows on another desktop or ones an app
+/// keeps ordered out. With it they are listed after the ones on screen and drawn dimmed, so
+/// the minus button on a tile no longer loses the window it was pressed on. Windows on other
+/// desktops stay out: Accessibility does not see them, and the section says "on this desktop".
 ///
 /// Nothing runs unless the section is on screen: the list is refreshed and the pictures
 /// retaken on a timer that only exists while somebody is looking.
@@ -159,11 +207,14 @@ final class WindowsMonitor: ObservableObject {
     func refresh() {
         refreshPermissions()
         let allowed = canCapture
-        // The window server's list is walked off the main thread; what it says is turned into
-        // tiles (and their app icons, which is AppKit's business) back on it.
+        let trusted = canMove
+        // The window server's list is walked off the main thread, and so is Accessibility,
+        // which answers at the speed of the slowest app it is asked about; what they say is
+        // turned into tiles (and their app icons, which is AppKit's business) back on it.
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-            DispatchQueue.main.async { self?.apply(Self.list(now: info), capturing: allowed) }
+            let info = Self.windowServerList()
+            let away = trusted ? Self.putAwayWindows(of: Self.appsWithWindowsOutOfSight(in: info)) : []
+            DispatchQueue.main.async { self?.apply(Self.list(now: info, putAway: away), capturing: allowed) }
         }
     }
 
@@ -184,7 +235,9 @@ final class WindowsMonitor: ObservableObject {
         let pids = Set(listed.map(\.pid))
         icons = icons.filter { pids.contains($0.key) }
         guard capturing else { return }
-        capture(Array(listed.prefix(Self.maxCaptures)).map(\.id))
+        // Only what is on screen can be captured. A window put away keeps the picture it had
+        // when it went, which is also the picture of what comes back when it is clicked.
+        capture(Array(listed.filter { $0.away == nil }.prefix(Self.maxCaptures)).map(\.id))
     }
 
     /// An app's icon, looked up once and kept while that app still has a window: asking again
@@ -197,30 +250,109 @@ final class WindowsMonitor: ObservableObject {
         return icon
     }
 
-    /// Windows worth showing, front to back, as the window server lists them.
-    static func list(now: [[String: Any]]? = nil) -> [IslandWindow] {
-        let info = now ?? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
+    /// The window server's whole list, on screen and off. What is off screen is kept only
+    /// where Accessibility vouches for it, see `list(now:putAway:)`.
+    static func windowServerList() -> [[String: Any]] {
+        CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    }
+
+    /// Windows worth showing: the ones on screen, front to back as the window server lists
+    /// them, then the ones put away. An off-screen window is only listed when one of `putAway`
+    /// is that window; the rest of the off-screen list is other desktops and windows apps keep
+    /// ordered out, none of which a click on a tile could bring back.
+    ///
+    /// Pure, so the list can be tested without a window server.
+    static func list(now: [[String: Any]]? = nil, putAway: [PutAwayWindow] = []) -> [IslandWindow] {
+        let info = now ?? windowServerList()
         let ownPID = ProcessInfo.processInfo.processIdentifier
-        var result: [IslandWindow] = []
-        for window in info {
-            guard let id = window[kCGWindowNumber as String] as? CGWindowID,
-                  (window[kCGWindowLayer as String] as? Int) == 0,
-                  let pid = window[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
-                  let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation: boundsDict),
-                  frame.width >= minimumSize.width, frame.height >= minimumSize.height else { continue }
-            let alpha = (window[kCGWindowAlpha as String] as? Double) ?? 1
-            guard alpha > 0.1 else { continue }
-            let owner = (window[kCGWindowOwnerName as String] as? String) ?? ""
-            guard !owner.isEmpty, !ignoredOwners.contains(owner) else { continue }
-            let title = (window[kCGWindowName as String] as? String) ?? ""
-            // The icon is filled in by `apply`, from a cache: asking AppKit for it here would
-            // hand back a different NSImage every pass and make every list look changed.
-            result.append(IslandWindow(id: id, title: title, appName: owner, pid: pid, frame: frame,
-                                       icon: nil, thumbnail: nil))
-            if result.count >= maxWindows { break }
+        var shown: [IslandWindow] = []
+        var away: [IslandWindow] = []
+        var unclaimed = putAway
+        for entry in info {
+            guard let found = candidate(entry, ownPID: ownPID) else { continue }
+            if found.onScreen {
+                shown.append(found.window)
+                if shown.count >= maxWindows { break }
+                continue
+            }
+            // Each window Accessibility reported answers for one listed window at most, so two
+            // entries of the same size cannot both be taken for it.
+            guard let index = unclaimed.firstIndex(where: { $0.sits(on: found.window) })
+                    ?? unclaimed.firstIndex(where: { $0.isNamed(like: found.window) }) else { continue }
+            var window = found.window
+            window.away = unclaimed.remove(at: index).away
+            away.append(window)
+        }
+        return Array((shown + away).prefix(maxWindows))
+    }
+
+    /// One entry of the window server's list as a tile, if it is a window worth switching to,
+    /// and whether it is on screen. A list taken with `.optionAll` marks the ones on screen
+    /// and leaves the key out of the rest.
+    private static func candidate(_ window: [String: Any], ownPID: pid_t) -> (window: IslandWindow, onScreen: Bool)? {
+        guard let id = window[kCGWindowNumber as String] as? CGWindowID,
+              (window[kCGWindowLayer as String] as? Int) == 0,
+              let pid = window[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
+              let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: boundsDict),
+              frame.width >= minimumSize.width, frame.height >= minimumSize.height else { return nil }
+        let alpha = (window[kCGWindowAlpha as String] as? Double) ?? 1
+        guard alpha > 0.1 else { return nil }
+        let owner = (window[kCGWindowOwnerName as String] as? String) ?? ""
+        guard !owner.isEmpty, !ignoredOwners.contains(owner) else { return nil }
+        let title = (window[kCGWindowName as String] as? String) ?? ""
+        let onScreen = (window[kCGWindowIsOnscreen as String] as? Bool) ?? false
+        // The icon is filled in by `apply`, from a cache: asking AppKit for it here would
+        // hand back a different NSImage every pass and make every list look changed.
+        return (IslandWindow(id: id, title: title, appName: owner, pid: pid, frame: frame,
+                             icon: nil, thumbnail: nil), onScreen)
+    }
+
+    /// The apps with a window the window server lists as off screen, which are the only ones
+    /// worth asking Accessibility about: an app with every window in view has nothing put away.
+    static func appsWithWindowsOutOfSight(in info: [[String: Any]]) -> Set<pid_t> {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        return Set(info.compactMap { entry -> pid_t? in
+            guard let found = candidate(entry, ownPID: ownPID), !found.onScreen else { return nil }
+            return found.window.pid
+        })
+    }
+
+    /// What Accessibility says each of those apps has put away: its minimised windows, and
+    /// every window of one that is hidden. Only ordinary apps, the ones with a Dock icon —
+    /// anything else has no Dock to minimise into and nothing to hide.
+    ///
+    /// Off the main thread. `NSRunningApplication` is thread safe, and each app is given half
+    /// a second to answer rather than the default six, so one that has stopped responding
+    /// costs the strip a beat instead of holding every refresh behind it.
+    private static func putAwayWindows(of pids: Set<pid_t>) -> [PutAwayWindow] {
+        guard !pids.isEmpty, AXIsProcessTrusted() else { return [] }
+        var result: [PutAwayWindow] = []
+        for pid in pids {
+            guard let app = NSRunningApplication(processIdentifier: pid),
+                  app.activationPolicy == .regular else { continue }
+            let hidden = app.isHidden
+            let element = AXUIElementCreateApplication(pid)
+            _ = AXUIElementSetMessagingTimeout(element, 0.5)
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
+                  let windows = value as? [AXUIElement] else { continue }
+            for window in windows {
+                // Minimised wins over hidden: showing the app again leaves a minimised window
+                // in the Dock, so that is where it is.
+                let minimised = isMinimised(window)
+                guard minimised || hidden, let frame = frame(of: window) else { continue }
+                result.append(PutAwayWindow(pid: pid, frame: frame, title: title(of: window) ?? "",
+                                            away: minimised ? .minimised : .hidden))
+            }
         }
         return result
+    }
+
+    private static func isMinimised(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &value) == .success else { return false }
+        return (value as? Bool) ?? false
     }
 
     // MARK: - Pictures
@@ -292,10 +424,15 @@ final class WindowsMonitor: ObservableObject {
 
     // MARK: - Acting on a window
 
-    /// Brings a window to the front and gives it the keyboard. The panel closes with it: the
-    /// point of the click was to get to that window, not to keep looking at the notch.
+    /// Brings a window to the front and gives it the keyboard — out of the Dock, or from
+    /// behind its hidden app, where it was put away. The panel closes with it: the point of
+    /// the click was to get to that window, not to keep looking at the notch.
     func focus(_ window: IslandWindow) {
         ActivityCenter.shared.collapse(reason: "switched to a window")
+        let app = NSRunningApplication(processIdentifier: window.pid)
+        // Shown before anything is raised: a window of a hidden app stays out of sight however
+        // far forward it is brought.
+        if app?.isHidden == true { app?.unhide() }
         if let element = Self.axWindow(for: window, lenient: true) {
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
@@ -303,7 +440,17 @@ final class WindowsMonitor: ObservableObject {
         }
         // Without Accessibility this is all there is: the app comes forward with whichever
         // window it had in front, which is right far more often than not.
-        NSRunningApplication(processIdentifier: window.pid)?.activate()
+        app?.activate()
+    }
+
+    /// Hides the app a window belongs to, or shows it again. Its windows stay in the strip
+    /// either way — dimmed while the app is hidden — and the list is taken again a beat later,
+    /// by which time the window server has caught up, so the tiles change with the app rather
+    /// than a refresh after it.
+    func setHidden(_ hidden: Bool, appOf window: IslandWindow) {
+        guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
+        if hidden { app.hide() } else { app.unhide() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
     }
 
     /// Lays several windows out side by side on one screen, the way macOS's own tiling does
@@ -324,6 +471,9 @@ final class WindowsMonitor: ObservableObject {
         var moved = false
         for (window, target) in zip(windows, frames) {
             guard let element = Self.axWindow(for: window) else { continue }
+            // A window behind its hidden app is laid out where nobody can see it until the app
+            // is shown; one in the Dock comes out of it.
+            if window.away == .hidden { NSRunningApplication(processIdentifier: window.pid)?.unhide() }
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             Self.setFrame(element, to: target)
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
@@ -382,6 +532,9 @@ final class WindowsMonitor: ObservableObject {
             return false
         }
         let target = zone.rect(in: Self.visibleFrame(containing: window.frame))
+        // A window put away comes back to be put somewhere: out of the Dock first, as `tile`
+        // does, and its app is shown by the `activate` below.
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         Self.setFrame(element, to: target)
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
         NSRunningApplication(processIdentifier: window.pid)?.activate()
@@ -418,6 +571,7 @@ final class WindowsMonitor: ObservableObject {
             return false
         }
         let next = screens[(here + 1) % screens.count]
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         Self.setFrame(element, to: Self.mapped(window.frame, from: screens[here].visible, to: next.visible))
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
         NSRunningApplication(processIdentifier: window.pid)?.activate()
@@ -428,7 +582,7 @@ final class WindowsMonitor: ObservableObject {
 
     /// Puts a window in the Dock. The one thing the zones could not do: every other button on
     /// a tile moves a window somewhere on this screen, and sometimes where you want it is off
-    /// the screen entirely.
+    /// the screen entirely. Its tile stays, dimmed, and a click on it brings the window back.
     @discardableResult
     func minimise(_ window: IslandWindow) -> Bool {
         guard let element = Self.axWindow(for: window) else {
@@ -437,7 +591,10 @@ final class WindowsMonitor: ObservableObject {
             return false
         }
         let status = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        // Once now, and once when the Dock's animation is over and the window server has the
+        // window out of view, which is when the tile can be drawn as put away.
         refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.refresh() }
         return status == .success
     }
 

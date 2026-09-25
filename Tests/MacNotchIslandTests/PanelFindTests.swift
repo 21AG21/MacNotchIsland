@@ -248,6 +248,44 @@ final class PanelFindTests: XCTestCase {
         XCTAssertTrue(ClipboardView.ordered(items, query: "zzz").isEmpty)
     }
 
+    // MARK: - What the Windows header carries
+
+    private func windowsHeader(windows: Int = 5, finding: Bool = false, picked: Int = 0,
+                               capture: Bool = true, move: Bool = true) -> [WindowsSectionView.HeaderItem] {
+        WindowsSectionView.header(windows: windows, finding: finding, picked: picked,
+                                  canCapture: capture, canMove: move)
+    }
+
+    /// The letters are claimed by section, not by permission, so with Screen Recording or
+    /// Accessibility refused a letter typed on Windows still narrowed the strip — while the
+    /// field that would have shown it, and taken it back, stood behind the permission's pill.
+    func testATypedFindShowsItsFieldWhateverPermissionIsMissing() {
+        for (capture, move) in [(false, false), (false, true), (true, false), (true, true)] {
+            XCTAssertEqual(windowsHeader(finding: true, capture: capture, move: move).first, .find,
+                           "Screen Recording \(capture), Accessibility \(move): the field is drawn")
+        }
+        XCTAssertEqual(windowsHeader(finding: true, capture: false), [.find, .showPictures],
+                       "and what is missing is offered beside it rather than in its place")
+        XCTAssertEqual(windowsHeader(finding: true, move: false), [.find, .allowMoving])
+        XCTAssertEqual(windowsHeader(windows: 0, finding: true, capture: false, move: false), [.find, .showPictures],
+                       "a find that has nothing to search keeps its field until Escape")
+    }
+
+    func testTheCountIsOnlyThereWithNothingElseToSay() {
+        XCTAssertEqual(windowsHeader(), [.find, .count])
+        XCTAssertEqual(windowsHeader(finding: true), [.find], "the field counts its own matches")
+        XCTAssertEqual(windowsHeader(picked: 2), [.find, .picked])
+        XCTAssertEqual(windowsHeader(move: false), [.find, .allowMoving],
+                       "without Accessibility the windows in the Dock are not in the list to be counted")
+        XCTAssertEqual(windowsHeader(windows: 0), [], "nothing to find and nothing to count")
+        XCTAssertEqual(windowsHeader(windows: 0, capture: false), [.showPictures])
+    }
+
+    func testTheCountSaysWhichDesktopItIsCounting() {
+        // Windows on other desktops are not listed, and "4 open" on a Mac with nine said otherwise.
+        XCTAssertEqual(WindowsSectionView.tally(4), "4 on this desktop")
+    }
+
     func testAWindowIsFoundByItsAppOrItsTitle() {
         let windows = WindowsSectionView.sampleWindows
         func names(_ query: String) -> [String] {

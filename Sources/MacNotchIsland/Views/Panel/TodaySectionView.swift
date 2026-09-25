@@ -33,13 +33,26 @@ struct TodaySectionView: View {
         SectionMetrics.bodyHeight - (showingHours ? hourlyHeight + SectionMetrics.gapBelowHeader : 0)
     }
 
-    private var showsHours: Bool { prefs.weatherEnabled && !weather.upcomingHours.isEmpty }
+    /// Whether the hours go along the floor: the weather is on, and there is a forecast young
+    /// enough to show and hours of it still to come. A forecast too old for its reading to be
+    /// shown is too old for its hours as well.
+    static func showsHours(weatherOn: Bool, weather: WeatherService, at now: Date = Date()) -> Bool {
+        weatherOn && weather.state != .denied && weather.age(at: now) != .expired
+            && !WeatherService.upcoming(weather.hours, after: now).isEmpty
+    }
+
+    private var showsHours: Bool { Self.showsHours(weatherOn: prefs.weatherEnabled, weather: weather) }
     private var listHeight: CGFloat { Self.listHeight(showingHours: showsHours) }
 
-    /// How many events and reminders go into that room: events first and at most three, then
-    /// reminders, each only if the whole row fits. A row that does not fit is left out rather
-    /// than drawn half over the hours.
-    static func fit(events: Int, reminders: Int, in height: CGFloat) -> (events: Int, reminders: Int) {
+    /// How many events and reminders go into that room, and how many are left out of it:
+    /// events first and at most three, then reminders, each only if the whole row fits. A row
+    /// that does not fit is not drawn half over the hours.
+    ///
+    /// What is left out is counted rather than dropped. With the weather on there is room for
+    /// one event and nothing else, and a second event or every reminder of the day went
+    /// missing without a word; the count is what goes in the header ("Today · 2 more"), and
+    /// what turns the list into one that scrolls.
+    static func fit(events: Int, reminders: Int, in height: CGFloat) -> (events: Int, reminders: Int, left: Int) {
         var used: CGFloat = 0
         var shownEvents = 0
         while shownEvents < min(events, 3), used + eventRow <= height {
@@ -51,7 +64,32 @@ struct TodaySectionView: View {
             shownReminders += 1
             used += reminderRow
         }
-        return (shownEvents, shownReminders)
+        return (shownEvents, shownReminders, (events - shownEvents) + (reminders - shownReminders))
+    }
+
+    /// The section's title, carrying what the room left out: the one place on screen that
+    /// says there is more of the day than is in view.
+    static func title(left: Int) -> String {
+        left > 0 ? "Today · \(left) more" : "Today"
+    }
+
+    /// Today's events and the reminders still open — all of them, in the order the list
+    /// shows them. "Today" ends at the next midnight by the calendar, see
+    /// `AgendaStore.endOfDay(for:calendar:)`.
+    static func day(events: [AgendaStore.Event], reminders: [AgendaStore.Reminder], at now: Date,
+                    calendar: Calendar = .current) -> (events: [AgendaStore.Event], reminders: [AgendaStore.Reminder]) {
+        let end = AgendaStore.endOfDay(for: now, calendar: calendar)
+        return (events.filter { $0.start < end }, reminders.filter { !$0.isCompleted })
+    }
+
+    /// Whether there is more of the day than the room shows, and so a list that scrolls. Read
+    /// from the stores themselves, so that whatever decides where a scroll goes can ask it of
+    /// a section it cannot see into.
+    static var overflows: Bool {
+        let today = day(events: AgendaStore.shared.events, reminders: AgendaStore.shared.reminders, at: Date())
+        let hours = showsHours(weatherOn: Preferences.shared.weatherEnabled, weather: WeatherService.shared)
+        return fit(events: today.events.count, reminders: today.reminders.count,
+                   in: listHeight(showingHours: hours)).left > 0
     }
 
     // MARK: - What the tick box answers to
@@ -85,7 +123,7 @@ struct TodaySectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
-            SectionHeader("Today") {
+            SectionHeader(Self.title(left: layout.left)) {
                 if prefs.weatherEnabled { weatherLine }
             }
             content
@@ -162,22 +200,11 @@ struct TodaySectionView: View {
 
     // MARK: - Weather, in one line
 
+    /// The refusal first, then the reading. The other way about, a reading cached before
+    /// Location was refused stood in the line for good and the offer below never appeared.
     @ViewBuilder
     private var weatherLine: some View {
-        if let celsius = weather.temperatureC {
-            HStack(spacing: 5) {
-                Image(systemName: weather.conditionSymbol)
-                    .font(.system(size: 11, weight: .semibold))
-                // The separator the rest of the app uses between two facts on one line, in
-                // place of the two spaces that stood here.
-                Text(WeatherService.formatTemperature(celsius, fahrenheit: WeatherService.usesFahrenheit)
-                     + (weather.conditionText.isEmpty ? "" : " · " + weather.conditionText))
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(.white.opacity(0.45))
-            .accessibilityElement(children: .combine)
-        } else if weather.state == .denied {
+        if weather.state == .denied {
             // A switch somebody turned on and that then shows nothing at all is
             // indistinguishable from one that does not work. Location is the one thing the
             // weather cannot do without, and this is the same offer the Windows section makes
@@ -186,7 +213,45 @@ struct TodaySectionView: View {
                 SystemSettingsPane.location.open()
             }
             .accessibilityLabel(Text("Weather needs your location. Open Location Services."))
+        } else {
+            // Redrawn each minute, so a reading that goes on being the last one there is
+            // starts saying how old it is while the panel is open, not only the next time.
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                reading(at: context.date)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func reading(at now: Date) -> some View {
+        if let celsius = weather.temperatureC,
+           let line = Self.weatherText(celsius: celsius, condition: weather.conditionText,
+                                       age: weather.age(at: now), fahrenheit: WeatherService.usesFahrenheit) {
+            HStack(spacing: 5) {
+                Image(systemName: weather.conditionSymbol)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(line)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white.opacity(0.45))
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// "18° · Clear", with how long ago it was true once that is worth saying — "18° · Clear
+    /// · 3 hrs ago" — and nothing at all for a reading too old to be the weather. The
+    /// separator is the one the rest of the app uses between two facts on one line.
+    static func weatherText(celsius: Double, condition: String, age: WeatherService.Age,
+                            fahrenheit: Bool) -> String? {
+        var parts = [WeatherService.formatTemperature(celsius, fahrenheit: fahrenheit)]
+        if !condition.isEmpty { parts.append(condition) }
+        switch age {
+        case .current: break
+        case .old(let ago): parts.append(ago)
+        case .expired: return nil
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - The list
@@ -210,18 +275,29 @@ struct TodaySectionView: View {
                               subtitle: tomorrowHint) {
                 if remindersRefused { remindersPill }
             }
-        } else {
-            VStack(spacing: 0) {
-                ForEach(rows) { row in
-                    switch row {
-                    case .event(let event): eventRow(event)
-                    case .reminder(let reminder): reminderRow(reminder)
-                    }
-                }
-                if remindersRefused, remindersNoteFits { remindersNote }
+        } else if layout.left > 0 {
+            // More of the day than the room: all of it, in a list that scrolls, with the
+            // header saying how much is out of view. The rows at the top are the ones `fit`
+            // would have shown, so nothing moves when the list stops fitting.
+            IslandScrollStrip(axis: .vertical) {
+                list(withNote: remindersRefused)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+        } else {
+            list(withNote: remindersRefused && remindersNoteFits)
         }
+    }
+
+    private func list(withNote note: Bool) -> some View {
+        VStack(spacing: 0) {
+            ForEach(rows) { row in
+                switch row {
+                case .event(let event): eventRow(event)
+                case .reminder(let reminder): reminderRow(reminder)
+                }
+            }
+            if note { remindersNote }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     // MARK: - Reminders that cannot be read
@@ -291,18 +367,24 @@ struct TodaySectionView: View {
         }
     }
 
-    /// Today's events first (at most three), then reminders, as many as fit — see `fit`.
+    /// The day, and how much of it the room holds — see `fit`.
+    private var layout: (events: [AgendaStore.Event], reminders: [AgendaStore.Reminder], left: Int) {
+        let today = Self.day(events: agenda.events, reminders: agenda.reminders, at: Date())
+        let shown = Self.fit(events: today.events.count, reminders: today.reminders.count, in: listHeight)
+        return (today.events, today.reminders, shown.left)
+    }
+
+    /// Today's events first, then reminders: as many as fit (at most three events), or every
+    /// one of them in a list that scrolls when the room cannot hold them all.
     private var rows: [Row] {
-        let now = Date()
-        let endOfDay = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 3600)
-        let events = agenda.events.filter { $0.start < endOfDay }
-        let reminders = agenda.reminders.filter { !$0.isCompleted }
-        let shown = Self.fit(events: events.count, reminders: reminders.count, in: listHeight)
-        return events.prefix(shown.events).map(Row.event) + reminders.prefix(shown.reminders).map(Row.reminder)
+        let day = layout
+        if day.left > 0 { return day.events.map(Row.event) + day.reminders.map(Row.reminder) }
+        let shown = Self.fit(events: day.events.count, reminders: day.reminders.count, in: listHeight)
+        return day.events.prefix(shown.events).map(Row.event) + day.reminders.prefix(shown.reminders).map(Row.reminder)
     }
 
     private var tomorrowHint: String? {
-        let endOfDay = Calendar.current.startOfDay(for: Date()).addingTimeInterval(24 * 3600)
+        let endOfDay = AgendaStore.endOfDay(for: Date())
         guard let next = agenda.events.first(where: { $0.start >= endOfDay }) else { return nil }
         return "Tomorrow: \(next.title) at \(AgendaStore.timeLabel(for: next))"
     }

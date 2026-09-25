@@ -16,7 +16,8 @@ final class ShortcutsRunner: ObservableObject {
     /// the wrong thing to say when the thing that lists them is what is missing.
     @Published private(set) var isAvailable = true
 
-    /// Names pinned to the island's quick actions row, in display order. Capped at 8.
+    /// Names pinned to the island's quick actions row, in display order. Capped at eight, and
+    /// at what the row leaves beside the favourite apps (`QuickActionsRowView.shortcutRoom`).
     @Published var favorites: [String] {
         didSet { UserDefaults.standard.set(favorites, forKey: Self.favoritesKey) }
     }
@@ -25,7 +26,8 @@ final class ShortcutsRunner: ObservableObject {
 
     private static let favoritesKey = "quickActionFavorites"
     private static let symbolsKey = "quickActionSymbols"
-    private static let maxFavorites = 8
+    /// The most favourites kept, however few apps share the row with them.
+    static let maxFavorites = 8
     private static let binaryPath = "/usr/bin/shortcuts"
     private static let queue = DispatchQueue(label: "com.macnotchisland.shortcuts", qos: .userInitiated)
 
@@ -235,11 +237,14 @@ final class ShortcutsRunner: ObservableObject {
 
     func isFavorite(_ name: String) -> Bool { favorites.contains(name) }
 
-    func toggleFavorite(_ name: String) {
+    /// Turns a favourite on or off. `room` is how many the row can show beside the apps it
+    /// shares with, which Settings works out: a favourite turned on past it would be one more
+    /// button the row never draws.
+    func toggleFavorite(_ name: String, room: Int = ShortcutsRunner.maxFavorites) {
         if let index = favorites.firstIndex(of: name) {
             favorites.remove(at: index)
         } else {
-            guard favorites.count < Self.maxFavorites else { return }
+            guard favorites.count < min(room, Self.maxFavorites) else { return }
             favorites.append(name)
         }
     }

@@ -5,6 +5,12 @@ import SwiftUI
 /// these rows straight into a `Form` section.
 struct QuickActionsSettingsView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
+    /// Watched because the favourites share the Actions row with the apps: every app kept is
+    /// one favourite fewer the row can show.
+    @ObservedObject private var apps = FavoriteApps.shared
+
+    /// How many favourites the row has room for beside the apps.
+    private var room: Int { QuickActionsRowView.shortcutRoom(besideApps: apps.paths.count) }
 
     var body: some View {
         Group {
@@ -13,7 +19,7 @@ struct QuickActionsSettingsView: View {
                     .help("Ask the Shortcuts app for the current list.")
             } label: {
                 Text("Favourites")
-                Text("\(runner.favorites.count) of 8 chosen")
+                Text(QuickActionsRowView.tally(favourites: runner.favorites.count, apps: apps.paths.count))
             }
 
             if !runner.isAvailable {
@@ -46,10 +52,10 @@ struct QuickActionsSettingsView: View {
                 }
                 Toggle("", isOn: Binding(
                     get: { runner.isFavorite(name) },
-                    set: { _ in runner.toggleFavorite(name) }
+                    set: { _ in runner.toggleFavorite(name, room: room) }
                 ))
                 .labelsHidden()
-                .disabled(!isFavorite && runner.favorites.count >= 8)
+                .disabled(!isFavorite && runner.favorites.count >= room)
                 .accessibilityLabel(Text(name))
             }
         } label: {

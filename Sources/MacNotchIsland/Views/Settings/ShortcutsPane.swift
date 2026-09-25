@@ -3,9 +3,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// "Actions": the apps and Shortcuts that become buttons in the panel's Actions section.
+///
+/// The two lists share one row of ten (`QuickActionsRowView.capacity`), so each is capped by
+/// what the other leaves as well as by its own limit: the pane counted them apart, and six
+/// apps with eight favourites was fourteen buttons chosen for a row that drew eight.
 struct ShortcutsPane: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var apps = FavoriteApps.shared
+    @ObservedObject private var runner = ShortcutsRunner.shared
+
+    /// How many apps the row has room for beside the favourites chosen.
+    private var appRoom: Int { QuickActionsRowView.appRoom(besideShortcuts: runner.favorites.count) }
 
     var body: some View {
         Form {
@@ -28,11 +36,11 @@ struct ShortcutsPane: View {
                         }
                     }
                     Button("Add App…") { chooseApp() }
-                        .disabled(apps.paths.count >= FavoriteApps.maximum)
+                        .disabled(apps.paths.count >= appRoom)
                 } header: {
                     Text("Apps")
                 } footer: {
-                    Text("Up to \(FavoriteApps.maximum) apps sit at the front of the Actions section, before your Shortcuts. Clicking one opens it and closes the panel.")
+                    Text("Up to \(FavoriteApps.maximum) apps sit at the front of the Actions section, before your Shortcuts, in a row of \(QuickActionsRowView.capacity) buttons the two share. Clicking one opens it and closes the panel.")
                 }
 
                 Section {
@@ -40,7 +48,7 @@ struct ShortcutsPane: View {
                 } header: {
                     Text("Quick actions")
                 } footer: {
-                    Text("Favourites appear in the Home panel, up to eight, in the order you turn them on. The symbol field takes any SF Symbol name.")
+                    Text("Favourites appear in the Actions section after your apps, in the order you turn them on: up to \(ShortcutsRunner.maxFavorites), and \(QuickActionsRowView.capacity) buttons in all with the apps. The symbol field takes any SF Symbol name.")
                 }
             } else {
                 Section {
@@ -50,7 +58,9 @@ struct ShortcutsPane: View {
                         }
                     } label: {
                         Text("Quick actions are off")
-                        Text("Turn them on to run your Shortcuts from the Home panel.")
+                        // The switch is the whole Actions section, not only the Shortcuts: the
+                        // favourite apps and the timers go with it.
+                        Text("The Actions section is hidden, with your apps, your Shortcuts and the timers. Turn it on to have them in the panel again.")
                     }
                 } header: {
                     Text("Quick actions")
@@ -71,6 +81,6 @@ struct ShortcutsPane: View {
         panel.message = "Choose an app for the Actions section."
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        apps.add(url)
+        apps.add(url, room: appRoom)
     }
 }

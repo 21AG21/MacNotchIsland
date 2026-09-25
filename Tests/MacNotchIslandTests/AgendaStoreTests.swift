@@ -207,6 +207,55 @@ final class AgendaStoreTests: XCTestCase {
         XCTAssertEqual(TodaySectionView.tickHit, CGSize(width: 16 + 2 * 6, height: 16 + 2 * 6))
     }
 
+    // MARK: - Where today ends
+
+    private var newYork: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        return calendar
+    }
+
+    private func moment(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) throws -> Date {
+        try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute)))
+    }
+
+    private func event(_ id: String, at start: Date) -> AgendaStore.Event {
+        AgendaStore.Event(id: id, title: "Event \(id)", start: start, end: start.addingTimeInterval(30 * 60),
+                          isAllDay: false, location: nil, joinURL: nil, tint: "blue")
+    }
+
+    /// 1 November 2026 in New York is twenty-five hours long. Twenty-four hours after its
+    /// midnight is eleven at night, so a meeting at half past eleven read as tomorrow's and the
+    /// reminders due in the last hour were not asked for.
+    func testTheDayTheClocksGoBackEndsAtMidnightNotAnHourBefore() throws {
+        let evening = try moment(11, 1, 21)
+        let midnight = try moment(11, 2, 0)
+        XCTAssertEqual(midnight.timeIntervalSince(newYork.startOfDay(for: evening)), 25 * 3600,
+                       "the day really is twenty-five hours")
+        XCTAssertEqual(AgendaStore.endOfDay(for: evening, calendar: newYork), midnight)
+        let late = event("late", at: try moment(11, 1, 23, 30))
+        XCTAssertEqual(TodaySectionView.day(events: [late], reminders: [], at: evening, calendar: newYork).events.map(\.id),
+                       ["late"], "half past eleven is still today")
+    }
+
+    /// 8 March 2026 is twenty-three hours long, and twenty-four hours counted the first hour of
+    /// the next day as this one's.
+    func testTheDayTheClocksGoForwardEndsAtMidnightNotAnHourAfter() throws {
+        let evening = try moment(3, 8, 21)
+        let midnight = try moment(3, 9, 0)
+        XCTAssertEqual(AgendaStore.endOfDay(for: evening, calendar: newYork), midnight)
+        let early = event("early", at: try moment(3, 9, 0, 30))
+        XCTAssertTrue(TodaySectionView.day(events: [early], reminders: [], at: evening, calendar: newYork).events.isEmpty,
+                      "half past midnight is tomorrow")
+    }
+
+    func testAnOrdinaryDayStillEndsAtTheNextMidnight() throws {
+        let afternoon = try moment(9, 25, 15)
+        XCTAssertEqual(AgendaStore.endOfDay(for: afternoon, calendar: newYork), try moment(9, 26, 0))
+        XCTAssertEqual(AgendaStore.endOfDay(for: try moment(9, 25, 0), calendar: newYork), try moment(9, 26, 0),
+                       "midnight itself belongs to the day it starts")
+    }
+
     // MARK: - A permission granted after launch
 
     func testAGrantMadeInSystemSettingsIsNoticed() {

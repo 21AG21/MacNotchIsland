@@ -8,9 +8,46 @@ struct QuickActionsRowView: View {
     @ObservedObject private var runner = ShortcutsRunner.shared
     @ObservedObject private var apps = FavoriteApps.shared
 
-    /// Eight buttons is what the row holds; apps come first because they are what people
-    /// reach for most.
-    static let capacity = 8
+    /// Ten buttons is what the row holds: ten discs and the nine gaps between them come to
+    /// 670 of the column's 672, and the last name overhangs into the panel's margin the way
+    /// the first always has. Apps come first because they are what people reach for most.
+    ///
+    /// It held eight, while Settings allowed six apps and eight Shortcuts on their own
+    /// counts: with six apps two favourites were drawn and six were dropped without a word,
+    /// under a pane saying "8 of 8 chosen" and a Home tile counting fourteen actions. The two
+    /// are now counted against this one number, see `shortcutRoom` and `appRoom`.
+    static let capacity = 10
+
+    /// How the row is shared out: every app first, then as many Shortcuts as there is room
+    /// left for. Lists chosen before the two were counted together can still add up to more
+    /// than the row holds; what it leaves out then is the Shortcuts at the end of the list,
+    /// and Settings says so (`tally`).
+    ///
+    /// Pure, so the sharing can be tested.
+    static func fit(apps: Int, shortcuts: Int) -> (apps: Int, shortcuts: Int) {
+        let shownApps = max(0, min(apps, capacity))
+        return (shownApps, max(0, min(shortcuts, capacity - shownApps)))
+    }
+
+    /// How many Shortcuts can be favourites beside this many apps: what the row leaves them,
+    /// and never more than the runner keeps.
+    static func shortcutRoom(besideApps apps: Int) -> Int {
+        max(0, min(ShortcutsRunner.maxFavorites, capacity - apps))
+    }
+
+    /// How many apps can be kept beside this many favourite Shortcuts: the same count, from
+    /// the other side.
+    static func appRoom(besideShortcuts shortcuts: Int) -> Int {
+        max(0, min(FavoriteApps.maximum, capacity - shortcuts))
+    }
+
+    /// What Settings says under "Favourites": how many are chosen out of the room there is,
+    /// or, for a list chosen before the room was shared, how many of them the row can show.
+    static func tally(favourites: Int, apps: Int) -> String {
+        let room = shortcutRoom(besideApps: apps)
+        guard favourites > room else { return "\(favourites) of \(room) chosen" }
+        return "\(favourites) chosen; \(room) fit beside your apps"
+    }
 
     /// The way to fill this row: straight to the pane that does it, rather than to whichever
     /// pane Settings happened to be left on. The section's header offers the same thing when
@@ -42,13 +79,14 @@ struct QuickActionsRowView: View {
                 .accessibilityElement(children: .contain)
             } else {
                 let favourites = apps.apps
+                let shown = Self.fit(apps: favourites.count, shortcuts: runner.favorites.count)
                 // Wide enough that two names at full width still cannot touch: each name is
                 // centred on its own disc and overhangs it either side, see `AppButton`.
                 HStack(alignment: .top, spacing: ActionTile.gap) {
-                    ForEach(favourites, id: \.path) { app in
+                    ForEach(favourites.prefix(shown.apps), id: \.path) { app in
                         AppButton(path: app.path, name: app.name)
                     }
-                    ForEach(runner.favorites.prefix(max(0, Self.capacity - favourites.count)), id: \.self) { name in
+                    ForEach(runner.favorites.prefix(shown.shortcuts), id: \.self) { name in
                         QuickActionButton(name: name)
                     }
                     Spacer(minLength: 0)

@@ -251,6 +251,54 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertEqual(decoded.temperatureC, 9, accuracy: 0.0001)
     }
 
+    // MARK: - How old a reading is
+
+    private let taken = Date(timeIntervalSince1970: 1_790_000_000)
+    private let hour: TimeInterval = 3600
+
+    /// The cache kept a reading of any age and Today showed it as the weather, so a Mac that
+    /// went offline, or refused its location, said "18° · Clear" for good.
+    func testAReadingIsTheWeatherForThreeRefreshes() {
+        let interval = WeatherService.refreshInterval
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken), .current)
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(3 * interval - 1)), .current)
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(3 * interval)), .old("1 hr ago"),
+                       "three refreshes missed is a Mac that is not getting the weather, and the line says so")
+    }
+
+    func testAnOldReadingSaysHowOldAndAnAncientOneIsNotShown() {
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(5 * hour)), .old("5 hrs ago"))
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(23.9 * hour)), .old("23 hrs ago"))
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(24 * hour)), .expired,
+                       "yesterday's temperature is not a fact about today")
+        XCTAssertEqual(WeatherService.age(of: nil, at: taken), .expired, "no reading is nothing to show")
+    }
+
+    func testOnBatteryAReadingIsGivenTheLongerRefreshItIsOn() {
+        // Low Power Mode stretches the refresh fourfold, to every two hours; a reading that is
+        // not due again until then is not old at three.
+        let lowPower = WeatherService.refreshInterval * EnergyPolicy.pollingMultiplier(asleep: false, lowPower: true,
+                                                                                       onBattery: true)
+        XCTAssertEqual(WeatherService.age(of: taken, interval: lowPower, at: taken.addingTimeInterval(3 * hour)), .current)
+    }
+
+    func testAReadingFromTheFutureIsAClockThatWasSetBack() {
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(-10 * 60)), .current)
+        XCTAssertEqual(WeatherService.age(of: taken, at: taken.addingTimeInterval(-48 * hour)), .expired,
+                       "how old it is cannot be known, and it is not taken for new")
+    }
+
+    func testTheLineSaysHowOldTheReadingIs() {
+        XCTAssertEqual(TodaySectionView.weatherText(celsius: 18, condition: "Clear", age: .current, fahrenheit: false),
+                       "18° · Clear")
+        XCTAssertEqual(TodaySectionView.weatherText(celsius: 18, condition: "Clear", age: .old("3 hrs ago"),
+                                                    fahrenheit: false),
+                       "18° · Clear · 3 hrs ago")
+        XCTAssertEqual(TodaySectionView.weatherText(celsius: 18, condition: "", age: .current, fahrenheit: false), "18°")
+        XCTAssertNil(TodaySectionView.weatherText(celsius: 18, condition: "Clear", age: .expired, fahrenheit: false),
+                     "a reading too old to be the weather is not put up as one")
+    }
+
     // MARK: - Which units, for whom
 
     /// Three measurement systems, not two, and only one of them is Fahrenheit: Britain is not

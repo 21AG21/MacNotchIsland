@@ -15,7 +15,9 @@ final class FavoriteApps: ObservableObject {
     }
 
     static let key = "favoriteApps"
-    /// The row is shared with the Shortcuts favourites; this is what fits beside them.
+    /// The most apps kept, however few Shortcuts share the row with them. The row holds ten
+    /// buttons between the two lists (`QuickActionsRowView.capacity`), and six apps leave four
+    /// of them for Shortcuts.
     static let maximum = 6
 
     private var icons: [String: NSImage] = [:]
@@ -69,9 +71,12 @@ final class FavoriteApps: ObservableObject {
         return icon
     }
 
-    func add(_ url: URL) {
+    /// Keeps an app. `room` is how many apps the row can show beside the favourite Shortcuts
+    /// it shares with, which Settings works out: an app added past it would push a Shortcut
+    /// out of the row without a word.
+    func add(_ url: URL, room: Int = FavoriteApps.maximum) {
         let path = url.path
-        guard !paths.contains(path), paths.count < Self.maximum else { return }
+        guard !paths.contains(path), paths.count < min(room, Self.maximum) else { return }
         paths.append(path)
     }
 

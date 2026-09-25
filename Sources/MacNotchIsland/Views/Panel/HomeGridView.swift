@@ -216,11 +216,15 @@ struct HomeGridView: View {
         case .home, .music: return ""
         case .today: return agendaGlimpse
         case .controls: return "Wi-Fi, devices"
-        case .windows: return "Every window"
+        // Not "every window": the section lists this desktop's, and the Dock's with them.
+        case .windows: return "This desktop"
         case .shelf: return shelf.items.isEmpty ? "Drop files here" : count(shelf.items.count, "item")
         case .clipboard: return clipboard.items.isEmpty ? "Nothing copied" : count(clipboard.items.count, "item")
         case .actions:
-            let total = runner.favorites.count + apps.apps.count
+            // What the row draws, not what the lists hold: lists saved before the row's cap
+            // counted apps and Shortcuts together could add up to more than it shows.
+            let fit = QuickActionsRowView.fit(apps: apps.apps.count, shortcuts: runner.favorites.count)
+            let total = fit.apps + fit.shortcuts
             return total == 0 ? "Shortcuts, apps" : count(total, "action")
         case .notes:
             let first = notes.text.split(separator: "\n").first.map(String.init) ?? ""
