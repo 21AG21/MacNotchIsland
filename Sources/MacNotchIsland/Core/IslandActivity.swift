@@ -158,7 +158,8 @@ struct FocusState: Equatable {
 }
 
 struct LevelHUD: Equatable {
-    enum Kind: Equatable { case volume, brightness }
+    /// `keyboard` is the keyboard's backlight: its keys, and a Control-scroll on the island.
+    enum Kind: Equatable { case volume, brightness, keyboard }
     var kind: Kind
     var level: Double
     var isMuted: Bool = false
@@ -187,7 +188,22 @@ struct LevelHUD: Equatable {
     /// the pill answers the key press, and it used to answer it with the dash alone — which
     /// says "no number", not "not from here", and leaves the press looking broken after all.
     static func unavailableHint(_ state: LevelHUD) -> String {
-        state.kind == .volume ? "Set on the device" : "Set on the display"
+        switch state.kind {
+        case .volume: return "Set on the device"
+        case .brightness: return "Set on the display"
+        // Never raised today — a keyboard with no backlight keeps its keys — but a hint has to
+        // say something true if it ever is.
+        case .keyboard: return "Not on this keyboard"
+        }
+    }
+
+    /// What is being set, in a word: the pill's spoken label, the card's, the banner's.
+    var kindName: String {
+        switch kind {
+        case .volume: return "Volume"
+        case .brightness: return "Brightness"
+        case .keyboard: return "Keyboard"
+        }
     }
 }
 
@@ -212,11 +228,27 @@ struct CustomAction: Equatable {
     var symbol: String? = nil
     var url: URL? = nil
     var shortcut: String? = nil
+    /// Something the island itself does, for a button on one of its own cards. Never read from
+    /// a URL: a card pushed in from outside cannot carry one.
+    var command: IslandCommand? = nil
 
     /// Whether it would do anything at all. A button that does nothing is not a button.
     var isUsable: Bool {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-        return url != nil || !(shortcut ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        return url != nil || command != nil || !(shortcut ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
+/// What a button on one of the island's own cards can ask the app to do in-process — the part
+/// of a card that is neither a link nor a Shortcut.
+enum IslandCommand: Equatable {
+    /// Stop the screen recording the island started.
+    case stopRecording
+
+    func perform() {
+        switch self {
+        case .stopRecording: ScreenRecorder.shared.stop()
+        }
     }
 }
 
@@ -232,6 +264,10 @@ struct CustomActivity: Equatable {
     var showsRing: Bool = false
     /// At most two: a card has room for two buttons beside its text, and a third is a toolbar.
     var actions: [CustomAction] = []
+    /// A clock counting up from this moment, drawn where the trailing text goes, for something
+    /// the app is timing itself — its own screen recording. Drawn by the view once a second, so
+    /// the activity is not rewritten every second to move it.
+    var countsUpFrom: Date? = nil
 }
 
 /// A capture the user has just taken: a screenshot or a screen recording.
@@ -423,6 +459,8 @@ enum ActivityContent: Equatable {
         case .capture: return (34, 88)
         case .custom(let c):
             if c.progress != nil && c.showsRing { return (34, 40) }
+            // A running clock takes the call's slot: the same digits in the same face.
+            if c.countsUpFrom != nil { return (34, 60) }
             return (34, Self.customTrailingWidth(c.trailingText ?? ""))
         case .shelf(let s): return (34, s.count > 9 ? 48 : 40)
         }
@@ -493,6 +531,10 @@ enum ActivityContent: Equatable {
     /// row. It was given the height of two rows, which left 33 pt of black under it.
     static let cardCustomBody: CGFloat = 96
     static let cardTwoRows: CGFloat = 128
+    /// The call's own controls under its row — Effects and Mic Mode, the two Control Centre
+    /// panels a call reaches for: 8 pt of air and a 28 pt row of pills. The mute sits in the
+    /// header beside the button that goes to the call, where the phone puts it.
+    static let cardCallControls: CGFloat = 36
 
     var cardHeight: CGFloat {
         switch self {
@@ -504,6 +546,8 @@ enum ActivityContent: Equatable {
         case .timer: return Self.cardDigitsRow + IslandTimer.extraRowsHeight
         case .stopwatch: return Self.cardDigitsRow
         case .calendar: return Self.cardCalendarRow
+        // The header row, then the row of call controls under it: 12 + 44 + 8 + 28 + 16.
+        case .call: return Self.cardRow + Self.cardCallControls
         case .download(let d): return d.isComplete || d.progress == nil ? Self.cardRow : Self.cardRowWithBar
         // The bar is how full the disk is, drawn only where the size could be read and only
         // while there is still a disk to be full.

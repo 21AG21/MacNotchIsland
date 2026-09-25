@@ -31,7 +31,47 @@ struct CompactContentView: View {
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(IslandAccessibility.compactLabel(for: activity.content))
+        .modifier(CompactSpeech(shown: activity.content))
+    }
+}
+
+/// The pill's one spoken sentence. A call's also says whether the microphone is muted, which
+/// is the one thing about a call worth hearing without opening it — and only a call's pill
+/// watches the microphone, so nothing else on the island wakes it.
+private struct CompactSpeech: ViewModifier {
+    let shown: ActivityContent
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if case .call = shown {
+            content.modifier(CallSpeech(shown: shown))
+        } else {
+            content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown))
+        }
+    }
+}
+
+private struct CallSpeech: ViewModifier {
+    let shown: ActivityContent
+    @ObservedObject private var mic = MicrophoneControl.shared
+
+    func body(content: Content) -> some View {
+        content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown, micMuted: mic.isMuted))
+    }
+}
+
+/// The call pill's glyph: the green handset, or — while the microphone is muted — a red
+/// microphone with a line through it, since "you are muted" is what a glance at a call
+/// most needs to catch.
+private struct CallGlyph: View {
+    let size: CGFloat
+    @ObservedObject private var mic = MicrophoneControl.shared
+
+    var body: some View {
+        Image(systemName: mic.isMuted ? "mic.slash.fill" : "phone.fill")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(mic.isMuted ? Color.named("red") : Color.green)
+            .contentTransition(.symbolEffect(.replace))
     }
 }
 
@@ -72,9 +112,7 @@ struct CompactLeadingView: View {
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
             case .call:
-                Image(systemName: "phone.fill")
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(.green)
+                CallGlyph(size: iconSize)
                     .islandMatched(IslandMatchedID.callGlyph)
             case .battery(let b):
                 BatteryGlyph(percent: b.percent, charging: b.isCharging || b.isPluggedIn, tint: b.tint)
@@ -290,6 +328,17 @@ struct CompactTrailingView: View {
                 if let p = c.progress, c.showsRing {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named(c.tint))
                         .frame(width: height * 0.5, height: height * 0.5)
+                } else if let since = c.countsUpFrom {
+                    // Drawn the way the call's running time is, on the same beat.
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        let running = ctx.date.timeIntervalSince(since).mmss
+                        Text(running)
+                            .font(numeralFont)
+                            .foregroundStyle(.white)
+                            .contentTransition(.numericText(countsDown: false))
+                            .animation(IslandMotion.digits, value: running)
+                            .lineLimit(1)
+                    }
                 } else if let text = c.trailingText {
                     Text(text).font(wordFont).foregroundStyle(.white).lineLimit(1)
                 } else {
@@ -314,8 +363,9 @@ struct CompactTrailingView: View {
 /// single accessibility element and given a sentence a screen reader can actually read out.
 enum IslandAccessibility {
     /// e.g. "Now Playing, Alright by Kendrick Lamar", "Timer, 4:59 remaining",
-    /// "Call with FaceTime, 2:10".
-    static func compactLabel(for content: ActivityContent, at date: Date = Date()) -> String {
+    /// "Call with FaceTime, 2:10". `micMuted` is read only for a call, which then ends
+    /// "microphone muted" — the red glyph on the pill, said out loud.
+    static func compactLabel(for content: ActivityContent, at date: Date = Date(), micMuted: Bool = false) -> String {
         switch content {
         case .nowPlaying(let info):
             let title = info.title.isEmpty ? "Not Playing" : info.title
@@ -332,7 +382,8 @@ enum IslandAccessibility {
             return s.isRunning ? "Stopwatch, \(elapsed) elapsed" : "Stopwatch, \(elapsed) elapsed, paused"
 
         case .call(let c):
-            return "Call with \(c.appName), \(date.timeIntervalSince(c.startedAt).mmss)"
+            let call = "Call with \(c.appName), \(date.timeIntervalSince(c.startedAt).mmss)"
+            return micMuted ? call + ", microphone muted" : call
 
         case .battery(let b):
             let charging = b.isCharging || b.isPluggedIn
@@ -378,6 +429,8 @@ enum IslandAccessibility {
             return "\(c.title), \(c.name)"
 
         case .custom(let c):
+            // A running clock is what the pill shows, so it is what is said.
+            if let since = c.countsUpFrom { return "\(c.title), \(date.timeIntervalSince(since).mmss)" }
             if let sub = c.subtitle ?? c.trailingText, !sub.isEmpty { return "\(c.title), \(sub)" }
             return c.title
 
@@ -442,16 +495,20 @@ extension LevelHUD {
             if level < 0.34 { return "speaker.wave.1.fill" }
             if level < 0.67 { return "speaker.wave.2.fill" }
             return "speaker.wave.3.fill"
+        case .keyboard:
+            // The keyboard with its light off, then the lamp at the level it is at.
+            if isUnavailable || level <= 0.001 { return "keyboard" }
+            return level < 0.5 ? "light.min" : "light.max"
         }
     }
 
-    var title: String { kind == .volume ? (isMuted ? "Muted" : "Volume") : "Brightness" }
+    var title: String { kind == .volume ? (isMuted ? "Muted" : "Volume") : kindName }
 
     /// What the display is *of*, for somewhere with room to say it: where the sound is going
     /// when that is worth saying, and otherwise what is being set. Never the state — the
     /// figure beside it already carries that, and a row that says "Muted" twice has spent the
     /// one line it had on the half the user could already see.
-    var label: String { device ?? (kind == .volume ? "Volume" : "Brightness") }
+    var label: String { device ?? kindName }
 }
 
 extension CalendarState {

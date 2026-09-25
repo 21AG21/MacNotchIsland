@@ -115,7 +115,7 @@ final class ScreenshotMonitor {
         var found: [URL] = []
         for url in items {
             let path = url.path
-            guard !seen.contains(path), !settling.contains(path) else { continue }
+            guard !seen.contains(path), !settling.contains(path), !Self.isClaimed(path) else { continue }
             let name = url.lastPathComponent
             // The name is read first and then again inside the whole rule: a name costs
             // nothing to look at, and it spares the entries that are plainly not captures —
@@ -165,14 +165,18 @@ final class ScreenshotMonitor {
         // Labelled on both sides, or the ternary settles on a plain pair and the names go.
         let picture: (thumbnail: NSImage?, pixels: CGSize?) =
             isRecording ? (thumbnail: nil, pixels: nil) : Self.picture(of: url)
-        DispatchQueue.main.async { [weak self] in
-            self?.announce(url, isRecording: isRecording, picture: picture)
+        DispatchQueue.main.async {
+            Self.announce(url, isRecording: isRecording, picture: picture)
         }
     }
 
     /// The shelf, the preferences behind it and the island itself: all main-thread things, and
     /// the only part of a capture that has to wait for that thread.
-    private func announce(_ url: URL, isRecording: Bool, picture: (thumbnail: NSImage?, pixels: CGSize?)) {
+    ///
+    /// Static, because the island's own screen recorder hands its finished file to exactly
+    /// this, whether or not the watcher is running: a recording somebody started from the
+    /// island gets the same card as one macOS made.
+    static func announce(_ url: URL, isRecording: Bool, picture: (thumbnail: NSImage?, pixels: CGSize?)) {
         let prefs = Preferences.shared
         let onShelf = prefs.shelfEnabled && prefs.screenshotsToShelfEnabled
         if onShelf { ShelfStore.shared.add([url]) }
@@ -221,10 +225,37 @@ final class ScreenshotMonitor {
         return (attrs[.size] as? NSNumber)?.int64Value
     }
 
+    // MARK: - Captures announced elsewhere
+
+    /// Files something else in the app announces itself, which the watcher walks past.
+    ///
+    /// The island's own screen recorder writes into this same folder, and a movie that is still
+    /// being recorded looks exactly like a capture that has just landed: it is new, it has the
+    /// name, and between two writes its size holds still for longer than the settle check
+    /// waits. Unclaimed, it was a card for half a recording in the middle of making it. Read on
+    /// the watcher's queue and written on the main thread, so under a lock of its own.
+    private static let claimLock = NSLock()
+    private static var claimed = Set<String>()
+
+    /// Leaves `url` to whoever claimed it, from now on.
+    static func claim(_ url: URL) {
+        claimLock.lock()
+        defer { claimLock.unlock() }
+        claimed.insert(url.path)
+        while claimed.count > maxRemembered, let victim = claimed.first { claimed.remove(victim) }
+    }
+
+    static func isClaimed(_ path: String) -> Bool {
+        claimLock.lock()
+        defer { claimLock.unlock() }
+        return claimed.contains(path)
+    }
+
     /// The folder macOS is saving captures to right now. Re-read on every start so a
     /// `defaults write com.apple.screencapture location …` change is picked up. A location
-    /// that no longer exists falls back to the Desktop, as macOS itself does.
-    private static func currentDirectory() -> URL {
+    /// that no longer exists falls back to the Desktop, as macOS itself does. The screen
+    /// recorder saves here too, so a recording goes wherever a screenshot would.
+    static func currentDirectory() -> URL {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         let location = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location")

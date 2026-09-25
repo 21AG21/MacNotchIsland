@@ -26,6 +26,8 @@ final class Preferences: ObservableObject {
     @Published var bluetoothEnabled: Bool { didSet { d.set(bluetoothEnabled, forKey: "bluetoothEnabled") } }
     @Published var volumeHUDEnabled: Bool { didSet { d.set(volumeHUDEnabled, forKey: "volumeHUDEnabled") } }
     @Published var brightnessHUDEnabled: Bool { didSet { d.set(brightnessHUDEnabled, forKey: "brightnessHUDEnabled") } }
+    /// The keyboard backlight's display, and with the bezel replaced, its keys.
+    @Published var keyboardLightHUDEnabled: Bool { didSet { d.set(keyboardLightHUDEnabled, forKey: "keyboardLightHUDEnabled") } }
     @Published var privacyIndicatorsEnabled: Bool { didSet { d.set(privacyIndicatorsEnabled, forKey: "privacyIndicatorsEnabled") } }
     @Published var callDetectionEnabled: Bool { didSet { d.set(callDetectionEnabled, forKey: "callDetectionEnabled") } }
     @Published var focusEnabled: Bool { didSet { d.set(focusEnabled, forKey: "focusEnabled") } }
@@ -72,6 +74,12 @@ final class Preferences: ObservableObject {
     /// sentence anybody would click. Links pushed from outside have always been held to the
     /// web; this is the same rule finally applied to the more dangerous half.
     @Published var apiShortcutsEnabled: Bool { didSet { d.set(apiShortcutsEnabled, forKey: "apiShortcutsEnabled") } }
+    /// Keep the island out of screen sharing and screenshots, always. The panel can hold what
+    /// was copied, the notes and what the notifications said; see `NotchPanel.sharesScreen`.
+    @Published var hiddenFromScreenSharing: Bool { didSet { d.set(hiddenFromScreenSharing, forKey: "hiddenFromScreenSharing") } }
+    /// The same, but only while a call is live — which is when a screen is most often shared,
+    /// and so on out of the box.
+    @Published var hideFromScreenSharingDuringCalls: Bool { didSet { d.set(hideFromScreenSharingDuringCalls, forKey: "hideFromScreenSharingDuringCalls") } }
     @Published var shelfExpiryHours: Double { didSet { d.set(shelfExpiryHours, forKey: "shelfExpiryHours") } }
     @Published var lyricsEnabled: Bool { didSet { d.set(lyricsEnabled, forKey: "lyricsEnabled") } }
     @Published var artworkLookupEnabled: Bool { didSet { d.set(artworkLookupEnabled, forKey: "artworkLookupEnabled") } }
@@ -101,6 +109,11 @@ final class Preferences: ObservableObject {
     @Published var hiddenAppBundleIDs: [String] { didSet { d.set(hiddenAppBundleIDs, forKey: "hiddenAppBundleIDs") } }
     /// The order the panel's sections are in, by raw name. Empty means the order they ship in.
     @Published var sectionOrder: [String] { didSet { d.set(sectionOrder, forKey: "sectionOrder") } }
+    /// The order of the control rail's buttons, by raw name. Empty means the order they ship in.
+    @Published var railOrder: [String] { didSet { d.set(railOrder, forKey: "railOrder") } }
+    /// The rail buttons the user has switched on or off, by raw name. A button that is not in
+    /// here has never been touched and is on or off as it ships — see `RailControl.isOnByDefault`.
+    @Published var railSwitches: [String: Bool] { didSet { d.set(railSwitches, forKey: "railSwitches") } }
     /// Unix time until which the island stays hidden (0 = not paused).
     @Published var pausedUntil: Double { didSet { d.set(pausedUntil, forKey: "pausedUntil") } }
 
@@ -154,6 +167,7 @@ final class Preferences: ObservableObject {
         bluetoothEnabled = bool("bluetoothEnabled", true)
         volumeHUDEnabled = bool("volumeHUDEnabled", true)
         brightnessHUDEnabled = bool("brightnessHUDEnabled", true)
+        keyboardLightHUDEnabled = bool("keyboardLightHUDEnabled", true)
         privacyIndicatorsEnabled = bool("privacyIndicatorsEnabled", true)
         callDetectionEnabled = bool("callDetectionEnabled", true)
         focusEnabled = bool("focusEnabled", true)
@@ -178,6 +192,8 @@ final class Preferences: ObservableObject {
         pasteOnPick = bool("pasteOnPick", true)
         notificationsEnabled = bool("notificationsEnabled", false)
         apiShortcutsEnabled = bool("apiShortcutsEnabled", false)
+        hiddenFromScreenSharing = bool("hiddenFromScreenSharing", false)
+        hideFromScreenSharingDuringCalls = bool("hideFromScreenSharingDuringCalls", true)
         shelfExpiryHours = double("shelfExpiryHours", 24)
         lyricsEnabled = bool("lyricsEnabled", true)
         artworkLookupEnabled = bool("artworkLookupEnabled", true)
@@ -202,6 +218,8 @@ final class Preferences: ObservableObject {
         pausedUntil = double("pausedUntil", 0)
         hiddenAppBundleIDs = UserDefaults.standard.stringArray(forKey: "hiddenAppBundleIDs") ?? []
         sectionOrder = UserDefaults.standard.stringArray(forKey: "sectionOrder") ?? []
+        railOrder = UserDefaults.standard.stringArray(forKey: "railOrder") ?? []
+        railSwitches = UserDefaults.standard.dictionary(forKey: "railSwitches") as? [String: Bool] ?? [:]
 
         notchWidthOverride = double("notchWidthOverride", 0)
         notchHeightOverride = double("notchHeightOverride", 0)

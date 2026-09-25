@@ -139,6 +139,20 @@ final class NotchPanel: NSPanel {
                           MenuBarClearance.shared.objectWillChange)
             .sink { [weak self] _ in self?.scheduleRefit() }
             .store(in: &cancellables)
+        // Out of screen sharing while that is asked for, always or for the length of a call.
+        let prefs = Preferences.shared
+        Publishers.CombineLatest3(prefs.$hiddenFromScreenSharing, prefs.$hideFromScreenSharingDuringCalls,
+                                  ActivityCenter.shared.$activities.map { $0.contains { $0.kind == .call } })
+            .map { NotchPanel.sharesScreen(hidden: $0.0, duringCalls: $0.1, inCall: $0.2) }
+            .removeDuplicates()
+            .sink { [weak self] sharing in
+                guard Thread.isMainThread else {
+                    DispatchQueue.main.async { self?.sharingType = sharing }
+                    return
+                }
+                self?.sharingType = sharing
+            }
+            .store(in: &cancellables)
         watchForReordering()
         watchPointer()
         refit()
@@ -259,6 +273,15 @@ final class NotchPanel: NSPanel {
     /// Above the menu bar, above other floating panels, above anything an ordinary app can
     /// raise a window to. The island is part of the machine, not a window in the pile.
     static let islandLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+
+    /// Whether a screen share — and a screenshot — may see the island: not while it is asked
+    /// to be hidden always, nor during a call while it is asked to be hidden then. The panel
+    /// can be showing what somebody copied, their notes, or what their notifications said,
+    /// and a call is when a screen is shared. Capture built on ScreenCaptureKit on macOS 15
+    /// can ignore this; the Privacy pane says so.
+    static func sharesScreen(hidden: Bool, duringCalls: Bool, inCall: Bool) -> NSWindow.SharingType {
+        hidden || (duringCalls && inCall) ? .none : .readOnly
+    }
 
     /// The island belongs to the screen, not to whatever app is in front: moving windows
     /// about, switching apps or changing Space must never leave it behind another window.

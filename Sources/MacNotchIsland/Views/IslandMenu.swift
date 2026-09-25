@@ -19,6 +19,7 @@ struct IslandMenu: View {
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var volumes = VolumeMonitor.shared
     @ObservedObject private var timers = IslandTimer.shared
+    @ObservedObject private var recorder = ScreenRecorder.shared
 
     var body: some View {
         if let activity, Self.hasCommands(activity.content) {
@@ -36,6 +37,15 @@ struct IslandMenu: View {
         // And the other thing that is otherwise a trip to System Settings: putting a pair of
         // headphones back on. Built when the menu opens, since nothing else needs the list.
         bluetoothDevices
+        Divider()
+        // The microphone, which is otherwise a different button in every call app; a picture
+        // or a movie of the screen; and the two ways to step away from the Mac — each a
+        // keystroke macOS has always had and hardly anybody remembers.
+        MicrophoneMenuItem()
+        Button("Screenshot") { SystemActions.openScreenshotToolbar() }
+        Button(recorder.isRecording ? "Stop Recording" : "Record Screen") { ScreenRecorder.shared.toggle() }
+        Button("Lock Screen") { SystemActions.lockScreen() }
+        Button("Sleep Display") { SystemActions.sleepDisplay() }
         Divider()
         // The same pair of states the menu bar shows, said the same way.
         if Self.isPaused(until: prefs.pausedUntil) {
@@ -175,5 +185,17 @@ struct IslandMenu: View {
     /// menu and the menu bar cannot disagree about which of the two words to show.
     static func isPaused(until: Double, now: Date = Date()) -> Bool {
         until > 0 && now.timeIntervalSince1970 < until
+    }
+}
+
+/// Mute or unmute the microphone, for every app at once. A view of its own so the microphone
+/// is first asked about when the menu's items are built rather than whenever the island is
+/// drawn: `MicrophoneControl` starts listening the first time anything asks.
+private struct MicrophoneMenuItem: View {
+    @ObservedObject private var mic = MicrophoneControl.shared
+
+    var body: some View {
+        Button(mic.isMuted ? "Unmute Microphone" : "Mute Microphone") { mic.toggle() }
+            .disabled(!mic.isAvailable)
     }
 }

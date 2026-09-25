@@ -10,11 +10,14 @@ struct CustomExpandedView: View {
 
     private var tint: Color { Color.named(state.tint) }
 
-    /// A web link, or a Shortcut by name. The panel goes first either way: whatever happens
-    /// next happens in another app, and the island has no business sitting over it.
+    /// A web link, or a Shortcut by name — or, on one of the island's own cards, something the
+    /// app does itself. The panel goes first either way: whatever happens next happens in
+    /// another app, and the island has no business sitting over it.
     static func perform(_ action: CustomAction) {
         ActivityCenter.shared.collapse(reason: "a scripted action")
-        if let url = action.url {
+        if let command = action.command {
+            command.perform()
+        } else if let url = action.url {
             NSWorkspace.shared.open(url)
         } else if let name = action.shortcut, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             ShortcutsRunner.shared.run(name)
@@ -45,7 +48,16 @@ struct CustomExpandedView: View {
                     }
                 }
                 Spacer(minLength: 12)
-                if let text = state.trailingText {
+                if let since = state.countsUpFrom {
+                    // The call card's clock: the same face, the same one-second beat.
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        Text(ctx.date.timeIntervalSince(since).mmss)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .contentTransition(.numericText(countsDown: false))
+                            .lineLimit(1)
+                    }
+                } else if let text = state.trailingText {
                     Text(text)
                         .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(.white)
@@ -112,7 +124,11 @@ struct CustomExpandedView: View {
         var parts = [state.title]
         if let subtitle = state.subtitle, !subtitle.isEmpty { parts.append(subtitle) }
         if let body = state.body, !body.isEmpty { parts.append(body) }
-        if let text = state.trailingText { parts.append(text) }
+        if let since = state.countsUpFrom {
+            parts.append(IslandAccessibility.spokenDuration(Date().timeIntervalSince(since)))
+        } else if let text = state.trailingText {
+            parts.append(text)
+        }
         return parts.joined(separator: ", ")
     }
 }

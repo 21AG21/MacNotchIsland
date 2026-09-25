@@ -107,6 +107,28 @@ struct PrivacyPane: View {
                 Text("Nothing else does, and each of these stops the moment its switch goes off. There is no account, no analytics, and nothing is ever sent about what you copy, type, open, look at, or are notified about.")
             }
 
+            // What is on the island is the other way something can leave the Mac: on somebody
+            // else's screen, in the middle of a call, with the panel open on the clipboard.
+            Section {
+                let shown = ScreenSharingSwitches.shown(hidden: prefs.hiddenFromScreenSharing,
+                                                        duringCalls: prefs.hideFromScreenSharingDuringCalls)
+                Toggle("Hide the island from screen sharing", isOn: Binding(
+                    get: { shown.hide },
+                    set: { on in storeScreenSharing(hide: on, onlyDuringCalls: false) }
+                ))
+                .help("Leave the island out of screen sharing, screen recordings and screenshots.")
+                Toggle("Only during calls", isOn: Binding(
+                    get: { shown.onlyDuringCalls },
+                    set: { on in storeScreenSharing(hide: true, onlyDuringCalls: on) }
+                ))
+                .disabled(!shown.hide)
+                .help("Hide it only while the island is showing a call.")
+            } header: {
+                Text("Screen sharing")
+            } footer: {
+                Text("The panel can show what you copied, your notes and your notification history. Hidden, the island is left out of what a screen share, a recording or a screenshot can see — while a call is on, or all the time. Screen sharing built on ScreenCaptureKit may still show it on macOS 15 and later.")
+            }
+
             Section {
                 // Read once per pass of the body, which the ticker below asks for every few
                 // seconds, so a grant made in System Settings shows up here on its own.
@@ -137,6 +159,13 @@ struct PrivacyPane: View {
     }
 
     // MARK: Rows
+
+    /// Writes what the two screen-sharing switches say into the two preferences behind them.
+    private func storeScreenSharing(hide: Bool, onlyDuringCalls: Bool) {
+        let stored = ScreenSharingSwitches.stored(hide: hide, onlyDuringCalls: onlyDuringCalls)
+        prefs.hiddenFromScreenSharing = stored.hidden
+        prefs.hideFromScreenSharingDuringCalls = stored.duringCalls
+    }
 
     private func permission(_ title: String, detail: String, status: String,
                             pane: SystemSettingsPane) -> some View {
@@ -223,5 +252,23 @@ struct PrivacyPane: View {
         case .notDetermined: return "Not asked yet"
         default: return "Granted"
         }
+    }
+}
+
+/// The two screen-sharing switches, read from and written to the two preferences behind them.
+///
+/// The preferences are independent — hidden always, hidden during calls — because that is the
+/// rule the panel applies (`NotchPanel.sharesScreen`). The switches read as one choice and a
+/// refinement of it: hide the island, and then whether only during calls. The shipping pair,
+/// not always but during calls, reads as both switches on.
+enum ScreenSharingSwitches {
+    static func shown(hidden: Bool, duringCalls: Bool) -> (hide: Bool, onlyDuringCalls: Bool) {
+        (hide: hidden || duringCalls, onlyDuringCalls: duringCalls && !hidden)
+    }
+
+    /// Turning the first switch on hides the island all the time, which is what it says.
+    static func stored(hide: Bool, onlyDuringCalls: Bool) -> (hidden: Bool, duringCalls: Bool) {
+        guard hide else { return (hidden: false, duringCalls: false) }
+        return onlyDuringCalls ? (hidden: false, duringCalls: true) : (hidden: true, duringCalls: false)
     }
 }

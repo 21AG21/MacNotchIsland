@@ -17,6 +17,37 @@ the unreleased section is what the next tag will ship.
   Notification Centre process's accessibility tree, which is private system UI and will one day
   change shape; a banner it cannot read the words of still becomes a row with the app and the
   moment on it, because that failure was designed for rather than hoped against.
+- **Mute the microphone for every app, from the call card.** Control Centre's Mic Mode chooses
+  how the microphone sounds and never whether it is on, and every call app has a mute of its
+  own that covers only itself — not the browser tab that also has the microphone, not the
+  dictation nobody meant to leave running. The call card now mutes the input device itself,
+  with CoreAudio's own mute, which is public API; a microphone that has no mute is turned down to
+  nothing instead and put back where it was. It follows the system rather than remembering a
+  click, so unmuting in the call app shows on the island at once, and a pair of AirPods that
+  take over halfway through a call arrive muted if the island had muted the microphone before
+  them. While it is muted the call pill's handset becomes a red microphone with a line through
+  it, which is the one thing a glance at a call most needs to catch, and VoiceOver says it too.
+  The same card opens Control Centre's Video Effects and Mic Mode panels (AVFoundation's
+  `showSystemUserInterface`, public since macOS 12), which the menu bar otherwise hides until
+  an app is using the camera or the microphone. It is in the island's right-click menu as well.
+  There is no global shortcut for it yet: the shortcut service has one recordable combination,
+  and a second needs a recorder of its own.
+- **Record the screen from the island.** Record Screen in the island's right-click menu runs
+  Apple's own `screencapture -v`, so the movie is the one macOS would have made, named the way
+  macOS names it and saved wherever screenshots go. The pill shows a red dot and the time
+  running; its card has Stop, which is the Control-C the tool asks for, and then the finished
+  movie gets the capture card a screenshot gets. Without Screen Recording permission the island
+  says so, with a button to the right pane of System Settings, rather than recording the desktop
+  picture and nothing on it. Quitting the app stops the recording first, and a recorder that
+  will not stop when asked is asked less politely: nothing is ever left running.
+- **Lock Screen, Sleep Display and Screenshot, from the island's menu.** Three things the Mac
+  does in one keystroke that hardly anybody remembers the keystroke for. The lock is the
+  Control-Command-Q every Mac answers, posted as a keystroke, which needs Accessibility; without
+  it, `SACLockScreenImmediate` from the private login framework, which is what the menu bar's
+  own Lock Screen calls, looked up by name and walked past if a macOS has moved it — and failing
+  both, the display is put to sleep, which locks every Mac that asks for a password at once.
+  Sleep Display is `pmset displaysleepnow`, which any user may run; the Mac stays awake behind
+  it. Screenshot opens Apple's own toolbar, with the island out of the way first.
 
 ### Changed
 - **The clipboard history lasts until Notch Island quits, unless you keep it.** It is still on
@@ -45,6 +76,13 @@ the unreleased section is what the next tag will ship.
   with something hidden finally says so.
 
 ### Security
+- **The island keeps out of a screen share while you are on a call.** The panel can be open on
+  what you copied, your notes or your notification history, and a call is exactly when somebody
+  else is looking at your screen. Out of the box the island's windows are now left out of screen
+  sharing, recordings and screenshots for as long as a call is live, and a switch under Privacy
+  hides them all the time. It is the window's own sharing type, which a share built on the
+  older capture APIs honours; screen sharing built on ScreenCaptureKit may show it anyway on
+  macOS 15 and later, and the pane says so rather than promising what it cannot keep.
 - **What you copy is no longer written to disk unless you ask.** The clipboard history ships
   switched on, and it was saved to a file after every copy — every password, address and
   message that a password manager had not marked, kept across relaunches by default, in a file

@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct CallExpandedView: View {
@@ -5,6 +6,7 @@ struct CallExpandedView: View {
     let activity: IslandActivity
     let geometry: NotchGeometry
     @Environment(\.insidePanel) private var insidePanel
+    @ObservedObject private var mic = MicrophoneControl.shared
 
     private var icon: NSImage? {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: state.bundleID) else { return nil }
@@ -56,6 +58,18 @@ struct CallExpandedView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(spokenLabel(at: ctx.date))
                 }
+                // The microphone itself, for every app at once — the call app's own mute, the
+                // browser tab that also has it, and the dictation nobody meant to leave on. A
+                // quiet disc while it is live, filled red while it is not, as on the phone.
+                CircleActionButton(symbol: mic.isMuted ? "mic.slash.fill" : "mic.fill",
+                                   tint: mic.isMuted ? Color.named("red") : .white,
+                                   filled: mic.isMuted, glyph: .white,
+                                   label: mic.isMuted ? "Unmute microphone" : "Mute microphone") {
+                    mic.toggle()
+                }
+                .disabled(!mic.isAvailable)
+                .opacity(mic.isAvailable ? 1 : 0.4)
+                .help(mic.isMuted ? "Unmute the microphone for every app" : "Mute the microphone for every app")
                 // Nothing public can hang up another app's call, so this jumps to the app that
                 // owns it: the call's own green, rather than a hang-up red that would lie —
                 // and the arrow the rest of the app uses for a button that leaves, because a
@@ -68,9 +82,41 @@ struct CallExpandedView: View {
                 }
             }
             .islandContentColumn()
+            // The two Control Centre panels a call reaches for, under the name they belong
+            // to. The menu bar only offers them while an app has the camera or the
+            // microphone, and nobody on a call is looking at the menu bar.
+            HStack(spacing: 8) {
+                PillButton(title: "Effects", symbol: "camera.filters") {
+                    Self.showSystemPanel(.videoEffects)
+                }
+                .accessibilityLabel("Video effects")
+                .help("Portrait, Studio Light and Reactions for the camera, in Control Centre.")
+                PillButton(title: "Mic Mode", symbol: "waveform") {
+                    Self.showSystemPanel(.microphoneModes)
+                }
+                .accessibilityLabel("Microphone mode")
+                .help("Standard, Voice Isolation or Wide Spectrum for the microphone, in Control Centre.")
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, Self.discWidth + Self.rowSpacing)
+            .padding(.top, 8)
+            .islandContentColumn()
             .padding(.bottom, insidePanel ? 0 : 16)
         }
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
+    }
+
+    /// The app's disc, and the gap after it, which the row of controls is indented by so that
+    /// it starts under the name.
+    private static let discWidth: CGFloat = 44
+    private static let rowSpacing: CGFloat = 14
+
+    /// Control Centre's own panel for the camera's effects or the microphone's mode. The
+    /// island closes first: the panel drops from the menu bar's corner, and a card left open
+    /// in the middle of the screen would only be in the way of the eye going there.
+    private static func showSystemPanel(_ panel: AVCaptureDevice.SystemUserInterface) {
+        ActivityCenter.shared.collapse(reason: "call controls")
+        AVCaptureDevice.showSystemUserInterface(panel)
     }
 
     private func goToCall() {
