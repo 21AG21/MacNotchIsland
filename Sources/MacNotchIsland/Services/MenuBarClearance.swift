@@ -151,21 +151,22 @@ final class MenuBarClearance: ObservableObject {
     ///
     /// Asked on every switch of app, of the app just switched to — which is the app most
     /// likely to be the one that has stopped answering, somebody having clicked on it to see
-    /// why. Given half a second, as every Accessibility question in the island is, rather than
-    /// the default six: a thread held that long on each switch piles up behind itself, and a
-    /// measurement that late is of a menu bar nobody is looking at any more.
+    /// why. Given half a second rather than the default six — the app, its menu bar and each
+    /// item, since none inherits another's (`WindowsMonitor.bounded`): a thread held that long
+    /// on each switch piles up behind itself, and a measurement that late is of a menu bar
+    /// nobody is looking at any more.
     static func menuClearance(app: NSRunningApplication?, menuBar band: CGRect, notchMinX: CGFloat) -> CGFloat? {
         guard let app, AXIsProcessTrusted() else { return nil }
-        let application = AXUIElementCreateApplication(app.processIdentifier)
-        _ = AXUIElementSetMessagingTimeout(application, WindowsMonitor.accessibilityTimeout)
+        let application = WindowsMonitor.bounded(AXUIElementCreateApplication(app.processIdentifier))
         var menuBarValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXMenuBarAttribute as CFString, &menuBarValue) == .success,
               let menuBarValue, CFGetTypeID(menuBarValue) == AXUIElementGetTypeID() else { return nil }
-        let menuBar = menuBarValue as! AXUIElement   // type checked just above
+        let menuBar = WindowsMonitor.bounded(menuBarValue as! AXUIElement)   // type checked just above
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(menuBar, kAXChildrenAttribute as CFString, &childrenValue) == .success,
               let items = childrenValue as? [AXUIElement], !items.isEmpty else { return nil }
-        return menuClearance(itemFrames: items.compactMap { frame(of: $0) }, menuBar: band, notchMinX: notchMinX)
+        return menuClearance(itemFrames: items.compactMap { frame(of: WindowsMonitor.bounded($0)) },
+                             menuBar: band, notchMinX: notchMinX)
     }
 
     /// The same, from the menu titles' frames (Accessibility's top-left coordinates, which are

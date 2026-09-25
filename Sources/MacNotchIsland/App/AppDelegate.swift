@@ -51,13 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunRecord.begin()
         IslandLog.island.notice("launched pid \(Int(ProcessInfo.processInfo.processIdentifier), privacy: .public) from \(Bundle.main.bundlePath, privacy: .public)")
         catchTermination()
-        // Half a second for any app to answer an Accessibility question, rather than the six
-        // the system allows by default. The island asks them to raise, snap, put away and
-        // close a window, and to measure the menu bar on every switch of app, and one app that
-        // had stopped responding held each of those for six seconds. Set on the system-wide
-        // element, it is every element's default; the places that ask most set it on their own
-        // elements as well.
-        _ = AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), WindowsMonitor.accessibilityTimeout)
+        // No process-wide Accessibility timeout. Set on the system-wide element it is every
+        // element's default, and it cut short the readers that chose a longer wait of their own
+        // (`NotificationWatcher`, `FullscreenMonitor`). Each reader sets its own, element by
+        // element (`WindowsMonitor.bounded`); one it does not set waits the system's six seconds.
         // Asked to quit here, at the very top, so an older copy has the whole of this launch
         // to go in; nothing it left behind is read until it has.
         let retiring = Self.retireOtherCopies()

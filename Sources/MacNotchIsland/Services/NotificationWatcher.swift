@@ -84,7 +84,8 @@ final class NotificationWatcher {
 
     /// How long an accessibility call may take before it is given up on. Notification Centre
     /// is a system process and is not always answering; the default timeout is far longer
-    /// than anything this thread should wait for.
+    /// than anything this thread should wait for. Set on every element the walk reads, not only
+    /// the app's (`bounded`).
     static let messagingTimeout: Float = 2
 
     /// The bounds on the walk. A banner is a shallow thing — an icon, a name, a line or two —
@@ -258,7 +259,7 @@ final class NotificationWatcher {
     static func banners(in app: AXUIElement) -> [Banner] {
         guard let windows = value(of: app, attribute: kAXWindowsAttribute) as? [AXUIElement] else { return [] }
         var result: [Banner] = []
-        for window in windows.prefix(maxBanners) {
+        for window in windows.prefix(maxBanners).map(bounded) {
             guard isBannerSized(window) else { continue }
             var texts: [String] = []
             collectText(from: window, into: &texts, depth: 0)
@@ -281,8 +282,20 @@ final class NotificationWatcher {
         if let text = string(of: element), !texts.contains(text) { texts.append(text) }
         guard let children = value(of: element, attribute: kAXChildrenAttribute) as? [AXUIElement] else { return }
         for child in children.prefix(maxChildren) {
-            collectText(from: child, into: &texts, depth: depth + 1)
+            collectText(from: bounded(child), into: &texts, depth: depth + 1)
         }
+    }
+
+    /// An element with `messagingTimeout` to answer in, handed back.
+    ///
+    /// Each one the walk reads needs its own: an element read out of another starts with the
+    /// process's default, not with the timeout of the element it came from. The app's two
+    /// seconds used to reach nothing below it, so every window and every line of a banner was
+    /// read on whatever the default happened to be — six seconds, or half of one while the
+    /// island set a default of its own for everything.
+    private static func bounded(_ element: AXUIElement) -> AXUIElement {
+        _ = AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return element
     }
 
     /// Whatever an element has to say for itself. A label, a title and a description are all

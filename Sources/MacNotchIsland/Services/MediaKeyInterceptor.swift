@@ -65,6 +65,14 @@ final class SystemHUDReplacement: ObservableObject {
         lock.unlock()
     }
 
+    /// The whole answer as it stands, for asking whether it is worth asking again. Safe from any
+    /// thread.
+    func currentCapabilities() -> Capabilities {
+        lock.lock()
+        defer { lock.unlock() }
+        return capabilities
+    }
+
     /// Whether a change of this kind is the island's to announce. Main thread.
     var answersVolume: Bool { isActive && can(\.volume) }
     var answersMute: Bool { isActive && can(\.mute) }
@@ -219,11 +227,58 @@ final class MediaKeyInterceptor {
     /// island claiming the keys within a few seconds, rarely enough to cost nothing.
     static let watchInterval: TimeInterval = 5
 
-    /// How long after an output becomes the default it is asked about a second time. A device
-    /// is announced before it has finished arriving, and an answer of "no level" taken then
-    /// would otherwise stand until the next change of output, with every key for it handed
-    /// back to macOS.
-    static let arrivalSettle: TimeInterval = 2
+    /// How long after an output becomes the default it is asked about again, each look only
+    /// while something wanted is still answered no (`needsReprobe`). A device is announced
+    /// before it has finished arriving, and an answer of "no level" taken then would otherwise
+    /// stand until the next change of output, with every key for it handed back to macOS. A
+    /// single second look, at two seconds, was not enough: a HomePod or another AirPlay target,
+    /// or AirPods still handing over from another device, can take longer than that to offer a
+    /// level that can be set, and then both looks said no.
+    static let arrivalProbes: [TimeInterval] = [2, 5, 15]
+
+    /// What `watchForChanges` heard, for `probeSchedule`.
+    enum Change: Equatable {
+        /// The default output is a different device.
+        case output
+        /// The displays were rearranged or woke, or the Mac did.
+        case displays
+    }
+
+    /// When, in seconds after a change is heard, what the Mac can answer is asked: at once for
+    /// any change, and for a new output again as it finishes arriving (`arrivalProbes`). Pure,
+    /// so it is tested.
+    static func probeSchedule(afterChange change: Change) -> [TimeInterval] {
+        switch change {
+        case .output: return [0] + arrivalProbes
+        case .displays: return [0]
+        }
+    }
+
+    /// Whether an answer is worth asking for again: something the user wants the island to
+    /// answer came back no. That may only be early — see `arrivalProbes` — and a key handed back
+    /// to macOS never reaches `apply`, so without asking again nothing would, until the output
+    /// changed. A whole answer is not asked for again until something is announced. Pure, so it
+    /// is tested.
+    static func needsReprobe(wanted: SystemHUDReplacement.Capabilities,
+                             answered: SystemHUDReplacement.Capabilities) -> Bool {
+        (wanted.volume && !answered.volume) || (wanted.mute && !answered.mute)
+            || (wanted.brightness && !answered.brightness) || (wanted.keyboard && !answered.keyboard)
+    }
+
+    /// How long after the answer was last asked for by anything but the watch timer — a new
+    /// tap, a preference change, a key the island took, an announcement — the timer goes on
+    /// asking for one still missing something wanted. A level that arrives late arrives within
+    /// this; one that never arrives — an HDMI display's sound, an output with no mute — would
+    /// otherwise be asked for every five seconds for as long as the feature was on, which is
+    /// the wakeup the announcements were meant to end.
+    static let reprobeWindow: TimeInterval = 60
+
+    /// Whether the watch timer asks again: only for an answer still missing something wanted
+    /// (`needsReprobe`), and only within `reprobeWindow` of the last ask that was not its own.
+    /// Pure, so it is tested.
+    static func watchAsksAgain(incomplete: Bool, sinceAsked: TimeInterval) -> Bool {
+        incomplete && sinceAsked < reprobeWindow
+    }
 
     // Main thread only.
     private var running = false
@@ -233,6 +288,11 @@ final class MediaKeyInterceptor {
     /// What announces a change in what the Mac can answer, see `watchForChanges`.
     private var changeObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var outputListener: AudioObjectPropertyListenerBlock?
+    /// Bumped by every change of default output, so a later look scheduled for one output
+    /// (`probe(after:)`) stands down once another has taken its place and has looks of its own.
+    private var outputChanges = 0
+    /// When the answer was last asked for by anything but the watch timer, see `reprobeWindow`.
+    private var askedAt = Date.distantPast
     private var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
                                                            mScope: kAudioObjectPropertyScopeGlobal,
                                                            mElement: kAudioObjectPropertyElementMain)
@@ -382,10 +442,21 @@ final class MediaKeyInterceptor {
             }
             self.installTap()
             self.verifyTap()
-            // What the Mac can answer is no longer asked here: it changes when the output or
-            // the displays do, and those are announced (`watchForChanges`). Asking every five
-            // seconds was a dozen round trips to coreaudiod and DisplayServices each time, for
-            // as long as the feature was on, to learn nothing had changed.
+            // What the Mac can answer is asked here only while something wanted came back no.
+            // It changes when the output or the displays do, and those are announced
+            // (`watchForChanges`); asking every five seconds regardless was a dozen round trips
+            // to coreaudiod and DisplayServices each time, for as long as the feature was on, to
+            // learn nothing had changed. But an output whose level turns up after the last of
+            // the looks that follow its arrival (`arrivalProbes`) has answered no to all of
+            // them, its keys have gone back to macOS, and a key handed back never reaches
+            // `apply` — so without this, nothing would ask again until the output changed. For
+            // a minute after the last ask, and not for the rest of the run (`reprobeWindow`):
+            // an output that never offers what is wanted is not a question worth repeating.
+            if self.tapArmed,
+               Self.watchAsksAgain(incomplete: self.answerIsIncomplete(),
+                                   sinceAsked: Date().timeIntervalSince(self.askedAt)) {
+                self.refreshCapabilities(fromWatch: true)
+            }
         }
         timer.tolerance = 1
         trustTimer = timer
@@ -397,31 +468,29 @@ final class MediaKeyInterceptor {
     /// Not only after a key: a key we have handed back to macOS never reaches `apply`, so
     /// refreshing there alone would latch the answer off for the session the moment an output
     /// with no level of its own became the default. So the default output changing is heard
-    /// here — and asked about twice, see `arrivalSettle` — and so are the displays, which is
-    /// where a built-in panel's brightness comes and goes: the lid shut on an external display,
-    /// or opened again, and the displays waking, whose brightness cannot be read while they
-    /// sleep.
+    /// here — and asked about again as it finishes arriving, see `probeSchedule` — and so are
+    /// the displays, which is where a built-in panel's brightness comes and goes: the lid shut
+    /// on an external display, or opened again, and the displays waking, whose brightness
+    /// cannot be read while they sleep. An answer that is still missing something after all
+    /// of that is asked for again by the watch timer (`pollForTrust`), for a minute more.
     private func watchForChanges() {
         guard changeObservers.isEmpty else { return }
         let local = NotificationCenter.default
         let screens = local.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                         object: nil, queue: .main) { [weak self] _ in
-            self?.refreshCapabilitiesIfRunning()
+            self?.probe(after: .displays)
         }
         changeObservers.append((local, screens))
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
             let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.refreshCapabilitiesIfRunning()
+                self?.probe(after: .displays)
             }
             changeObservers.append((workspace, token))
         }
+        // Called on the main queue, which is where it was registered to be called.
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            guard let self else { return }
-            self.refreshCapabilitiesIfRunning()
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.arrivalSettle) { [weak self] in
-                self?.refreshCapabilitiesIfRunning()
-            }
+            self?.probe(after: .output)
         }
         let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &outputAddress,
                                                          DispatchQueue.main, listener)
@@ -446,6 +515,30 @@ final class MediaKeyInterceptor {
     private func refreshCapabilitiesIfRunning() {
         guard running, Self.isTrusted else { return }
         refreshCapabilities()
+    }
+
+    /// Asks what the Mac can answer on `probeSchedule`'s timetable for this change: at once,
+    /// and for a new output again as it finishes arriving. Each later look is made only while
+    /// the answer is still missing something wanted, and only while this is still the latest
+    /// output: a newer one has looks of its own. Main thread.
+    private func probe(after change: Change) {
+        if change == .output { outputChanges &+= 1 }
+        let generation = outputChanges
+        for delay in Self.probeSchedule(afterChange: change) {
+            guard delay > 0 else {
+                refreshCapabilitiesIfRunning()
+                continue
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, generation == self.outputChanges, self.answerIsIncomplete() else { return }
+                self.refreshCapabilitiesIfRunning()
+            }
+        }
+    }
+
+    /// `needsReprobe` for what the user wants now and what the last probe found. Main thread.
+    private func answerIsIncomplete() -> Bool {
+        Self.needsReprobe(wanted: wantedCapabilities(), answered: SystemHUDReplacement.shared.currentCapabilities())
     }
 
     /// Access was taken away: let the tap go and stop claiming the keys.
@@ -711,19 +804,12 @@ final class MediaKeyInterceptor {
     /// arriving, and a cache that outlived the capabilities being cleared when the tap went
     /// down — so the same output came back permanently unanswerable. A whole answer, written
     /// once, cannot be half-stale. What asks is a new tap, a preference change, a key the
-    /// island took, and the announcements in `watchForChanges`.
-    private func refreshCapabilities(then finished: (() -> Void)? = nil) {
-        // What the user asked for, read here on the main thread and carried in. A display the
-        // user has switched off is not a key the island should be taking: swallowing it would
-        // leave that change with no bezel at all, when macOS still has a perfectly good one
-        // for it. Off means off — the key goes back, whatever the hardware can do.
-        // The backlight is answered here too, from what the keyboard client found when it was
-        // made: it is a published main-thread reading, and a keyboard does not come and go.
-        let wanted = SystemHUDReplacement.Capabilities(volume: Preferences.shared.volumeHUDEnabled,
-                                                       mute: Preferences.shared.volumeHUDEnabled,
-                                                       brightness: Preferences.shared.brightnessHUDEnabled,
-                                                       keyboard: Preferences.shared.keyboardLightHUDEnabled
-                                                           && KeyboardLight.shared.isAvailable)
+    /// island took, the announcements in `watchForChanges`, and the watch timer while the
+    /// answer is missing something wanted (`fromWatch`, which opens no new `reprobeWindow`).
+    private func refreshCapabilities(fromWatch: Bool = false, then finished: (() -> Void)? = nil) {
+        if !fromWatch { askedAt = Date() }
+        // Read here on the main thread and carried in.
+        let wanted = wantedCapabilities()
         Self.capabilityQueue.async { [weak self] in
             guard let self else { return }
             let device = AudioMonitor.defaultOutputDevice()
@@ -742,6 +828,20 @@ final class MediaKeyInterceptor {
 
     private static let capabilityQueue = DispatchQueue(label: "com.notchisland.mediakeys.capabilities",
                                                        qos: .utility)
+
+    /// What the user asked for. A display the user has switched off is not a key the island
+    /// should be taking: swallowing it would leave that change with no bezel at all, when macOS
+    /// still has a perfectly good one for it. Off means off — the key goes back, whatever the
+    /// hardware can do. The backlight is answered here too, from what the keyboard client found
+    /// when it was made: it is a published main-thread reading, and a keyboard does not come and
+    /// go. Main thread.
+    private func wantedCapabilities() -> SystemHUDReplacement.Capabilities {
+        SystemHUDReplacement.Capabilities(volume: Preferences.shared.volumeHUDEnabled,
+                                          mute: Preferences.shared.volumeHUDEnabled,
+                                          brightness: Preferences.shared.brightnessHUDEnabled,
+                                          keyboard: Preferences.shared.keyboardLightHUDEnabled
+                                              && KeyboardLight.shared.isAvailable)
+    }
 
     // MARK: - Decoding
 

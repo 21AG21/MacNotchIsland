@@ -162,10 +162,25 @@ final class WindowsMonitor: ObservableObject {
     static let maxCaptures = 8
     /// Pixel width every thumbnail is captured at; the tile draws it at half that.
     static let thumbnailWidth: CGFloat = 320
-    /// How long another app is given to answer one Accessibility question, here and everywhere
-    /// else the island asks one (the app sets it as every element's default at launch). Long
-    /// enough for a busy app; short enough that one that has hung costs a beat, not the island.
+    /// How long another app is given to answer one Accessibility question, here and in the menu
+    /// bar's measurement (`MenuBarClearance`). Long enough for a busy app; short enough that one
+    /// that has hung costs a beat, not the island. Set on each element asked, see `bounded`.
     static let accessibilityTimeout: Float = 0.5
+
+    /// An element with `accessibilityTimeout` to answer in, handed back.
+    ///
+    /// Per element, because that is how the setting works: an element read out of another — an
+    /// app's windows, a window's close button — starts with the process's default, not with the
+    /// timeout of the element it came from, and the default is six seconds. The default itself
+    /// is left alone. Set on the system-wide element it becomes every element's, and it cut
+    /// short the island's other readers that chose a longer wait for a slower process
+    /// (`NotificationWatcher`, `FullscreenMonitor`) along with the ones it was meant for.
+    @discardableResult
+    static func bounded(_ element: AXUIElement) -> AXUIElement {
+        _ = AXUIElementSetMessagingTimeout(element, accessibilityTimeout)
+        return element
+    }
+
     /// Windows smaller than this are palettes, HUDs and tool strips, not windows to switch to.
     static let minimumSize = CGSize(width: 120, height: 80)
 
@@ -397,7 +412,8 @@ final class WindowsMonitor: ObservableObject {
     ///
     /// Off the main thread. `NSRunningApplication` is thread safe, and each app is given half
     /// a second to answer rather than the default six, so one that has stopped responding
-    /// costs the strip a beat instead of holding every refresh behind it.
+    /// costs the strip a beat instead of holding every refresh behind it — the app, and each
+    /// window read out of it, since neither inherits the other's (`bounded`).
     private static func putAwayWindows(of pids: Set<pid_t>) -> [PutAwayWindow] {
         guard !pids.isEmpty, AXIsProcessTrusted() else { return [] }
         var result: [PutAwayWindow] = []
@@ -405,12 +421,11 @@ final class WindowsMonitor: ObservableObject {
             guard let app = NSRunningApplication(processIdentifier: pid),
                   app.activationPolicy == .regular else { continue }
             let hidden = app.isHidden
-            let element = AXUIElementCreateApplication(pid)
-            _ = AXUIElementSetMessagingTimeout(element, accessibilityTimeout)
+            let element = bounded(AXUIElementCreateApplication(pid))
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
                   let windows = value as? [AXUIElement] else { continue }
-            for window in windows {
+            for window in windows.map(bounded) {
                 // Minimised wins over hidden: showing the app again leaves a minimised window
                 // in the Dock, so that is where it is.
                 let minimised = isMinimised(window)
@@ -710,7 +725,7 @@ final class WindowsMonitor: ObservableObject {
             var button: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &button) == .success,
                   let button, CFGetTypeID(button) == AXUIElementGetTypeID() else { return }
-            AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)   // type checked just above
+            AXUIElementPerformAction(Self.bounded(button as! AXUIElement), kAXPressAction as CFString)   // type checked just above
         }, then: { [weak self] _ in self?.refresh() })
         return true
     }
@@ -746,14 +761,15 @@ final class WindowsMonitor: ObservableObject {
     /// where the worst case is the app's own frontmost window coming forward instead.
     ///
     /// Off the main thread, on `axQueue`, and with half a second for the app to answer rather
-    /// than the default six.
+    /// than the default six — both the app and every window handed back, which is the element
+    /// the caller goes on to raise, move or close (`bounded`).
     static func axWindow(for window: IslandWindow, lenient: Bool = false) -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
-        let app = AXUIElementCreateApplication(window.pid)
-        _ = AXUIElementSetMessagingTimeout(app, accessibilityTimeout)
+        let app = bounded(AXUIElementCreateApplication(window.pid))
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
-              let elements = value as? [AXUIElement], !elements.isEmpty else { return nil }
+              let listed = value as? [AXUIElement], !listed.isEmpty else { return nil }
+        let elements = listed.map(bounded)
         if let byFrame = elements.first(where: { element in
             guard let frame = frame(of: element) else { return false }
             return abs(frame.minX - window.frame.minX) < 4 && abs(frame.minY - window.frame.minY) < 4

@@ -278,6 +278,7 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Volume keys taken over by the island no longer go back to macOS for the session** when a HomePod, an AirPlay target or AirPods offer volume control late; Caps Lock keeps answering after Accessibility is revoked without a word; the display popover shows the built-in slider as soon as the display answers.
 - **On a Mac without a notch, the island hides in full-screen apps out of the box** instead of staying over every full-screen video, and resting the pointer on the bare pill no longer opens Home on its way to a tab (a live activity still opens under the pointer, and a click still opens Home). Both defaults follow the island until you set them yourself, and switch back when the island moves into a notch, for example when the lid is opened.
 - **With the menu bar set to hide automatically, the floating pill sits just under the top edge** instead of 28 pt down under a menu bar that is not there.
 - **Lyrics follow along again after the Mac wakes.** The ticker read the sleep flag before the new value was stored, so going to sleep left it running and waking stopped it until the next track report.

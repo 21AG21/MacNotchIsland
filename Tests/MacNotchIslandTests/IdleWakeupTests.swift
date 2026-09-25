@@ -17,14 +17,92 @@ final class IdleWakeupTests: XCTestCase {
         XCTAssertEqual(CapsLockMonitor.pollInterval(multiplier: 0.5), 1, "never faster than the base, whatever it is handed")
     }
 
+    /// The monitors only while they can hear something; the poll whenever they cannot.
+    func testCapsLockListensForEventsOnlyWithThePermissionAndBothMonitors() {
+        XCTAssertEqual(CapsLockMonitor.mode(trusted: true, monitorsInstalled: true), .events)
+        XCTAssertEqual(CapsLockMonitor.mode(trusted: false, monitorsInstalled: true), .polling,
+                       "a monitor left in place after the permission went hears nothing")
+        XCTAssertEqual(CapsLockMonitor.mode(trusted: true, monitorsInstalled: false), .polling,
+                       "a global monitor that was refused")
+        XCTAssertEqual(CapsLockMonitor.mode(trusted: false, monitorsInstalled: false), .polling)
+    }
+
+    /// Listening for events used to mean nothing at all on a timer, so a revoked permission
+    /// whose announcement went unheard left the key silent for the rest of the run.
+    func testWhileListeningForEventsThePermissionIsStillLookedAtNowAndThen() {
+        XCTAssertEqual(CapsLockMonitor.interval(for: .events, multiplier: 1), 30)
+        XCTAssertEqual(CapsLockMonitor.interval(for: .events, multiplier: 8), 240, "slower for the energy policy")
+        XCTAssertEqual(CapsLockMonitor.interval(for: .events, multiplier: 0), 30, "never faster than the base")
+        XCTAssertEqual(CapsLockMonitor.interval(for: .polling, multiplier: 2), CapsLockMonitor.pollInterval(multiplier: 2))
+        XCTAssertGreaterThan(CapsLockMonitor.interval(for: .events, multiplier: 1),
+                             CapsLockMonitor.interval(for: .polling, multiplier: 1),
+                             "the permission check is far rarer than the poll it stands in for")
+    }
+
     // MARK: - Brightness
 
-    func testBrightnessIsReadRarelyWhileTheKeysAnnounceThemselves() {
-        XCTAssertEqual(BrightnessMonitor.pollInterval(answersKeys: true, multiplier: 1), 2)
-        XCTAssertEqual(BrightnessMonitor.pollInterval(answersKeys: false, multiplier: 1), 0.25,
-                       "with macOS taking the keys, looking often is the only way to follow them")
-        XCTAssertEqual(BrightnessMonitor.pollInterval(answersKeys: true, multiplier: 8), 16)
-        XCTAssertEqual(BrightnessMonitor.pollInterval(answersKeys: false, multiplier: 4), 1)
+    /// Every two seconds whoever has the keys. With macOS taking them it used to be four times
+    /// a second, to keep a level current that nothing here could announce or read.
+    func testBrightnessIsReadEveryTwoSecondsAndSlowerForTheEnergyPolicy() {
+        XCTAssertEqual(BrightnessMonitor.pollInterval(multiplier: 1), 2)
+        XCTAssertEqual(BrightnessMonitor.pollInterval(multiplier: 8), 16)
+        XCTAssertEqual(BrightnessMonitor.pollInterval(multiplier: 0.5), 2, "never faster than the base")
+    }
+
+    func testThePanelIsNotReadWhileMacOSHasTheKeys() {
+        XCTAssertEqual(BrightnessMonitor.look(answering: false, wasAnswering: false, hasBaseline: true), .skip)
+        XCTAssertEqual(BrightnessMonitor.look(answering: false, wasAnswering: true, hasBaseline: true), .skip,
+                       "the tap has just gone: macOS draws its own bezel for the next change")
+    }
+
+    /// What the level did while macOS had the keys was macOS's to announce, and it did; the
+    /// island taking them back is not a keypress.
+    func testTheFirstReadingOnceTheIslandAnswersTheKeysIsABaseline() {
+        XCTAssertEqual(BrightnessMonitor.look(answering: true, wasAnswering: false, hasBaseline: true), .baseline)
+        XCTAssertEqual(BrightnessMonitor.look(answering: true, wasAnswering: true, hasBaseline: false), .baseline,
+                       "nothing to compare with")
+        XCTAssertEqual(BrightnessMonitor.look(answering: true, wasAnswering: true, hasBaseline: true), .compare)
+    }
+
+    // MARK: - What the media keys can answer
+
+    func testANewOutputIsAskedAboutAgainAsItFinishesArriving() {
+        let schedule = MediaKeyInterceptor.probeSchedule(afterChange: .output)
+        XCTAssertEqual(schedule, [0, 2, 5, 15])
+        XCTAssertEqual(schedule, schedule.sorted(), "backing off, never looking back")
+        XCTAssertGreaterThan(schedule.last ?? 0, 2,
+                             "a HomePod's level can take longer than the two seconds that used to be the last look")
+        XCTAssertEqual(MediaKeyInterceptor.probeSchedule(afterChange: .displays), [0],
+                       "a display is read once it is announced")
+    }
+
+    func testOnlyAnAnswerMissingSomethingWantedIsAskedForAgain() {
+        typealias Caps = SystemHUDReplacement.Capabilities
+        let everything = Caps(volume: true, mute: true, brightness: true, keyboard: true)
+        XCTAssertFalse(MediaKeyInterceptor.needsReprobe(wanted: everything, answered: everything),
+                       "a whole answer waits for something to be announced")
+        XCTAssertTrue(MediaKeyInterceptor.needsReprobe(wanted: everything,
+                                                       answered: Caps(volume: false, mute: true, brightness: true, keyboard: true)),
+                      "an output whose level is not there yet, whose keys have gone back to macOS")
+        XCTAssertTrue(MediaKeyInterceptor.needsReprobe(wanted: Caps(brightness: true), answered: Caps()))
+        XCTAssertFalse(MediaKeyInterceptor.needsReprobe(wanted: Caps(brightness: true), answered: Caps(brightness: true)))
+        XCTAssertFalse(MediaKeyInterceptor.needsReprobe(wanted: Caps(), answered: Caps()),
+                       "a display the user switched off is not a question worth asking")
+        XCTAssertFalse(MediaKeyInterceptor.needsReprobe(wanted: Caps(volume: true, mute: true), answered: everything),
+                       "answering more than is wanted is not missing anything")
+    }
+
+    /// An output that never offers what is wanted — an HDMI display's sound — is not asked
+    /// about every five seconds for the rest of the run: the watch timer asks only for a while
+    /// after something else asked.
+    func testTheWatchTimerAsksAgainForAMinuteAndThenLeavesIt() {
+        XCTAssertTrue(MediaKeyInterceptor.watchAsksAgain(incomplete: true, sinceAsked: 5))
+        XCTAssertTrue(MediaKeyInterceptor.watchAsksAgain(incomplete: true, sinceAsked: MediaKeyInterceptor.reprobeWindow - 1))
+        XCTAssertFalse(MediaKeyInterceptor.watchAsksAgain(incomplete: true, sinceAsked: MediaKeyInterceptor.reprobeWindow))
+        XCTAssertFalse(MediaKeyInterceptor.watchAsksAgain(incomplete: false, sinceAsked: 5),
+                       "a whole answer waits for an announcement")
+        XCTAssertGreaterThan(MediaKeyInterceptor.reprobeWindow, MediaKeyInterceptor.arrivalProbes.max() ?? 0,
+                             "the timer outlasts the last of the arrival looks")
     }
 
     // MARK: - The rail's switches

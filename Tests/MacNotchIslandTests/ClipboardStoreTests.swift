@@ -583,4 +583,34 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertNil(ready.imageData)
         XCTAssertNil(ClipboardStore.item(from: ready), "nothing to show, so nothing is recorded")
     }
+
+    /// A copy through conversion waits in `Arrivals` for whichever takes it first: its own hop
+    /// to the main queue, or a `flush` at quit, where that hop is queued behind `terminate` and
+    /// never runs. Whichever it is, the copies come out in the order they were made, once.
+    func testCopiesThroughConversionAreHandedOverInOrderAndOnce() {
+        let arrivals = ClipboardStore.Arrivals()
+        XCTAssertEqual(arrivals.takeAll(), [], "nothing through yet")
+        let first = item("copied first", at: 1)
+        let second = item("copied second", at: 2)
+        arrivals.add(first)
+        arrivals.add(second)
+        XCTAssertEqual(arrivals.takeAll().map(\.text), ["copied first", "copied second"])
+        XCTAssertEqual(arrivals.takeAll(), [], "the hop that comes after a flush finds nothing left to add twice")
+    }
+
+    /// Added on the conversion queue and taken on the main thread, as the store does: nothing is
+    /// lost between them and nothing reordered.
+    func testCopiesAddedOnOneQueueAreAllTakenOnAnother() {
+        let arrivals = ClipboardStore.Arrivals()
+        let converter = DispatchQueue(label: "clipboard-arrivals-test")
+        var taken: [String] = []
+        for index in 0..<200 {
+            let copy = item("copy \(index)", at: TimeInterval(index))
+            converter.async { arrivals.add(copy) }
+            if index % 17 == 0 { taken += arrivals.takeAll().map(\.text) }
+        }
+        converter.sync {}
+        taken += arrivals.takeAll().map(\.text)
+        XCTAssertEqual(taken, (0..<200).map { "copy \($0)" })
+    }
 }

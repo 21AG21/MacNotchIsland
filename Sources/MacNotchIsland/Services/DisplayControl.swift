@@ -152,10 +152,16 @@ final class DisplayControl: ObservableObject {
 
     /// Every private call is made here, one at a time.
     private let queue = DispatchQueue(label: "com.macnotchisland.display", qos: .utility)
-    private var reading = false
+    /// One pass at a time, and an ask made while one is in the air answered by one more when it
+    /// lands: the ask that matters most is the one after the rail's display started or stopped
+    /// answering, and dropping it left the popover a whole poll behind.
+    private var pass = RadioPass()
     private var viewers = 0
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
+    /// Whether the rail's display answers, as `BrightnessControl` last found it; see
+    /// `viewerAppeared`.
+    private var railCancellable: AnyCancellable?
     /// Values the popover wrote that the system has not reported back yet, by key.
     private var holds: [String: (value: Double, until: TimeInterval)] = [:]
 
@@ -211,6 +217,20 @@ final class DisplayControl: ObservableObject {
                 guard let self, self.viewers > 0 else { return }
                 self.schedule()
             }
+        // Whether the rail's display gets its slider here is `BrightnessControl`'s reading, and
+        // it lands in its own time: false until the first one has, and changing whenever a lid
+        // is shut or opened. A pass that went out before it landed left that display's slider
+        // out of the popover until the next poll; it is asked again as soon as the answer moves.
+        // Hopped through the main queue: `@Published` announces a value before it is stored,
+        // and `refresh` reads the stored one.
+        railCancellable = BrightnessControl.shared.$isAvailable
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.viewers > 0 else { return }
+                self.refresh()
+            }
     }
 
     func viewerDisappeared() {
@@ -219,6 +239,7 @@ final class DisplayControl: ObservableObject {
         timer?.invalidate()
         timer = nil
         energyCancellable = nil
+        railCancellable = nil
     }
 
     private func schedule() {
@@ -238,11 +259,10 @@ final class DisplayControl: ObservableObject {
         var trueTone: (available: Bool, on: Bool)?
     }
 
-    /// One pass over everything the popover shows. A pass already in the air is the answer to
-    /// this one too.
+    /// One pass over everything the popover shows. Asked while one is in the air, it is made
+    /// again when that one lands (`pass`).
     func refresh() {
-        guard !reading else { return }
-        reading = true
+        guard pass.start() else { return }
         // Read here, on the main thread, and carried in: the screens' names are AppKit's, and
         // whether the rail's display answers is the brightness service's own reading.
         let names = Self.screenNames()
@@ -252,8 +272,9 @@ final class DisplayControl: ObservableObject {
             guard let self else { return }
             let snapshot = self.take(names: names, railAnswers: railAnswers, railLevel: railLevel)
             DispatchQueue.main.async {
-                self.reading = false
+                let again = self.pass.finish()
                 self.apply(snapshot)
+                if again { self.refresh() }
             }
         }
     }

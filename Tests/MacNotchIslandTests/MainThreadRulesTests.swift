@@ -2,7 +2,8 @@ import XCTest
 @testable import MacNotchIsland
 
 /// The rules behind work that moved off the main thread: which window pictures a beat retakes,
-/// and what the calendar's reading decides once it has come back from its queue.
+/// what the calendar's reading decides once it has come back from its queue, and when a reading
+/// of the sound devices may set the level the rail shows.
 final class MainThreadRulesTests: XCTestCase {
 
     // MARK: - Window pictures
@@ -98,5 +99,22 @@ final class MainThreadRulesTests: XCTestCase {
         let text = "https://teams.microsoft.com/l/meetup-join/xyz"
         let answers = (0..<4).map { _ in CalendarMonitor.meetingLink(in: text) }
         XCTAssertEqual(Set(answers.compactMap { $0?.absoluteString }), [text])
+    }
+
+    // MARK: - The sound devices
+
+    /// A reading of the devices is taken on a queue and lands later; the listeners on the output
+    /// report the level on the main thread the moment it moves. A reading's level is taken only
+    /// when the listeners have just moved to a new output with it.
+    func testADeviceReadingSetsTheLevelOnlyWhenItBringsANewOutput() {
+        XCTAssertTrue(AudioOutputs.showsLevel(rebound: true, wroteRecently: false),
+                      "a new output: the level shown was another device's")
+        XCTAssertFalse(AudioOutputs.showsLevel(rebound: false, wroteRecently: false),
+                       "the same output: its listener already said, and later than this reading could")
+    }
+
+    func testTheSlidersOwnWriteIsNeverPulledBackByAReading() {
+        XCTAssertFalse(AudioOutputs.showsLevel(rebound: true, wroteRecently: true))
+        XCTAssertFalse(AudioOutputs.showsLevel(rebound: false, wroteRecently: true))
     }
 }

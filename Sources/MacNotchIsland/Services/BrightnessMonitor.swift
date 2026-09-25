@@ -2,10 +2,10 @@ import AppKit
 import Combine
 
 /// Brightness HUD. There is no public change notification, so the built-in display's
-/// brightness is sampled through DisplayServices (cheap call) — every two seconds while the
-/// island answers the brightness keys, which announce themselves, and four times a second
-/// while it does not (`pollInterval`). The same private symbols also let the media-key
-/// interceptor set the brightness when it replaces the system bezel.
+/// brightness is sampled through DisplayServices (cheap call) every two seconds while the
+/// island answers the brightness keys, which announce themselves, and not at all while it does
+/// not (`look`). The same private symbols also let the media-key interceptor set the brightness
+/// when it replaces the system bezel.
 final class BrightnessMonitor {
     private typealias GetBrightnessFn = @convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32
     private typealias SetBrightnessFn = @convention(c) (CGDirectDisplayID, Float) -> Int32
@@ -33,63 +33,86 @@ final class BrightnessMonitor {
         return (get, set)
     }
 
-    /// Last value reported to the island. Shared so a value we set ourselves is not
-    /// announced twice (once by the setter, once by the poll). Main thread only.
+    /// Last value reported to the island, or -1 for none to compare with. Shared so a value we
+    /// set ourselves is not announced twice (once by the setter, once by the poll). Main thread
+    /// only.
     private static var lastSeen: Float = -1
-    /// How many monitors are sampling, see `lastSample`. Main thread only.
-    private static var sampling = 0
-
-    /// The panel's brightness as last read here, 0...1 — by the poll, or by the key tap as it
-    /// set it — or nil while no monitor is running, when nothing keeps it current. For the
-    /// rail's slider, which can follow this rather than read the display on a timer of its
-    /// own. Main thread only.
-    static var lastSample: Float? { sampling > 0 && lastSeen >= 0 ? lastSeen : nil }
 
     private var timer: Timer?
     private var running = false
+    /// Whether the island was answering the brightness keys at the last tick. Main thread.
+    private var wasAnswering = false
 
     private var cancellables = Set<AnyCancellable>()
 
-    /// How often the panel is read. Pure, so it is tested.
+    /// How often the timer comes round: every two seconds, slower for the energy policy. Pure,
+    /// so it is tested.
     ///
-    /// While the island answers the brightness keys (`answersKeys`), every press is already
-    /// announced the moment it is applied (`MediaKeyInterceptor.adjustBrightness`, through
-    /// `notifyChange`), and the poll has only Control Centre's slider and the light sensor
-    /// left to catch — neither of which needs catching four times a second. It polled at 4 Hz
-    /// anyway, on the main thread, for as long as the app ran. While the island does not
-    /// answer them, macOS takes the keys and says nothing, and looking often is the only way
-    /// anything here follows them.
-    static func pollInterval(answersKeys: Bool, multiplier: Double) -> TimeInterval {
-        (answersKeys ? 2 : 0.25) * max(1, multiplier)
+    /// While the island answers the brightness keys, every press is already announced the
+    /// moment it is applied (`MediaKeyInterceptor.adjustBrightness`, through `notifyChange`),
+    /// and the poll has only Control Centre's slider and the light sensor left to catch —
+    /// neither of which needs catching four times a second. While it does not, nothing here may
+    /// be announced at all (`post`), and the timer is there only to notice the island starting
+    /// to answer them: what the tap can answer changes without a word. It ran at four a second
+    /// exactly then, on the main thread, to keep a remembered level current that nothing read;
+    /// the level is taken afresh when the island starts answering instead (`look`).
+    static func pollInterval(multiplier: Double) -> TimeInterval {
+        2 * max(1, multiplier)
+    }
+
+    /// What a tick does with the panel.
+    enum Look: Equatable {
+        /// macOS has the keys and draws its own bezel for them: the panel is not read.
+        case skip
+        /// A reading to remember, not to announce: the island has only just started answering
+        /// the keys, and whatever the level did before that was macOS's to announce — which it
+        /// did — or there is no earlier reading to compare with.
+        case baseline
+        /// A reading to compare with the last, and announce if it is a step (`isDeliberate`).
+        case compare
+    }
+
+    /// Pure, so it is tested.
+    static func look(answering: Bool, wasAnswering: Bool, hasBaseline: Bool) -> Look {
+        guard answering else { return .skip }
+        return wasAnswering && hasBaseline ? .compare : .baseline
     }
 
     func start() {
         guard !running, Self.symbols.get != nil else { return }
         running = true
-        Self.sampling += 1
-        Self.lastSeen = read() ?? -1
+        resync()
         scheduleTimer()
         EnergyPolicy.shared.objectWillChange
             .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.scheduleTimer() }
             .store(in: &cancellables)
-        // The tap coming up or going down changes who announces a key. Hopped through the main
-        // queue: `@Published` announces a value before it is stored, and the rule reads it.
-        // What the tap can answer changes with no announcement at all, and is picked up at
-        // the next reading instead (`tick`).
+        // The tap coming up or going down changes who announces a key, and the level to compare
+        // with is taken again then rather than at the next tick. Hopped through the main queue:
+        // `@Published` announces a value before it is stored, and `answersBrightness` reads it.
+        // What the tap can answer changes with no announcement at all, and is picked up at the
+        // next tick instead (`look`).
         SystemHUDReplacement.shared.$isActive
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.scheduleTimer() }
+            .sink { [weak self] _ in self?.resync() }
             .store(in: &cancellables)
+    }
+
+    /// Takes the level to compare with afresh, for whoever answers the keys now. Nothing to
+    /// compare with while macOS has them: `look` reads nothing then, and the level it would
+    /// remember is one macOS has long since moved past. Main thread.
+    private func resync() {
+        guard running else { return }
+        wasAnswering = SystemHUDReplacement.shared.answersBrightness
+        Self.lastSeen = wasAnswering ? (read() ?? -1) : -1
     }
 
     /// Rebuilds the timer when the interval it should run at has changed, and only then: a
     /// rebuild pushes the next reading back by a whole interval.
     private func scheduleTimer() {
         guard running else { return }
-        let interval = Self.pollInterval(answersKeys: SystemHUDReplacement.shared.answersBrightness,
-                                         multiplier: EnergyPolicy.shared.pollingMultiplier)
+        let interval = Self.pollInterval(multiplier: EnergyPolicy.shared.pollingMultiplier)
         if let timer, abs(timer.timeInterval - interval) < 0.01 { return }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
@@ -99,7 +122,6 @@ final class BrightnessMonitor {
     func stop() {
         guard running else { return }
         running = false
-        Self.sampling = max(0, Self.sampling - 1)
         timer?.invalidate()
         timer = nil
         cancellables.removeAll()
@@ -174,9 +196,14 @@ final class BrightnessMonitor {
     }
 
     private func tick() {
-        scheduleTimer()
-        guard let v = read() else { return }
-        if Self.lastSeen < 0 { Self.lastSeen = v; return }
+        let answering = SystemHUDReplacement.shared.answersBrightness
+        let next = Self.look(answering: answering, wasAnswering: wasAnswering, hasBaseline: Self.lastSeen >= 0)
+        wasAnswering = answering
+        guard next != .skip, let v = read() else { return }
+        guard next == .compare else {
+            Self.lastSeen = v
+            return
+        }
         let previous = Self.lastSeen
         // Every reading is taken in, announced or not, so a slow drift is absorbed a little at
         // a time and never adds up to something that looks like a step. See `isDeliberate`.

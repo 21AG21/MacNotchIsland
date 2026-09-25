@@ -192,8 +192,14 @@ final class AudioOutputs: ObservableObject {
         let watching = viewers > 0
         reader.async { [weak self] in
             guard let self else { return }
-            let reading = Self.read()
-            self.bind(output: watching ? reading.defaultOutput : 0, airPlay: watching ? reading.airPlayDevice : 0)
+            var reading = Self.read()
+            // The listeners first and the level last, so no change to it falls between the two:
+            // one made after this read is heard by a listener, and one made before it is in it.
+            // Read the other way round, a change landing between them was in neither.
+            reading.rebound = self.bind(output: watching ? reading.defaultOutput : 0,
+                                        airPlay: watching ? reading.airPlayDevice : 0)
+            reading.volume = AudioMonitor.readOutputVolume(device: reading.defaultOutput)
+            reading.mute = AudioMonitor.readOutputMute(device: reading.defaultOutput)
             DispatchQueue.main.async { [weak self] in self?.show(reading) }
         }
     }
@@ -208,8 +214,11 @@ final class AudioOutputs: ObservableObject {
         var airPlayDevice: AudioDeviceID
         var airPlay: [AirPlayTarget]
         var ticked: Set<UInt32>
-        var volume: Float?
-        var mute: Bool?
+        /// Read last, after `bind`; see `reloadDevices`.
+        var volume: Float? = nil
+        var mute: Bool? = nil
+        /// The listeners moved to another output with this reading. See `showsLevel`.
+        var rebound = false
     }
 
     /// Everything the rail and the menu show, in one pass over the device list. On `reader`.
@@ -217,7 +226,8 @@ final class AudioOutputs: ObservableObject {
     /// The AirPlay device's receivers are read as its data sources — the way the Sound pane
     /// listed AirPlay speakers when it listed them at all — on every reading, which is every
     /// change to the device list and to the default output, and whenever the AirPlay device
-    /// says its list or its choice has changed.
+    /// says its list or its choice has changed. The level is not read here: it is read after the
+    /// listeners are in place (`reloadDevices`).
     private static func read() -> Reading {
         let ids = allDeviceIDs()
         let outputs = ids.filter { outputStreamCount($0) > 0 }.map(device(for:)).sorted(by: listedBefore)
@@ -238,9 +248,7 @@ final class AudioOutputs: ObservableObject {
             }
         }
         return Reading(outputs: outputs, inputs: inputs, defaultOutput: defaultOutput, defaultInput: defaultInput,
-                       airPlayDevice: air?.id ?? 0, airPlay: targets, ticked: ticked,
-                       volume: AudioMonitor.readOutputVolume(device: defaultOutput),
-                       mute: AudioMonitor.readOutputMute(device: defaultOutput))
+                       airPlayDevice: air?.id ?? 0, airPlay: targets, ticked: ticked)
     }
 
     private static func device(for id: AudioDeviceID) -> Device {
@@ -256,9 +264,11 @@ final class AudioOutputs: ObservableObject {
     }
 
     /// Moves the listeners onto the output and the AirPlay device a reading found, or takes
-    /// them away (0). On `reader`.
-    private func bind(output: AudioDeviceID, airPlay: AudioDeviceID) {
-        if boundDevice != output {
+    /// them away (0), and says whether the output's listeners moved. On `reader`.
+    @discardableResult
+    private func bind(output: AudioDeviceID, airPlay: AudioDeviceID) -> Bool {
+        let rebound = boundDevice != output
+        if rebound {
             remove(&deviceRegistrations)
             boundDevice = output
             if output != 0 {
@@ -285,6 +295,7 @@ final class AudioOutputs: ObservableObject {
                 }
             }
         }
+        return rebound
     }
 
     /// Where every reading lands. Main thread, and the only place the list is published.
@@ -298,12 +309,25 @@ final class AudioOutputs: ObservableObject {
         if input != currentInput { currentInput = input }
         if reading.airPlay != airPlay { airPlay = reading.airPlay }
         if reading.ticked != airPlayCurrent { airPlayCurrent = reading.ticked }
-        // A level read before the slider moved lands after it, and must not pull the slider
-        // back for a frame; the device's own listener reports where it really settled.
-        if !Self.wroteRecently() { showLevel(volume: reading.volume, mute: reading.mute) }
+        if Self.showsLevel(rebound: reading.rebound, wroteRecently: Self.wroteRecently()) {
+            showLevel(volume: reading.volume, mute: reading.mute)
+        }
         // Something changed while this reading was in the air; the answer it is waiting for is
         // the next one.
         if again { reloadDevices() }
+    }
+
+    /// Whether a reading's level is the one to show. Pure, so it is tested.
+    ///
+    /// Only when the listeners moved to a new output with it: until then the level shown is some
+    /// other device's, and from then on the new device's listeners report every change
+    /// (`reloadLevel`), exactly and on the main thread. A reading that went round by `reader`
+    /// took longer, and applied afterwards it could put back a level one of those listeners had
+    /// already moved past. Nor when the island wrote the level a moment ago: a level read before
+    /// the slider moved lands after it, and must not pull the slider back for a frame; the
+    /// device's own listener reports where it really settled.
+    static func showsLevel(rebound: Bool, wroteRecently: Bool) -> Bool {
+        rebound && !wroteRecently
     }
 
     /// Which device a system-wide default points at.

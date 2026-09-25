@@ -117,7 +117,7 @@ struct ClipboardSnapshot {
     var imageData: Data? = nil
     var imagePixelSize: CGSize? = nil
     /// A picture offered only as TIFF, not yet turned into the PNG the history keeps. Read out
-    /// of the pasteboard on the main thread and converted on the store's `io` queue, see
+    /// of the pasteboard on the main thread and converted on the store's `converter` queue, see
     /// `ClipboardStore.finishingImage`.
     var tiffData: Data? = nil
 }
@@ -180,9 +180,15 @@ final class ClipboardStore: ObservableObject {
     /// Watches "Keep history across relaunches" for as long as the app runs, not only while
     /// the clipboard is recording: switching it off has to take the file with it either way.
     private var persistence: AnyCancellable?
-    /// Where the history is written and erased. One queue, in order, so an erase can never be
-    /// overtaken by a write that was already on its way.
+    /// Where the history is written and erased, and nothing else. One queue, in order, so an
+    /// erase can never be overtaken by a write that was already on its way.
     private static let io = DispatchQueue(label: "com.macnotchisland.clipboard.io", qos: .utility)
+    /// Where a copy is made ready to keep (`finishingImage`). Its own queue, not `io`: `flush`
+    /// waits on `io` from quit, sleep and power-off, and it must wait for the disk, not for a
+    /// 5K TIFF on its way to a PNG that is never written to disk anyway.
+    private static let converter = DispatchQueue(label: "com.macnotchisland.clipboard.convert", qos: .utility)
+    /// Copies through `converter` and not yet in the list, oldest first.
+    private let arrivals = Arrivals()
 
     /// Fills the history for the rendered gallery, which starts with an empty pasteboard.
     /// Does nothing outside the gallery.
@@ -298,12 +304,12 @@ final class ClipboardStore: ObservableObject {
     }
 
     /// Reads what changed on the main thread, where the pasteboard and the frontmost app are,
-    /// and does everything a picture costs on `io`.
+    /// and does everything a picture costs on `converter`.
     ///
     /// Every copy takes the same road, text included, so a picture still being converted is
-    /// never overtaken by the line of text copied just after it: `io` is serial and the main
-    /// queue keeps its order, so entries land in the order they were copied. For text the
-    /// detour is a hop and nothing more.
+    /// never overtaken by the line of text copied just after it: `converter` is serial, and
+    /// `arrivals` hands them over in the order they came off it, so entries land in the order
+    /// they were copied. For text the detour is a hop and nothing more.
     private func tick() {
         guard running else { return }
         let count = pasteboard.changeCount
@@ -312,13 +318,44 @@ final class ClipboardStore: ObservableObject {
         let snapshot = readSnapshot()
         let app = Self.frontmostAppName()
         let date = Date()
-        Self.io.async {
+        let arrivals = self.arrivals
+        Self.converter.async {
             guard let item = ClipboardStore.item(from: ClipboardStore.finishingImage(snapshot), date: date, app: app) else { return }
-            DispatchQueue.main.async { [weak self] in
-                // Switched off while the picture was being converted: it was never recorded.
-                guard let self, self.running else { return }
-                self.append(item)
-            }
+            arrivals.add(item)
+            DispatchQueue.main.async { [weak self] in self?.takeArrivals() }
+        }
+    }
+
+    /// Puts every copy that has come through `converter` into the list, oldest first. Main
+    /// thread: from the hop each copy makes once it is through, and from `flush`, which cannot
+    /// wait for that hop — at quit it is queued behind `terminate` and never runs.
+    private func takeArrivals() {
+        let arrived = arrivals.takeAll()
+        // Switched off while the picture was being converted: it was never recorded.
+        guard running else { return }
+        for item in arrived { append(item) }
+    }
+
+    /// The hand-over between `converter` and the main thread: a copy is added the moment it is
+    /// ready and taken by whichever comes first, its own hop or a `flush`. In order, and each
+    /// copy taken once. Safe from any thread.
+    final class Arrivals {
+        private let lock = NSLock()
+        private var waiting: [ClipboardItem] = []
+
+        func add(_ item: ClipboardItem) {
+            lock.lock()
+            waiting.append(item)
+            lock.unlock()
+        }
+
+        /// Everything added since the last call, oldest first.
+        func takeAll() -> [ClipboardItem] {
+            lock.lock()
+            defer { lock.unlock() }
+            let taken = waiting
+            waiting.removeAll()
+            return taken
         }
     }
 
@@ -352,7 +389,7 @@ final class ClipboardStore: ObservableObject {
     // MARK: - Pictures, off the main thread
 
     /// A snapshot with its picture made ready to keep: a TIFF turned into PNG, and the size
-    /// read out of the file's header.
+    /// read out of the file's header. On `converter`.
     ///
     /// Both used to happen on the main thread on every picture copied — the TIFF re-encoded,
     /// and then the whole PNG decoded into a bitmap for no reason but to ask it how wide it
@@ -830,12 +867,17 @@ final class ClipboardStore: ObservableObject {
     /// faster than the debounce, and the last thing somebody copied is exactly the thing they
     /// are about to want. Nothing is written for a history that has never been touched, nor
     /// for one that is not kept across relaunches.
+    ///
+    /// A copy already through `converter` is in what is written, though its hop to the main
+    /// queue has not run. One still on it is not waited for, nor one queued behind it: the wait
+    /// would be on the main thread, at quit, behind a picture that is never written to disk.
     func flush() {
+        takeArrivals()
         guard persistWork != nil else { return }
         persistWork?.cancel()
         persistWork = nil
         guard let snapshot = Self.toPersist(items, keeping: Preferences.shared.clipboardPersists) else { return }
-        // Behind anything already being written, on the same queue.
+        // Behind anything already being written, on the same queue, which does nothing else.
         Self.io.sync { Self.persist(snapshot) }
     }
 

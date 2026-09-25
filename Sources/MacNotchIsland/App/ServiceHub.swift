@@ -187,9 +187,9 @@ final class ServiceHub {
         let showsVolume = p.hudReplacementEnabled && p.volumeHUDEnabled
         (showsVolume || p.privacyIndicatorsEnabled || Self.wantsCallDetector(p)) ? audio.start() : audio.stop()
         // The brightness monitor exists only to raise that display, and polls a private
-        // display call to do it — every two seconds while the key tap announces the keys,
-        // four times a second only where it does not. With the island not answering the
-        // keys there is nothing for it to raise, so it does not run at all.
+        // display call to do it — every two seconds, and not at all while macOS has the keys.
+        // With the island not answering the keys there is nothing for it to raise, so it does
+        // not run at all.
         (p.hudReplacementEnabled && p.brightnessHUDEnabled) ? brightness.start() : brightness.stop()
         p.privacyIndicatorsEnabled ? camera.start() : camera.stop()
         calls.showsCard = p.callDetectionEnabled
