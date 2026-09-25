@@ -25,7 +25,7 @@ struct TimerExpandedView: View {
         VStack(spacing: 0) {
             NotchClearance(geometry: geometry, extra: 12)
             HStack(alignment: .center, spacing: 14) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                TimelineView(.periodic(from: .now, by: TimerRing.cadence)) { context in
                     HStack(alignment: .center, spacing: 14) {
                         ring(at: context.date)
                         // The eyebrow tucks into the whitespace above the digits' cap height,
@@ -100,9 +100,7 @@ struct TimerExpandedView: View {
     // MARK: - The timer that owns the island
 
     private func ring(at date: Date) -> some View {
-        ProgressRing(progress: state.isFinished ? 1 : state.progress(at: date), lineWidth: 3, tint: .orange,
-                     animation: IslandMotion.meter(cadence: 1))
-            .frame(width: 44, height: 44)
+        TimerRing(state: state, date: date, diameter: 44, lineWidth: 3)
             .overlay(
                 Image(systemName: ringSymbol)
                     .font(.system(size: 14, weight: .semibold))
@@ -223,7 +221,7 @@ struct TimerExpandedView: View {
     private var otherTimers: some View {
         let shown = Array(others.prefix(Self.maxOtherRows))
         let hidden = others.count - shown.count
-        return TimelineView(.periodic(from: .now, by: 1)) { context in
+        return TimelineView(.periodic(from: .now, by: TimerRing.cadence)) { context in
             VStack(spacing: 0) {
                 ForEach(shown) { entry in
                     otherRow(entry, at: context.date, hidden: entry.id == shown.last?.id ? hidden : 0)
@@ -235,9 +233,7 @@ struct TimerExpandedView: View {
 
     private func otherRow(_ entry: TimerEntry, at date: Date, hidden: Int) -> some View {
         HStack(spacing: 8) {
-            ProgressRing(progress: entry.state.isFinished ? 1 : entry.state.progress(at: date),
-                         lineWidth: 2, tint: .orange, animation: IslandMotion.meter(cadence: 1))
-                .frame(width: 13, height: 13)
+            TimerRing(state: entry.state, date: date, diameter: 13, lineWidth: 2)
                 .accessibilityHidden(true)
             Text(entry.label)
                 .font(.system(size: 12.5))

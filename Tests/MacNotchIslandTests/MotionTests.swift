@@ -27,6 +27,87 @@ final class MotionTests: XCTestCase {
                        "never instant, and never a negative duration")
     }
 
+    // MARK: - A meter sweeps only where the sweep can be seen
+
+    /// A sweep is a frame at display rate for as long as it lasts, and a timer's clock asks
+    /// for one every second of the countdown. Under half a point a step is not worth it.
+    func testAStepTooShortToSeeIsTakenInOneFrame() {
+        XCTAssertNil(IslandMotion.meter(cadence: 1, travel: 0.49, paused: false, reduced: false),
+                     "under half a point the ring steps, like the digits beside it")
+        XCTAssertNil(IslandMotion.meter(cadence: 1, travel: 0, paused: false, reduced: false))
+        XCTAssertNil(IslandMotion.meter(cadence: 1, travel: .nan, paused: false, reduced: false),
+                     "a figure that is not a number is no reason to animate")
+        XCTAssertEqual(IslandMotion.meter(cadence: 1, travel: IslandMotion.meterThreshold, paused: false, reduced: false),
+                       .linear(duration: 1), "half a point is a pixel on a Retina screen, and sweeps")
+        XCTAssertEqual(IslandMotion.meter(cadence: 1, travel: 12, paused: false, reduced: false),
+                       IslandMotion.meter(cadence: 1), "and a step that can be seen is the same sweep as ever")
+    }
+
+    func testAPausedPolicyOrReduceMotionStopsEverySweep() {
+        XCTAssertNil(IslandMotion.meter(cadence: 1, travel: 12, paused: true, reduced: false),
+                     "asleep, Low Power, or on battery with animation paused")
+        XCTAssertNil(IslandMotion.meter(cadence: 1, travel: 12, paused: false, reduced: true),
+                     "Reduce Motion asks for the change of state, not the journey to it")
+    }
+
+    func testAMetersTravelIsItsShareOfTheCircumference() {
+        XCTAssertEqual(IslandMotion.meterTravel(diameter: 44, share: 1), 44 * .pi, accuracy: 1e-9)
+        XCTAssertEqual(IslandMotion.meterTravel(diameter: 44, share: 1.0 / 60), 44 * .pi / 60, accuracy: 1e-9)
+        XCTAssertEqual(IslandMotion.meterTravel(diameter: 44, share: -0.5), 22 * .pi, accuracy: 1e-9,
+                       "a ring going back travels as far as one going on")
+        XCTAssertEqual(IslandMotion.meterTravel(diameter: -3, share: 0.5), 0, "a ring with no size goes nowhere")
+    }
+
+    private func timer(lasting total: TimeInterval) -> TimerState {
+        TimerState(label: "Timer", total: total, endDate: Date().addingTimeInterval(total))
+    }
+
+    /// The case the sweep is for: a minute on the card's 44 pt ring moves its end more than
+    /// two points a second, and stepped it would read as broken.
+    func testAMinuteOnTheCardStillSweeps() {
+        let minute = timer(lasting: 60)
+        XCTAssertEqual(TimerRing.travel(for: minute, diameter: 44), 44 * .pi / 60, accuracy: 1e-9)
+        XCTAssertEqual(TimerRing.curve(for: minute, diameter: 44, paused: false, reduced: false), .linear(duration: 1))
+    }
+
+    /// The case the audit found: a 25-minute timer swept its rings at display rate, every
+    /// second of the countdown, for a tenth of a point on the card and less in the bubble.
+    func testALongTimerStepsEveryRingItHas() {
+        let focus = timer(lasting: 25 * 60)
+        XCTAssertLessThan(TimerRing.travel(for: focus, diameter: 44), 0.1)
+        XCTAssertNil(TimerRing.curve(for: focus, diameter: 44, paused: false, reduced: false), "the card")
+        XCTAssertNil(TimerRing.curve(for: focus, diameter: 33.5 * 0.55, paused: false, reduced: false), "the bubble")
+        XCTAssertNil(TimerRing.curve(for: focus, diameter: 33.5 * 0.5, paused: false, reduced: false), "the minimal pill")
+        XCTAssertNil(TimerRing.curve(for: focus, diameter: 13, paused: false, reduced: false), "a row under the card")
+    }
+
+    /// Where the sweep gives out depends on the ring: pi times its diameter, over half a
+    /// point, is the longest timer whose step can still be seen — about 276 seconds on the
+    /// card and 82 on a row's ring.
+    func testWhereTheSweepGivesOutDependsOnTheRingsSize() {
+        XCTAssertNotNil(TimerRing.curve(for: timer(lasting: 270), diameter: 44, paused: false, reduced: false))
+        XCTAssertNil(TimerRing.curve(for: timer(lasting: 280), diameter: 44, paused: false, reduced: false))
+        XCTAssertNotNil(TimerRing.curve(for: timer(lasting: 80), diameter: 13, paused: false, reduced: false))
+        XCTAssertNil(TimerRing.curve(for: timer(lasting: 85), diameter: 13, paused: false, reduced: false))
+    }
+
+    func testARingThatIsNotMovingHasNoStepToSweep() {
+        var paused = timer(lasting: 60)
+        paused.pausedRemaining = 30
+        XCTAssertEqual(TimerRing.travel(for: paused, diameter: 44), 0, "a paused timer is standing still")
+        XCTAssertNil(TimerRing.curve(for: paused, diameter: 44, paused: false, reduced: false))
+        var rung = timer(lasting: 60)
+        rung.isFinished = true
+        XCTAssertEqual(TimerRing.travel(for: rung, diameter: 44), 0, "and so is one that has rung")
+        XCTAssertEqual(TimerRing.travel(for: timer(lasting: 0), diameter: 44), 0, "a timer with no length is not divided by")
+    }
+
+    func testTheEnergyPolicyAndReduceMotionStopATimersSweepToo() {
+        let minute = timer(lasting: 60)
+        XCTAssertNil(TimerRing.curve(for: minute, diameter: 44, paused: true, reduced: false))
+        XCTAssertNil(TimerRing.curve(for: minute, diameter: 44, paused: false, reduced: true))
+    }
+
     func testGrowingAndShrinkingAreNotTheSameCurve() {
         let compact = IslandLayout.make(presentation: .idle, geometry: geometry)
         let panel = IslandLayout.make(presentation: .panel(.home(tab: HomeSection.music.rawValue)), geometry: geometry)

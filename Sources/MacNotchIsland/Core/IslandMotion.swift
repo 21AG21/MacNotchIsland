@@ -236,6 +236,38 @@ enum IslandMotion {
     /// redrawn once a second look like it never stops moving.
     static func meter(cadence: Double) -> Animation { .linear(duration: max(0.05, cadence)) }
 
+    /// The least a meter's end has to move in one step for the sweep to be drawn: half a
+    /// point, one pixel on a Retina screen.
+    static let meterThreshold: CGFloat = 0.5
+
+    /// The same sweep, only where there is a sweep to see.
+    ///
+    /// A sweep is a frame at display rate, on the main thread, for as long as it lasts, and a
+    /// clock that re-issues it every second keeps it running for the whole countdown. The end
+    /// of the card's ring on a 25-minute timer moves a tenth of a point a second, and the
+    /// bubble's less than a twentieth: sixty to a hundred and twenty frames a second of
+    /// motion nobody can see. So a step shorter than `meterThreshold` is taken in one frame,
+    /// the way the digits beside it change, and so is every step while the energy policy has
+    /// paused animation, or under Reduce Motion, which asks for the change of state and not
+    /// the journey to it. A minute on the card still sweeps: its end moves over two points a
+    /// second, and a ring that jumped that far every second would read as broken.
+    ///
+    /// `travel` is how far the end moves in one step, see `meterTravel`. Nil means no
+    /// animation, which is what `.animation(_:value:)` takes it to mean. The Reduce Motion
+    /// setting is handed in so the rule can be tested; left out, it is the system's.
+    static func meter(cadence: Double, travel: CGFloat, paused: Bool,
+                      reduced: Bool = IslandMotion.reduceMotion) -> Animation? {
+        guard !paused, !reduced, travel >= meterThreshold else { return nil }
+        return meter(cadence: cadence)
+    }
+
+    /// How far a ring's end moves when its value changes by `share` of the whole: that share
+    /// of its circumference. A ring stroked on a `Circle` has its stroke centred on the edge
+    /// of its frame, so the circumference is the frame's own diameter times pi.
+    static func meterTravel(diameter: CGFloat, share: Double) -> CGFloat {
+        CGFloat.pi * max(0, diameter) * CGFloat(abs(share))
+    }
+
     // MARK: - Transitions
 
     /// How far a view slides in when stepping sideways. Small on purpose: Apple's pushes

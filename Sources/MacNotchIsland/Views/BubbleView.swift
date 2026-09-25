@@ -54,10 +54,8 @@ struct BubbleView: View {
         case .nowPlaying(let info):
             VisualizerBars(isPlaying: info.isPlaying, color: Color(nsColor: info.accent), barCount: 3, barWidth: 2.5, maxHeight: 12, minHeight: 3)
         case .timer(let t):
-            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                ProgressRing(progress: t.progress(at: ctx.date), lineWidth: 2.5, tint: .orange,
-                             animation: IslandMotion.meter(cadence: 1))
-                    .frame(width: diameter * 0.55, height: diameter * 0.55)
+            TimelineView(.periodic(from: .now, by: TimerRing.cadence)) { ctx in
+                TimerRing(state: t, date: ctx.date, diameter: diameter * 0.55)
                     .overlay(Image(systemName: "timer").font(.system(size: 8, weight: .bold)).foregroundStyle(.orange))
             }
         case .stopwatch(let s):

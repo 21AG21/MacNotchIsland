@@ -27,6 +27,8 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     var islandLayoutProvider: (() -> IslandLayout?)?
     /// Which panel (screen) this view belongs to; gestures are routed per panel.
     var panelID: String = "main"
+    /// The last outline built, for each of the two ways of asking for one. See `OutlineCache`.
+    private var outlines = OutlineCache()
 
     /// Controls inside the island react to the first click even when the panel isn't key.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -62,9 +64,18 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     /// The island's outline in this view's own top-left coordinates, or nil when nothing is
     /// drawn. This view is kept centred on the notch by its panel, so `bounds.midX` is the
     /// notch.
+    ///
+    /// Asked two or three times for every move of the pointer across the canvas, and the
+    /// island between moves is almost always the one it was: the outline is built once for a
+    /// layout and kept until the layout, the bounds or the question changes. The layout itself
+    /// is still asked for every time, so a change the provider sees is never answered with an
+    /// outline that was built before it.
     func islandPath(includingBubble: Bool = true) -> Path? {
         guard let layout = islandLayoutProvider?() else { return nil }
-        return Self.outline(of: layout, in: bounds, includingBubble: includingBubble)
+        let key = OutlineCache.Key(layout: layout, bounds: bounds, includingBubble: includingBubble)
+        return outlines.outline(for: key) {
+            Self.outline(of: $0.layout, in: $0.bounds, includingBubble: $0.includingBubble)
+        }
     }
 
     /// The outline `IslandRootView` draws for `layout`, in a top-left space of `bounds`
@@ -111,5 +122,48 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         guard let path = islandPath() else { return nil }
         guard Self.contains(path, topLeft(convert(point, from: superview)), margin: 0) else { return nil }
         return super.hitTest(point)
+    }
+}
+
+/// The hit test's memory: the last outline built with the bubble and the last built without,
+/// each with the layout and bounds it was built from.
+///
+/// Inside the canvas every move of the pointer asks for the outline two or three times — on
+/// the body alone, with the bubble, and with the margin on the way out — and each of those
+/// built the shape again from its layout, curves and all, for an island that had not
+/// changed. One entry per way of asking, because both ways are asked on the same move and a
+/// single entry would be thrown out by each in turn. The outline is made from the key and
+/// nothing else, so an equal key is the same path, and an entry can never be stale.
+///
+/// Nothing here knows about views or windows, so the rule is tested on its own.
+struct OutlineCache {
+    /// What an outline is built from, and all of it.
+    struct Key: Equatable {
+        var layout: IslandLayout
+        var bounds: CGRect
+        var includingBubble: Bool
+    }
+
+    private var withBubble: (key: Key, path: Path)?
+    private var bodyOnly: (key: Key, path: Path)?
+
+    /// Whether an entry built for `kept` answers a request for `asked`: only when they are the
+    /// same key. Nil, nothing built yet, answers nothing.
+    static func answers(_ kept: Key?, _ asked: Key) -> Bool {
+        kept == asked
+    }
+
+    /// The outline for `key`: the one kept, when it was built from the same key, and
+    /// otherwise the one `build` makes now, which is kept in its place.
+    mutating func outline(for key: Key, build: (Key) -> Path) -> Path {
+        let kept = key.includingBubble ? withBubble : bodyOnly
+        if let kept, Self.answers(kept.key, key) { return kept.path }
+        let path = build(key)
+        if key.includingBubble {
+            withBubble = (key: key, path: path)
+        } else {
+            bodyOnly = (key: key, path: path)
+        }
+        return path
     }
 }

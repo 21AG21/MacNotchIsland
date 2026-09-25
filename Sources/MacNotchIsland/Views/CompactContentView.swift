@@ -225,11 +225,9 @@ struct CompactTrailingView: View {
                                barCount: minimal ? 3 : 4, barWidth: 2.5, maxHeight: 12, minHeight: 3)
                     .islandMatched(IslandMatchedID.nowPlayingVisualizer)
             case .timer(let t):
-                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                TimelineView(.periodic(from: .now, by: TimerRing.cadence)) { ctx in
                     if minimal {
-                        ProgressRing(progress: t.progress(at: ctx.date), lineWidth: 2.5, tint: .orange,
-                                     animation: IslandMotion.meter(cadence: 1))
-                            .frame(width: height * 0.5, height: height * 0.5)
+                        TimerRing(state: t, date: ctx.date, diameter: height * 0.5)
                     } else {
                         // A ringing alarm shows the time it went off for, not a countdown to it.
                         let remaining = t.alarmAt.map(IslandAlarm.clock)
