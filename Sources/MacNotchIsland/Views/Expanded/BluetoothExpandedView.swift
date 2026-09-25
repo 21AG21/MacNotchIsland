@@ -40,6 +40,8 @@ struct BluetoothExpandedView: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                 }
+                // Said once, in the row's sentence, see `hidesItsWords`.
+                .accessibilityHidden(Self.hidesItsWords(state))
                 Spacer(minLength: 0)
                 // One right-aligned line of figures rather than a row of donuts: the label is
                 // small and quiet, the number carries the weight.
@@ -57,6 +59,7 @@ struct BluetoothExpandedView: View {
                         }
                     }
                 }
+                .accessibilityHidden(Self.hidesItsWords(state))
                 // Reconnecting a pair of AirPods is a trip to System Settings, and the island
                 // already knows they are there. Only where the address is known, which is
                 // everything the radio itself told us about.
@@ -144,6 +147,14 @@ struct BluetoothExpandedView: View {
     /// anything. With the button there the row is a container, as the Download and Calendar
     /// cards are — the sentence as its label, the button inside it.
     static func readsAsOneElement(_ state: BluetoothState) -> Bool { !offersConnection(state) }
+
+    /// Whether the name, the status and the readings are kept from VoiceOver as well: whenever
+    /// the row is a container. A container reads its label and then goes on into what is in
+    /// it, so the card was read twice — "AirPods Pro connected, left 92 percent, …", then
+    /// "AirPods Pro", "Connected", "L", "92%" one by one — before the button. With the words
+    /// hidden it is one sentence and the button. Where the row is one element nothing inside
+    /// it is read anyway. Pure, so the rule is tested.
+    static func hidesItsWords(_ state: BluetoothState) -> Bool { !readsAsOneElement(state) }
 
     /// "AirPods Pro connected, left 92 percent, right 88 percent, case 64 percent", built from
     /// whichever batteries the device actually reports.

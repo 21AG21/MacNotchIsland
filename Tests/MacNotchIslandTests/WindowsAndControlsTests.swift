@@ -131,6 +131,35 @@ final class WindowsAndControlsTests: XCTestCase {
                        "two entries the same size cannot both be the one window in the Dock")
     }
 
+    /// Two Safari windows called "Start Page": one on another desktop, earlier in the window
+    /// server's list, and one in the Dock. Asked entry by entry, the first took the minimised
+    /// one's report by its name before the second could sit on it, and the tile carried the
+    /// other desktop's window — its id and its frame — while the one in the Dock went unlisted.
+    func testWhereAWindowSitsIsAskedOfTheWholeListBeforeItsName() {
+        let dock = CGRect(x: 120, y: 80, width: 900, height: 700)
+        let info = [
+            entry(id: 1, name: "Start Page", bounds: CGRect(x: 600, y: 300, width: 800, height: 600), onScreen: nil),
+            entry(id: 2, name: "Start Page", bounds: dock, onScreen: false),
+        ]
+        let windows = WindowsMonitor.list(now: info, putAway: [away(frame: dock, title: "Start Page")])
+        XCTAssertEqual(windows.map(\.id), [2], "the window in the Dock, and not the one on another desktop")
+        XCTAssertEqual(windows.first?.frame, dock, "so Snap moves the window that is there")
+        XCTAssertEqual(windows.first?.away, .minimised)
+
+        // A second report with nothing sitting under it still finds its window by name, once
+        // every window that does sit on one has been given it.
+        let hidden = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let safari = { (id: CGWindowID, frame: CGRect) in
+            IslandWindow(id: id, title: "Start Page", appName: "Safari", pid: 1, frame: frame, icon: nil, thumbnail: nil)
+        }
+        let both = WindowsMonitor.claimed([safari(1, CGRect(x: 600, y: 300, width: 800, height: 600)), safari(2, dock)],
+                                          by: [away(frame: dock, title: "Start Page"),
+                                               away(frame: hidden, title: "Start Page", .hidden)])
+        XCTAssertEqual(both.map(\.id), [1, 2], "in the window server's order")
+        XCTAssertEqual(both.map(\.away), [.hidden, .minimised],
+                       "each has the report that is its own: where it sits first, the name for the rest")
+    }
+
     func testOnlyAppsWithAWindowOutOfSightAreAskedAboutIt() {
         let info = [
             entry(id: 1, pid: 1),
@@ -293,6 +322,30 @@ final class WindowsAndControlsTests: XCTestCase {
                 let fitted = TodaySectionView.fit(events: events, reminders: reminders, in: height)
                 XCTAssertEqual(fitted.events + fitted.reminders + fitted.left, events + reminders,
                                "\(events) events and \(reminders) reminders in \(height) pt")
+            }
+        }
+    }
+
+    /// "N more" is only said of a list that is on screen. With Calendars refused, Reminders
+    /// allowed and the weather on, three reminders read "Today · 1 more" above "Calendar
+    /// access is off", and the section counted as one that scrolls — so a scroll there neither
+    /// scrolled nor changed the volume.
+    func testNothingIsLeftOutOfAListThatIsNotOnScreen() {
+        let room = TodaySectionView.listHeight(showingHours: true)
+        XCTAssertEqual(TodaySectionView.leftOut(events: 0, reminders: 3, in: room, calendarOff: false), 1,
+                       "the calendar allowed: two reminders fit beside the hours and one is counted")
+        XCTAssertEqual(TodaySectionView.leftOut(events: 0, reminders: 3, in: room, calendarOff: true), 0,
+                       "refused: the empty state is on screen, and there is nothing for 'more' to be more of")
+        XCTAssertEqual(TodaySectionView.title(left: TodaySectionView.leftOut(events: 0, reminders: 3, in: room,
+                                                                             calendarOff: true)), "Today")
+        XCTAssertFalse(TodaySectionView.showsList(calendarOff: true, rows: 3))
+        XCTAssertFalse(TodaySectionView.showsList(calendarOff: false, rows: 0), "the day's own empty state")
+        XCTAssertTrue(TodaySectionView.showsList(calendarOff: false, rows: 1))
+        for (events, reminders) in [(0, 0), (1, 0), (3, 4), (0, 6)] {
+            for height in [room, TodaySectionView.listHeight(showingHours: false)] {
+                XCTAssertEqual(TodaySectionView.leftOut(events: events, reminders: reminders, in: height, calendarOff: false),
+                               TodaySectionView.fit(events: events, reminders: reminders, in: height).left,
+                               "with the list on screen it is exactly what the room left out")
             }
         }
     }
@@ -678,6 +731,21 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertEqual(QuickActionsRowView.tally(favourites: 8, apps: 6), "8 chosen; 4 fit beside your apps")
         XCTAssertEqual(QuickActionsRowView.tally(favourites: 3, apps: 6), "3 of 4 chosen")
         XCTAssertEqual(QuickActionsRowView.tally(favourites: 8, apps: 0), "8 of 8 chosen")
+    }
+
+    /// Settings counted the apps it stored and the row the apps it could draw, so one on a disk
+    /// that was not plugged in left Settings a Shortcut short of the room the row had. The row's
+    /// share is counted as the row draws it; what is stored is still held to six.
+    func testAnAppOnAnUnpluggedDiskTakesNoRoomInTheRowButStaysKept() {
+        // Four apps drawn and one on a disk that is not plugged in, beside four favourites.
+        let room = QuickActionsRowView.appRoom(besideShortcuts: 4)
+        XCTAssertEqual(room, 6)
+        XCTAssertTrue(FavoriteApps.hasRoom(stored: 5, inRow: 4, room: room), "the row has room, and so does the list")
+        XCTAssertEqual(QuickActionsRowView.shortcutRoom(besideApps: 4), 6, "and the Shortcuts get the room the row leaves them")
+        XCTAssertFalse(FavoriteApps.hasRoom(stored: FavoriteApps.maximum, inRow: 4, room: room),
+                       "six kept is six, however many of them are plugged in")
+        XCTAssertFalse(FavoriteApps.hasRoom(stored: 2, inRow: 2, room: 2), "and the row's share is the row's")
+        XCTAssertTrue(FavoriteApps.hasRoom(stored: 0, inRow: 0, room: 10), "an empty list with a full row's room")
     }
 
     // MARK: - Laying several windows out at once

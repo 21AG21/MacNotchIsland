@@ -76,6 +76,18 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertTrue(BluetoothExpandedView.readsAsOneElement(unknown), "and nothing in the sentence to lose")
     }
 
+    /// A container reads its label and then what is in it, so the card with a button in it was
+    /// read twice: the sentence, then the name, "Connected" and each reading on its own.
+    func testTheAirPodsCardIsReadOnceAsASentenceAndAButton() {
+        let pods = BluetoothState(name: "AirPods Pro", address: "a", symbol: "airpods", batteryLeft: 92, batteryRight: 88)
+        XCTAssertTrue(BluetoothExpandedView.hidesItsWords(pods), "the words are the label already")
+        let unknown = BluetoothState(name: "Speaker", address: "", symbol: "hifispeaker")
+        for state in [pods, unknown] {
+            XCTAssertEqual(BluetoothExpandedView.hidesItsWords(state), !BluetoothExpandedView.readsAsOneElement(state),
+                           "hidden exactly where the row is a container: \(state.name)")
+        }
+    }
+
     func testHUDFocusAndSimpleStates() {
         XCTAssertEqual(label(.hud(LevelHUD(kind: .volume, level: 0.4))), "Volume, 40 percent")
         XCTAssertEqual(label(.hud(LevelHUD(kind: .volume, level: 0.4, isMuted: true))), "Volume muted")

@@ -66,12 +66,18 @@ struct ShelfStripView: View {
         }
         // Space is Quick Look here, and the hot key that takes it is nowhere near this view's
         // selection; the store passes on what is picked out and what the find is showing, so
-        // Space previews those rather than the whole shelf.
+        // Space previews those rather than the whole shelf — and, with a find up, never more
+        // than it shows, which for a find that matches nothing is nothing.
         .onChange(of: orderedSelection, initial: true) { _, picked in
-            shelf.stripChanged(selected: picked, shown: shown.map(\.url))
+            shelf.stripChanged(selected: picked, shown: shown.map(\.url), finding: finding)
         }
         .onChange(of: shown.map(\.url)) { _, now in
-            shelf.stripChanged(selected: orderedSelection, shown: now)
+            shelf.stripChanged(selected: orderedSelection, shown: now, finding: finding)
+        }
+        // A find typed to match everything shows what no find shows, so the list alone does
+        // not change when one starts or ends.
+        .onChange(of: finding) { _, now in
+            shelf.stripChanged(selected: orderedSelection, shown: shown.map(\.url), finding: now)
         }
         // A drag reaching the island says straight away whether it is carrying files, so the
         // well splits as it arrives — not only once the pointer is over the well itself. The
@@ -112,6 +118,10 @@ struct ShelfStripView: View {
     /// What the strip shows: everything on the shelf, or the files whose names answer to what
     /// was typed on this section.
     private var shown: [ShelfItem] { Self.matching(shelf.items, query: center.findQuery) }
+
+    /// Whether a find is narrowing the strip: something typed, and not only space. An open
+    /// field with nothing in it narrows nothing, and shows the whole shelf.
+    private var finding: Bool { PanelFind.needle(center.findQuery) != nil }
 
     /// The same, from anywhere: the gesture router counts what the strip is showing, and only
     /// the same filter counts it right. The rule is the store's, because Clear takes exactly

@@ -22,10 +22,12 @@ final class ShelfStore: ObservableObject {
         didSet {
             guard items != oldValue else { return }
             publishActivity()
-            // The offer to take a Clear back is an offer to put back the shelf as it stood,
-            // and it only holds while the shelf is still the one the Clear left. Anything
-            // landing or leaving since ends it.
-            if let offer = clearOffer, items != offer.after { settleClear() }
+            // The offer to take a Clear back is an offer to put what it took back beside
+            // whatever is on the shelf by then, and it holds until it no longer can be — see
+            // `offerStands`. A download or a screenshot landing in the meantime is not that.
+            if let offer = clearOffer, !Self.offerStands(taken: offer.taken, on: items, cap: maxItems) {
+                settleClear()
+            }
         }
     }
     @Published private var thumbnails: [URL: NSImage] = [:]
@@ -70,6 +72,12 @@ final class ShelfStore: ObservableObject {
         loaded = loaded.filter { Self.stillThere($0) }
         if loaded.count > self.maxItems { loaded = Array(loaded.prefix(self.maxItems)) }
         items = loaded
+
+        // A Clear whose offer was still standing when the app last stopped — it crashed, or
+        // was killed, inside the moment — left the island's own files it took neither on the
+        // shelf nor in the Trash. They go now, where they would have gone then.
+        discardOwned(Self.orphans(in: Self.loadPendingTrash(from: defaults, key: key), onShelf: items))
+        defaults.removeObject(forKey: Self.pendingTrashKey(key))
 
         sweepExpired()
         persist()
@@ -279,10 +287,10 @@ final class ShelfStore: ObservableObject {
     /// How long "Undo Clear" is offered for: the same moment the scratchpad gives.
     static let undoWindow: TimeInterval = NotesStore.undoWindow
 
-    /// What the last Clear took, and the shelf either side of it.
+    /// What the last Clear took, and the shelf before it, which is where the order it goes back
+    /// in comes from.
     private struct ClearOffer {
         let before: [ShelfItem]
-        let after: [ShelfItem]
         let taken: [ShelfItem]
     }
 
@@ -302,6 +310,11 @@ final class ShelfStore: ObservableObject {
     /// back a snippet that is already in the Trash would put back a tile with nothing behind
     /// it. A second Clear supersedes the first, the way the scratchpad's does: one offer at a
     /// time, and always for the most recent thing taken.
+    ///
+    /// Which of those files are waiting is written down beside the shelf as well as held
+    /// here. The shelf is saved without them at once, so an app that stopped inside the
+    /// moment left them in Application Support for good, on no shelf and in no Trash; the
+    /// next launch reads the list and finishes the job (`orphans`).
     func clear(matching query: String?) {
         let going = Self.clearing(items, query: query)
         guard !going.isEmpty else { return }
@@ -312,29 +325,67 @@ final class ShelfStore: ObservableObject {
         pruneThumbnailCache()
         persist()
         rescheduleSweep()
-        clearOffer = ClearOffer(before: before, after: items, taken: going)
+        clearOffer = ClearOffer(before: before, taken: going)
+        let waiting = going.map(\.url).filter { Self.isOwned($0) }
+        if !waiting.isEmpty { defaults.set(waiting.map(\.path), forKey: Self.pendingTrashKey(key)) }
         let work = DispatchWorkItem { [weak self] in self?.settleClear() }
         clearWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: work)
     }
 
-    /// Puts the shelf back as it stood before the last Clear, in the same order. Only ever
-    /// while the shelf is still what the Clear left, so it can never undo a drop made since.
+    /// Puts back what the last Clear took, in the order the shelf had it, beside anything that
+    /// has landed since — see `undoing`.
     func undoClear() {
-        guard let offer = clearOffer, items == offer.after else { return }
+        guard let offer = clearOffer else { return }
         clearWork?.cancel()
         clearWork = nil
         clearOffer = nil
+        defaults.removeObject(forKey: Self.pendingTrashKey(key))
+        let restored = Self.undoing(taken: offer.taken, before: offer.before, now: items)
         // A file somebody deleted in Finder while the offer stood stays gone.
-        items = backgroundWork ? offer.before.filter { Self.stillThere($0) } : offer.before
+        items = backgroundWork ? restored.filter { Self.stillThere($0) } : restored
         for item in items { requestThumbnail(item.url) }
         persist()
         rescheduleSweep()
     }
 
-    /// The offer has gone — its moment passed, the shelf changed, a second Clear came, or the
-    /// app is quitting — and what it was holding goes the way a Clear always sent it: the
-    /// island's own files to the Trash, anybody else's left where they are.
+    /// Whether the offer to take a Clear back still stands on the shelf as it is now. Pure,
+    /// so the rule is tested.
+    ///
+    /// It ended on any change at all, which the pill promising twelve seconds did not say: a
+    /// download or a screenshot put on the shelf by itself a moment after a Clear took the
+    /// Undo away, and sent the island's own snippets to the Trash with it. What it cannot
+    /// outlive is what would make putting them back wrong: one of them on the shelf again,
+    /// dropped a second time, which is a slot already filled; or a shelf filled since to where
+    /// they would no longer fit beside what is on it, which is the cap deciding for them.
+    static func offerStands(taken: [ShelfItem], on shelf: [ShelfItem], cap: Int) -> Bool {
+        let back = Set(taken.map(\.url))
+        return !shelf.contains { back.contains($0.url) } && shelf.count + taken.count <= max(1, cap)
+    }
+
+    /// The shelf with a Clear taken back: what has landed since, at the front where it landed,
+    /// then the shelf as it stood before the Clear — the files it took back in their places,
+    /// and anything that has left since left out. Pure, so the order is tested.
+    ///
+    /// A file that was on the shelf before and has been dropped again since keeps the date of
+    /// its second landing, which is the date the expiry counts from.
+    static func undoing(taken: [ShelfItem], before: [ShelfItem], now shelf: [ShelfItem]) -> [ShelfItem] {
+        let earlier = Set(before.map(\.url))
+        let back = Set(taken.map(\.url))
+        var current: [URL: ShelfItem] = [:]
+        for item in shelf where current[item.url] == nil { current[item.url] = item }
+        let arrived = shelf.filter { !earlier.contains($0.url) }
+        let kept = before.compactMap { item -> ShelfItem? in
+            if let now = current[item.url] { return now }
+            return back.contains(item.url) ? item : nil
+        }
+        return arrived + kept
+    }
+
+    /// The offer has gone — its moment passed, one of the files it took is back, the shelf
+    /// filled past where they would fit, a second Clear came, or the app is quitting — and
+    /// what it was holding goes the way a Clear always sent it: the island's own files to the
+    /// Trash, anybody else's left where they are.
     private func settleClear(waiting: Bool = false) {
         guard let offer = clearOffer else { return }
         clearWork?.cancel()
@@ -342,6 +393,31 @@ final class ShelfStore: ObservableObject {
         clearOffer = nil
         let live = Set(items.map(\.url))
         discardOwned(offer.taken.map(\.url).filter { !live.contains($0) }, waiting: waiting)
+        defaults.removeObject(forKey: Self.pendingTrashKey(key))
+    }
+
+    /// Where the files a standing offer is holding back from the Trash are written down: beside
+    /// the shelf, under its own key, so a store the tests make with a key of their own keeps
+    /// its list to itself too.
+    static func pendingTrashKey(_ key: String) -> String { key + ".pendingTrash" }
+
+    private static func loadPendingTrash(from defaults: UserDefaults, key: String) -> [URL] {
+        (defaults.stringArray(forKey: pendingTrashKey(key)) ?? [])
+            .filter { !$0.isEmpty }
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+    }
+
+    /// What launch sends to the Trash of a Clear that never settled: the island's own files it
+    /// was holding back, except any that are on the shelf again. Pure, so the rule is tested.
+    ///
+    /// Only what was written down is ever touched — never whatever else happens to be in the
+    /// drop folder. A sweep of the whole folder against the shelf would, run by the tests on
+    /// somebody's own Mac, have compared their real drop folder with the test runner's empty
+    /// shelf.
+    static func orphans(in pending: [URL], onShelf shelf: [ShelfItem],
+                        isOwned: (URL) -> Bool = ShelfStore.isOwned) -> [URL] {
+        let live = Set(shelf.map { $0.url.standardizedFileURL })
+        return pending.map(\.standardizedFileURL).filter { !live.contains($0) && isOwned($0) }
     }
 
     /// A picture, a link or a piece of text the island itself wrote has nowhere else to live,
@@ -371,28 +447,33 @@ final class ShelfStore: ObservableObject {
     /// lives nowhere near it; this is how the one hears about the other.
     private var stripSelection: [URL] = []
     private var stripShown: [URL] = []
+    private var stripFinding = false
 
     /// The strip's selection or find changed. Not published: nothing is drawn from it.
-    func stripChanged(selected: [URL], shown: [URL]) {
+    /// `finding` is whether a find is narrowing what it shows, which `shown` alone cannot say:
+    /// a find that matches nothing and no find at all both leave nothing picked out.
+    func stripChanged(selected: [URL], shown: [URL], finding: Bool) {
         stripSelection = selected
         stripShown = shown
+        stripFinding = finding
     }
 
     /// What Space shows in Quick Look on the shelf.
     var quickLookTargets: [URL] {
-        Self.quickLookTargets(selected: stripSelection, shown: stripShown, on: urls)
+        Self.quickLookTargets(selected: stripSelection, shown: stripShown, finding: stripFinding, on: urls)
     }
 
-    /// What is picked out; failing that, what a find has narrowed the strip to; failing that,
-    /// the whole shelf — the way Space works on a Finder window. Only files still on the shelf
-    /// count, so a strip that last spoke before something left it cannot preview a file that
-    /// is not there.
-    static func quickLookTargets(selected: [URL], shown: [URL], on shelf: [URL]) -> [URL] {
+    /// What is picked out; failing that, with a find up, what it has narrowed the strip to,
+    /// even if that is nothing; failing that, the whole shelf — the way Space works on a Finder
+    /// window. An empty narrowing used to fall through to the whole shelf, so "zzz" typed over
+    /// "No matches" and Space previewed every file the find was hiding. Only files still on
+    /// the shelf count, so a strip that last spoke before something left it cannot preview a
+    /// file that is not there.
+    static func quickLookTargets(selected: [URL], shown: [URL], finding: Bool, on shelf: [URL]) -> [URL] {
         let live = Set(shelf)
         let picked = selected.filter { live.contains($0) }
         if !picked.isEmpty { return picked }
-        let narrowed = shown.filter { live.contains($0) }
-        if !narrowed.isEmpty { return narrowed }
+        if finding { return shown.filter { live.contains($0) } }
         return shelf
     }
 

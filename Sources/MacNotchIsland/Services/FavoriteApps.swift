@@ -44,6 +44,28 @@ final class FavoriteApps: ObservableObject {
         return live.map { ($0, Self.name(of: $0)) }
     }
 
+    /// How many buttons the apps take in the Actions row: the ones on disk, which is what the
+    /// row draws (`apps`). The one count of them every share of the row is worked out from —
+    /// the room Settings leaves the Shortcuts, its tally, the Add App button and the Home
+    /// tile. Settings counted `paths` and the row `apps`, so an app on a disk that was not
+    /// plugged in left Settings one Shortcut short of the room the row actually had.
+    var inRow: Int { apps.count }
+
+    /// Whether another app can be kept beside `room`, the most the row leaves the apps. Pure,
+    /// so the rule is tested.
+    ///
+    /// The row's share is counted as the row draws it (`inRow`); what is stored is still held
+    /// to `maximum`, since an app on a disk that is not plugged in is kept, and is back in the
+    /// row when the disk is.
+    static func hasRoom(stored: Int, inRow: Int, room: Int) -> Bool {
+        stored < maximum && inRow < min(room, maximum)
+    }
+
+    /// `hasRoom`, for the apps kept now.
+    func hasRoom(beside room: Int) -> Bool {
+        Self.hasRoom(stored: paths.count, inRow: inRow, room: room)
+    }
+
     /// Whether a path is still worth storing. A deleted app is forgotten; an app whose whole
     /// folder has gone is on a disk that is not plugged in, and comes back when it is.
     static func worthKeeping(_ path: String, fileManager: FileManager = .default) -> Bool {
@@ -73,10 +95,11 @@ final class FavoriteApps: ObservableObject {
 
     /// Keeps an app. `room` is how many apps the row can show beside the favourite Shortcuts
     /// it shares with, which Settings works out: an app added past it would push a Shortcut
-    /// out of the row without a word.
+    /// out of the row without a word. Counted the way the button that calls this is, see
+    /// `hasRoom`.
     func add(_ url: URL, room: Int = FavoriteApps.maximum) {
         let path = url.path
-        guard !paths.contains(path), paths.count < min(room, Self.maximum) else { return }
+        guard !paths.contains(path), hasRoom(beside: room) else { return }
         paths.append(path)
     }
 

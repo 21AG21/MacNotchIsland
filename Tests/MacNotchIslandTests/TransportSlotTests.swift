@@ -230,6 +230,19 @@ final class TransportSlotTests: XCTestCase {
         XCTAssertTrue(NowPlayingInfo.canTakeBackFavourite(bundleID: "com.apple.Music"))
     }
 
+    /// The heart was emptied before the script ran, and a script Music refused — Automation
+    /// not allowed, or Music not running — said nothing: the island's heart went out and
+    /// Music's stayed filled.
+    func testTheHeartEmptiesOnlyOnceMusicHasDoneIt() {
+        let pressed = NowPlayingService.trackKey(track(bundle: "com.apple.Music"))
+        XCTAssertNil(NowPlayingService.likedKey(afterUnfavouriting: pressed, succeeded: true, now: pressed))
+        XCTAssertEqual(NowPlayingService.likedKey(afterUnfavouriting: pressed, succeeded: false, now: pressed), pressed,
+                       "refused, the heart stays lit, because Music's does")
+        XCTAssertEqual(NowPlayingService.likedKey(afterUnfavouriting: pressed, succeeded: true, now: "another|track"),
+                       "another|track", "a heart filled on the next track while Music answered is that track's")
+        XCTAssertNil(NowPlayingService.likedKey(afterUnfavouriting: pressed, succeeded: true, now: nil))
+    }
+
     func testALitHeartNothingCanEmptyIsSettledRatherThanPressedAgain() {
         let spotify = track(bundle: "com.spotify.client", remote: [.like])
         XCTAssertEqual(NowPlayingService.heartPress(liked: true, active: .adapter, info: spotify), .settled,

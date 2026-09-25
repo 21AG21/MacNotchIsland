@@ -266,24 +266,51 @@ final class WindowsMonitor: ObservableObject {
         let info = now ?? windowServerList()
         let ownPID = ProcessInfo.processInfo.processIdentifier
         var shown: [IslandWindow] = []
-        var away: [IslandWindow] = []
-        var unclaimed = putAway
+        var outOfSight: [IslandWindow] = []
         for entry in info {
             guard let found = candidate(entry, ownPID: ownPID) else { continue }
             if found.onScreen {
                 shown.append(found.window)
                 if shown.count >= maxWindows { break }
-                continue
+            } else {
+                outOfSight.append(found.window)
             }
-            // Each window Accessibility reported answers for one listed window at most, so two
-            // entries of the same size cannot both be taken for it.
-            guard let index = unclaimed.firstIndex(where: { $0.sits(on: found.window) })
-                    ?? unclaimed.firstIndex(where: { $0.isNamed(like: found.window) }) else { continue }
-            var window = found.window
-            window.away = unclaimed.remove(at: index).away
-            away.append(window)
         }
-        return Array((shown + away).prefix(maxWindows))
+        return Array((shown + claimed(outOfSight, by: putAway)).prefix(maxWindows))
+    }
+
+    /// The windows out of sight that are ones Accessibility reported put away, in the window
+    /// server's order, each marked with how it was put away.
+    ///
+    /// Each put-away window answers for one listed window at most, so two entries of the same
+    /// size cannot both be taken for it. And where it sits is asked of the whole list before
+    /// its name is asked of any of it. Asked entry by entry — where it sits, else what it is
+    /// called — a window earlier in the list took by name alone the one a later entry sat
+    /// exactly on: two Safari windows called "Start Page", one on another desktop and one in
+    /// the Dock, and the tile carried the other desktop's window — its id, so a picture that
+    /// never came, and its frame, so Snap moved the wrong one — and was counted "on this
+    /// desktop". The name is only the fallback for what nothing sits on.
+    ///
+    /// Pure, like `list`.
+    static func claimed(_ outOfSight: [IslandWindow], by putAway: [PutAwayWindow]) -> [IslandWindow] {
+        var unclaimed = putAway
+        var reasons = [IslandWindow.Away?](repeating: nil, count: outOfSight.count)
+        let passes: [(PutAwayWindow, IslandWindow) -> Bool] = [
+            { $0.sits(on: $1) },
+            { $0.isNamed(like: $1) },
+        ]
+        for matches in passes {
+            for (index, window) in outOfSight.enumerated() where reasons[index] == nil {
+                guard let taken = unclaimed.firstIndex(where: { matches($0, window) }) else { continue }
+                reasons[index] = unclaimed.remove(at: taken).away
+            }
+        }
+        return outOfSight.indices.compactMap { index in
+            guard let reason = reasons[index] else { return nil }
+            var window = outOfSight[index]
+            window.away = reason
+            return window
+        }
     }
 
     /// One entry of the window server's list as a tile, if it is a window worth switching to,

@@ -269,18 +269,30 @@ final class AirPlayAndAirPodsTests: XCTestCase {
     // MARK: - AirPods: when the route is asked
 
     func testTheRouteIsPolledOnlyWhileSomethingShowsIt() {
-        XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: false, viewers: 1))
-        XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: false, viewers: 2))
-        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: false, viewers: 0))
+        XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, refusals: 0, viewers: 1))
+        XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, refusals: 0, viewers: 2))
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, refusals: 0, viewers: 0))
     }
 
     func testARefusedContextIsNotAskedEveryTwoSeconds() {
         // The entitlement check an ad-hoc signed app fails: asking again only hears the same no,
         // on a timer, for as long as Controls or a Bluetooth card is open.
-        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, contextRefused: true, viewers: 1))
-        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: false, contextRefused: false, viewers: 1),
+        let refused = AirPodsControl.refusalsToStop
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, refusals: refused, viewers: 1))
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: false, refusals: 0, viewers: 1),
                        "nor is a class that is not there")
-        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: false, contextRefused: true, viewers: 0))
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: false, refusals: refused, viewers: 0))
+    }
+
+    /// One nil is coreaudiod restarting, not a refusal: the poll stopped on it and the pills
+    /// went stale until the section was opened again, where it used to be back in two seconds.
+    func testOneMissingContextIsABlipAndThePollGoesOn() {
+        XCTAssertGreaterThan(AirPodsControl.refusalsToStop, 1)
+        for refusals in 0..<AirPodsControl.refusalsToStop {
+            XCTAssertTrue(AirPodsControl.shouldPoll(hasBridge: true, refusals: refusals, viewers: 1),
+                          "\(refusals) in a row is not yet a refusal")
+        }
+        XCTAssertFalse(AirPodsControl.shouldPoll(hasBridge: true, refusals: AirPodsControl.refusalsToStop, viewers: 1))
     }
 
     // MARK: - AirPods: the glyphs

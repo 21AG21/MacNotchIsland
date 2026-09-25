@@ -642,7 +642,8 @@ final class NowPlayingService: ObservableObject {
 
     /// The heart: favourite the track, or, pressed again, take the favourite back. "Like" to
     /// MediaRemote or the heart in Music through AppleScript on the way in; Music's heart
-    /// through AppleScript on the way out, see `heartPress`.
+    /// through AppleScript on the way out, see `heartPress`. On the way out the heart empties
+    /// once Music has done it, see `likedKey(afterUnfavouriting:succeeded:now:)`.
     func toggleFavourite() {
         guard let current = info else { return }
         switch Self.heartPress(liked: isLiked(current), active: activeBackend, info: current) {
@@ -654,18 +655,34 @@ final class NowPlayingService: ObservableObject {
             }
             likedTrackKey = Self.trackKey(current)
         case .unfavourite:
-            unfavouriteInMusic()
-            likedTrackKey = nil
+            let pressed = Self.trackKey(current)
+            unfavouriteInMusic { [weak self] succeeded in
+                guard let self else { return }
+                let next = Self.likedKey(afterUnfavouriting: pressed, succeeded: succeeded, now: self.likedTrackKey)
+                if self.likedTrackKey != next { self.likedTrackKey = next }
+            }
         case .settled:
             break
         }
     }
 
+    /// The heart once Music has answered a press that took the favourite back: empty where the
+    /// script ran, and still lit where it did not. Pure, so the rule is tested.
+    ///
+    /// It was emptied before the script had run, and a script that failed said nothing — with
+    /// Automation refused (-1743) or Music not running (-600) the heart went out and Music's
+    /// stayed filled. Only the track the press was for is emptied: a heart filled on another
+    /// track while Music was answering is that track's, and stays.
+    static func likedKey(afterUnfavouriting pressed: String, succeeded: Bool, now liked: String?) -> String? {
+        succeeded && liked == pressed ? nil : liked
+    }
+
     /// Music's heart, emptied: the other half of `AppleScriptBackend.like`, said the same two
     /// ways — `favorited`, and `loved` from before Apple renamed the button. Off the main
-    /// queue, like every script the island runs, because Music answers in its own time. It
-    /// belongs beside `like` in the backend, which keeps its script runner to itself.
-    private func unfavouriteInMusic() {
+    /// queue, like every script the island runs, because Music answers in its own time; what
+    /// it said comes back on the main queue, to `done`. It belongs beside `like` in the
+    /// backend, which keeps its script runner to itself.
+    private func unfavouriteInMusic(done: @escaping (Bool) -> Void) {
         let source = """
         tell application "Music"
             try
@@ -677,14 +694,24 @@ final class NowPlayingService: ObservableObject {
         """
         Self.favouriteQueue.async {
             var error: NSDictionary?
-            _ = NSAppleScript(source: source)?.executeAndReturnError(&error)
-            guard let error else { return }
-            // -1743 is Automation refused and -600 Music not running: both are silent, as they
-            // are for every other script.
-            let code = (error[NSAppleScript.errorNumber] as? Int) ?? 0
-            if code != -1743 && code != -600 {
-                IslandLog.media.error("AppleScript error: \(String(describing: error), privacy: .public)")
+            let script = NSAppleScript(source: source)
+            _ = script?.executeAndReturnError(&error)
+            let succeeded = script != nil && error == nil
+            if !succeeded {
+                // Said once, for this press. Automation refused and Music not running are the
+                // two everybody meets, and are named; anything else is logged whole.
+                let code = (error?[NSAppleScript.errorNumber] as? Int) ?? 0
+                switch code {
+                case -1743:
+                    IslandLog.media.notice("the heart stays lit: Automation for Music is not allowed")
+                case -600:
+                    IslandLog.media.notice("the heart stays lit: Music is not running")
+                default:
+                    let reason = error.map { String(describing: $0) } ?? "the script did not compile"
+                    IslandLog.media.error("could not empty Music's heart: \(reason, privacy: .public)")
+                }
             }
+            DispatchQueue.main.async { done(succeeded) }
         }
     }
 

@@ -36,7 +36,7 @@ struct ShortcutsPane: View {
                         }
                     }
                     Button("Add App…") { chooseApp() }
-                        .disabled(apps.paths.count >= appRoom)
+                        .disabled(!apps.hasRoom(beside: appRoom))
                 } header: {
                     Text("Apps")
                 } footer: {

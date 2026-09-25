@@ -341,15 +341,102 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual((defaults.array(forKey: key) as? [[String: Any]])?.count, 3, "and what is saved says so too")
     }
 
-    func testTheOfferEndsOnceTheShelfChanges() throws {
+    /// A download or a screenshot landing on the shelf by itself a moment after a Clear took
+    /// the Undo away with it, and the island's own snippets went to the Trash — well inside
+    /// the twelve seconds the pill had promised.
+    func testAFileLandingSinceDoesNotEndTheOffer() throws {
         let store = makeStore()
-        store.add([try makeFile("a.pdf")])
-        store.clear(matching: nil)
-        let since = try makeFile("since.txt")
+        let files = try ["a.pdf", "b.txt", "c.pdf"].map { try makeFile($0) }
+        store.add(files)
+        let before = store.items.map(\.url)
+        store.clear(matching: "pdf")
+        let since = try makeFile("since.png")
         store.add([since])
-        XCTAssertNil(store.clearedItems, "putting the old shelf back now would undo the drop made since")
+        XCTAssertEqual(Set(store.clearedItems?.map(\.url) ?? []), [files[0], files[2]], "the offer stands")
         store.undoClear()
-        XCTAssertEqual(store.items.map(\.url), [since])
+        XCTAssertEqual(store.items.map(\.url), [since] + before,
+                       "what landed since stays at the front, and the rest goes back where it was")
+        XCTAssertNil(store.clearedItems)
+    }
+
+    func testDroppingAClearedFileAgainEndsTheOffer() throws {
+        let store = makeStore()
+        let files = try ["a.pdf", "b.txt"].map { try makeFile($0) }
+        store.add(files)
+        store.clear(matching: "pdf")
+        store.add([files[0]])
+        XCTAssertNil(store.clearedItems, "its slot is filled again, so there is nothing left to put back")
+        store.undoClear()
+        XCTAssertEqual(store.items.map(\.url), [files[0], files[1]])
+    }
+
+    func testAShelfFilledPastWhereTheClearedFilesWouldFitEndsTheOffer() throws {
+        let store = makeStore(maxItems: 3)
+        store.add(try ["a.pdf", "b.pdf"].map { try makeFile($0) })
+        store.clear(matching: nil)
+        let c = try makeFile("c.txt")
+        store.add([c])
+        XCTAssertNotNil(store.clearedItems, "one and two is three: they still fit")
+        let d = try makeFile("d.txt")
+        store.add([d])
+        XCTAssertNil(store.clearedItems, "two and two is more than the shelf holds")
+        store.undoClear()
+        XCTAssertEqual(store.items.map(\.url), [d, c])
+    }
+
+    func testTheOfferStandsUntilPuttingBackWouldBeWrong() {
+        let a = ShelfItem(url: url("a.pdf"), addedAt: Date()), b = ShelfItem(url: url("b.txt"), addedAt: Date())
+        let since = ShelfItem(url: url("since.png"), addedAt: Date())
+        XCTAssertTrue(ShelfStore.offerStands(taken: [a], on: [b, since], cap: 3), "something landed: still fits")
+        XCTAssertFalse(ShelfStore.offerStands(taken: [a], on: [a, b], cap: 3), "a taken file is back")
+        XCTAssertFalse(ShelfStore.offerStands(taken: [a, b], on: [since], cap: 2), "no room to put them back")
+        XCTAssertTrue(ShelfStore.offerStands(taken: [a], on: [], cap: 1))
+    }
+
+    func testTakingAClearBackKeepsBothOrders() {
+        let now = Date()
+        let items = ["a", "b", "c", "d"].map { ShelfItem(url: url("\($0).pdf"), addedAt: now) }
+        let redropped = ShelfItem(url: items[1].url, addedAt: now.addingTimeInterval(5))
+        let since = ShelfItem(url: url("since.png"), addedAt: now.addingTimeInterval(3))
+        // a and c were cleared; d left the shelf since, b was dropped again and something new landed.
+        let restored = ShelfStore.undoing(taken: [items[0], items[2]], before: items, now: [redropped, since])
+        XCTAssertEqual(restored.map(\.url), [since.url, items[0].url, items[1].url, items[2].url],
+                       "the newcomer in front, the rest in the order the Clear found them, and nothing that left since")
+        XCTAssertEqual(restored[2].addedAt, redropped.addedAt, "a file dropped again keeps its second landing")
+    }
+
+    // MARK: - A Clear that never settled
+
+    func testAClearWritesDownTheFilesItIsHoldingBackAndSettlingCrossesThemOff() throws {
+        let snippet = try drop(ShelfStore.write(text: "Parked for later"))
+        let store = makeStore()
+        store.add([snippet, try makeFile("theirs.pdf")])
+        store.clear(matching: nil)
+        let pending = ShelfStore.pendingTrashKey(key)
+        XCTAssertEqual(defaults.stringArray(forKey: pending), [snippet.standardizedFileURL.path],
+                       "only the island's own file: nobody else's is ever sent to the Trash")
+        store.undoClear()
+        XCTAssertNil(defaults.stringArray(forKey: pending), "taken back, nothing is waiting")
+        store.clear(matching: nil)
+        store.clear()
+        XCTAssertNil(defaults.stringArray(forKey: pending), "settled, nothing is waiting")
+    }
+
+    /// The shelf is saved without what a Clear took at once, and the island's own files among
+    /// them only went to the Trash once the offer had gone. An app that stopped inside the
+    /// moment left them in Application Support for good.
+    func testLaunchFinishesAClearThatNeverSettled() throws {
+        let owned = ShelfStore.dropFolder.appendingPathComponent("Parked.txt")
+        let back = ShelfStore.dropFolder.appendingPathComponent("Dropped again.txt")
+        let theirs = dir.appendingPathComponent("theirs.pdf")
+        let shelf = [ShelfItem(url: back.standardizedFileURL, addedAt: Date())]
+        XCTAssertEqual(ShelfStore.orphans(in: [owned, back, theirs], onShelf: shelf), [owned.standardizedFileURL],
+                       "what is on the shelf again stays, and a file from Finder is never the island's to trash")
+        XCTAssertTrue(ShelfStore.orphans(in: [], onShelf: shelf).isEmpty, "nothing written down, nothing touched")
+
+        defaults.set([owned.path], forKey: ShelfStore.pendingTrashKey(key))
+        _ = makeStore()
+        XCTAssertNil(defaults.stringArray(forKey: ShelfStore.pendingTrashKey(key)), "read once, then crossed off")
     }
 
     func testASecondClearSupersedesTheFirst() throws {
@@ -377,12 +464,23 @@ final class ShelfStoreTests: XCTestCase {
 
     func testSpacePreviewsWhatIsPickedOutFirst() {
         let all = [url("a.pdf"), url("b.png"), url("c.pdf")]
-        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [all[1]], shown: all, on: all), [all[1]])
-        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [], shown: [all[0], all[2]], on: all), [all[0], all[2]],
-                       "then what a find is showing")
-        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [], shown: [], on: all), all, "then everything")
-        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [url("gone.pdf")], shown: [], on: all), all,
+        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [all[1]], shown: all, finding: false, on: all), [all[1]])
+        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [all[1]], shown: [], finding: true, on: all), [all[1]],
+                       "a selection wins over a find")
+        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [], shown: [all[0], all[2]], finding: true, on: all),
+                       [all[0], all[2]], "then what a find is showing")
+        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [], shown: all, finding: false, on: all), all, "then everything")
+        XCTAssertEqual(ShelfStore.quickLookTargets(selected: [url("gone.pdf")], shown: all, finding: false, on: all), all,
                        "a selection that has left the shelf is no selection")
+    }
+
+    /// "zzz" typed over "No matches": the narrowed list was empty, fell through, and Space
+    /// previewed every file the find was hiding.
+    func testAFindThatMatchesNothingPreviewsNothing() {
+        let all = [url("a.pdf"), url("b.png")]
+        XCTAssertTrue(ShelfStore.quickLookTargets(selected: [], shown: [], finding: true, on: all).isEmpty)
+        XCTAssertTrue(ShelfStore.quickLookTargets(selected: [], shown: [url("gone.pdf")], finding: true, on: all).isEmpty,
+                      "nor a match that has since left the shelf")
     }
 
     func testTheStoreHearsWhatTheStripHasPickedOut() throws {
@@ -390,7 +488,7 @@ final class ShelfStoreTests: XCTestCase {
         let files = try ["a.pdf", "b.png"].map { try makeFile($0) }
         store.add(files)
         XCTAssertEqual(store.quickLookTargets, store.urls, "nothing said yet is the whole shelf")
-        store.stripChanged(selected: [files[0]], shown: store.urls)
+        store.stripChanged(selected: [files[0]], shown: store.urls, finding: false)
         XCTAssertEqual(store.quickLookTargets, [files[0]])
         store.remove([files[0]])
         XCTAssertEqual(store.quickLookTargets, [files[1]], "and never a file that has left it")

@@ -82,14 +82,41 @@ struct TodaySectionView: View {
         return (events.filter { $0.start < end }, reminders.filter { !$0.isCompleted })
     }
 
+    /// Whether the calendar has been refused, which puts its own empty state where the list
+    /// would be. Not the same as "cannot read events": a Mac that has not been asked yet is
+    /// about to be, and meanwhile shows whatever reminders it can read as a list.
+    static func calendarOff(_ agenda: AgendaStore) -> Bool {
+        !agenda.canReadEvents && agenda.eventsAccess != .notDetermined
+    }
+
+    /// Whether the body is the list of the day, rather than the calendar's refusal or the
+    /// day's empty state: the calendar not refused, and a row of the day to put in it. Pure,
+    /// so the rule is tested.
+    static func showsList(calendarOff: Bool, rows: Int) -> Bool {
+        !calendarOff && rows > 0
+    }
+
+    /// What the header counts as left out, and so whether the list scrolls: what `fit` left
+    /// out of the room, while the list is what is on screen, and nothing otherwise.
+    ///
+    /// Counted from the day alone, "N more" went on being said over the calendar's refusal.
+    /// With Calendars refused, Reminders allowed and the weather on, three reminders read
+    /// "Today · 1 more" above "Calendar access is off", and a scroll there — the section
+    /// counted as one that scrolls — neither scrolled nor changed the volume.
+    static func leftOut(events: Int, reminders: Int, in height: CGFloat, calendarOff: Bool) -> Int {
+        guard showsList(calendarOff: calendarOff, rows: events + reminders) else { return 0 }
+        return fit(events: events, reminders: reminders, in: height).left
+    }
+
     /// Whether there is more of the day than the room shows, and so a list that scrolls. Read
     /// from the stores themselves, so that whatever decides where a scroll goes can ask it of
     /// a section it cannot see into.
     static var overflows: Bool {
-        let today = day(events: AgendaStore.shared.events, reminders: AgendaStore.shared.reminders, at: Date())
+        let agenda = AgendaStore.shared
+        let today = day(events: agenda.events, reminders: agenda.reminders, at: Date())
         let hours = showsHours(weatherOn: Preferences.shared.weatherEnabled, weather: WeatherService.shared)
-        return fit(events: today.events.count, reminders: today.reminders.count,
-                   in: listHeight(showingHours: hours)).left > 0
+        return leftOut(events: today.events.count, reminders: today.reminders.count,
+                       in: listHeight(showingHours: hours), calendarOff: calendarOff(agenda)) > 0
     }
 
     // MARK: - What the tick box answers to
@@ -258,7 +285,7 @@ struct TodaySectionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !agenda.canReadEvents, agenda.eventsAccess != .notDetermined {
+        if Self.calendarOff(agenda) {
             SectionEmptyState(symbol: "calendar.badge.exclamationmark", title: "Calendar access is off",
                               subtitle: "Allow Calendars for Notch Island to see your day here.") {
                 PillButton(title: "Open Settings", symbol: "gearshape.fill") {
@@ -367,11 +394,13 @@ struct TodaySectionView: View {
         }
     }
 
-    /// The day, and how much of it the room holds — see `fit`.
+    /// The day, and how much of it the room holds — see `fit`, and `leftOut` for why nothing
+    /// is counted as left out while the list is not what is on screen.
     private var layout: (events: [AgendaStore.Event], reminders: [AgendaStore.Reminder], left: Int) {
         let today = Self.day(events: agenda.events, reminders: agenda.reminders, at: Date())
-        let shown = Self.fit(events: today.events.count, reminders: today.reminders.count, in: listHeight)
-        return (today.events, today.reminders, shown.left)
+        let left = Self.leftOut(events: today.events.count, reminders: today.reminders.count, in: listHeight,
+                                calendarOff: Self.calendarOff(agenda))
+        return (today.events, today.reminders, left)
     }
 
     /// Today's events first, then reminders: as many as fit (at most three events), or every

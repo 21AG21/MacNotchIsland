@@ -9,8 +9,8 @@ struct QuickActionsSettingsView: View {
     /// one favourite fewer the row can show.
     @ObservedObject private var apps = FavoriteApps.shared
 
-    /// How many favourites the row has room for beside the apps.
-    private var room: Int { QuickActionsRowView.shortcutRoom(besideApps: apps.paths.count) }
+    /// How many favourites the row has room for beside the apps it draws (`FavoriteApps.inRow`).
+    private var room: Int { QuickActionsRowView.shortcutRoom(besideApps: apps.inRow) }
 
     var body: some View {
         Group {
@@ -19,7 +19,7 @@ struct QuickActionsSettingsView: View {
                     .help("Ask the Shortcuts app for the current list.")
             } label: {
                 Text("Favourites")
-                Text(QuickActionsRowView.tally(favourites: runner.favorites.count, apps: apps.paths.count))
+                Text(QuickActionsRowView.tally(favourites: runner.favorites.count, apps: apps.inRow))
             }
 
             if !runner.isAvailable {

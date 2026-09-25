@@ -223,7 +223,7 @@ struct HomeGridView: View {
         case .actions:
             // What the row draws, not what the lists hold: lists saved before the row's cap
             // counted apps and Shortcuts together could add up to more than it shows.
-            let fit = QuickActionsRowView.fit(apps: apps.apps.count, shortcuts: runner.favorites.count)
+            let fit = QuickActionsRowView.fit(apps: apps.inRow, shortcuts: runner.favorites.count)
             let total = fit.apps + fit.shortcuts
             return total == 0 ? "Shortcuts, apps" : count(total, "action")
         case .notes:
