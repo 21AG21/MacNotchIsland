@@ -187,4 +187,24 @@ final class TwoDisplayStepTests: XCTestCase {
         settle(0.1)
         XCTAssertNotNil(center.currentView(on: "b"), "it left and came back: a peek again")
     }
+
+    // MARK: - Growth
+
+    func testAPeekGrowingOnOneIslandIsNoGrowthOnTheOther() {
+        // The panel pinned on a; the peek grows on b under the pointer. A click on a's panel
+        // is a click on what it lands on; only b's is taken for one aimed at its pill.
+        pinnedOnAPeekingOnB(pinned: 1, peeked: 3)
+        XCTAssertEqual(center.grewOn, "b")
+        XCTAssertEqual(center.sinceGrew(on: "a"), .infinity)
+        XCTAssertLessThan(center.sinceGrew(on: "b"), 1)
+    }
+
+    func testTheSameViewOpenedFromASecondIslandGrowsThatIsland() {
+        let ring = center.ring
+        center.open(ring[1], panel: "a")
+        XCTAssertEqual(center.grewOn, "a")
+        center.open(ring[1], panel: "b")
+        XCTAssertNil(center.openPanel, "it shows on both")
+        XCTAssertEqual(center.grewOn, "b", "and b is the island that grew")
+    }
 }

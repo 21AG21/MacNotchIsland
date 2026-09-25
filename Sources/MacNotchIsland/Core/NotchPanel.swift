@@ -56,6 +56,17 @@ final class NotchPanel: NSPanel {
     private var orderWork: DispatchWorkItem?
     /// The event monitors that follow the pointer, see `watchPointer`.
     private var pointerMonitors: [Any] = []
+    /// Whether the mouse button held down now went down on this island, see `Hold`. Set by
+    /// `sendEvent`, cleared the moment no button is down.
+    private var pressBeganHere = false
+    /// The drag pasteboard's change count when that press began, so that the press turning
+    /// into a drag session — which writes it — can be told from one that is still a press.
+    private var pressDragCount = 0
+    /// Follows a press that began here while it moves, see `watchPress`.
+    private var pressWatch: Timer?
+    /// A click the body took in place of what it landed on (`clickGoesToBody`): the rest of
+    /// it, up to its mouse-up, is not dispatched either.
+    private var swallowingClick = false
 
     /// The panel identifier a screen's island answers to. One place, so everything that
     /// speaks about a display's island — a full-screen check, a hover — spells it the same.
@@ -166,6 +177,7 @@ final class NotchPanel: NSPanel {
     deinit {
         orderObservers.forEach { $0.center.removeObserver($0.token) }
         pointerMonitors.forEach { NSEvent.removeMonitor($0) }
+        pressWatch?.invalidate()
     }
 
     // MARK: - Letting the mouse through
@@ -181,12 +193,60 @@ final class NotchPanel: NSPanel {
     /// monitor only hears the clicks other apps receive. So the window is transparent to the
     /// mouse whenever the pointer is off the island, and solid the moment it arrives.
     ///
-    /// `engaged` keeps it solid regardless: a slider being dragged past the island's edge, a
-    /// file being dragged over the shelf, the island's own button still held down. An event
-    /// stream that began on the island finishes on it.
-    static func passesThrough(onIsland: Bool, engaged: Bool, suppressed: Bool) -> Bool {
+    /// On the island it is solid whatever the button is doing — which is also what lets a
+    /// file dragged in from the Finder reach the shelf's well, since a window that ignores
+    /// the mouse is no drag destination either. Off it, what a held button means is `hold`:
+    /// a press that began on the island keeps the window, so a slider dragged past the edge
+    /// finishes on it; a press that began anywhere else, or one here that has become a drag
+    /// session carrying something out, leaves everything off the outline to the windows
+    /// under it. With no button down, `engaged` — a slider or the scrubber held, the island
+    /// pressed in — keeps it solid.
+    ///
+    /// Every held button used to count as a press that began here once the window was solid.
+    /// A file carried from the Desktop across the notch to a window near the top of the screen
+    /// turned the window solid as it passed and kept it so until the button came up, and the
+    /// canvas under the notch took the drop and did nothing with it; a file, a clipboard row or
+    /// a screenshot dragged out of the island could not be dropped under the canvas either.
+    static func passesThrough(onIsland: Bool, engaged: Bool, suppressed: Bool, hold: Hold = .buttonsUp) -> Bool {
         if suppressed { return true }
-        return !onIsland && !engaged
+        if onIsland { return false }
+        switch hold {
+        case .pressHere: return false
+        case .carryingOut, .fromElsewhere: return true
+        case .buttonsUp: return !engaged
+        }
+    }
+
+    /// What a mouse button held down right now means to the window.
+    enum Hold: Equatable {
+        /// No button is down.
+        case buttonsUp
+        /// Pressed on the island and still down: a click, a slider run past the edge.
+        case pressHere
+        /// Pressed on the island, and what it pressed has become a drag session: a file off
+        /// the shelf, a clipboard row, a screenshot, on their way somewhere else.
+        case carryingOut
+        /// Pressed somewhere else — a file off the Desktop, a selection, a window being
+        /// moved — and passing over.
+        case fromElsewhere
+    }
+
+    static func hold(buttonsDown: Bool, pressBeganHere: Bool, dragBegan: Bool) -> Hold {
+        guard buttonsDown else { return .buttonsUp }
+        guard pressBeganHere else { return .fromElsewhere }
+        return dragBegan ? .carryingOut : .pressHere
+    }
+
+    /// Whether the pointer being on the island, or off it, is news for the centre. Only a
+    /// change is: `setHovering` re-arms its timer on every call. A departure is always told;
+    /// an arrival only when the pointer moved there (not when the island widened under it,
+    /// see `updatePassThrough`), and never under a press from elsewhere — a file carried across
+    /// the pill opened the peek a quarter of a second later, and the peek is no place to be
+    /// carrying a file through.
+    static func reportsHover(onIsland: Bool, wasOnIsland: Bool, pointerMoved: Bool, hold: Hold) -> Bool {
+        guard onIsland != wasOnIsland else { return false }
+        guard onIsland else { return true }
+        return pointerMoved && hold != .fromElsewhere
     }
 
     /// A ring past the island's own hit rect that still counts as on it, so the pointer's
@@ -230,10 +290,13 @@ final class NotchPanel: NSPanel {
         let center = ActivityCenter.shared
         let pointer = NSEvent.mouseLocation
         let buttons = NSEvent.pressedMouseButtons
-        // A press whose release went elsewhere — to the drag session a thumbnail started, to
-        // another window — would have kept the window solid for good, and the pill at its
-        // pressed scale. No button is down, so nothing is pressed.
-        if buttons == 0, center.pressedPanel == panelID { center.setPressed(false, panel: panelID) }
+        if buttons == 0 {
+            // A press whose release went elsewhere — to the drag session a thumbnail started,
+            // to another window — would have kept the window solid for good, and the pill at
+            // its pressed scale. No button is down, so nothing is pressed.
+            if center.pressedPanel == panelID { center.setPressed(false, panel: panelID) }
+            endPress()
+        }
         // The body only: a pointer resting on the bubble is not a hover (see
         // `NotchHostingView.outline`), though a click on it is a click.
         let onIsland = islandContains(screenPoint: pointer, includingBubble: false)
@@ -242,11 +305,17 @@ final class NotchPanel: NSPanel {
         // off the island still reach the window. On the way in it would have been a strip
         // of the menu bar beside the notch, and of the window under it, that swallowed a click.
         let leaving = pointerOnIsland && islandContains(screenPoint: pointer, margin: Self.passThroughMargin)
-        // A button held down while the window is solid is a press or a drag that began here.
-        let holding = buttons != 0 && !ignoresMouseEvents
-        let engaged = holding || center.controlDragging || center.dragPanel == panelID || center.pressedPanel == panelID
+        // Whose the held button is was asked of the window's solidity: a button down while
+        // the window took the mouse was taken for a press that began here, and every drag
+        // that crossed the island became one. It is asked of the press itself now.
+        let down = buttons != 0
+        let hold = Self.hold(buttonsDown: down, pressBeganHere: pressBeganHere,
+                             dragBegan: down && pressBeganHere && pressBecameDrag)
+        // A file over the shelf is not here any longer: the outline is solid under it, and
+        // the canvas round the well stays the windows' below.
+        let engaged = center.controlDragging || center.pressedPanel == panelID
         let pass = Self.passesThrough(onIsland: onIslandOrBubble || leaving, engaged: engaged,
-                                      suppressed: center.isSuppressed(panel: panelID))
+                                      suppressed: center.isSuppressed(panel: panelID), hold: hold)
         if ignoresMouseEvents != pass {
             ignoresMouseEvents = pass
             IslandLog.panel.debug("panel \(self.panelID, privacy: .public) \(pass ? "lets the mouse through" : "takes the mouse", privacy: .public)")
@@ -254,9 +323,49 @@ final class NotchPanel: NSPanel {
         // The view's own hover tracking rides on the events the window receives, and the
         // window stops receiving them the moment it goes transparent — so the arrival and
         // the departure are told to the centre from here as well, once each.
-        guard onIsland != pointerOnIsland, pointerMoved || !onIsland else { return }
+        guard Self.reportsHover(onIsland: onIsland, wasOnIsland: pointerOnIsland, pointerMoved: pointerMoved,
+                                hold: hold) else { return }
         pointerOnIsland = onIsland
         center.setHovering(onIsland, panel: panelID)
+    }
+
+    /// Whether the press that began here has become a drag session since: every session
+    /// writes the drag pasteboard as it starts, and a press on a slider writes nothing.
+    private var pressBecameDrag: Bool {
+        NSPasteboard(name: .drag).changeCount != pressDragCount
+    }
+
+    /// A button went down on the island.
+    private func beginPress() {
+        pressBeganHere = true
+        pressDragCount = NSPasteboard(name: .drag).changeCount
+    }
+
+    /// No button is down any longer, wherever it was let go.
+    private func endPress() {
+        pressBeganHere = false
+        pressWatch?.invalidate()
+        pressWatch = nil
+    }
+
+    /// How often a moving press is looked at, see `watchPress`.
+    static let pressWatchInterval: TimeInterval = 1.0 / 30
+
+    /// Follows a press that began here, once it moves, for as long as a button is down.
+    ///
+    /// The monitors are enough for a slider. They are not for what becomes a drag session: a
+    /// session runs a loop of its own, and neither monitor hears a move from it — the local one
+    /// sees only what `sendEvent` dispatches, the global one never this app's own events. So
+    /// the window stayed as the drag found it, solid across the whole canvas, over the window
+    /// the file was being carried to. On the run loop's common modes, so the session's
+    /// tracking loop does not hold it up; `updatePassThrough` ends it with the press.
+    private func watchPress() {
+        guard pressWatch == nil else { return }
+        let timer = Timer(timeInterval: Self.pressWatchInterval, repeats: true) { [weak self] _ in
+            self?.updatePassThrough(pointerMoved: false)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pressWatch = timer
     }
 
     /// A click anywhere on a panel that is only under the pointer pins it, see
@@ -267,12 +376,73 @@ final class NotchPanel: NSPanel {
     /// peek close under the menu, and typing into Notes from a peek typed into the app
     /// behind. Every click is seen here first. Pinning ahead of the dispatch also lets
     /// AppKit make the panel key on that same click, which is what the editor needs.
+    ///
+    /// A click just after the island grew goes to the body instead of to what it landed on
+    /// (`clickGoesToBody`), and the rest of that click — its drags and its mouse-up — goes
+    /// nowhere, so nothing is handed the end of a click whose start it never had.
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown || event.type == .rightMouseDown,
-           islandContains(screenPoint: NSEvent.mouseLocation) {
-            ActivityCenter.shared.pinPeek(panel: panelID)
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            // A new click: whatever became of the last one's mouse-up, it has been.
+            swallowingClick = false
+            guard islandContains(screenPoint: NSEvent.mouseLocation) else { break }
+            beginPress()
+            guard event.type != .otherMouseDown else { break }
+            let center = ActivityCenter.shared
+            if event.type == .leftMouseDown, center.currentView(on: panelID) != nil {
+                let sinceGrew = center.sinceGrew(on: panelID)
+                if Self.clickGoesToBody(sinceGrew: sinceGrew, clickCount: event.clickCount,
+                                        sinceOpened: Date().timeIntervalSince(center.openedAt)) {
+                    IslandLog.panel.notice("panel \(self.panelID, privacy: .public) gives a click \(sinceGrew, privacy: .public)s after growing to the body")
+                    center.pinPeek(panel: panelID)
+                    center.tap(panel: panelID)
+                    swallowingClick = true
+                    return
+                }
+            }
+            center.pinPeek(panel: panelID)
+        case .leftMouseDragged:
+            if swallowingClick { return }
+            // It may be about to become a drag session, which the monitors cannot follow.
+            if pressBeganHere { watchPress() }
+        case .leftMouseUp:
+            if swallowingClick {
+                swallowingClick = false
+                return
+            }
+        default:
+            break
         }
         super.sendEvent(event)
+    }
+
+    /// How soon after the island grows a click is still taken for one aimed at what was there
+    /// before, see `clickGoesToBody`. About as long as it takes to see something move and stop
+    /// a hand already on its way, and not stretched with the Motion pane: what the click lands
+    /// on is where the slots will be, the moment the island starts to grow.
+    static let growthGuard: TimeInterval = 0.3
+
+    /// Whether a left click on a panel that is showing goes to the body — pinning the peek, as
+    /// a click on it does, and asking for the keyboard — rather than to what is under it.
+    ///
+    /// It does within `growthGuard` of the island growing, and for the second click of a double
+    /// click whose first opened the panel from the pill. Either way the hand was aiming at the
+    /// pill. The panel's band takes clicks at its final place the moment it starts to grow, and
+    /// the Home sections' slots begin ten points past the notch, exactly where a timer's digits
+    /// and a track's bars were: a double click on the pill, or a click just after the peek grew
+    /// under a pointer that had only just arrived, landed on Home or Music instead of the
+    /// timer's card, and took the keyboard with it.
+    ///
+    /// A double click's first click opened the panel when the island has grown no earlier than
+    /// the open (`sinceGrew <= sinceOpened`): a click that only pinned a peek already showing
+    /// grew nothing, and the second click of a double click on a shelf file still opens it.
+    /// A clock that has gone backwards since is no growth.
+    static func clickGoesToBody(sinceGrew: TimeInterval, clickCount: Int, sinceOpened: TimeInterval,
+                                doubleClickInterval: TimeInterval = NSEvent.doubleClickInterval) -> Bool {
+        guard sinceGrew >= 0 else { return false }
+        if sinceGrew <= growthGuard { return true }
+        guard clickCount >= 2, sinceOpened >= 0, sinceOpened <= doubleClickInterval else { return false }
+        return sinceGrew <= sinceOpened
     }
 
     /// Above the menu bar, above other floating panels, above anything an ordinary app can
@@ -471,21 +641,49 @@ final class NotchPanel: NSPanel {
 
     /// Hands key status back to the app in front. A window that stays on screen has one way to
     /// stop being key: out and straight back in, within the same pass, so nothing is seen to
-    /// move. It waits for the closing animation, so the window is never cycled mid-move.
+    /// move. It waits for the closing animation, so the window is never cycled mid-move —
+    /// except after a close from the keyboard (`releasesKeyAtOnce`).
     private func scheduleKeyRelease() {
-        guard isKeyWindow, keyReleaseWork == nil else { return }
+        guard isKeyWindow else { return }
+        guard !Self.releasesKeyAtOnce(reason: ActivityCenter.shared.closeReason) else {
+            keyReleaseWork?.cancel()
+            keyReleaseWork = nil
+            releaseKey()
+            return
+        }
+        guard keyReleaseWork == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.keyReleaseWork = nil
-            guard self.isKeyWindow, !ActivityCenter.shared.wantsPanelKeyboard else { return }
-            self.orderOut(nil)
-            self.orderFrontRegardless()
+            self.releaseKey()
         }
         keyReleaseWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settled(Self.keyReleaseDelay), execute: work)
     }
 
+    private func releaseKey() {
+        guard isKeyWindow, !ActivityCenter.shared.wantsPanelKeyboard else { return }
+        orderOut(nil)
+        orderFrontRegardless()
+    }
+
     static let keyReleaseDelay: TimeInterval = 0.35
+
+    /// The closes that come from the keyboard: Escape, and the shortcut pressed again. The
+    /// strings are the reasons `HotKeyService` and `ActivityCenter.toggle` give `collapse`.
+    static let keyboardCloses: Set<String> = ["escape", "shortcut"]
+
+    /// Whether a close hands the keyboard back at once rather than after the closing spring.
+    ///
+    /// Only a close from the keyboard. A click has already moved key status wherever it
+    /// landed, and the wait is there so the window is not cycled mid-move. But nothing moves
+    /// key status after an Escape: for the third of a second the wait took — two thirds with
+    /// the Motion pane at twice the length — the letters typed straight after went to an
+    /// island that had nothing left to type them into, and were lost.
+    static func releasesKeyAtOnce(reason: String?) -> Bool {
+        guard let reason else { return false }
+        return keyboardCloses.contains(reason)
+    }
 
     /// A delay that waits for a closing spring, stretched with the Motion pane's duration.
     /// The delays are set for the shipping springs; turned up to twice the length, the open

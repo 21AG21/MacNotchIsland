@@ -87,25 +87,45 @@ final class FullscreenMonitor {
         guard center.fullscreenPanels != covered else { return }
         let newlyCovered = covered.subtracting(center.fullscreenPanels)
         center.fullscreenPanels = covered
-        if Self.forgetsInteraction(newlyCovered: newlyCovered, hover: center.hoverPanel, drag: center.dragPanel,
-                                   isOpen: center.isOpen, openPanel: center.openPanel,
-                                   allCovered: ActivityCenter.allHidden(live: center.livePanels, covered: covered)) {
-            center.clearInteraction()
+        switch Self.forgetting(newlyCovered: newlyCovered, hover: center.hoverPanel, drag: center.dragPanel,
+                               isOpen: center.isOpen, openPanel: center.openPanel,
+                               allCovered: ActivityCenter.allHidden(live: center.livePanels, covered: covered)) {
+        case .nothing: break
+        case .forgetPointer: center.forgetPointer(on: newlyCovered)
+        case .closeAll: center.clearInteraction(on: newlyCovered)
         }
     }
 
-    /// Whether a display going full screen takes the pointer's work with it: it does when
-    /// the pointer, a drag or the open panel was on that display, or the panel is open on
-    /// every display and every one of them is now covered. An island on a display the film
-    /// is nowhere near keeps its panel.
-    static func forgetsInteraction(newlyCovered: Set<String>, hover: String?, drag: String?,
-                                   isOpen: Bool, openPanel: String?, allCovered: Bool) -> Bool {
-        guard !newlyCovered.isEmpty else { return false }
-        if let hover, newlyCovered.contains(hover) { return true }
-        if let drag, newlyCovered.contains(drag) { return true }
-        guard isOpen else { return false }
-        guard let openPanel else { return allCovered }
-        return newlyCovered.contains(openPanel)
+    /// What a display going full screen takes with it, see `forgetting`.
+    enum Forgetting: Equatable {
+        /// Nothing was happening on the islands just covered.
+        case nothing
+        /// The pointer, a drag or a press was on one of them: that is forgotten there, and
+        /// every other island keeps its own, and the panel stays.
+        case forgetPointer
+        /// The panel goes: it was pinned on an island just covered, or open on every island
+        /// and every one is covered now. The pointer is forgotten on those just covered.
+        case closeAll
+    }
+
+    /// What a display going full screen takes with it. An island on a display the film is
+    /// nowhere near keeps its panel, its hover and its drag: a yes or no used to forget the
+    /// pointer on every island and close the panel with it, so the pointer resting on the
+    /// external display's island as a film went full screen there closed the panel pinned
+    /// on the MacBook.
+    static func forgetting(newlyCovered: Set<String>, hover: String?, drag: String?,
+                           isOpen: Bool, openPanel: String?, allCovered: Bool) -> Forgetting {
+        guard !newlyCovered.isEmpty else { return .nothing }
+        if isOpen {
+            if let openPanel {
+                if newlyCovered.contains(openPanel) { return .closeAll }
+            } else if allCovered {
+                return .closeAll
+            }
+        }
+        if let hover, newlyCovered.contains(hover) { return .forgetPointer }
+        if let drag, newlyCovered.contains(drag) { return .forgetPointer }
+        return .nothing
     }
 
     /// One display as the window list sees it: the island it carries, its frame in

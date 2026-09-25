@@ -39,6 +39,53 @@ final class SpacesAndDisplaysTests: XCTestCase {
 
     func testAHiddenIslandTakesNothing() {
         XCTAssertTrue(NotchPanel.passesThrough(onIsland: true, engaged: true, suppressed: true))
+        XCTAssertTrue(NotchPanel.passesThrough(onIsland: true, engaged: false, suppressed: true, hold: .pressHere))
+    }
+
+    func testWhoseTheHeldButtonIsDependsOnWhereItWentDown() {
+        XCTAssertEqual(NotchPanel.hold(buttonsDown: false, pressBeganHere: true, dragBegan: true), .buttonsUp)
+        XCTAssertEqual(NotchPanel.hold(buttonsDown: true, pressBeganHere: true, dragBegan: false), .pressHere)
+        XCTAssertEqual(NotchPanel.hold(buttonsDown: true, pressBeganHere: true, dragBegan: true), .carryingOut)
+        XCTAssertEqual(NotchPanel.hold(buttonsDown: true, pressBeganHere: false, dragBegan: false), .fromElsewhere,
+                       "a button held while the window happens to be solid is not a press that began here")
+        XCTAssertEqual(NotchPanel.hold(buttonsDown: true, pressBeganHere: false, dragBegan: true), .fromElsewhere,
+                       "the Finder's drag writes the drag pasteboard too, and is still the Finder's")
+    }
+
+    func testAFileCarriedAcrossTheIslandFromElsewhereIsLetThroughOffTheOutline() {
+        // From the Desktop, across the notch, to a window near the top of the screen: the
+        // canvas under the notch took the drop and did nothing with it.
+        XCTAssertTrue(NotchPanel.passesThrough(onIsland: false, engaged: false, suppressed: false, hold: .fromElsewhere))
+        // A stale slider flag does not lock the window against somebody else's drag either.
+        XCTAssertTrue(NotchPanel.passesThrough(onIsland: false, engaged: true, suppressed: false, hold: .fromElsewhere))
+        XCTAssertFalse(NotchPanel.passesThrough(onIsland: true, engaged: false, suppressed: false, hold: .fromElsewhere),
+                       "over the outline the window is solid, or the shelf's well is no drop destination")
+    }
+
+    func testSomethingDraggedOutOfTheIslandIsLetThroughOffTheOutline() {
+        // A shelf file, a clipboard row, a screenshot: the shelf's drag sets the slider flag
+        // to keep the panel, and that must not keep the canvas from the window it is going to.
+        XCTAssertTrue(NotchPanel.passesThrough(onIsland: false, engaged: true, suppressed: false, hold: .carryingOut))
+        XCTAssertFalse(NotchPanel.passesThrough(onIsland: true, engaged: true, suppressed: false, hold: .carryingOut),
+                       "brought back over the island, it can be dropped there")
+    }
+
+    func testAPressThatBeganOnTheIslandKeepsTheWindowOffIt() {
+        // A slider run past the edge, the button still down on nothing.
+        XCTAssertFalse(NotchPanel.passesThrough(onIsland: false, engaged: false, suppressed: false, hold: .pressHere))
+    }
+
+    func testADragFromElsewhereOpensNoPeek() {
+        XCTAssertFalse(NotchPanel.reportsHover(onIsland: true, wasOnIsland: false, pointerMoved: true, hold: .fromElsewhere),
+                       "a file carried across the pill opened the peek a quarter of a second later")
+        XCTAssertTrue(NotchPanel.reportsHover(onIsland: true, wasOnIsland: false, pointerMoved: true, hold: .buttonsUp))
+        XCTAssertTrue(NotchPanel.reportsHover(onIsland: false, wasOnIsland: true, pointerMoved: true, hold: .fromElsewhere),
+                      "leaving is always told")
+        XCTAssertFalse(NotchPanel.reportsHover(onIsland: true, wasOnIsland: false, pointerMoved: false, hold: .buttonsUp),
+                       "an island that widened under a pointer that did not move is not being pointed at")
+        XCTAssertTrue(NotchPanel.reportsHover(onIsland: false, wasOnIsland: true, pointerMoved: false, hold: .pressHere))
+        XCTAssertFalse(NotchPanel.reportsHover(onIsland: true, wasOnIsland: true, pointerMoved: true, hold: .buttonsUp),
+                       "only a change is news")
     }
 
     // MARK: - Which island shows the open view
@@ -323,13 +370,51 @@ final class SpacesAndDisplaysTests: XCTestCase {
 
     func testADisplayGoingFullScreenTakesOnlyItsOwnInteraction() {
         // The film is on screen-2; the panel is open on screen-1.
-        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-1", allCovered: false))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-2", allCovered: false))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: "screen-2", drag: nil, isOpen: false, openPanel: nil, allCovered: false))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: true),
-                      "open on every display, it goes when every one of them is covered")
-        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: [], hover: "screen-2", drag: nil, isOpen: true, openPanel: nil, allCovered: true),
-                       "nothing new covered, nothing to forget")
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-1", allCovered: false),
+                       .nothing)
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: "screen-2", allCovered: false),
+                       .closeAll)
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: "screen-2", drag: nil, isOpen: false, openPanel: nil, allCovered: false),
+                       .forgetPointer)
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: nil, drag: "screen-2", isOpen: false, openPanel: nil, allCovered: false),
+                       .forgetPointer)
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: true),
+                       .closeAll, "open on every display, it goes when every one of them is covered")
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: [], hover: "screen-2", drag: nil, isOpen: true, openPanel: nil, allCovered: true),
+                       .nothing, "nothing new covered, nothing to forget")
+    }
+
+    func testThePointerOnTheCoveredDisplayLeavesThePanelPinnedOnTheOther() {
+        // The pointer was resting on the external display's island as its film went full
+        // screen; the panel pinned on the MacBook was closed with it.
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: "screen-2", drag: nil, isOpen: true, openPanel: "screen-1", allCovered: false),
+                       .forgetPointer)
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: nil, drag: "screen-2", isOpen: true, openPanel: "screen-1", allCovered: false),
+                       .forgetPointer, "a drag over there too")
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["screen-2"], hover: "screen-2", drag: nil, isOpen: true, openPanel: nil, allCovered: false),
+                       .forgetPointer, "open everywhere, it stays on the display that is still showing")
+    }
+
+    func testForgettingOneIslandsPointerLeavesTheOthers() {
+        center.tap(panel: "screen-1")
+        center.setHovering(true, panel: "screen-2")
+        let exp = expectation(description: "hovering")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+        XCTAssertEqual(center.hoverPanel, "screen-2")
+        center.setDragTargeted(true, panel: "screen-1")
+
+        center.forgetPointer(on: ["screen-2"])
+        XCTAssertNil(center.hoverPanel, "the pointer on the covered display is forgotten")
+        XCTAssertEqual(center.dragPanel, "screen-1", "the drag over the other display is not")
+        XCTAssertTrue(center.openHere("screen-1"), "and the panel pinned there stays")
+
+        center.forgetPointer(on: ["screen-1"])
+        XCTAssertNil(center.dragPanel)
+        XCTAssertTrue(center.isOpen, "forgetting the pointer closes nothing")
+        center.clearInteraction(on: ["screen-1"])
+        XCTAssertFalse(center.isOpen, "closing is the other decision")
+        XCTAssertNil(center.openPanel)
     }
 }
 
@@ -475,6 +560,98 @@ final class PointerAndKeyboardTests: XCTestCase {
         XCTAssertEqual(IslandPresentation.panel(.home(tab: "music")).panelView, .home(tab: "music"))
         XCTAssertNil(IslandPresentation.idle.panelView)
     }
+
+    // MARK: - A click just after the island grew
+
+    func testAClickJustAfterTheIslandGrewGoesToTheBody() {
+        // The peek grew a quarter of a second after the pointer arrived, and the click aimed at
+        // the timer's digits landed on the slots that start ten points past the notch.
+        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: 0.1, clickCount: 1, sinceOpened: 60, doubleClickInterval: 0.5))
+        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: NotchPanel.growthGuard, clickCount: 1, sinceOpened: 60,
+                                                 doubleClickInterval: 0.5))
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: NotchPanel.growthGuard + 0.05, clickCount: 1, sinceOpened: 60,
+                                                  doubleClickInterval: 0.5), "a click on a panel that has settled is its own")
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: .infinity, clickCount: 1, sinceOpened: 60, doubleClickInterval: 0.5),
+                       "another display's island grew")
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: -1, clickCount: 1, sinceOpened: 60, doubleClickInterval: 0.5),
+                       "a clock gone backwards is no growth")
+    }
+
+    func testTheSecondClickOfADoubleClickThatOpenedThePanelGoesToTheBody() {
+        // The first click opened the pill's panel on its mouse-up, which is when it grew; the
+        // second landed a moment later on the band's slots, where the pill's digits had been.
+        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: 0.4, clickCount: 2, sinceOpened: 0.4, doubleClickInterval: 0.5))
+        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: 1.2, clickCount: 2, sinceOpened: 1.25, doubleClickInterval: 2),
+                      "however slow the double click is set to be")
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: 0.6, clickCount: 2, sinceOpened: 0.6, doubleClickInterval: 0.5),
+                       "past the double-click interval it is a click of its own")
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: 0.4, clickCount: 1, sinceOpened: 0.4, doubleClickInterval: 0.5))
+    }
+
+    func testADoubleClickOnAPeekAlreadyShowingKeepsItsSecondClick() {
+        // Its first click only pinned a peek that had been up for a while — nothing grew — so
+        // the second is the double click a shelf file opens on.
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: 3, clickCount: 2, sinceOpened: 0.2, doubleClickInterval: 0.5))
+    }
+
+    func testAPeekArrivingIsGrowthAndPinningItIsNot() {
+        center.setHovering(true, panel: "screen-1")
+        settle(0.1)
+        guard case .panel = center.presentation(for: "screen-1") else { return XCTFail("a peek") }
+        XCTAssertLessThan(center.sinceGrew(on: "screen-1"), 1)
+        XCTAssertEqual(center.sinceGrew(on: "screen-2"), .infinity, "the other display's island grew nothing")
+        let grew = center.grewAt
+        center.pinPeek(panel: "screen-1")
+        XCTAssertTrue(center.isOpen)
+        XCTAssertEqual(center.grewAt, grew, "the peek was already the panel; pinning it moves nothing")
+        XCTAssertGreaterThan(center.sinceGrew(on: "screen-1", now: center.openedAt), 0,
+                             "so the second click of a double click that pinned it is its own")
+    }
+
+    func testAClickThatOpensThePillGrowsIt() {
+        center.upsert(IslandActivity(id: "t", kind: .timer, content: .custom(CustomActivity(title: "T")), priority: 70))
+        center.tap(panel: "screen-1")
+        XCTAssertEqual(center.openView, .activity(id: "t"))
+        XCTAssertGreaterThanOrEqual(center.grewAt, center.openedAt, "grown at the open, which the double-click rule reads")
+        XCTAssertEqual(center.grewOn, "screen-1")
+        let grew = center.grewAt
+        center.cycleView(forward: true)
+        XCTAssertEqual(center.grewAt, grew, "a step changes what the panel shows, not its size")
+    }
+
+    func testTheIslandDoesNotGrowUnderAPointerThatOpensNothing() {
+        Preferences.shared.hoverToExpand = false
+        center.upsert(IslandActivity(id: "t", kind: .timer, content: .custom(CustomActivity(title: "T")), priority: 70))
+        center.setHovering(true, panel: "screen-1")
+        settle(0.1)
+        XCTAssertEqual(center.hoverPanel, "screen-1")
+        XCTAssertGreaterThan(center.sinceGrew(on: "screen-1"), NotchPanel.growthGuard)
+        Preferences.shared.hoverToExpand = true
+    }
+
+    // MARK: - The keyboard after a close
+
+    func testOnlyAKeyboardCloseHandsTheKeyboardBackAtOnce() {
+        XCTAssertTrue(NotchPanel.releasesKeyAtOnce(reason: "escape"))
+        XCTAssertTrue(NotchPanel.releasesKeyAtOnce(reason: "shortcut"))
+        XCTAssertFalse(NotchPanel.releasesKeyAtOnce(reason: "click outside"), "the click has already moved key status")
+        XCTAssertFalse(NotchPanel.releasesKeyAtOnce(reason: "close button"))
+        XCTAssertFalse(NotchPanel.releasesKeyAtOnce(reason: nil), "a close that did not go through collapse waits")
+    }
+
+    func testTheCentreRemembersHowThePanelLastClosed() {
+        center.toggle()
+        XCTAssertTrue(center.isOpen)
+        XCTAssertNil(center.closeReason)
+        center.toggle()
+        XCTAssertFalse(center.isOpen)
+        XCTAssertEqual(center.closeReason, "shortcut", "the reason the shortcut gives is one the panel knows")
+        XCTAssertTrue(NotchPanel.releasesKeyAtOnce(reason: center.closeReason))
+        center.toggle()
+        XCTAssertNil(center.closeReason, "forgotten when something opens again")
+        center.collapse(reason: "click outside")
+        XCTAssertFalse(NotchPanel.releasesKeyAtOnce(reason: center.closeReason))
+    }
 }
 
 /// The rules an island on each of two displays lives by, and the pointer's edge cases.
@@ -574,8 +751,10 @@ final class TwoDisplayTests: XCTestCase {
     }
 
     func testADisplayGoingFullScreenClosesAnEverywherePanelOnlyWhenEveryIslandIsCovered() {
-        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: ["b"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: false))
-        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["b"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: true))
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["b"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: false),
+                       .nothing)
+        XCTAssertEqual(FullscreenMonitor.forgetting(newlyCovered: ["b"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: true),
+                       .closeAll)
     }
 
     func testTheOutlineCanLeaveTheBubbleOut() {

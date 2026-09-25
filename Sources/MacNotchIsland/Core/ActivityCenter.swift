@@ -144,6 +144,17 @@ final class ActivityCenter: ObservableObject {
     /// outside right after letting go of the volume slider was taken for that tail, and
     /// ignored.
     private(set) var openedAt = Date.distantPast
+    /// When an island last grew under the pointer, and which one — nil for every island. A
+    /// peek arriving and an open from the pill or the bare notch grow it; pinning a peek that
+    /// is already showing does not, since nothing moves. The panel reads it to give a click
+    /// that lands in the moment after to the body rather than to whatever grew under it
+    /// (`NotchPanel.clickGoesToBody`).
+    private(set) var grewAt = Date.distantPast
+    private(set) var grewOn: String? = nil
+    /// Why the panel last closed, as `collapse(reason:)` was told; nil once something opens
+    /// again, and for a close that did not go through `collapse`. The panel hands the keyboard
+    /// back at once after a close from the keyboard (`NotchPanel.releasesKeyAtOnce`).
+    private(set) var closeReason: String? = nil
     private var hoverWork: DispatchWorkItem?
     /// The pending "the drag has left" — see `setDragTargeted`.
     private var dragExitWork: DispatchWorkItem?
@@ -192,6 +203,9 @@ final class ActivityCenter: ObservableObject {
         peekSuppressed = nil
         keyboardInvited = false
         openedAt = .distantPast
+        grewAt = .distantPast
+        grewOn = nil
+        closeReason = nil
         findQuery = nil
         findIndex = 0
         forcedExpandedID = nil
@@ -280,6 +294,49 @@ final class ActivityCenter: ObservableObject {
         if pressedPanel != nil { pressedPanel = nil }
         if openView == nil, peekView != nil { peekView = nil }
         navigationDirection = 0
+    }
+
+    /// The same, for some islands only: a full-screen app has just covered their displays.
+    /// The pointer resting there, a drag over them, a press or a slider held on them are gone
+    /// with the island; an island on a display the film is nowhere near keeps its hover, its
+    /// peek and the panel pinned on it. `clearInteraction()` forgot every island's and closed
+    /// the panel, so a film going full screen on the external display, with the pointer over
+    /// there, closed the panel pinned on the MacBook.
+    func forgetPointer(on panels: Set<String>) {
+        guard !panels.isEmpty else { return }
+        if let pending = pendingHover, panels.contains(pending.panel) {
+            hoverWork?.cancel()
+            hoverWork = nil
+            pendingHover = nil
+        }
+        if let suppressed = peekSuppressed, panels.contains(suppressed) { peekSuppressed = nil }
+        // A slider held there, or run off its end there, goes with the island: the flag has
+        // no island of its own, and the pointer holding it was on this one.
+        let covered: (String?) -> Bool = { panel in panel.map { panels.contains($0) } ?? false }
+        if covered(deferredHoverExit) || covered(hoverPanel) { controlDragging = false }
+        if covered(deferredHoverExit) { deferredHoverExit = nil }
+        if let hover = hoverPanel, panels.contains(hover) {
+            hoverPanel = nil
+            // The peek was that island's: `open` keeps it only for a peek on an island other
+            // than the one the panel is pinned on.
+            if peekView != nil { peekView = nil }
+            navigationDirection = 0
+        }
+        if let drag = dragPanel, panels.contains(drag) {
+            dragExitWork?.cancel()
+            dragExitWork = nil
+            dragPanel = nil
+        }
+        if let pressed = pressedPanel, panels.contains(pressed) { pressedPanel = nil }
+    }
+
+    /// `panels` were covered, and the panel goes with them: it was pinned on one of them, or
+    /// open on every island and every one is covered now. Only their pointer is forgotten.
+    func clearInteraction(on panels: Set<String>) {
+        forgetPointer(on: panels)
+        if openView != nil { IslandLog.island.notice("closing: island hidden") }
+        openView = nil
+        openPanel = nil
     }
 
     /// True while something the user opened is on screen.
@@ -787,6 +844,9 @@ final class ActivityCenter: ObservableObject {
                 guard self.hoverPanel != panel, self.peekSuppressed != panel else { return }
                 if self.peekView == nil, self.hoverPeeks { self.peekView = self.defaultPeek() }
                 self.hoverPanel = panel
+                // The pill has just become the panel under the pointer — unless a card held
+                // against the peek, or the pointer opens nothing, and nothing grew.
+                if self.peeks(on: panel) { self.noteGrowth(on: panel) }
             } else {
                 self.applyHoverExit(panel)
             }
@@ -994,9 +1054,13 @@ final class ActivityCenter: ObservableObject {
         // them until Escape.
         guard !isSuppressed(panel: island) else { return }
         if invitesKeyboard { keyboardInvited = true }
+        // A pill, a card or the bare notch becoming the panel grows the island; a peek being
+        // pinned, or a step, only changes what the panel already there is showing.
+        let grows = shownView(on: island) == nil
         guard openView != target else {
             // The same view, asked for from a second island: it shows on both.
             if openPanel != island { openPanel = nil }
+            if grows { noteGrowth(on: island) }
             return
         }
         // The peek this was, if it was one. A peek on another display's island is not this
@@ -1009,6 +1073,20 @@ final class ActivityCenter: ObservableObject {
             openPanel = island
             openView = target
         }
+        if grows { noteGrowth(on: island) }
+    }
+
+    /// `island` — every island, for nil — has just grown under whatever was pointing at it.
+    private func noteGrowth(on island: String?) {
+        grewAt = Date()
+        grewOn = island
+    }
+
+    /// How long ago `panel`'s island last grew (`grewAt`); for ever, if the last island to
+    /// grow was another display's.
+    func sinceGrew(on panel: String, now: Date = Date()) -> TimeInterval {
+        guard Self.shows(openPanel: grewOn, on: panel) else { return .infinity }
+        return now.timeIntervalSince(grewAt)
     }
 
     /// Shows `view` in the panel: pinned if the panel is pinned, under the pointer if it is
@@ -1395,10 +1473,12 @@ final class ActivityCenter: ObservableObject {
     }
 
     /// Closes whatever is open. `reason` goes to the log, so a panel that closed behind the
-    /// user's back can be explained from a report.
+    /// user's back can be explained from a report, and is kept (`closeReason`): a close from
+    /// the keyboard hands the keyboard straight back.
     func collapse(reason: String = "request") {
         homeWork?.cancel()
         navigationDirection = 0
+        closeReason = reason
         if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
@@ -1518,7 +1598,10 @@ final class ActivityCenter: ObservableObject {
     /// disarms both the moment it closes, so neither costs anything at rest.
     private func openStateChanged() {
         lastInteraction = Date()
-        if openView != nil { openedAt = Date() }
+        if openView != nil {
+            openedAt = Date()
+            closeReason = nil
+        }
         keyboardControlChanged()
         if openView != nil {
             watchForAnotherApp()
