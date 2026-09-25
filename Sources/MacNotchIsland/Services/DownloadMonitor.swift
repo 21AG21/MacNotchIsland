@@ -4,17 +4,41 @@ import Combine
 /// Turns in-progress browser downloads in ~/Downloads into Live Activities
 /// (Safari `.download` bundles report exact progress; Chrome `.crdownload` and Firefox
 /// `.part` files report the bytes received so far) and shows a "Download complete" alert.
+///
+/// None of the looking happens on the main thread. Downloads is the busiest folder on most
+/// Macs, and answering it meant listing the whole of it and asking the file system about every
+/// entry — at launch, on every event the folder raised, and once a second for as long as
+/// anything was downloading — all on the thread that draws the island, for something that is
+/// nearly always three names out of several hundred. The folder is watched and read on
+/// `queue`; entries are picked out by name before anything is asked of the disk; and the main
+/// thread is handed only what changed, to put up, take down or announce.
 final class DownloadMonitor {
     private static let baseInterval: TimeInterval = 1
 
+    /// What each browser leaves in the folder while a download is running. Lower case.
+    static let partialExtensions: Set<String> = ["download", "crdownload", "part"]
+
+    /// Where the watching and reading happen. The descriptor, the source and what is in
+    /// flight are touched on this queue and nowhere else, as `ScreenshotMonitor` keeps its own.
+    private let queue = DispatchQueue(label: "com.macnotchisland.downloads", qos: .utility)
+
+    // On `queue`.
     private var source: DispatchSourceFileSystemObject?
-    private var fd: Int32 = -1
-    private var timer: Timer?
+    private var watching = false
+    /// Which run of the monitor the queue is serving, handed back with everything it reports.
+    private var ticket = 0
     private var active: [String: DownloadState] = [:]
+
+    // On the main thread.
     private var running = false
+    /// Bumped on every start and stop, so a report from a run that has since ended is dropped.
+    private var generation = 0
+    /// The cards up now, by key: what `stop` takes down without asking the queue.
+    private var shown = Set<String>()
+    private var timer: Timer?
     private var energyCancellable: AnyCancellable?
 
-    private var downloads: URL {
+    private static var downloads: URL {
         FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
     }
@@ -22,21 +46,9 @@ final class DownloadMonitor {
     func start() {
         guard !running else { return }
         running = true
-        // Seed with whatever is already in flight so we don't announce stale partials as new.
-        active = scanPartials()
-        for (key, state) in active { publish(key: key, state: state) }
-        fd = open(downloads.path, O_EVTONLY)
-        if fd >= 0 {
-            let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-            src.setEventHandler { [weak self] in self?.scan() }
-            src.setCancelHandler { [weak self] in
-                if let fd = self?.fd, fd >= 0 { close(fd) }
-                self?.fd = -1
-            }
-            src.resume()
-            source = src
-        }
-        updateTimer()
+        generation += 1
+        let run = generation
+        queue.async { [weak self] in self?.beginWatching(run) }
         energyCancellable = EnergyPolicy.shared.objectWillChange
             .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.rescheduleTimer() }
@@ -45,18 +57,113 @@ final class DownloadMonitor {
     func stop() {
         guard running else { return }
         running = false
-        source?.cancel()
-        source = nil
+        generation += 1
         timer?.invalidate()
         timer = nil
         energyCancellable?.cancel()
         energyCancellable = nil
-        for key in active.keys { ActivityCenter.shared.end(id: "download-" + key) }
+        for key in shown { ActivityCenter.shared.end(id: "download-" + key) }
+        shown.removeAll()
+        queue.async { [weak self] in self?.endWatching() }
+    }
+
+    // MARK: - The queue
+
+    private func beginWatching(_ run: Int) {
+        guard !watching else { return }
+        watching = true
+        ticket = run
+        // Seed with whatever is already in flight so we don't announce stale partials as new.
+        active = Self.scanPartials(in: Self.downloads)
+        report(Report(changed: active, ended: [], finished: [], inFlight: !active.isEmpty))
+        let fd = open(Self.downloads.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: queue)
+        src.setEventHandler { [weak self] in self?.scan() }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        source = src
+    }
+
+    private func endWatching() {
+        guard watching else { return }
+        watching = false
+        source?.cancel()
+        source = nil
         active.removeAll()
     }
 
-    private func updateTimer() {
-        if active.isEmpty {
+    private func scan() {
+        guard watching else { return }
+        let folder = Self.downloads
+        let current = Self.scanPartials(in: folder)
+        var changed: [String: DownloadState] = [:]
+        for (key, state) in current where active[key] != state { changed[key] = state }
+        var ended: [String] = []
+        var finished: [(state: DownloadState, url: URL)] = []
+        for (key, old) in active where current[key] == nil {
+            ended.append(key)
+            let final = folder.appendingPathComponent(old.name)
+            // A partial file goes away for more reasons than finishing: a cancelled download
+            // takes it with it, and Chrome renames "Unconfirmed 123.crdownload" to the real
+            // name part of the way through. Only a file that is actually there is complete.
+            guard FileManager.default.fileExists(atPath: final.path) else { continue }
+            var done = old
+            done.isComplete = true
+            if let size = try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? Int64 { done.bytes = size }
+            finished.append((state: done, url: final))
+        }
+        active = current
+        report(Report(changed: changed, ended: ended, finished: finished, inFlight: !current.isEmpty))
+    }
+
+    /// What one look at the folder found, for the main thread to act on.
+    private struct Report {
+        var changed: [String: DownloadState]
+        var ended: [String]
+        var finished: [(state: DownloadState, url: URL)]
+        var inFlight: Bool
+    }
+
+    private func report(_ report: Report) {
+        let run = ticket
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.running, self.generation == run else { return }
+            self.apply(report)
+        }
+    }
+
+    // MARK: - The main thread
+
+    private func apply(_ report: Report) {
+        let folder = Self.downloads
+        for (key, state) in report.changed {
+            shown.insert(key)
+            var activity = IslandActivity(id: "download-" + key, kind: .download, content: .download(state), priority: 65)
+            activity.openAction = .url(folder)
+            ActivityCenter.shared.upsert(activity)
+        }
+        for key in report.ended {
+            shown.remove(key)
+            ActivityCenter.shared.end(id: "download-" + key)
+        }
+        for finished in report.finished {
+            var alert = IslandActivity(id: "download-done", kind: .download, content: .download(finished.state),
+                                       priority: 85, presentation: .expanded)
+            alert.openAction = .url(finished.url)
+            ActivityCenter.shared.showAlert(alert, duration: 4)
+            // The shelf's own switch first, as a screenshot's is: with the shelf off there is
+            // nowhere to see what was put on it.
+            let prefs = Preferences.shared
+            if prefs.shelfEnabled && prefs.addDownloadsToShelf { ShelfStore.shared.add([finished.url]) }
+        }
+        updateTimer(inFlight: report.inFlight)
+    }
+
+    /// The once-a-second look runs only while something is downloading: a partial file's
+    /// size grows without the folder saying so.
+    private func updateTimer(inFlight: Bool) {
+        if !inFlight {
             timer?.invalidate()
             timer = nil
         } else if timer == nil {
@@ -74,55 +181,34 @@ final class DownloadMonitor {
     private func scheduleTimer() {
         let interval = Self.baseInterval * EnergyPolicy.shared.pollingMultiplier
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.scan() }
-    }
-
-    private func scan() {
-        guard running else { return }
-        let current = scanPartials()
-
-        for (key, state) in current {
-            if active[key] != state { publish(key: key, state: state) }
+        let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.queue.async { [weak self] in self?.scan() }
         }
+        t.tolerance = interval * 0.2
+        timer = t
+    }
 
-        for (key, old) in active where current[key] == nil {
-            ActivityCenter.shared.end(id: "download-" + key)
-            let final = downloads.appendingPathComponent(old.name)
-            // A partial file goes away for more reasons than finishing: a cancelled download
-            // takes it with it, and Chrome renames "Unconfirmed 123.crdownload" to the real
-            // name part of the way through. Only a file that is actually there is complete.
-            guard FileManager.default.fileExists(atPath: final.path) else { continue }
-            var done = old
-            done.isComplete = true
-            if let size = try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? Int64 { done.bytes = size }
-            var alert = IslandActivity(id: "download-done", kind: .download, content: .download(done), priority: 85, presentation: .expanded)
-            alert.openAction = .url(final)
-            ActivityCenter.shared.showAlert(alert, duration: 4)
-            // The shelf's own switch first, as a screenshot's is: with the shelf off there is
-            // nowhere to see what was put on it.
-            let prefs = Preferences.shared
-            if prefs.shelfEnabled && prefs.addDownloadsToShelf { ShelfStore.shared.add([final]) }
+    // MARK: - Reading the folder
+
+    /// The names in a folder listing that are a download still running, in the order given:
+    /// by extension alone, and never a hidden file. Pure, and the gate every entry passes
+    /// before the disk is asked a single thing about it — the listing is names only, so the
+    /// hundreds of finished files beside the three that matter cost nothing but a look.
+    static func partials(in names: [String]) -> [String] {
+        names.filter { name in
+            guard !name.hasPrefix(".") else { return false }
+            return partialExtensions.contains((name as NSString).pathExtension.lowercased())
         }
-
-        active = current
-        updateTimer()
     }
 
-    private func publish(key: String, state: DownloadState) {
-        active[key] = state
-        var activity = IslandActivity(id: "download-" + key, kind: .download, content: .download(state), priority: 65)
-        activity.openAction = .url(downloads)
-        ActivityCenter.shared.upsert(activity)
-    }
-
-    private func scanPartials() -> [String: DownloadState] {
+    private static func scanPartials(in folder: URL) -> [String: DownloadState] {
         var found: [String: DownloadState] = [:]
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: [.skipsHiddenFiles]) else { return found }
-        for url in items {
-            let ext = url.pathExtension.lowercased()
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return found }
+        for name in partials(in: names) {
+            let url = folder.appendingPathComponent(name)
             let base = url.deletingPathExtension().lastPathComponent
-            switch ext {
+            switch url.pathExtension.lowercased() {
             case "download":
                 // Safari: a bundle with Info.plist tracking progress.
                 let plist = url.appendingPathComponent("Info.plist")
@@ -134,18 +220,20 @@ final class DownloadMonitor {
                     let t = (dict["DownloadEntryProgressTotalToLoad"] as? NSNumber)?.int64Value ?? 0
                     if t > 0 { total = t }
                 }
-                found[url.lastPathComponent] = DownloadState(name: base, bytes: bytes, total: total, app: "Safari")
+                found[name] = DownloadState(name: base, bytes: bytes, total: total, app: "Safari")
             case "crdownload":
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0
-                let name = base.hasPrefix("Unconfirmed ") ? "Download" : base
-                found[url.lastPathComponent] = DownloadState(name: name, bytes: size, total: nil, app: "Chrome")
+                let title = base.hasPrefix("Unconfirmed ") ? "Download" : base
+                found[name] = DownloadState(name: title, bytes: fileSize(url), total: nil, app: "Chrome")
             case "part":
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0
-                found[url.lastPathComponent] = DownloadState(name: base, bytes: size, total: nil, app: "Firefox")
+                found[name] = DownloadState(name: base, bytes: fileSize(url), total: nil, app: "Firefox")
             default:
                 continue
             }
         }
         return found
+    }
+
+    private static func fileSize(_ url: URL) -> Int64 {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0
     }
 }

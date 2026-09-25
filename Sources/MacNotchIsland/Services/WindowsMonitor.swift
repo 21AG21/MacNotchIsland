@@ -123,6 +123,12 @@ enum SnapZone: String, CaseIterable, Identifiable {
 ///
 /// Nothing runs unless the section is on screen: the list is refreshed and the pictures
 /// retaken on a timer that only exists while somebody is looking.
+///
+/// Nothing asks another app anything from the main thread. Accessibility waits on the app
+/// being asked, and an app that has stopped responding is asked for six seconds by default:
+/// clicking a hung app's tile — or its minus, or a zone — froze the whole island for that long.
+/// Every question now goes to `axQueue` with half a second to be answered, and only the list
+/// that comes back afterwards is published here.
 final class WindowsMonitor: ObservableObject {
     static let shared = WindowsMonitor()
 
@@ -136,6 +142,12 @@ final class WindowsMonitor: ObservableObject {
     private var timer: Timer?
     private var capturing = false
     private var thumbnails: [CGWindowID: NSImage] = [:]
+    /// Where each window was when its picture was last asked for. A window that has not moved
+    /// keeps the picture it has; see `recaptures`.
+    private var pictureFrames: [CGWindowID: CGRect] = [:]
+    /// Where the windows are raised, moved, put away and closed: serial, so two clicks act in
+    /// the order they were made, and never the main thread.
+    private let axQueue = DispatchQueue(label: "com.macnotchisland.windows.ax", qos: .userInitiated)
     private var energyCancellable: AnyCancellable?
     private var icons: [pid_t: NSImage] = [:]
 
@@ -150,6 +162,10 @@ final class WindowsMonitor: ObservableObject {
     static let maxCaptures = 8
     /// Pixel width every thumbnail is captured at; the tile draws it at half that.
     static let thumbnailWidth: CGFloat = 320
+    /// How long another app is given to answer one Accessibility question, here and everywhere
+    /// else the island asks one (the app sets it as every element's default at launch). Long
+    /// enough for a busy app; short enough that one that has hung costs a beat, not the island.
+    static let accessibilityTimeout: Float = 0.5
     /// Windows smaller than this are palettes, HUDs and tool strips, not windows to switch to.
     static let minimumSize = CGSize(width: 120, height: 80)
 
@@ -166,6 +182,9 @@ final class WindowsMonitor: ObservableObject {
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
+        // Pictures kept from the last time the section was open are of then. Every window is
+        // pictured afresh on the first beat, whether it has moved since or not.
+        pictureFrames.removeAll()
         refresh()
         scheduleTimer()
         energyCancellable = EnergyPolicy.shared.objectWillChange
@@ -235,9 +254,36 @@ final class WindowsMonitor: ObservableObject {
         let pids = Set(listed.map(\.pid))
         icons = icons.filter { pids.contains($0.key) }
         guard capturing else { return }
-        // Only what is on screen can be captured. A window put away keeps the picture it had
-        // when it went, which is also the picture of what comes back when it is clicked.
-        capture(Array(listed.filter { $0.away == nil }.prefix(Self.maxCaptures)).map(\.id))
+        let wanted = Self.recaptures(listed, previousFrames: pictureFrames, pictured: Set(thumbnails.keys))
+        // Remembered only once a pass has actually been asked for: a beat that finds the last
+        // one still running leaves the old frames, so a window that moved in the meantime is
+        // still new to the beat after.
+        guard wanted.isEmpty || capture(wanted) else { return }
+        var frames: [CGWindowID: CGRect] = [:]
+        for window in listed where window.away == nil { frames[window.id] = window.frame }
+        pictureFrames = frames
+    }
+
+    /// The windows to take a fresh picture of this beat, front to back.
+    ///
+    /// Only what is on screen can be captured, and only the first `limit` of those are
+    /// pictured at all. A window put away keeps the picture it had when it went, which is also
+    /// the picture of what comes back when it is clicked. Of the rest, the ones worth a capture
+    /// are the front window — the one being worked in, so the one whose contents change — any
+    /// window whose frame is not where it was last beat, and any that has no picture yet. Every
+    /// one of eight used to be captured every two seconds whether anything about it had
+    /// changed or not: eight ScreenCaptureKit round trips a beat to redraw the same pictures.
+    ///
+    /// Pure, so it can be tested without a window server.
+    static func recaptures(_ listed: [IslandWindow], previousFrames: [CGWindowID: CGRect], pictured: Set<CGWindowID>,
+                           limit: Int = maxCaptures) -> [CGWindowID] {
+        let onScreen = listed.filter { $0.away == nil }.prefix(max(0, limit))
+        var wanted: [CGWindowID] = []
+        for (index, window) in onScreen.enumerated()
+            where index == 0 || !pictured.contains(window.id) || previousFrames[window.id] != window.frame {
+            wanted.append(window.id)
+        }
+        return wanted
     }
 
     /// An app's icon, looked up once and kept while that app still has a window: asking again
@@ -360,7 +406,7 @@ final class WindowsMonitor: ObservableObject {
                   app.activationPolicy == .regular else { continue }
             let hidden = app.isHidden
             let element = AXUIElementCreateApplication(pid)
-            _ = AXUIElementSetMessagingTimeout(element, 0.5)
+            _ = AXUIElementSetMessagingTimeout(element, accessibilityTimeout)
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
                   let windows = value as? [AXUIElement] else { continue }
@@ -384,8 +430,11 @@ final class WindowsMonitor: ObservableObject {
 
     // MARK: - Pictures
 
-    private func capture(_ ids: [CGWindowID]) {
-        guard !capturing, !ids.isEmpty else { return }
+    /// Starts a pass of pictures, and says whether it did: one is already running, or there is
+    /// nothing to take.
+    @discardableResult
+    private func capture(_ ids: [CGWindowID]) -> Bool {
+        guard !capturing, !ids.isEmpty else { return false }
         capturing = true
         Task { [weak self] in
             let shots = await Self.shots(of: ids)
@@ -404,6 +453,7 @@ final class WindowsMonitor: ObservableObject {
                 }
             }
         }
+        return true
     }
 
     /// One picture per window, captured off the main thread. A window that cannot be captured
@@ -460,14 +510,20 @@ final class WindowsMonitor: ObservableObject {
         // Shown before anything is raised: a window of a hidden app stays out of sight however
         // far forward it is brought.
         if app?.isHidden == true { app?.unhide() }
-        if let element = Self.axWindow(for: window, lenient: true) {
+        // Without Accessibility this is all there is: the app comes forward with whichever
+        // window it had in front, which is right far more often than not.
+        guard AXIsProcessTrusted() else {
+            app?.activate()
+            return
+        }
+        act(on: window, lenient: true, { element in
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
-        }
-        // Without Accessibility this is all there is: the app comes forward with whichever
-        // window it had in front, which is right far more often than not.
-        app?.activate()
+        }, then: { _ in
+            // After the raise, as before: the app comes forward with that window in front.
+            app?.activate()
+        })
     }
 
     /// Hides the app a window belongs to, or shows it again. Its windows stay in the strip
@@ -485,7 +541,8 @@ final class WindowsMonitor: ObservableObject {
     ///
     /// They all go on the screen the first of them is on: tiling is a thing you do to one
     /// screen. Windows the Accessibility permission cannot reach are skipped rather than
-    /// abandoning the ones it can.
+    /// abandoning the ones it can. The moving happens on `axQueue`; what comes back is whether
+    /// it was sent there at all.
     @discardableResult
     func tile(_ windows: [IslandWindow]) -> Bool {
         guard windows.count > 1 else { return false }
@@ -494,23 +551,25 @@ final class WindowsMonitor: ObservableObject {
             return false
         }
         let visible = Self.visibleFrame(containing: windows[0].frame)
-        let frames = Self.tileFrames(count: windows.count, in: visible)
-        var moved = false
-        for (window, target) in zip(windows, frames) {
-            guard let element = Self.axWindow(for: window) else { continue }
-            // A window behind its hidden app is laid out where nobody can see it until the app
-            // is shown; one in the Dock comes out of it.
-            if window.away == .hidden { NSRunningApplication(processIdentifier: window.pid)?.unhide() }
-            AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            Self.setFrame(element, to: target)
-            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-            moved = true
+        let placed = Array(zip(windows, Self.tileFrames(count: windows.count, in: visible)))
+        // A window behind its hidden app is laid out where nobody can see it until the app is
+        // shown.
+        for (window, _) in placed where window.away == .hidden {
+            NSRunningApplication(processIdentifier: window.pid)?.unhide()
         }
-        // The list is now wrong by every window that moved. Ask again straight away and once
-        // more a beat later, by which time the window server has the new frames.
-        refresh()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
-        return moved
+        axQueue.async { [weak self] in
+            for (window, target) in placed {
+                guard let element = Self.axWindow(for: window) else { continue }
+                // One in the Dock comes out of it.
+                AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                Self.setFrame(element, to: target)
+                AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+            }
+            // The list is now wrong by every window that moved. Ask again straight away and
+            // once more a beat later, by which time the window server has the new frames.
+            DispatchQueue.main.async { self?.refresh(andAgainAfter: 0.35) }
+        }
+        return true
     }
 
     /// Where each of `count` windows goes on one screen: two side by side, three across a wide
@@ -547,29 +606,34 @@ final class WindowsMonitor: ObservableObject {
     }
 
     /// Puts a window in a zone of the screen it is on, and brings it forward so the result is
-    /// visible. Does nothing without the Accessibility permission.
+    /// visible. Does nothing without the Accessibility permission, and asks for it. Returns
+    /// whether the move was sent; it is made on `axQueue`.
     @discardableResult
     func snap(_ window: IslandWindow, to zone: SnapZone) -> Bool {
-        guard let element = Self.axWindow(for: window) else {
-            // Either the permission is missing, or the window moved since the list was taken
-            // and cannot be told from its siblings. Ask for the permission if that is what is
-            // missing, and take a fresh list either way rather than moving the wrong window.
-            if !AXIsProcessTrusted() { requestMove() }
-            refresh()
+        guard AXIsProcessTrusted() else {
+            requestMove()
             return false
         }
         let target = zone.rect(in: Self.visibleFrame(containing: window.frame))
-        // A window put away comes back to be put somewhere: out of the Dock first, as `tile`
-        // does, and its app is shown by the `activate` below.
-        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-        Self.setFrame(element, to: target)
-        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-        NSRunningApplication(processIdentifier: window.pid)?.activate()
-        // The list is now wrong by exactly the window that moved. Ask again straight away and
-        // once more a beat later, by which time the window server has the new frame and the
-        // tile can be redrawn where the window actually went.
-        refresh()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
+        act(on: window, { element in
+            // A window put away comes back to be put somewhere: out of the Dock first, as
+            // `tile` does, and its app is shown by the `activate` that follows.
+            AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            Self.setFrame(element, to: target)
+            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        }, then: { [weak self] found in
+            // Not found: the window moved since the list was taken and cannot be told from its
+            // siblings. A fresh list rather than moving the wrong window.
+            guard found else {
+                self?.refresh()
+                return
+            }
+            NSRunningApplication(processIdentifier: window.pid)?.activate()
+            // The list is now wrong by exactly the window that moved. Ask again straight away
+            // and once more a beat later, by which time the window server has the new frame
+            // and the tile can be redrawn where the window actually went.
+            self?.refresh(andAgainAfter: 0.35)
+        })
         return true
     }
 
@@ -592,18 +656,23 @@ final class WindowsMonitor: ObservableObject {
     func sendToNextDisplay(_ window: IslandWindow) -> Bool {
         let screens = Self.displays()
         guard screens.count > 1, let here = Self.displayIndex(of: window.frame, in: screens) else { return false }
-        guard let element = Self.axWindow(for: window) else {
-            if !AXIsProcessTrusted() { requestMove() }
-            refresh()
+        guard AXIsProcessTrusted() else {
+            requestMove()
             return false
         }
-        let next = screens[(here + 1) % screens.count]
-        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-        Self.setFrame(element, to: Self.mapped(window.frame, from: screens[here].visible, to: next.visible))
-        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-        NSRunningApplication(processIdentifier: window.pid)?.activate()
-        refresh()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.refresh() }
+        let target = Self.mapped(window.frame, from: screens[here].visible, to: screens[(here + 1) % screens.count].visible)
+        act(on: window, { element in
+            AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            Self.setFrame(element, to: target)
+            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        }, then: { [weak self] found in
+            guard found else {
+                self?.refresh()
+                return
+            }
+            NSRunningApplication(processIdentifier: window.pid)?.activate()
+            self?.refresh(andAgainAfter: 0.35)
+        })
         return true
     }
 
@@ -612,33 +681,57 @@ final class WindowsMonitor: ObservableObject {
     /// the screen entirely. Its tile stays, dimmed, and a click on it brings the window back.
     @discardableResult
     func minimise(_ window: IslandWindow) -> Bool {
-        guard let element = Self.axWindow(for: window) else {
-            if !AXIsProcessTrusted() { requestMove() }
-            refresh()
+        guard AXIsProcessTrusted() else {
+            requestMove()
             return false
         }
-        let status = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
-        // Once now, and once when the Dock's animation is over and the window server has the
-        // window out of view, which is when the tile can be drawn as put away.
-        refresh()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.refresh() }
-        return status == .success
+        act(on: window, { element in
+            _ = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        }, then: { [weak self] found in
+            // Once now, and once when the Dock's animation is over and the window server has
+            // the window out of view, which is when the tile can be drawn as put away.
+            guard found else {
+                self?.refresh()
+                return
+            }
+            self?.refresh(andAgainAfter: 0.7)
+        })
+        return true
     }
 
     /// Closes a window, as its own close button would.
     @discardableResult
     func close(_ window: IslandWindow) -> Bool {
-        guard let element = Self.axWindow(for: window) else {
-            if !AXIsProcessTrusted() { requestMove() }
-            refresh()
+        guard AXIsProcessTrusted() else {
+            requestMove()
             return false
         }
-        var button: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &button) == .success,
-              let button, CFGetTypeID(button) == AXUIElementGetTypeID() else { return false }
-        AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)   // type checked just above
-        refresh()
+        act(on: window, { element in
+            var button: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &button) == .success,
+                  let button, CFGetTypeID(button) == AXUIElementGetTypeID() else { return }
+            AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)   // type checked just above
+        }, then: { [weak self] _ in self?.refresh() })
         return true
+    }
+
+    /// Finds the window's Accessibility element and does `work` to it, on `axQueue`; then
+    /// `done` on the main thread, told whether the window was found.
+    private func act(on window: IslandWindow, lenient: Bool = false,
+                     _ work: @escaping (AXUIElement) -> Void, then done: @escaping (Bool) -> Void) {
+        axQueue.async {
+            let element = Self.axWindow(for: window, lenient: lenient)
+            if let element { work(element) }
+            let found = element != nil
+            DispatchQueue.main.async { done(found) }
+        }
+    }
+
+    /// The list now, and once more `delay` later, when the window server has caught up with
+    /// whatever was just done to a window.
+    private func refresh(andAgainAfter delay: TimeInterval) {
+        refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.refresh() }
     }
 
     // MARK: - Accessibility plumbing
@@ -651,9 +744,13 @@ final class WindowsMonitor: ObservableObject {
     /// seconds old, and an app usually has several windows: taking "the first one" would move
     /// — or close — a window the user did not point at. `lenient` is for raising a window,
     /// where the worst case is the app's own frontmost window coming forward instead.
+    ///
+    /// Off the main thread, on `axQueue`, and with half a second for the app to answer rather
+    /// than the default six.
     static func axWindow(for window: IslandWindow, lenient: Bool = false) -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
         let app = AXUIElementCreateApplication(window.pid)
+        _ = AXUIElementSetMessagingTimeout(app, accessibilityTimeout)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
               let elements = value as? [AXUIElement], !elements.isEmpty else { return nil }

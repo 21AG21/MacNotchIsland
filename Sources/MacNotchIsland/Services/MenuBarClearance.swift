@@ -148,9 +148,16 @@ final class MenuBarClearance: ObservableObject {
     /// Room between the frontmost app's last menu title and the notch's left edge, `menuBar`
     /// being the menu bar's band on the notched screen. Needs the Accessibility permission;
     /// nil without it, or when the menu bar cannot be read.
+    ///
+    /// Asked on every switch of app, of the app just switched to — which is the app most
+    /// likely to be the one that has stopped answering, somebody having clicked on it to see
+    /// why. Given half a second, as every Accessibility question in the island is, rather than
+    /// the default six: a thread held that long on each switch piles up behind itself, and a
+    /// measurement that late is of a menu bar nobody is looking at any more.
     static func menuClearance(app: NSRunningApplication?, menuBar band: CGRect, notchMinX: CGFloat) -> CGFloat? {
         guard let app, AXIsProcessTrusted() else { return nil }
         let application = AXUIElementCreateApplication(app.processIdentifier)
+        _ = AXUIElementSetMessagingTimeout(application, WindowsMonitor.accessibilityTimeout)
         var menuBarValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXMenuBarAttribute as CFString, &menuBarValue) == .success,
               let menuBarValue, CFGetTypeID(menuBarValue) == AXUIElementGetTypeID() else { return nil }

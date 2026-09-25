@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Combine
 import SwiftUI
 
@@ -50,6 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunRecord.begin()
         IslandLog.island.notice("launched pid \(Int(ProcessInfo.processInfo.processIdentifier), privacy: .public) from \(Bundle.main.bundlePath, privacy: .public)")
         catchTermination()
+        // Half a second for any app to answer an Accessibility question, rather than the six
+        // the system allows by default. The island asks them to raise, snap, put away and
+        // close a window, and to measure the menu bar on every switch of app, and one app that
+        // had stopped responding held each of those for six seconds. Set on the system-wide
+        // element, it is every element's default; the places that ask most set it on their own
+        // elements as well.
+        _ = AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), WindowsMonitor.accessibilityTimeout)
         // Asked to quit here, at the very top, so an older copy has the whole of this launch
         // to go in; nothing it left behind is read until it has.
         let retiring = Self.retireOtherCopies()
@@ -69,8 +77,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ClipboardStore.shared.loadIfNeeded()
             NotesStore.shared.loadIfNeeded()
             NotificationInbox.shared.loadIfNeeded()
-            self.hub = ServiceHub()
-            self.hub?.start()
+            // The services, a turn after the island has been placed rather than in the same
+            // breath. Starting them is some twenty-five monitors' worth of first readings — the
+            // camera list, the audio devices, the Downloads folder, the Now Playing helper, the
+            // private frameworks the brightness and the keyboard's light are read through — and
+            // all of it used to run inside this method, before launch had even finished and
+            // before the island it was launching had been given a turn to draw. Nothing that
+            // has to come first is waiting on it: a URL that opened the app is handled with or
+            // without the hub, the way it already is while an older copy is being waited out
+            // (see `IslandTimer.loadAlarmsIfNeeded`), and the stores above are read before
+            // anything here can write them.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.hub == nil else { return }
+                self.hub = ServiceHub()
+                self.hub?.start()
+                // The rail's brightness is read on a queue now, and the first reading is asked
+                // for when this is made; made here, it has long landed by the time a rail is
+                // drawn, and whether there is a slider at all is known from the first frame.
+                _ = BrightnessControl.shared
+            }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WelcomeWindowController.shared.showIfFirstLaunch() }
         for delay in [5.0, 30.0] {

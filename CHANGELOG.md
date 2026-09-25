@@ -188,6 +188,8 @@ the unreleased section is what the next tag will ship.
   the sections' is.
 
 ### Changed
+- **Launch draws the island before starting its services**, which used to walk the cameras, the audio devices, the Downloads folder and the helper before the first frame.
+- **Windows retakes only the pictures that changed**, and Focus reads its database once per burst of changes.
 - **The clipboard history lasts until Notch Island quits, unless you keep it.** It is still on
   out of the box, with the same limit and pins; what changed is that it is held in memory. A new
   switch under Home Panel, "Keep history across relaunches", writes it to disk for anybody who
@@ -272,6 +274,11 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **The calendar card stops waiting on somebody's mail server.** The next-event check ran on the main thread every minute and on every calendar change, a network fetch for a CalDAV or Exchange account; it reads on a queue now, like Today.
+- **A hung app cannot freeze the island.** Accessibility questions get half a second instead of six, and raising, snapping, minimising and closing a window happen off the main thread.
+- **Downloads is no longer listed on the main thread.** That included once a second while a download ran. Only the partial files are ever looked at.
+- **Copying a screenshot does not stall the island.** Pictures are converted and measured off the main thread, putting one back no longer builds an uncompressed TIFF, and the history keeps at most 64 MB of pictures.
+- **Opening the panel does not enumerate audio devices mid-animation.** Sound devices and brightness are read on queues.
 - **A release carries its own version.** Every bundle said 1.0.0 whatever its tag, so a fresh install of a new release was told to update to itself. The build stamps the tag's version and a build number into the bundle, a tag that is not a version stops the release, and pre-releases are ordered properly.
 - **Notes that cannot be saved say so.** A failed write only went to the log, and a relaunch brought back the old text. The Notes header shows "Not saved" with the reason, a click tries again, and a notes file that cannot be read is set aside as `notes.txt.unreadable-…` instead of being written over.
 - **`notchctl --help` lists every exit status and exits 0.** Bad usage exits 64 everywhere, a command that cannot reach the island exits 69, and `shelf add` without a path says how to use it. A question asked while the app is still starting shows its Control-Y / Control-N hint once the keys are ready.

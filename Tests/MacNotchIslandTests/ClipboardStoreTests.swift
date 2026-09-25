@@ -501,4 +501,86 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(ClipboardStore.pruned(answers, to: [there]), Set<UUID>(),
                        "and an answer for an entry that has been deleted goes with it")
     }
+
+    // MARK: - Pictures: what they weigh, and where they are made ready
+
+    private func picture(_ label: String, bytes: Int, pinned: Bool = false) -> ClipboardItem {
+        ClipboardItem(kind: .image, text: label, pinned: pinned, imageData: Data(count: bytes))
+    }
+
+    /// A little bitmap, `width` by `height`, as AppKit would put it on a pasteboard.
+    private func bitmap(width: Int, height: Int) throws -> NSBitmapImageRep {
+        try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+    }
+
+    func testAPictureFitsOnlyWhileTheBudgetHasRoomForIt() {
+        XCTAssertTrue(ClipboardStore.imageFits(bytes: 10, keptImageBytes: 50, budget: 64))
+        XCTAssertTrue(ClipboardStore.imageFits(bytes: 14, keptImageBytes: 50, budget: 64), "filling it exactly still fits")
+        XCTAssertFalse(ClipboardStore.imageFits(bytes: 15, keptImageBytes: 50, budget: 64))
+    }
+
+    /// Counted from the newest, the first picture that does not fit goes, and so does every
+    /// picture older than it — even one small enough to have squeezed in — the way the ring
+    /// buffer drops from the old end rather than picking holes in the middle.
+    func testTheOldestPicturesGoOnceTheyArePastTheBudget() {
+        let items = [picture("a", bytes: 30), item("t"), picture("b", bytes: 30), picture("c", bytes: 10),
+                     picture("d", bytes: 2), item("u")]
+        let kept = ClipboardStore.withinImageBudget(items, budget: 64)
+        XCTAssertEqual(kept.map(\.text), ["a", "t", "b", "u"], "text is never taken for room")
+    }
+
+    func testTheNewestPictureStaysWhateverItWeighs() {
+        let huge = picture("just copied", bytes: 100)
+        XCTAssertEqual(ClipboardStore.withinImageBudget([huge], budget: 64).map(\.text), ["just copied"])
+        XCTAssertEqual(ClipboardStore.withinImageBudget([huge, picture("older", bytes: 1)], budget: 64).map(\.text),
+                       ["just copied"], "but it counts, and what is older makes way for it")
+    }
+
+    func testAPinnedPictureIsNeverTakenForRoomButCountsAllTheSame() {
+        let items = [picture("new", bytes: 40), picture("pinned", bytes: 40, pinned: true), picture("old", bytes: 1)]
+        XCTAssertEqual(ClipboardStore.withinImageBudget(items, budget: 64).map(\.text), ["new", "pinned"])
+    }
+
+    func testAHistoryWithNoPicturesIsLeftAlone() {
+        let items = [item("a", at: 2), item("b", at: 1), item("https://example.com", kind: .url)]
+        XCTAssertEqual(ClipboardStore.withinImageBudget(items, budget: 0), items)
+    }
+
+    /// The budget is part of what "fits" means everywhere the list is capped — a copy, a
+    /// lowered limit and an Undo Clear — so a new copy takes the oldest picture with it.
+    func testCappingTheListKeepsItToTheBudgetToo() {
+        XCTAssertEqual(ClipboardStore.capped([picture("new", bytes: 40), picture("old", bytes: 40)],
+                                             limit: 10, imageBudget: 64).map(\.text), ["new"])
+        let half = ClipboardStore.imageBudget / 2 + 1
+        let history = ClipboardStore.inserting(picture("new", bytes: half), into: [picture("old", bytes: half)], limit: 50)
+        XCTAssertEqual(history.map(\.text), ["new"], "a copy is held to the real budget")
+    }
+
+    /// A picture offered only as TIFF is kept as PNG, and its size comes out of the header.
+    /// Both used to be done on the main thread, by decoding the whole picture to count it.
+    func testATIFFIsKeptAsAPNGAndMeasuredFromItsHeader() throws {
+        let tiff = try XCTUnwrap(try bitmap(width: 12, height: 7).tiffRepresentation)
+        let ready = ClipboardStore.finishingImage(ClipboardSnapshot(types: ["public.tiff"], tiffData: tiff))
+        let png = try XCTUnwrap(ready.imageData)
+        XCTAssertEqual(Array(png.prefix(4)), [0x89, 0x50, 0x4E, 0x47], "kept as PNG")
+        XCTAssertNil(ready.tiffData, "the TIFF is not held on to once it has been turned")
+        XCTAssertEqual(ready.imagePixelSize, CGSize(width: 12, height: 7))
+        XCTAssertEqual(ClipboardStore.item(from: ready)?.preview, "Image 12 × 7")
+    }
+
+    func testAPNGIsKeptAsItCameAndMeasuredWithoutBeingDecoded() throws {
+        let png = try XCTUnwrap(try bitmap(width: 30, height: 20).representation(using: .png, properties: [:]))
+        XCTAssertEqual(ClipboardStore.pixelSize(of: png), CGSize(width: 30, height: 20))
+        let ready = ClipboardStore.finishingImage(ClipboardSnapshot(types: ["public.png"], imageData: png))
+        XCTAssertEqual(ready.imageData, png, "the bytes on the pasteboard are the bytes kept")
+        XCTAssertEqual(ready.imagePixelSize, CGSize(width: 30, height: 20))
+    }
+
+    func testBytesThatAreNotAPictureAreNotRecordedAsOne() {
+        let ready = ClipboardStore.finishingImage(ClipboardSnapshot(types: ["public.png"], imageData: Data([1, 2, 3])))
+        XCTAssertNil(ready.imageData)
+        XCTAssertNil(ClipboardStore.item(from: ready), "nothing to show, so nothing is recorded")
+    }
 }

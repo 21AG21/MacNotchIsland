@@ -116,6 +116,10 @@ struct ClipboardSnapshot {
     var fileURLs: [URL] = []
     var imageData: Data? = nil
     var imagePixelSize: CGSize? = nil
+    /// A picture offered only as TIFF, not yet turned into the PNG the history keeps. Read out
+    /// of the pasteboard on the main thread and converted on the store's `io` queue, see
+    /// `ClipboardStore.finishingImage`.
+    var tiffData: Data? = nil
 }
 
 /// Clipboard history: polls `NSPasteboard.general` for changes, keeps a small ring buffer of
@@ -150,6 +154,13 @@ final class ClipboardStore: ObservableObject {
     /// Very large copies are clipped so history can't pin megabytes in memory.
     static let maxTextLength = 100_000
 
+    /// How many bytes of pictures the history holds between them. A picture is kept whole, at
+    /// full resolution, for as long as it is in the list — a Retina screenshot is ten or twenty
+    /// megabytes of PNG — and with fifty entries allowed, nothing stopped a morning of copied
+    /// screenshots from holding a gigabyte. Past this, the oldest pictures go; see
+    /// `withinImageBudget`.
+    static let imageBudget = 64 << 20
+
     private static let basePollInterval: TimeInterval = 0.4
     private static let fileName = "clipboard.json"
 
@@ -161,6 +172,9 @@ final class ClipboardStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var persistWork: DispatchWorkItem?
     private var pendingThumbnails: Set<UUID> = []
+    /// The TIFF half of the last picture put back on the pasteboard, still only promised. Held
+    /// here as well as by the pasteboard item, so it is there for as long as the entry is.
+    private var tiffPromise: TIFFPromise?
     /// Whether what is on disk has been read back yet.
     private var hasLoaded = false
     /// Watches "Keep history across relaunches" for as long as the app runs, not only while
@@ -283,14 +297,29 @@ final class ClipboardStore: ObservableObject {
         timer = scheduled
     }
 
+    /// Reads what changed on the main thread, where the pasteboard and the frontmost app are,
+    /// and does everything a picture costs on `io`.
+    ///
+    /// Every copy takes the same road, text included, so a picture still being converted is
+    /// never overtaken by the line of text copied just after it: `io` is serial and the main
+    /// queue keeps its order, so entries land in the order they were copied. For text the
+    /// detour is a hop and nothing more.
     private func tick() {
         guard running else { return }
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
-        guard let item = ClipboardStore.item(from: readSnapshot(),
-                                            app: Self.frontmostAppName()) else { return }
-        append(item)
+        let snapshot = readSnapshot()
+        let app = Self.frontmostAppName()
+        let date = Date()
+        Self.io.async {
+            guard let item = ClipboardStore.item(from: ClipboardStore.finishingImage(snapshot), date: date, app: app) else { return }
+            DispatchQueue.main.async { [weak self] in
+                // Switched off while the picture was being converted: it was never recorded.
+                guard let self, self.running else { return }
+                self.append(item)
+            }
+        }
     }
 
     // MARK: - Reading the pasteboard
@@ -307,21 +336,61 @@ final class ClipboardStore: ObservableObject {
         snapshot.text = pasteboard.string(forType: .string)
 
         let hasText = !(snapshot.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        // Spreadsheets put a picture of the selection next to the text; text wins.
-        if snapshot.fileURLs.isEmpty && !hasText, let image = ClipboardStore.pngData(from: pasteboard) {
-            snapshot.imageData = image.data
-            snapshot.imagePixelSize = image.size
+        // Spreadsheets put a picture of the selection next to the text; text wins. Only the
+        // bytes are read here: turning a TIFF into PNG, and finding out how big it is, are
+        // `finishingImage`'s job, on `io`.
+        if snapshot.fileURLs.isEmpty && !hasText {
+            if let png = pasteboard.data(forType: .png) {
+                snapshot.imageData = png
+            } else {
+                snapshot.tiffData = pasteboard.data(forType: .tiff)
+            }
         }
         return snapshot
     }
 
-    private static func pngData(from pasteboard: NSPasteboard) -> (data: Data, size: CGSize)? {
-        var png = pasteboard.data(forType: .png)
-        if png == nil, let tiff = pasteboard.data(forType: .tiff), let rep = NSBitmapImageRep(data: tiff) {
-            png = rep.representation(using: .png, properties: [:])
+    // MARK: - Pictures, off the main thread
+
+    /// A snapshot with its picture made ready to keep: a TIFF turned into PNG, and the size
+    /// read out of the file's header.
+    ///
+    /// Both used to happen on the main thread on every picture copied — the TIFF re-encoded,
+    /// and then the whole PNG decoded into a bitmap for no reason but to ask it how wide it
+    /// was. A 5K screenshot is a hundred-odd megabytes of pixels to count two numbers from.
+    /// The size is in the header, and ImageIO reads it without drawing a pixel. Bytes that are
+    /// not a picture ImageIO can read are not recorded as one, as before.
+    static func finishingImage(_ snapshot: ClipboardSnapshot) -> ClipboardSnapshot {
+        var done = snapshot
+        if done.imageData == nil, let tiff = done.tiffData { done.imageData = pngData(fromTIFF: tiff) }
+        done.tiffData = nil
+        guard let png = done.imageData else { return done }
+        guard let size = pixelSize(of: png) else {
+            done.imageData = nil
+            done.imagePixelSize = nil
+            return done
         }
-        guard let data = png, let rep = NSBitmapImageRep(data: data) else { return nil }
-        return (data, CGSize(width: rep.pixelsWide, height: rep.pixelsHigh))
+        if done.imagePixelSize == nil { done.imagePixelSize = size }
+        return done
+    }
+
+    /// How big a picture is, from its header alone: nothing is decoded.
+    static func pixelSize(of data: Data) -> CGSize? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    /// A TIFF, as the PNG the history keeps. Through ImageIO, which is safe on any thread.
+    static func pngData(fromTIFF tiff: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(tiff as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out as CFMutableData, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return out as Data
     }
 
     // MARK: - Pure capture rules (unit-tested)
@@ -389,15 +458,50 @@ final class ClipboardStore: ObservableObject {
         return capped(result, limit: limit)
     }
 
-    /// Drops the oldest unpinned entries until the list fits. Pinned entries are never
-    /// dropped, and nor is the newest.
-    static func capped(_ items: [ClipboardItem], limit: Int) -> [ClipboardItem] {
+    /// Drops the oldest unpinned entries until the list fits, in count and in the bytes its
+    /// pictures take. Pinned entries are never dropped, and nor is the newest.
+    static func capped(_ items: [ClipboardItem], limit: Int, imageBudget: Int = ClipboardStore.imageBudget) -> [ClipboardItem] {
         var result = items
         let cap = max(1, limit)
         var index = result.count - 1
         while result.count > cap && index > 0 {
             if !result[index].pinned { result.remove(at: index) }
             index -= 1
+        }
+        return withinImageBudget(result, budget: imageBudget)
+    }
+
+    /// Whether a picture of `bytes` can be kept beside the `keptImageBytes` already kept.
+    static func imageFits(bytes: Int, keptImageBytes: Int, budget: Int = ClipboardStore.imageBudget) -> Bool {
+        keptImageBytes + bytes <= budget
+    }
+
+    /// The list with its oldest pictures gone, past the point where they stop fitting the
+    /// budget: counted from the newest, the first unpinned picture that does not fit goes, and
+    /// every unpinned picture older than it goes too, the way the ring buffer drops from the
+    /// old end rather than picking holes in the middle. Text, links and files cost nothing
+    /// here and are never touched. The newest entry stays whatever it weighs — it is the copy
+    /// somebody made a moment ago — and so does a pinned picture, which counts against the
+    /// budget all the same.
+    static func withinImageBudget(_ items: [ClipboardItem], budget: Int = ClipboardStore.imageBudget) -> [ClipboardItem] {
+        var kept = 0
+        var over = false
+        var result: [ClipboardItem] = []
+        result.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            guard let bytes = item.imageData?.count else {
+                result.append(item)
+                continue
+            }
+            if index == 0 || item.pinned {
+                kept += bytes
+                result.append(item)
+            } else if !over, imageFits(bytes: bytes, keptImageBytes: kept, budget: budget) {
+                kept += bytes
+                result.append(item)
+            } else {
+                over = true
+            }
         }
         return result
     }
@@ -456,6 +560,7 @@ final class ClipboardStore: ObservableObject {
     /// Puts an entry back on the pasteboard. The resulting change is ignored by the poller.
     func copy(item: ClipboardItem) {
         pasteboard.clearContents()
+        tiffPromise = nil
         switch item.kind {
         case .file where !item.fileURLs.isEmpty:
             // Only the files that are still there; when they have all gone, their paths as
@@ -472,10 +577,13 @@ final class ClipboardStore: ObservableObject {
         case .image:
             let entry = NSPasteboardItem()
             if let data = item.imageData {
+                // PNG as it is kept, which every app reads. TIFF only promised: making it meant
+                // decoding the picture and writing it out again uncompressed, on the main
+                // thread, at the click — tens of megabytes for a screenshot — for the rare app
+                // that asks for nothing else. Now it is made only if one does.
                 entry.setData(data, forType: .png)
-                if let image = NSImage(data: data), let tiff = image.tiffRepresentation {
-                    entry.setData(tiff, forType: .tiff)
-                }
+                let promise = TIFFPromise(png: data)
+                if entry.setDataProvider(promise, forTypes: [.tiff]) { tiffPromise = promise }
             } else {
                 entry.setString(item.text, forType: .string)
             }
@@ -765,5 +873,20 @@ final class ClipboardStore: ObservableObject {
                 IslandLog.store.error("clipboard history could not be erased: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+}
+
+/// The TIFF of a picture put back on the pasteboard, made only when an app asks for it. PNG is
+/// on the pasteboard already and is what nearly every app reads.
+final class TIFFPromise: NSObject, NSPasteboardItemDataProvider {
+    let png: Data
+
+    init(png: Data) {
+        self.png = png
+    }
+
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+        guard type == .tiff, let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation else { return }
+        item.setData(tiff, forType: .tiff)
     }
 }

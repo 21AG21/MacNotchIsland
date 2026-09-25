@@ -117,6 +117,12 @@ final class FocusMonitor {
     private var fd: Int32 = -1
     private var lastMode: String?
     private var started = false
+    /// A read of the database is already waiting to happen. See `start`.
+    private var checkPending = false
+
+    /// How long after the folder changes the database is read: long enough for the write that
+    /// raised the event to have finished.
+    static let settleDelay: TimeInterval = 0.3
 
     /// Whether a Focus turning on or off is announced in the island: the Focus switch.
     var alertsEnabled = false
@@ -153,8 +159,21 @@ final class FocusMonitor {
         fd = open(dbDirectory.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: .main)
+        // One read for a burst of events, not one per event. A Focus turning on or off is
+        // more than one change to the folder, and every event queued a read and parse of the
+        // database of its own on the main thread, landing a few milliseconds apart and all
+        // saying the same thing. The first event asks for a read; the rest, until it happens, are
+        // already answered by it, since it comes after them. An event after the read has
+        // started asks for another, so the last change is never missed.
         src.setEventHandler { [weak self] in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.check() }
+            guard let self, !self.checkPending else { return }
+            self.checkPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) { [weak self] in
+                guard let self else { return }
+                self.checkPending = false
+                guard self.started else { return }
+                self.check()
+            }
         }
         src.setCancelHandler { [weak self] in
             if let fd = self?.fd, fd >= 0 { close(fd) }

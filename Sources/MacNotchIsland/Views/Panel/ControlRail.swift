@@ -71,11 +71,11 @@ struct ControlRail: View {
             onScreen = true
             mountedAt = LocalWrite.now()
             // Each of the three reads the system the moment it is told it has a viewer: a whole
-            // CoreAudio enumeration, a DisplayServices call, and both radios over XPC. Done on
-            // the turn the rail is mounted, that burst goes in front of the panel's opening
-            // spring rather than behind it, and the first frames of the growth are spent on it.
-            // A turn later is still at once to anyone watching, and by then the panel is already
-            // moving.
+            // CoreAudio enumeration, a DisplayServices call, and both radios over XPC. None of
+            // that is on the main thread — each hands its reading to a queue of its own and is
+            // told the answer — so what telling them costs here is a timer apiece and a hop.
+            // A turn later still keeps even that out of the pass that mounts the rail, which is
+            // the first frame of the panel's opening spring.
             DispatchQueue.main.async {
                 guard onScreen, !counted else { return }
                 counted = true
@@ -612,11 +612,20 @@ enum RailMetrics {
 ///
 /// The level is published so the rail's slider follows the brightness keys and anything else
 /// that dims the screen, rather than showing whatever it read the one time it appeared. There
-/// is no notification for brightness, so it is polled — but only while the rail is on screen,
-/// and each read is one cheap DisplayServices call.
+/// is no notification for brightness, so it is polled — but only while the rail is on screen.
+///
+/// Every read is made on `queue`. One is cheap, but it is a walk of the display list and a call
+/// into a private framework — the first of them opens that framework — and they were made on
+/// the main thread twice a second for as long as the rail was up, and once more at the moment
+/// the rail was mounted, inside the spring that opens the panel. Only what is shown is decided
+/// here. Writes stay where the slider is: the slider must not wait on a queue to move.
 final class BrightnessControl: ObservableObject {
     static let shared = BrightnessControl()
     private let monitor = BrightnessMonitor()
+    /// Where DisplayServices is read. Serial, and one reading at a time: a poll that comes round
+    /// while the last one is still out is folded into it.
+    private let queue = DispatchQueue(label: "com.macnotchisland.brightness", qos: .userInitiated)
+    private var pass = RadioPass()
     private var timer: Timer?
     private var viewers = 0
     /// Held for as long as the app runs, because a display can be plugged in at any point in it.
@@ -639,14 +648,14 @@ final class BrightnessControl: ObservableObject {
     static let pollInterval: TimeInterval = 0.5
     static let writeSettle: TimeInterval = 1.0
 
+    /// The first reading is asked for here and lands a moment later. The app makes this at
+    /// launch, well before any rail is drawn, so the answer is in by the time one is.
     private init() {
-        let reading = monitor.currentBrightness().map { Double($0) }
-        level = reading ?? 0.5
-        isAvailable = reading != nil
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                 object: nil, queue: .main) { [weak self] _ in
             self?.refresh()
         }
+        refresh()
     }
 
     func current() -> Double? { monitor.currentBrightness().map { Double($0) } }
@@ -690,12 +699,31 @@ final class BrightnessControl: ObservableObject {
         timer = nil
     }
 
+    /// Asks the display, on `queue`. Main thread; returns at once.
     private func refresh() {
+        guard pass.start() else { return }
+        queue.async { [weak self] in
+            guard let self else { return }
+            let reading = self.current()
+            DispatchQueue.main.async { [weak self] in self?.show(reading) }
+        }
+    }
+
+    /// Where every reading lands, on the main thread.
+    private func show(_ reading: Double?) {
+        let again = pass.finish()
+        take(reading)
+        // The screens changed while this reading was out; the answer that counts is the next.
+        if again { refresh() }
+    }
+
+    private func take(_ reading: Double?) {
         // Every reading is also an answer about whether there is anything to read, which is the
         // only thing that keeps `isAvailable` honest between one screen arrangement and the next.
-        let reading = current()
         if isAvailable != (reading != nil) { isAvailable = reading != nil }
         guard let value = reading else { return }
+        // A reading that left before the slider moved lands after it: `pending` is what keeps
+        // the slider from being pulled back to it.
         if let pending {
             guard LocalWrite.now() >= pending.until || abs(pending.value - value) < 0.02 else { return }
             self.pending = nil

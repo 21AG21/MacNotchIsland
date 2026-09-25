@@ -108,7 +108,25 @@ final class AudioOutputs: ObservableObject {
         return receivers.isEmpty ? current?.name : receivers.joined(separator: ", ")
     }
 
+    /// Main thread.
     private var viewers = 0
+    /// One reading at a time, and an ask made while one is in the air answered by one more
+    /// when it lands. Main thread.
+    private var pass = RadioPass()
+
+    /// Where CoreAudio is read, where the output is switched, and where every listener is
+    /// added and taken away.
+    ///
+    /// None of that is done on the main thread any more. A reading is every device's stream
+    /// counts on both sides, its name and its kind, the AirPlay device's receivers and their
+    /// names, and the level: dozens of round trips to the audio server, with the AirPlay
+    /// device's answers the least predictable of them. It ran on the main thread on the turn
+    /// after the rail was mounted, which is inside the spring that opens the panel, and again
+    /// on every change to the device list. Serial, so a switch made from the menu is written
+    /// ahead of the reading that shows it, and the listeners are added and removed in the
+    /// order they were asked for.
+    private let reader = DispatchQueue(label: "com.macnotchisland.audio-outputs", qos: .userInitiated)
+    // On `reader`.
     private var systemRegistrations: [Registration] = []
     private var deviceRegistrations: [Registration] = []
     private var boundDevice: AudioDeviceID = 0
@@ -116,7 +134,9 @@ final class AudioOutputs: ObservableObject {
     /// that wakes up joins the list without the panel being opened again.
     private var airPlayRegistrations: [Registration] = []
     private var boundAirPlay: AudioDeviceID = 0
-    private let queue = DispatchQueue.main
+    /// Where the listeners are called: the main queue, which is where what they ask for is
+    /// decided. What they ask for is handed straight back to `reader`.
+    private let callbacks = DispatchQueue.main
 
     private struct Registration {
         let object: AudioObjectID
@@ -131,16 +151,27 @@ final class AudioOutputs: ObservableObject {
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
-        systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDevices,
-                                          scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
-        systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDefaultOutputDevice,
-                                          scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
+        reader.async { [weak self] in self?.watchSystem() }
         reloadDevices()
     }
 
     func viewerDisappeared() {
         viewers = max(0, viewers - 1)
         guard viewers == 0 else { return }
+        reader.async { [weak self] in self?.unwatchAll() }
+    }
+
+    /// On `reader`.
+    private func watchSystem() {
+        guard systemRegistrations.isEmpty else { return }
+        systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDevices,
+                                          scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
+        systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDefaultOutputDevice,
+                                          scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
+    }
+
+    /// On `reader`.
+    private func unwatchAll() {
         remove(&systemRegistrations)
         remove(&deviceRegistrations)
         remove(&airPlayRegistrations)
@@ -150,91 +181,129 @@ final class AudioOutputs: ObservableObject {
 
     // MARK: - Reading
 
+    /// Asks for a fresh look at the devices. Main thread, from a listener, a switch or a view
+    /// appearing; returns at once, having handed the asking to `reader`.
     func reloadDevices() {
-        let ids = Self.allDeviceIDs().filter { Self.outputStreamCount($0) > 0 }
-        let list = ids.map { Device(id: $0, name: Self.name(of: $0), transport: Self.transport(of: $0)) }
-            .sorted { a, b in
-                if (a.transport == kAudioDeviceTransportTypeBuiltIn) != (b.transport == kAudioDeviceTransportTypeBuiltIn) {
-                    return a.transport == kAudioDeviceTransportTypeBuiltIn
-                }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        // The gallery is handed its devices; a reading here would take them away again.
+        guard !RenderMode.isGallery else { return }
+        guard pass.start() else { return }
+        // Listeners are only left behind while something shows what they report: a reading
+        // asked for with nothing on screen must not add ones nothing will take down.
+        let watching = viewers > 0
+        reader.async { [weak self] in
+            guard let self else { return }
+            let reading = Self.read()
+            self.bind(output: watching ? reading.defaultOutput : 0, airPlay: watching ? reading.airPlayDevice : 0)
+            DispatchQueue.main.async { [weak self] in self?.show(reading) }
+        }
+    }
+
+    /// One whole look at the Mac's sound devices, taken on `reader`.
+    private struct Reading {
+        var outputs: [Device]
+        var inputs: [Device]
+        var defaultOutput: AudioDeviceID
+        var defaultInput: AudioDeviceID
+        /// The AirPlay device, or 0 where there is none.
+        var airPlayDevice: AudioDeviceID
+        var airPlay: [AirPlayTarget]
+        var ticked: Set<UInt32>
+        var volume: Float?
+        var mute: Bool?
+    }
+
+    /// Everything the rail and the menu show, in one pass over the device list. On `reader`.
+    ///
+    /// The AirPlay device's receivers are read as its data sources — the way the Sound pane
+    /// listed AirPlay speakers when it listed them at all — on every reading, which is every
+    /// change to the device list and to the default output, and whenever the AirPlay device
+    /// says its list or its choice has changed.
+    private static func read() -> Reading {
+        let ids = allDeviceIDs()
+        let outputs = ids.filter { outputStreamCount($0) > 0 }.map(device(for:)).sorted(by: listedBefore)
+        let inputs = ids.filter { inputStreamCount($0) > 0 }.map(device(for:)).sorted(by: listedBefore)
+        let defaultOutput = AudioMonitor.defaultOutputDevice()
+        let defaultInput = defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
+        let air = outputs.first { $0.transport == kAudioDeviceTransportTypeAirPlay }
+        var targets: [AirPlayTarget] = []
+        var ticked: Set<UInt32> = []
+        if let air {
+            let sources = (dataSources(of: air.id) ?? []).map {
+                AirPlayList.Source(id: $0, name: dataSourceName($0, of: air.id))
             }
-        if list != devices { devices = list }
-        reloadInputs()
-        let defaultID = AudioMonitor.defaultOutputDevice()
-        let now = list.first { $0.id == defaultID }
-        if now != current { current = now }
-        if boundDevice != defaultID {
+            targets = AirPlayList.targets(device: air.id, deviceName: air.name, sources: sources)
+            if !targets.isEmpty {
+                ticked = AirPlayList.ticked(selected: selectedDataSources(of: air.id) ?? [],
+                                            targets: targets, isDefaultOutput: air.id == defaultOutput)
+            }
+        }
+        return Reading(outputs: outputs, inputs: inputs, defaultOutput: defaultOutput, defaultInput: defaultInput,
+                       airPlayDevice: air?.id ?? 0, airPlay: targets, ticked: ticked,
+                       volume: AudioMonitor.readOutputVolume(device: defaultOutput),
+                       mute: AudioMonitor.readOutputMute(device: defaultOutput))
+    }
+
+    private static func device(for id: AudioDeviceID) -> Device {
+        Device(id: id, name: name(of: id), transport: transport(of: id))
+    }
+
+    /// The Mac's own first, then by name.
+    private static func listedBefore(_ a: Device, _ b: Device) -> Bool {
+        if (a.transport == kAudioDeviceTransportTypeBuiltIn) != (b.transport == kAudioDeviceTransportTypeBuiltIn) {
+            return a.transport == kAudioDeviceTransportTypeBuiltIn
+        }
+        return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+    }
+
+    /// Moves the listeners onto the output and the AirPlay device a reading found, or takes
+    /// them away (0). On `reader`.
+    private func bind(output: AudioDeviceID, airPlay: AudioDeviceID) {
+        if boundDevice != output {
             remove(&deviceRegistrations)
-            boundDevice = defaultID
-            if defaultID != 0 {
+            boundDevice = output
+            if output != 0 {
                 // Wherever this device might keep its level — see `AudioMonitor.volumeElements`.
                 // Watching only the synthesised main one left the rail's slider frozen on a
                 // device that has none, while the media keys moved it.
                 for element in AudioMonitor.volumeElements {
-                    deviceRegistrations.append(listen(defaultID, address: AudioMonitor.volumeAddress(element: element)) {
+                    deviceRegistrations.append(listen(output, address: AudioMonitor.volumeAddress(element: element)) {
                         [weak self] in self?.reloadLevel()
                     })
                 }
-                deviceRegistrations.append(listen(defaultID, selector: kAudioDevicePropertyMute,
+                deviceRegistrations.append(listen(output, selector: kAudioDevicePropertyMute,
                                                   scope: kAudioDevicePropertyScopeOutput) { [weak self] in self?.reloadLevel() })
             }
         }
-        reloadAirPlay(in: list, defaultOutput: defaultID)
-        reloadLevel()
-    }
-
-    /// The AirPlay device's receivers, read as its data sources — the way the Sound pane listed
-    /// AirPlay speakers when it listed them at all. Asked on every reload, which is every change
-    /// to the device list and to the default output, and whenever the AirPlay device says its
-    /// list or its choice has changed.
-    private func reloadAirPlay(in list: [Device], defaultOutput: AudioDeviceID) {
-        let device = list.first { $0.transport == kAudioDeviceTransportTypeAirPlay }
-        // Watched only while something shows the list: a reload from a write with nothing on
-        // screen must not leave listeners behind that nothing will take down.
-        let watched = viewers > 0 ? (device?.id ?? 0) : 0
-        if boundAirPlay != watched {
+        if boundAirPlay != airPlay {
             remove(&airPlayRegistrations)
-            boundAirPlay = watched
-            if watched != 0 {
+            boundAirPlay = airPlay
+            if airPlay != 0 {
                 for selector in [kAudioDevicePropertyDataSources, kAudioDevicePropertyDataSource] {
-                    airPlayRegistrations.append(listen(watched, selector: selector, scope: kAudioDevicePropertyScopeOutput) {
+                    airPlayRegistrations.append(listen(airPlay, selector: selector, scope: kAudioDevicePropertyScopeOutput) {
                         [weak self] in self?.reloadDevices()
                     })
                 }
             }
         }
-        var targets: [AirPlayTarget] = []
-        var ticked: Set<UInt32> = []
-        if let device {
-            let sources = (Self.dataSources(of: device.id) ?? []).map {
-                AirPlayList.Source(id: $0, name: Self.dataSourceName($0, of: device.id))
-            }
-            targets = AirPlayList.targets(device: device.id, deviceName: device.name, sources: sources)
-            if !targets.isEmpty {
-                ticked = AirPlayList.ticked(selected: Self.selectedDataSources(of: device.id) ?? [],
-                                            targets: targets, isDefaultOutput: device.id == defaultOutput)
-            }
-        }
-        if targets != airPlay { airPlay = targets }
-        if ticked != airPlayCurrent { airPlayCurrent = ticked }
     }
 
-    /// The devices that can record, and which of them the Mac is listening to.
-    private func reloadInputs() {
-        let list = Self.allDeviceIDs()
-            .filter { Self.inputStreamCount($0) > 0 }
-            .map { Device(id: $0, name: Self.name(of: $0), transport: Self.transport(of: $0)) }
-            .sorted { a, b in
-                if (a.transport == kAudioDeviceTransportTypeBuiltIn) != (b.transport == kAudioDeviceTransportTypeBuiltIn) {
-                    return a.transport == kAudioDeviceTransportTypeBuiltIn
-                }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
-        if list != inputs { inputs = list }
-        let defaultID = Self.defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
-        let now = list.first { $0.id == defaultID }
-        if now != currentInput { currentInput = now }
+    /// Where every reading lands. Main thread, and the only place the list is published.
+    private func show(_ reading: Reading) {
+        let again = pass.finish()
+        if reading.outputs != devices { devices = reading.outputs }
+        let output = reading.outputs.first { $0.id == reading.defaultOutput }
+        if output != current { current = output }
+        if reading.inputs != inputs { inputs = reading.inputs }
+        let input = reading.inputs.first { $0.id == reading.defaultInput }
+        if input != currentInput { currentInput = input }
+        if reading.airPlay != airPlay { airPlay = reading.airPlay }
+        if reading.ticked != airPlayCurrent { airPlayCurrent = reading.ticked }
+        // A level read before the slider moved lands after it, and must not pull the slider
+        // back for a frame; the device's own listener reports where it really settled.
+        if !Self.wroteRecently() { showLevel(volume: reading.volume, mute: reading.mute) }
+        // Something changed while this reading was in the air; the answer it is waiting for is
+        // the next one.
+        if again { reloadDevices() }
     }
 
     /// Which device a system-wide default points at.
@@ -247,23 +316,30 @@ final class AudioOutputs: ObservableObject {
         return device
     }
 
-    /// Listens through this one instead. The same write the Sound pane makes.
+    /// Listens through this one instead. The same write the Sound pane makes, on `reader`.
     func selectInput(_ device: Device) {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var id = device.id
-        let status = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
-                                                UInt32(MemoryLayout<AudioDeviceID>.size), &id)
-        if status != noErr {
-            IslandLog.island.error("could not switch the input: \(status, privacy: .public)")
+        reader.async { [weak self] in
+            var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                                     mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            var id = device.id
+            let status = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+                                                    UInt32(MemoryLayout<AudioDeviceID>.size), &id)
+            if status != noErr {
+                IslandLog.island.error("could not switch the input: \(status, privacy: .public)")
+            }
+            DispatchQueue.main.async { self?.reloadDevices() }
         }
-        reloadInputs()
     }
 
+    /// The level and the mute, read where they are shown. Two reads, from the device's own
+    /// listeners, and exact: a reading that went round by the queue could land behind the
+    /// slider's next write.
     private func reloadLevel() {
-        let v = AudioMonitor.readOutputVolume()
+        showLevel(volume: AudioMonitor.readOutputVolume(), mute: AudioMonitor.readOutputMute())
+    }
+
+    private func showLevel(volume v: Float?, mute m: Bool?) {
         if v != volume { volume = v }
-        let m = AudioMonitor.readOutputMute()
         if (m != nil) != hasMute { hasMute = m != nil }
         if (m ?? false) != isMuted { isMuted = m ?? false }
     }
@@ -286,10 +362,14 @@ final class AudioOutputs: ObservableObject {
 
     // MARK: - Writing
 
+    /// Sends the sound to `device`, on `reader`: switching output can wait on the device being
+    /// switched to, and the menu that asked has already closed.
     func select(_ device: Device) {
-        let status = Self.writeDefaultOutput(device.id)
-        if status != noErr { IslandLog.audio.error("could not select output \(device.name, privacy: .public): \(status, privacy: .public)") }
-        reloadDevices()
+        reader.async { [weak self] in
+            let status = Self.writeDefaultOutput(device.id)
+            if status != noErr { IslandLog.audio.error("could not select output \(device.name, privacy: .public): \(status, privacy: .public)") }
+            DispatchQueue.main.async { self?.reloadDevices() }
+        }
     }
 
     /// The two writes that send the sound to an AirPlay receiver, in the order they are made.
@@ -321,7 +401,18 @@ final class AudioOutputs: ObservableObject {
     /// where it was, wherever CoreAudio could say where that was — a refused receiver by putting
     /// back the output the first step moved away from, as `rollback` decides — and the route
     /// picker under the list is still there to do it the system's way.
+    ///
+    /// On `reader`: switching the output waits on the audio server and on the AirPlay device,
+    /// and the menu that asked has already closed.
     func selectAirPlay(_ target: AirPlayTarget) {
+        reader.async { [weak self] in
+            Self.send(to: target)
+            DispatchQueue.main.async { self?.reloadDevices() }
+        }
+    }
+
+    /// The writes `selectAirPlay` makes, in order. On `reader`.
+    private static func send(to target: AirPlayTarget) {
         // Read before anything is written: the one to go back to if the receiver says no.
         let previous = AudioMonitor.defaultOutputDevice()
         var failed: AirPlayStep?
@@ -354,7 +445,6 @@ final class AudioOutputs: ObservableObject {
                 IslandLog.audio.error("could not put the output back after \(target.name, privacy: .public) refused: \(restored, privacy: .public)")
             }
         }
-        reloadDevices()
     }
 
     /// Makes `device` the system's default output: the write the Sound pane makes.
@@ -411,13 +501,13 @@ final class AudioOutputs: ObservableObject {
                         handler: @escaping () -> Void) -> Registration {
         var address = address
         let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
-        _ = AudioObjectAddPropertyListenerBlock(object, &address, queue, block)
+        _ = AudioObjectAddPropertyListenerBlock(object, &address, callbacks, block)
         return Registration(object: object, address: address, block: block)
     }
 
     private func remove(_ registrations: inout [Registration]) {
         for var r in registrations {
-            _ = AudioObjectRemovePropertyListenerBlock(r.object, &r.address, queue, r.block)
+            _ = AudioObjectRemovePropertyListenerBlock(r.object, &r.address, callbacks, r.block)
         }
         registrations.removeAll()
     }
