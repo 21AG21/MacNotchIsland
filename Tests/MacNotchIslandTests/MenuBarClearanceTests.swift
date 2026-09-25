@@ -82,6 +82,38 @@ final class MenuBarClearanceTests: XCTestCase {
     }
 
     func testMenuClearanceIsUnknownWithoutAnApp() {
-        XCTAssertNil(MenuBarClearance.menuClearance(app: nil, notchMinX: 755))
+        XCTAssertNil(MenuBarClearance.menuClearance(app: nil, menuBar: CGRect(x: 0, y: 0, width: 1710, height: 32),
+                                                    notchMinX: 755))
+    }
+
+    /// The app's menus are drawn on the menu bar of the display that has the keyboard, and
+    /// Accessibility reports them there. Titles on another display say nothing about the room
+    /// beside the notch — not none, and not the width of the desk.
+    func testMenuTitlesOnAnotherDisplaySayNothingAboutTheNotchedMenuBar() {
+        let band = CGRect(x: 0, y: 0, width: 1710, height: 32)
+        // The Apple menu, then the app's menus as far as x = 340; the notch starts at 755.
+        let titles = [CGRect(x: 0, y: 0, width: 40, height: 24), CGRect(x: 40, y: 0, width: 300, height: 24)]
+        XCTAssertEqual(MenuBarClearance.menuClearance(itemFrames: titles, menuBar: band, notchMinX: 755), 415)
+        // An external display to the right, its Apple menu starting where this band ends.
+        let right = titles.map { $0.offsetBy(dx: 1710, dy: 0) }
+        XCTAssertNil(MenuBarClearance.menuClearance(itemFrames: right, menuBar: band, notchMinX: 755),
+                     "unknown, rather than no room at all")
+        let left = titles.map { $0.offsetBy(dx: -2560, dy: 0) }
+        XCTAssertNil(MenuBarClearance.menuClearance(itemFrames: left, menuBar: band, notchMinX: 755),
+                     "unknown, rather than room for anything")
+        XCTAssertNil(MenuBarClearance.menuClearance(itemFrames: [], menuBar: band, notchMinX: 755))
+    }
+
+    func testMenuTitlesAreFoundOnANotchedScreenBelowThePrimary() {
+        // The external display is primary and has the keyboard; the built-in sits below it.
+        let band = MenuBarClearance.menuBarBand(screenFrame: CGRect(x: 524, y: -982, width: 1512, height: 982),
+                                                primaryHeight: 1440, notchHeight: 32)
+        let notchMinX: CGFloat = 524 + 1512 / 2 - 100
+        let onExternal = [CGRect(x: 0, y: 0, width: 400, height: 24)]
+        XCTAssertNil(MenuBarClearance.menuClearance(itemFrames: onExternal, menuBar: band, notchMinX: notchMinX),
+                     "the titles are on the external display's menu bar, above")
+        let onBuiltIn = [CGRect(x: 524, y: 1440, width: 400, height: 24)]
+        XCTAssertEqual(MenuBarClearance.menuClearance(itemFrames: onBuiltIn, menuBar: band, notchMinX: notchMinX),
+                       notchMinX - 924)
     }
 }

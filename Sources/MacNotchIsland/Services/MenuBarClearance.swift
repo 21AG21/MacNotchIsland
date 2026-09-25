@@ -89,7 +89,7 @@ final class MenuBarClearance: ObservableObject {
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
             let band = Self.menuBarBand(screenFrame: frame, primaryHeight: primaryHeight, notchHeight: geometry.notchHeight)
             let trailing = Self.statusItemClearance(windows: windows, menuBar: band, notchMaxX: notch.maxX)
-            let leading = Self.menuClearance(app: app, notchMinX: notch.minX)
+            let leading = Self.menuClearance(app: app, menuBar: band, notchMinX: notch.minX)
             let measured = Limits(leading: leading, trailing: trailing)
             DispatchQueue.main.async {
                 guard let self, self.timer != nil, ticket == self.generation else { return }
@@ -145,9 +145,10 @@ final class MenuBarClearance: ObservableObject {
         return nearest.map { max(0, $0 - notchMaxX) }
     }
 
-    /// Room between the frontmost app's last menu title and the notch's left edge. Needs the
-    /// Accessibility permission; nil without it, or when the menu bar cannot be read.
-    static func menuClearance(app: NSRunningApplication?, notchMinX: CGFloat) -> CGFloat? {
+    /// Room between the frontmost app's last menu title and the notch's left edge, `menuBar`
+    /// being the menu bar's band on the notched screen. Needs the Accessibility permission;
+    /// nil without it, or when the menu bar cannot be read.
+    static func menuClearance(app: NSRunningApplication?, menuBar band: CGRect, notchMinX: CGFloat) -> CGFloat? {
         guard let app, AXIsProcessTrusted() else { return nil }
         let application = AXUIElementCreateApplication(app.processIdentifier)
         var menuBarValue: CFTypeRef?
@@ -157,11 +158,23 @@ final class MenuBarClearance: ObservableObject {
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(menuBar, kAXChildrenAttribute as CFString, &childrenValue) == .success,
               let items = childrenValue as? [AXUIElement], !items.isEmpty else { return nil }
-        var rightEdge: CGFloat = 0
-        for item in items {
-            guard let frame = frame(of: item) else { continue }
-            rightEdge = max(rightEdge, frame.maxX)
-        }
+        return menuClearance(itemFrames: items.compactMap { frame(of: $0) }, menuBar: band, notchMinX: notchMinX)
+    }
+
+    /// The same, from the menu titles' frames (Accessibility's top-left coordinates, which are
+    /// the window list's).
+    ///
+    /// Only titles on the notched screen's menu bar count, a title being on it when its middle
+    /// is — a display beside this one starts where this one ends, and its first title can
+    /// touch the edge of this band. The app's menus are drawn on the menu bar of the display
+    /// that has the keyboard, and Accessibility reports them there: with that display the
+    /// external one, every title was taken to be beside the notch anyway, and the room came
+    /// out as nothing (a display to the right) or as the width of the desk (one to the left).
+    /// Titles that are somewhere else say nothing about this menu bar, so the answer is
+    /// unknown, as it is without the permission.
+    static func menuClearance(itemFrames: [CGRect], menuBar: CGRect, notchMinX: CGFloat) -> CGFloat? {
+        let here = itemFrames.filter { $0.width > 0 && menuBar.contains(CGPoint(x: $0.midX, y: $0.midY)) }
+        guard let rightEdge = here.map(\.maxX).max() else { return nil }
         return max(0, notchMinX - rightEdge)
     }
 

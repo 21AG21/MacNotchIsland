@@ -13,9 +13,10 @@ import ObjectiveC
 /// `CBTrueToneClient`. Each is looked up by name, each method is asked for before it is called,
 /// and a control whose calls are missing is not drawn at all.
 ///
-/// The built-in panel is not driven from here. `BrightnessControl` already reads and writes it
-/// for the rail's own slider, and two pollers writing one display would argue with each other;
-/// its slider in the popover is that one.
+/// The display the rail's own slider drives is not driven from here: the built-in panel, or with
+/// the lid shut the main display (`BrightnessMonitor.drivenDisplay`). `BrightnessControl`
+/// already reads and writes it, and two pollers writing one display would argue with each
+/// other; its slider in the popover is that one.
 ///
 /// Readings are taken off the main thread — a display on the far end of a cable answers in its
 /// own time — when the popover opens and every two seconds while it is open, slower on battery.
@@ -26,12 +27,13 @@ final class DisplayControl: ObservableObject {
     struct Screen: Identifiable, Equatable {
         let id: CGDirectDisplayID
         var name: String
-        /// The built-in panel, whose level is `BrightnessControl`'s rather than read here.
+        /// The display the rail's slider drives, whose level is `BrightnessControl`'s rather
+        /// than read here: the built-in panel, or with the lid shut the main display.
         var isBuiltIn: Bool
         var level: Double
     }
 
-    /// The built-in panel first, when it answers, then every other display that does.
+    /// The rail's display first, when it answers, then every other display that does.
     @Published private(set) var screens: [Screen] = []
     /// A first pass has come back, so an empty `screens` means no display answered rather than
     /// that none has been asked yet.
@@ -161,26 +163,33 @@ final class DisplayControl: ObservableObject {
 
     // MARK: - Pure rules
 
-    /// Which displays get a slider, in the order they are shown: the built-in panel first when
-    /// its own brightness service answers, then every other display whose brightness read
-    /// comes back with a status of zero. A display that answers anything else — most monitors
-    /// on the far end of a cable — has no slider rather than one that does nothing.
+    /// Which displays get a slider, in the order they are shown: the display the rail's slider
+    /// drives first (`railDisplay`, see `BrightnessMonitor.drivenDisplay`) when its own
+    /// brightness service answers, then every other display whose brightness read comes back
+    /// with a status of zero. A display that answers anything else — most monitors on the far
+    /// end of a cable — has no slider rather than one that does nothing.
+    ///
+    /// The rail's display is never one of the others, and is not even read here. It used to be
+    /// the built-in panel that was kept out, by name; but with the lid shut there is no
+    /// built-in panel, the rail's slider drives the main display instead, and that display
+    /// answered here as well — two sliders in the popover for one display, and two pollers
+    /// writing it. A built-in panel is still never read here, as before.
     static func sliderDisplays(online: [CGDirectDisplayID],
                                isBuiltIn: (CGDirectDisplayID) -> Bool,
-                               builtInAnswers: Bool,
+                               railDisplay: CGDirectDisplayID,
+                               railAnswers: Bool,
                                status: (CGDirectDisplayID) -> Int32?) -> [CGDirectDisplayID] {
         var seen: Set<CGDirectDisplayID> = []
-        var builtIn: [CGDirectDisplayID] = []
+        var rail: [CGDirectDisplayID] = []
         var others: [CGDirectDisplayID] = []
         for id in online where seen.insert(id).inserted {
-            if isBuiltIn(id) {
-                // One built-in panel, driven by `BrightnessControl`.
-                if builtInAnswers, builtIn.isEmpty { builtIn.append(id) }
-            } else if status(id) == 0 {
+            if id == railDisplay {
+                if railAnswers { rail = [id] }
+            } else if !isBuiltIn(id), status(id) == 0 {
                 others.append(id)
             }
         }
-        return builtIn + others
+        return rail + others
     }
 
     /// Night Shift's switch, read out of the status structure: the second byte. Nil when the
@@ -235,13 +244,13 @@ final class DisplayControl: ObservableObject {
         guard !reading else { return }
         reading = true
         // Read here, on the main thread, and carried in: the screens' names are AppKit's, and
-        // whether the built-in panel answers is the brightness service's own reading.
+        // whether the rail's display answers is the brightness service's own reading.
         let names = Self.screenNames()
-        let builtInAnswers = BrightnessControl.shared.isAvailable
-        let builtInLevel = BrightnessControl.shared.level
+        let railAnswers = BrightnessControl.shared.isAvailable
+        let railLevel = BrightnessControl.shared.level
         queue.async { [weak self] in
             guard let self else { return }
-            let snapshot = self.take(names: names, builtInAnswers: builtInAnswers, builtInLevel: builtInLevel)
+            let snapshot = self.take(names: names, railAnswers: railAnswers, railLevel: railLevel)
             DispatchQueue.main.async {
                 self.reading = false
                 self.apply(snapshot)
@@ -250,7 +259,7 @@ final class DisplayControl: ObservableObject {
     }
 
     /// On the queue.
-    private func take(names: [CGDirectDisplayID: String], builtInAnswers: Bool, builtInLevel: Double) -> Snapshot {
+    private func take(names: [CGDirectDisplayID: String], railAnswers: Bool, railLevel: Double) -> Snapshot {
         if !bridgesLoaded {
             bridgesLoaded = true
             nightShift = NightShift.load()
@@ -259,8 +268,11 @@ final class DisplayControl: ObservableObject {
         var snapshot = Snapshot()
         var levels: [CGDirectDisplayID: Double] = [:]
         let online = Self.onlineDisplays()
-        let ids = Self.sliderDisplays(online: online, isBuiltIn: { CGDisplayIsBuiltin($0) != 0 },
-                                      builtInAnswers: builtInAnswers) { id in
+        let isBuiltIn: (CGDirectDisplayID) -> Bool = { CGDisplayIsBuiltin($0) != 0 }
+        // The rail's display, by the rule the rail's own monitor uses, from the same list.
+        let rail = BrightnessMonitor.drivenDisplay(in: online, isBuiltIn: isBuiltIn, main: CGMainDisplayID())
+        let ids = Self.sliderDisplays(online: online, isBuiltIn: isBuiltIn,
+                                      railDisplay: rail, railAnswers: railAnswers) { id in
             guard let calls = Self.brightnessCalls else { return nil }
             var value: Float = 0
             let status = calls.get(id, &value)
@@ -268,9 +280,9 @@ final class DisplayControl: ObservableObject {
             return status
         }
         snapshot.screens = ids.map { id in
-            let builtIn = CGDisplayIsBuiltin(id) != 0
-            return Screen(id: id, name: names[id] ?? (builtIn ? "Built-in Display" : "Display"),
-                          isBuiltIn: builtIn, level: builtIn ? builtInLevel : (levels[id] ?? 0))
+            let isRails = id == rail
+            return Screen(id: id, name: names[id] ?? (isBuiltIn(id) ? "Built-in Display" : "Display"),
+                          isBuiltIn: isRails, level: isRails ? railLevel : (levels[id] ?? 0))
         }
         if let nightShift, let on = nightShift.isOn() {
             snapshot.nightShift = (on: on, warmth: nightShift.warmth())
@@ -332,7 +344,7 @@ final class DisplayControl: ObservableObject {
 
     // MARK: - Writing
 
-    /// Sets one display's brightness. The built-in panel goes through `BrightnessControl`, which
+    /// Sets one display's brightness. The rail's display goes through `BrightnessControl`, which
     /// owns it.
     func setBrightness(_ value: Double, display: CGDirectDisplayID) {
         let level = min(1, max(0, value))

@@ -5,6 +5,12 @@ import UniformTypeIdentifiers
 /// "General": when Notch Island runs, where the island shows itself, and the notch geometry.
 struct GeneralPane: View {
     @ObservedObject private var prefs = Preferences.shared
+    /// Accessibility is granted in System Settings, which tells nobody; it is read again while
+    /// this pane is open so the Hiding section's note goes the moment it is granted.
+    @State private var accessibilityTrusted = MediaKeyInterceptor.isTrusted
+    /// Held rather than built inside `onReceive`, where it would be a new publisher on every
+    /// pass of the body.
+    private let permissionTicker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Form {
@@ -37,10 +43,27 @@ struct GeneralPane: View {
             Section {
                 Toggle("Hide in full-screen apps", isOn: $prefs.hideInFullscreen)
                     .help("Keep the island out of the way while an app is full screen.")
+                // On the display with the notch a full-screen window is the size of one zoomed
+                // under the menu bar, and only the app can say for certain which it is. Without
+                // Accessibility that display used never to count as covered, and nothing here
+                // said so; now it is judged by its menu bar, and this says that too.
+                if needsAccessibilityForFullScreen {
+                    LabeledContent("Full screen on the display with the notch") {
+                        HStack(spacing: 8) {
+                            Text("Estimated")
+                                .foregroundStyle(.secondary)
+                            Button("Accessibility…") { SystemSettingsPane.accessibility.open() }
+                        }
+                    }
+                }
             } header: {
                 Text("Hiding")
             } footer: {
-                Text("The island returns as soon as you leave full screen. The menu bar can also hide it for an hour at a time.")
+                Text(hidingFooter)
+            }
+            .onReceive(permissionTicker) { _ in
+                let trusted = MediaKeyInterceptor.isTrusted
+                if accessibilityTrusted != trusted { accessibilityTrusted = trusted }
             }
 
             Section {
@@ -77,6 +100,18 @@ struct GeneralPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Whether hiding in full screen is on, a display has a notch, and Accessibility has not
+    /// been allowed — the one arrangement where the island has to guess.
+    private var needsAccessibilityForFullScreen: Bool {
+        prefs.hideInFullscreen && !accessibilityTrusted && NSScreen.screens.contains { $0.safeAreaInsets.top > 0 }
+    }
+
+    private var hidingFooter: String {
+        let base = "The island returns as soon as you leave full screen. The menu bar can also hide it for an hour at a time."
+        guard needsAccessibilityForFullScreen else { return base }
+        return base + " On the display with the notch, a full-screen window is the same size as one zoomed under the menu bar, and telling them apart for certain takes Accessibility. Without it the island goes by whether that display's menu bar has gone — so with the menu bar set to hide automatically, a zoomed window there hides the island too."
     }
 
     /// The widest the Width slider goes.

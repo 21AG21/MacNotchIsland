@@ -9,10 +9,11 @@ final class DisplayControlTests: XCTestCase {
     private let studio: CGDirectDisplayID = 5
     private let projector: CGDirectDisplayID = 9
 
-    private func sliders(_ online: [CGDirectDisplayID], builtInAnswers: Bool = true,
+    /// The rail's display is the built-in panel unless a test says otherwise.
+    private func sliders(_ online: [CGDirectDisplayID], rail: CGDirectDisplayID? = nil, railAnswers: Bool = true,
                          status: [CGDirectDisplayID: Int32]) -> [CGDirectDisplayID] {
         DisplayControl.sliderDisplays(online: online, isBuiltIn: { $0 == self.builtIn },
-                                      builtInAnswers: builtInAnswers, status: { status[$0] })
+                                      railDisplay: rail ?? builtIn, railAnswers: railAnswers, status: { status[$0] })
     }
 
     func testADisplayThatAnswersGetsASliderAndOneThatRefusesDoesNot() {
@@ -28,7 +29,32 @@ final class DisplayControlTests: XCTestCase {
         // the first slider wherever it is in it.
         XCTAssertEqual(sliders([studio, builtIn], status: [studio: 0]), [builtIn, studio])
         // Its level is `BrightnessControl`'s, so its own reading decides, not a status here.
-        XCTAssertEqual(sliders([builtIn, studio], builtInAnswers: false, status: [builtIn: 0, studio: 0]), [studio])
+        XCTAssertEqual(sliders([builtIn, studio], railAnswers: false, status: [builtIn: 0, studio: 0]), [studio])
+    }
+
+    /// With the lid shut there is no built-in panel, and the rail's slider drives the main
+    /// display. The popover gave that display a slider of its own as well: two sliders and two
+    /// pollers for one display.
+    func testWithTheLidShutTheMainDisplayIsTheRailsAndGetsOneSlider() {
+        let online = [projector, studio]
+        let rail = BrightnessMonitor.drivenDisplay(in: online, isBuiltIn: { $0 == self.builtIn }, main: studio)
+        XCTAssertEqual(rail, studio, "no built-in panel online: the rail drives the main display")
+        let answers: [CGDirectDisplayID: Int32] = [studio: 0, projector: 0]
+        var asked: [CGDirectDisplayID] = []
+        let ids = DisplayControl.sliderDisplays(online: online, isBuiltIn: { $0 == self.builtIn }, railDisplay: rail,
+                                                railAnswers: true, status: { id in
+            asked.append(id)
+            return answers[id]
+        })
+        XCTAssertEqual(ids, [studio, projector], "the rail's display first, and once")
+        XCTAssertFalse(asked.contains(studio), "and never read here, where a second poller would argue with the rail's")
+        XCTAssertEqual(sliders(online, rail: studio, railAnswers: false, status: answers), [projector],
+                       "a display the rail cannot read is not handed to the popover to drive instead")
+    }
+
+    func testWithTheLidOpenTheRailDrivesTheBuiltInPanelWhereverItIsListed() {
+        XCTAssertEqual(BrightnessMonitor.drivenDisplay(in: [studio, builtIn], isBuiltIn: { $0 == self.builtIn }, main: studio),
+                       builtIn, "the built-in panel, even with the external display as the main one")
     }
 
     func testADisplayListedTwiceIsOneSlider() {

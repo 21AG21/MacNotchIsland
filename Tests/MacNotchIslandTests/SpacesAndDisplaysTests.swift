@@ -4,7 +4,8 @@ import SwiftUI
 
 /// The rules behind the island's dealings with Spaces, displays and the mouse: what the panel
 /// lets through, which island shows what was opened, when an app coming forward is the user
-/// leaving, and which display a full-screen app takes with it.
+/// leaving, which display a full-screen app takes with it, when the island's own space may
+/// show, and when a change of displays rebuilds the panels.
 final class SpacesAndDisplaysTests: XCTestCase {
     private var center: ActivityCenter { ActivityCenter.shared }
 
@@ -157,6 +158,167 @@ final class SpacesAndDisplaysTests: XCTestCase {
                        "the same frame is an ordinary window zoomed under the menu bar unless the app says otherwise")
         XCTAssertTrue(FullscreenMonitor.covers(notched, CGRect(x: 0, y: 0, width: 1710, height: 1107), reportedFullScreen: false),
                       "a window over the whole display, housing and all, is full screen whatever it says")
+    }
+
+    /// Without Accessibility the app cannot be asked, and the display's menu bar speaks for it:
+    /// a full-screen Space takes the menu bar away, and a zoomed window leaves it there.
+    func testWithoutAccessibilityAMenuBarThatHasGoneStandsForTheAppsWord() {
+        let notched = FullscreenMonitor.Screen(panelID: "screen-1", rect: CGRect(x: 0, y: 0, width: 1710, height: 1107), top: 37)
+        let belowHousing = CGRect(x: 0, y: 37, width: 1710, height: 1070)
+        XCTAssertTrue(FullscreenMonitor.covers(notched, belowHousing, reportedFullScreen: false, menuBarVisible: false))
+        XCTAssertFalse(FullscreenMonitor.covers(notched, belowHousing, reportedFullScreen: false, menuBarVisible: true),
+                       "a zoomed window, with the menu bar where it always is")
+        let plain = FullscreenMonitor.Screen(panelID: "screen-2", rect: CGRect(x: 1710, y: 0, width: 2560, height: 1440), top: 0)
+        XCTAssertFalse(FullscreenMonitor.covers(plain, CGRect(x: 1710, y: 25, width: 2560, height: 1415), reportedFullScreen: false,
+                                                menuBarVisible: false),
+                       "a display with no housing has nothing for a window to stop short of")
+    }
+
+    func testAMenuBarIsOnTheDisplayWhoseTopEdgeItRunsAlong() {
+        let notched = FullscreenMonitor.Screen(panelID: "screen-1", rect: CGRect(x: 0, y: 0, width: 1710, height: 1107), top: 37)
+        let bar = CGRect(x: 0, y: 0, width: 1710, height: 37)
+        XCTAssertTrue(FullscreenMonitor.menuBarVisible(on: notched, menuBars: [bar]))
+        XCTAssertFalse(FullscreenMonitor.menuBarVisible(on: notched, menuBars: [CGRect(x: 1710, y: 0, width: 2560, height: 25)]),
+                       "the other display's menu bar is not this one's")
+        XCTAssertFalse(FullscreenMonitor.menuBarVisible(on: notched, menuBars: [bar.offsetBy(dx: 0, dy: -37)]),
+                       "slid up out of sight is gone")
+        XCTAssertFalse(FullscreenMonitor.menuBarVisible(on: notched, menuBars: []))
+    }
+
+    // MARK: - Full screen, whoever's window it is
+
+    private let notchedScreen = FullscreenMonitor.Screen(panelID: "screen-1", rect: CGRect(x: 0, y: 0, width: 1710, height: 1107), top: 37)
+    private let externalScreen = FullscreenMonitor.Screen(panelID: "screen-2", rect: CGRect(x: 1710, y: 0, width: 2560, height: 1440), top: 0)
+    private let belowTheHousing = CGRect(x: 0, y: 37, width: 1710, height: 1070)
+    private let safariWindow = CGRect(x: 120, y: 80, width: 1200, height: 800)
+
+    func testAFilmFullScreenOnTheExternalDisplayStaysCoveredWhenAnotherAppComesForward() {
+        // The film is QuickTime's; Safari has just been clicked on the MacBook and is in front.
+        let windows = [FullscreenMonitor.Window(pid: 30, frame: safariWindow),
+                       FullscreenMonitor.Window(pid: 20, frame: externalScreen.rect)]
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       fullScreenFrames: nil),
+                       ["screen-2"], "the film is still full screen, whoever is in front")
+    }
+
+    func testAccessibilityIsAskedOnlyOfAnAppWithAWindowThatCouldBeFullScreen() {
+        let windows = [FullscreenMonitor.Window(pid: 30, frame: safariWindow),
+                       FullscreenMonitor.Window(pid: 40, frame: belowTheHousing),
+                       FullscreenMonitor.Window(pid: 40, frame: belowTheHousing)]
+        var asked: [pid_t] = []
+        let covered = FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                      fullScreenFrames: { pid in
+            asked.append(pid)
+            return pid == 40 ? [self.belowTheHousing] : []
+        })
+        XCTAssertEqual(covered, ["screen-1"])
+        XCTAssertEqual(asked, [40], "once, and never Safari, whose ordinary window could not be full screen")
+
+        asked = []
+        let zoomed = FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen],
+                                                     fullScreenFrames: { pid in
+            asked.append(pid)
+            return []
+        })
+        XCTAssertEqual(zoomed, [], "the app says the window is only zoomed, and the app is believed")
+        XCTAssertEqual(asked, [40])
+    }
+
+    func testWithoutAccessibilityTheNotchedDisplayIsCoveredOnceItsMenuBarHasGone() {
+        let windows = [FullscreenMonitor.Window(pid: 40, frame: belowTheHousing)]
+        let bar = CGRect(x: 0, y: 0, width: 1710, height: 37)
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [bar], screens: [notchedScreen], fullScreenFrames: nil),
+                       [], "zoomed under a menu bar that is still there")
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen], fullScreenFrames: nil),
+                       ["screen-1"], "it used never to count at all without Accessibility")
+        var noMenuBar = notchedScreen
+        noMenuBar.hasMenuBar = false
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [noMenuBar], fullScreenFrames: nil),
+                       [], "a display that never has a menu bar cannot say anything by lacking one")
+    }
+
+    private func listed(pid: pid_t, owner: String, layer: Int = 0, name: String? = nil, bounds: CGRect,
+                        alpha: Double = 1) -> [String: Any] {
+        var entry: [String: Any] = [kCGWindowOwnerPID as String: pid,
+                                    kCGWindowOwnerName as String: owner,
+                                    kCGWindowLayer as String: layer,
+                                    kCGWindowAlpha as String: alpha,
+                                    kCGWindowBounds as String: bounds.dictionaryRepresentation]
+        if let name { entry[kCGWindowName as String] = name }
+        return entry
+    }
+
+    func testTheWindowListIsEveryAppsOrdinaryWindowsAndTheMenuBars() {
+        let film = externalScreen.rect
+        let bar = CGRect(x: 0, y: 0, width: 1710, height: 37)
+        let otherBar = CGRect(x: 1710, y: 0, width: 2560, height: 25)
+        let seen = FullscreenMonitor.windowList([
+            listed(pid: 20, owner: "QuickTime Player", bounds: film),
+            listed(pid: 30, owner: "Safari", bounds: safariWindow),
+            listed(pid: 1, owner: "Notch Island", bounds: film),
+            listed(pid: 2, owner: "Finder", bounds: film),
+            listed(pid: 3, owner: "Dock", bounds: film),
+            listed(pid: 4, owner: "Window Server", layer: 24, name: "Menubar", bounds: bar),
+            // Another process's window names are withheld without Screen Recording.
+            listed(pid: 4, owner: "Window Server", layer: 24, bounds: otherBar),
+            listed(pid: 4, owner: "Window Server", layer: 24, name: "Backstop Menubar", bounds: bar),
+            listed(pid: 50, owner: "Palette", layer: 3, bounds: film),
+            listed(pid: 60, owner: "Ghost", bounds: film, alpha: 0),
+        ], ignoring: [1, 2])
+        XCTAssertEqual(seen.windows, [FullscreenMonitor.Window(pid: 20, frame: film),
+                                      FullscreenMonitor.Window(pid: 30, frame: safariWindow)],
+                       "every app's ordinary windows, not ours, the Finder's, the Dock's, a palette or one nobody can see")
+        XCTAssertEqual(seen.menuBars, [bar, otherBar])
+    }
+
+    // MARK: - The island's own space
+
+    func testTheIslandsSpaceIsNeverShownOverTheLockScreenOrAScreenSaver() {
+        XCTAssertTrue(IslandSpace.shows(locked: false, screenSaverRunning: false))
+        XCTAssertFalse(IslandSpace.shows(locked: true, screenSaverRunning: false),
+                       "a space made at the lock screen — the app launched there by a script's alert — starts hidden")
+        XCTAssertFalse(IslandSpace.shows(locked: false, screenSaverRunning: true),
+                       "nor over a screen saver that asks for no password")
+        XCTAssertFalse(IslandSpace.shows(locked: true, screenSaverRunning: true))
+    }
+
+    func testAMenusWindowsJoinTheSpaceAndNothingBelowTheIslandDoes() {
+        let me: pid_t = 100
+        let level = NotchPanel.islandLevel.rawValue
+        func window(_ number: Int, pid: pid_t = 100, layer: Int) -> [String: Any] {
+            [kCGWindowNumber as String: number, kCGWindowOwnerPID as String: pid, kCGWindowLayer as String: layer]
+        }
+        let list = [window(1, layer: level),          // the panel itself
+                    window(2, layer: 101),            // the right-click menu
+                    window(3, layer: 101),            // a submenu
+                    window(4, layer: 0),              // Settings
+                    window(5, layer: 25),             // the status item
+                    window(6, pid: 200, layer: 101)]  // another app's menu
+        XCTAssertEqual(IslandSpace.menuWindowNumbers(in: list, pid: me, above: level), [2, 3])
+    }
+
+    // MARK: - Which displays the panels were built for
+
+    func testMovingTheMenuBarToAnotherDisplayRebuildsTheFloatingIsland() {
+        let external = CGSize(width: 2560, height: 1440)
+        let builtIn = CGSize(width: 1512, height: 982)
+        let before: Set = [NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: true),
+                           NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: false)]
+        let after: Set = [NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: false),
+                          NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: true)]
+        XCTAssertTrue(AppDelegate.displaysChanged(now: after, before: before),
+                      "the floating pill hangs under a menu bar, or does not, by where the menu bar is")
+        let again: Set = [NotchPanel.displayKey(number: "2", size: external, safeAreaTop: 0, isPrimary: true),
+                          NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: false)]
+        XCTAssertFalse(AppDelegate.displaysChanged(now: again, before: before), "nothing moved, nothing to rebuild")
+    }
+
+    func testANotchedIslandIsNotRebuiltForTheMenuBarMoving() {
+        // As tall as the housing wherever the menu bar is: a monitor plugged in and given the
+        // menu bar is no reason to tear the MacBook's island down.
+        let builtIn = CGSize(width: 1512, height: 982)
+        XCTAssertEqual(NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: true),
+                       NotchPanel.displayKey(number: "1", size: builtIn, safeAreaTop: 32, isPrimary: false))
     }
 
     func testADisplayGoingFullScreenTakesOnlyItsOwnInteraction() {

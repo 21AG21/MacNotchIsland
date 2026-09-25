@@ -39,8 +39,10 @@ final class NotchPanel: NSPanel {
     let geometry: NotchGeometry
     let panelID: String
     /// Identifies the display this panel was built for, in the terms that decide whether it
-    /// must be rebuilt: which screen, its size, and the notch's height. Menu-bar-derived
-    /// values are left out on purpose, since a full-screen app changes those.
+    /// must be rebuilt: which screen, its size, the notch's height, and — for a display
+    /// without a notch — whether it is the primary display. Menu-bar-derived values are left
+    /// out on purpose, since a full-screen app changes those; see
+    /// `displayKey(number:size:safeAreaTop:isPrimary:)`.
     let displayKey: String
     private let screenNumber: NSNumber?
     private var hosting: NotchHostingView<AnyView>?
@@ -140,10 +142,13 @@ final class NotchPanel: NSPanel {
             .sink { [weak self] _ in self?.scheduleRefit() }
             .store(in: &cancellables)
         // Out of screen sharing while that is asked for, always or for the length of a call.
+        // A call is the detector's, which follows one with the Calls card switched off too,
+        // or a call card on the island, which is also how the status menu's demo call counts.
         let prefs = Preferences.shared
-        Publishers.CombineLatest3(prefs.$hiddenFromScreenSharing, prefs.$hideFromScreenSharingDuringCalls,
-                                  ActivityCenter.shared.$activities.map { $0.contains { $0.kind == .call } })
-            .map { NotchPanel.sharesScreen(hidden: $0.0, duringCalls: $0.1, inCall: $0.2) }
+        Publishers.CombineLatest4(prefs.$hiddenFromScreenSharing, prefs.$hideFromScreenSharingDuringCalls,
+                                  ActivityCenter.shared.$activities.map { $0.contains { $0.kind == .call } },
+                                  CallDetector.shared.$call.map { $0 != nil })
+            .map { NotchPanel.sharesScreen(hidden: $0.0, duringCalls: $0.1, inCall: $0.2 || $0.3) }
             .removeDuplicates()
             .sink { [weak self] sharing in
                 guard Thread.isMainThread else {
@@ -391,15 +396,37 @@ final class NotchPanel: NSPanel {
     /// Every way the window comes on screen puts it in the island's own space, and every way
     /// it leaves takes it out; see `IslandSpace`. Ordering out and back in is how key status
     /// is handed back (`scheduleKeyRelease`), and a window ordered back in by AppKit is back
-    /// in AppKit's spaces alone.
+    /// in AppKit's spaces alone. Out of the space only once it is off the screen, so it is
+    /// never seen dropping into the desktop's layer on its way.
     override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
         super.order(place, relativeTo: otherWin)
-        if place == .out { IslandSpace.shared.release(self) } else { IslandSpace.shared.adopt(self) }
+        if place == .out { IslandSpace.shared.release(self) } else { joinIslandSpace() }
     }
 
     override func orderFrontRegardless() {
         super.orderFrontRegardless()
+        joinIslandSpace()
+    }
+
+    /// The panel, and whatever it has attached: AppKit orders a child back in with its parent,
+    /// and a child ordered back in is back in AppKit's spaces alone, as the panel is.
+    private func joinIslandSpace() {
         IslandSpace.shared.adopt(self)
+        for child in childWindows ?? [] { IslandSpace.shared.adoptChild(child) }
+    }
+
+    /// A popover opened from the island — the rail's Display and keyboard-light popovers among
+    /// them — is a window of its own, which AppKit attaches to this one as a child. It goes in
+    /// the island's space with the panel for as long as it is attached, or the island it came
+    /// from could be drawn over it; see `IslandSpace.adoptChild`.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        IslandSpace.shared.adoptChild(childWin)
+    }
+
+    override func removeChildWindow(_ childWin: NSWindow) {
+        super.removeChildWindow(childWin)
+        IslandSpace.shared.releaseChild(childWin)
     }
 
     /// Follows what the panel needs: key status while the panel is pinned or a section that is
@@ -471,7 +498,25 @@ final class NotchPanel: NSPanel {
 
     static func displayKey(for screen: NSScreen) -> String {
         let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue ?? "?"
-        return "\(number)|\(Int(screen.frame.width))x\(Int(screen.frame.height))|\(Int(screen.safeAreaInsets.top))"
+        return displayKey(number: number, size: screen.frame.size, safeAreaTop: screen.safeAreaInsets.top,
+                          isPrimary: NotchGeometry.isPrimary(screen))
+    }
+
+    /// The key itself, from what it is made of, so the rule can be checked without a display.
+    ///
+    /// On a display without a notch, whether it is the primary one is part of it. Which
+    /// displays carry a menu bar follows the primary (every one of them with separate Spaces,
+    /// the primary alone without), and a floating island hangs a menu bar's height below the
+    /// top of a display that has one and at the very top of one that has not — measured once,
+    /// when the panel is built (`NotchGeometry.detect`). Dragging the menu bar to the other
+    /// display in the arrangement left every key as it was, so nothing was rebuilt, and the
+    /// pill stayed hanging under a menu bar that had gone, or over one that had arrived. A
+    /// notched island is as tall as the housing wherever the menu bar is, so its key leaves
+    /// the primary out, and plugging in a monitor that takes the menu bar does not rebuild it.
+    static func displayKey(number: String, size: CGSize, safeAreaTop: CGFloat, isPrimary: Bool) -> String {
+        let key = "\(number)|\(Int(size.width))x\(Int(size.height))|\(Int(safeAreaTop))"
+        guard safeAreaTop == 0 else { return key }
+        return key + (isPrimary ? "|primary" : "|secondary")
     }
 
     /// Whether a point in screen coordinates lies on this panel's island (not merely inside

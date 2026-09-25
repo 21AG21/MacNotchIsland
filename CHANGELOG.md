@@ -270,6 +270,13 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **The island's space never draws over the lock screen or a screen saver.** A space made while the screen was locked — the app launched at the lock screen by `notchctl alert` — was shown at once, and the card was drawn over the login window. It starts hidden now and is shown on unlock. The screen saver hides it too, and it comes back when the saver stops, unless the screen is locked.
+- **What the island opens is drawn over the island.** The rail's popovers and the island's right-click, shelf and window menus go into the island's own space while they are up, so they cannot open underneath it.
+- **Full screen stays full screen when another app comes forward.** Only the frontmost app's windows were looked at, so clicking Safari on the MacBook brought the external display's island back over a film within two seconds. Every app's windows count now, and Accessibility is asked only of an app that could be full screen on the notched display.
+- **Full screen on the notched display works without Accessibility.** There it never counted before. It counts once that display's menu bar has gone, and General says that granting Accessibility gives the exact answer.
+- **Moving the menu bar to another display moves the floating island with it.** The panel is rebuilt when a display without a notch becomes, or stops being, the one with the menu bar.
+- **The room beside the notch is measured on the notched display.** With the menu bar on an external display, the app's menu titles over there made the room come out as nothing, or as the whole desk.
+- **One brightness slider per display with the lid shut.** In clamshell mode the rail and the Display popover both drove the external display; the popover now leaves the rail's display to the rail.
 - **Lock Screen locks on every keyboard.** It pressed the key where a US keyboard has Q, which on a French keyboard is A and on Dvorak is an apostrophe, so it sent Control-Command-A and the Mac stayed unlocked; and since posting the keystroke counted as success, nothing else was tried. It now makes the Apple menu's own Lock Screen call first. The keystroke is only a fallback, pressed on whichever key types Q, and skipped on a keyboard with no Q.
 - **A missed alarm is seen by somebody.** It was reported with an eight-second card at wake, behind the lock screen, where nobody saw it. When the island cannot be seen a banner is posted too, as for an alarm that rings.
 - **A timer rings on time with a menu open.** Its ticker stopped while a menu was held open, so a countdown that ran out then rang when the menu closed.

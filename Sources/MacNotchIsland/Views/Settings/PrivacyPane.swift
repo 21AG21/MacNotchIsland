@@ -122,7 +122,7 @@ struct PrivacyPane: View {
                     set: { on in storeScreenSharing(hide: true, onlyDuringCalls: on) }
                 ))
                 .disabled(!shown.hide)
-                .help("Hide it only while the island is showing a call.")
+                .help("Hide it only during a call.")
             } header: {
                 Text("Screen sharing")
             } footer: {

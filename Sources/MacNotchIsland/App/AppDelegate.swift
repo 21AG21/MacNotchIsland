@@ -348,7 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Rebuilds the panels when the set of displays that should carry one differs from what
-    /// is on screen (a display added or removed, or resized). Returns whether it did.
+    /// is on screen (a display added or removed, or resized, or the menu bar moved to another
+    /// display — see `NotchPanel.displayKey`). Returns whether it did.
     @discardableResult
     private func rebuildPanelsIfGeometryChanged() -> Bool {
         let (built, wanted) = displayKeys()

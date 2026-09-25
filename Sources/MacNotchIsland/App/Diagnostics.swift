@@ -44,7 +44,7 @@ enum Diagnostics {
         lines.append("open \(String(describing: center.openView)) on \(center.openPanel ?? "every island") alert \(center.alert?.id ?? "-") activities \(center.activities.map(\.id)) suppressed \(center.isSuppressed) fullScreen \(center.fullscreenPanels.sorted())")
         if let health = (NSApp.delegate as? AppDelegate)?.panelHealth {
             let when = health.lastRebuiltAt.map { ISO8601DateFormatter().string(from: $0) } ?? "never"
-            lines.append("panels built \(health.rebuildCount) time(s) this run; last \(when) (\(health.lastRebuildReason)); own space \(IslandSpace.shared.isActive)")
+            lines.append("panels built \(health.rebuildCount) time(s) this run; last \(when) (\(health.lastRebuildReason)); own space \(IslandSpace.shared.isActive) shown \(IslandSpace.shared.isShown) screen locked \(ScreenLockMonitor.screenIsLocked)")
         }
         lines.append("prefs hoverToExpand \(p.hoverToExpand) expandOnIdleHover \(p.expandOnIdleHover) hideInFullscreen \(p.hideInFullscreen) hiddenApps \(p.hiddenAppBundleIDs) hudReplacement \(p.hudReplacementEnabled) gestures \(p.gesturesEnabled) keepClear \(p.keepClearOfMenuBar)")
         return lines.joined(separator: "\n")

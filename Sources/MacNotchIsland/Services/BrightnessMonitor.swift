@@ -93,18 +93,29 @@ final class BrightnessMonitor {
     // MARK: Internals
 
     private var builtInDisplay: CGDirectDisplayID {
-        Self.builtInDisplay(in: Self.onlineDisplays(), isBuiltIn: { CGDisplayIsBuiltin($0) != 0 }) ?? CGMainDisplayID()
+        Self.drivenDisplay(in: Self.onlineDisplays(), isBuiltIn: { CGDisplayIsBuiltin($0) != 0 }, main: CGMainDisplayID())
     }
 
     /// The built-in panel, whichever of the screens on the desk it is: the window server hands
     /// its list back in no order worth relying on. Nothing when there is none, which is a Mac
-    /// with only an external display attached and no brightness of its own to set — the callers
-    /// fall back to the main display, where the write is free to fail.
+    /// with only an external display attached and no brightness of its own to set.
     ///
     /// Kept apart from the window server's own answer so the rule can be checked without a Mac
     /// to check it on.
     static func builtInDisplay(in ids: [CGDirectDisplayID], isBuiltIn: (CGDirectDisplayID) -> Bool) -> CGDirectDisplayID? {
         ids.first(where: isBuiltIn)
+    }
+
+    /// The display this monitor reads and writes, and so the one the rail's slider drives: the
+    /// built-in panel, or with none online — the lid shut on an external display — the main
+    /// display, where a write is free to fail and one that takes it moves that display.
+    ///
+    /// The Display popover asks this same rule which display is the rail's
+    /// (`DisplayControl.sliderDisplays`), so it can never give that display a second slider of
+    /// its own.
+    static func drivenDisplay(in ids: [CGDirectDisplayID], isBuiltIn: (CGDirectDisplayID) -> Bool,
+                              main: CGDirectDisplayID) -> CGDirectDisplayID {
+        builtInDisplay(in: ids, isBuiltIn: isBuiltIn) ?? main
     }
 
     private static func onlineDisplays() -> [CGDirectDisplayID] {
