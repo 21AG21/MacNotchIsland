@@ -87,6 +87,16 @@ final class IslandSpace {
         observers.append(center.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
             self?.setShown(true)
         })
+        // The unlock notification is the one that shows the space again, and a space that
+        // stays hidden is an island that never comes back. So every other way the Mac comes
+        // back to the user is a chance to show it, once the session says it is unlocked.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.didWakeNotification] {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                if !ScreenLockMonitor.screenIsLocked { self?.setShown(true) }
+            })
+        }
         cancellable = Preferences.shared.$staysPutAcrossSpaces
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -150,7 +160,11 @@ final class IslandSpace {
             return
         }
         guard let bridge, space != 0 else { return }
-        for window in live { release(window) }
+        // Out of the space, but still on the list: switching the setting back on has to
+        // find them again, and `release` forgets a window for good.
+        for window in live where members.contains(window.windowNumber) {
+            bridge.remove(bridge.connection, [window.windowNumber] as CFArray, [space] as CFArray)
+        }
         bridge.hide(bridge.connection, [space] as CFArray)
         bridge.destroy(bridge.connection, space)
         space = 0

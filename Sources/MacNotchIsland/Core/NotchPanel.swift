@@ -202,7 +202,12 @@ final class NotchPanel: NSPanel {
     /// time and never ran out while the pointer was moving.
     private var pointerOnIsland = false
 
-    private func updatePassThrough() {
+    /// `pointerMoved` says a pointer event brought us here. A refit — the island changing
+    /// under a pointer that has not moved — updates what the window lets through and reports
+    /// a departure, but never an arrival: an island that widened under a pointer resting on
+    /// the menu bar beside it is not being pointed at, and reporting it was opened a peek
+    /// over the menu item every time a track changed.
+    private func updatePassThrough(pointerMoved: Bool = true) {
         let center = ActivityCenter.shared
         let pointer = NSEvent.mouseLocation
         let buttons = NSEvent.pressedMouseButtons
@@ -210,12 +215,19 @@ final class NotchPanel: NSPanel {
         // another window — would have kept the window solid for good, and the pill at its
         // pressed scale. No button is down, so nothing is pressed.
         if buttons == 0, center.pressedPanel == panelID { center.setPressed(false, panel: panelID) }
-        let onIsland = islandContains(screenPoint: pointer)
-        let nearIsland = onIsland || islandContains(screenPoint: pointer, margin: Self.passThroughMargin)
+        // The body only: a pointer resting on the bubble is not a hover (see
+        // `NotchHostingView.outline`), though a click on it is a click.
+        let onIsland = islandContains(screenPoint: pointer, includingBubble: false)
+        let onIslandOrBubble = onIsland || islandContains(screenPoint: pointer)
+        // The ring past the edge counts only on the way out, so the pointer's first moves
+        // off the island still reach the window. On the way in it would have been a strip
+        // of the menu bar beside the notch, and of the window under it, that swallowed a click.
+        let leaving = pointerOnIsland && islandContains(screenPoint: pointer, margin: Self.passThroughMargin)
         // A button held down while the window is solid is a press or a drag that began here.
         let holding = buttons != 0 && !ignoresMouseEvents
         let engaged = holding || center.controlDragging || center.dragPanel == panelID || center.pressedPanel == panelID
-        let pass = Self.passesThrough(onIsland: nearIsland, engaged: engaged, suppressed: center.isSuppressed(panel: panelID))
+        let pass = Self.passesThrough(onIsland: onIslandOrBubble || leaving, engaged: engaged,
+                                      suppressed: center.isSuppressed(panel: panelID))
         if ignoresMouseEvents != pass {
             ignoresMouseEvents = pass
             IslandLog.panel.debug("panel \(self.panelID, privacy: .public) \(pass ? "lets the mouse through" : "takes the mouse", privacy: .public)")
@@ -223,7 +235,7 @@ final class NotchPanel: NSPanel {
         // The view's own hover tracking rides on the events the window receives, and the
         // window stops receiving them the moment it goes transparent — so the arrival and
         // the departure are told to the centre from here as well, once each.
-        guard onIsland != pointerOnIsland else { return }
+        guard onIsland != pointerOnIsland, pointerMoved || !onIsland else { return }
         pointerOnIsland = onIsland
         center.setHovering(onIsland, panel: panelID)
     }
@@ -442,9 +454,10 @@ final class NotchPanel: NSPanel {
     /// Whether a point in screen coordinates lies on this panel's island (not merely inside
     /// the window, whose slack around the island is click-through). Geometry only; it never
     /// runs a view hit test, so it costs nothing and touches no view state.
-    func islandContains(screenPoint: NSPoint, margin: CGFloat = 0) -> Bool {
+    func islandContains(screenPoint: NSPoint, margin: CGFloat = 0, includingBubble: Bool = true) -> Bool {
         guard frame.contains(screenPoint), let hosting else { return false }
-        return hosting.islandContains(windowPoint: convertPoint(fromScreen: screenPoint), margin: margin)
+        return hosting.islandContains(windowPoint: convertPoint(fromScreen: screenPoint), margin: margin,
+                                      includingBubble: includingBubble)
     }
 
     /// The resting frame for a screen before any state exists: the bare notch plus slack.
@@ -542,7 +555,7 @@ final class NotchPanel: NSPanel {
     /// Bring the frame in line with the island. Growth is immediate, with room for the spring;
     /// shrinking waits until the closing animation has finished.
     func refit() {
-        updatePassThrough()
+        updatePassThrough(pointerMoved: false)
         syncKeyboard()
 
         settleWork?.cancel()

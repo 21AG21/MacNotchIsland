@@ -313,3 +313,122 @@ final class PointerAndKeyboardTests: XCTestCase {
         XCTAssertNil(IslandPresentation.idle.panelView)
     }
 }
+
+/// The rules an island on each of two displays lives by, and the pointer's edge cases.
+final class TwoDisplayTests: XCTestCase {
+    private var center: ActivityCenter { ActivityCenter.shared }
+
+    override func setUp() {
+        super.setUp()
+        center.resetForTesting()
+        let p = Preferences.shared
+        p.hoverToExpand = true
+        p.expandOnIdleHover = true
+        p.hoverDelay = 0.01
+        HomeSection.allCases.forEach { $0.setEnabled(true, in: p) }
+    }
+
+    override func tearDown() {
+        center.resetForTesting()
+        super.tearDown()
+    }
+
+    private func settle(_ seconds: TimeInterval) {
+        let exp = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { exp.fulfill() }
+        wait(for: [exp], timeout: seconds + 2)
+    }
+
+    func testHiddenMeansEveryIslandThereIs() {
+        XCTAssertFalse(ActivityCenter.allHidden(live: ["a", "b"], covered: ["b"]), "a film on one display leaves the other")
+        XCTAssertTrue(ActivityCenter.allHidden(live: ["a", "b"], covered: ["a", "b"]))
+        XCTAssertTrue(ActivityCenter.allHidden(live: [], covered: ["b"]), "with no islands known, any cover counts")
+        XCTAssertFalse(ActivityCenter.allHidden(live: ["a"], covered: []))
+    }
+
+    func testTheShortcutOpensWhileOnlyTheOtherDisplayIsCovered() {
+        center.panelsRebuilt(["a", "b"])
+        center.fullscreenPanels = ["b"]
+        XCTAssertFalse(center.isSuppressed, "the island on a is showing")
+        center.toggle()
+        XCTAssertTrue(center.isOpen)
+        guard case .panel = center.presentation(for: "a") else { return XCTFail("open on the uncovered island") }
+        XCTAssertTrue(center.isSuppressed(panel: "b"))
+    }
+
+    func testAnIslandThatIsGoneNoLongerHoldsTheOpenView() {
+        center.tap(panel: "gone")
+        XCTAssertEqual(center.openPanel, "gone")
+        center.panelsRebuilt(["a"])
+        XCTAssertNil(center.openPanel, "opened everywhere rather than drawn nowhere")
+        XCTAssertTrue(center.isOpen)
+    }
+
+    func testAClickOnTheOtherIslandIsNotAClickOnAnOpenPanel() {
+        center.tap(panel: "a")
+        XCTAssertEqual(center.openPanel, "a")
+        XCTAssertTrue(center.openHere("a"))
+        XCTAssertFalse(center.openHere("b"))
+        XCTAssertTrue(center.openHere(nil))
+        // A peek on b, then a click: b opens here rather than doing nothing.
+        center.setHovering(true, panel: "b")
+        settle(0.1)
+        center.tap(panel: "b")
+        XCTAssertTrue(center.openHere("b"))
+    }
+
+    func testAlertsShowOnTheIslandThePanelIsNotOn() {
+        center.tap(panel: "a")
+        let alert = IslandActivity(id: "battery", kind: .custom, content: .custom(CustomActivity(title: "B")), priority: 70)
+        center.showAlert(alert, duration: 5, haptic: false)
+        guard case .compact(let shown, _) = center.presentation(for: "b") else { return XCTFail("the alert shows on b") }
+        XCTAssertEqual(shown.id, "battery")
+        guard case .panel = center.presentation(for: "a") else { return XCTFail("the panel stays on a") }
+    }
+
+    func testAClickThatOpensNothingDoesNotInviteTheKeyboard() {
+        Preferences.shared.panelKeysEnabled = true
+        let hud = IslandActivity(id: "capslock", kind: .hud, content: .custom(CustomActivity(title: "Caps Lock")), priority: 80)
+        center.showAlert(hud, duration: 5, haptic: false)
+        center.tap(panel: "a")
+        XCTAssertFalse(center.isOpen)
+        XCTAssertFalse(center.keyboardInvited, "a click on a key-press HUD asked for nothing")
+    }
+
+    func testClosingWhileThePointerIsAlreadyLeavingSuppressesNoPeek() {
+        center.setHovering(true, panel: "a")
+        settle(0.1)
+        center.pinPeek(panel: "a")
+        XCTAssertTrue(center.isOpen)
+        // The pointer leaves; its grace is running when Escape lands.
+        center.setHovering(false, panel: "a")
+        center.collapse(reason: "escape")
+        XCTAssertNil(center.hoverPanel)
+        // The pointer comes back: a peek, straight away — nothing was waiting it out.
+        center.setHovering(true, panel: "a")
+        settle(0.1)
+        guard case .panel = center.presentation(for: "a") else { return XCTFail("peeks again at once") }
+    }
+
+    func testADisplayGoingFullScreenClosesAnEverywherePanelOnlyWhenEveryIslandIsCovered() {
+        XCTAssertFalse(FullscreenMonitor.forgetsInteraction(newlyCovered: ["b"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: false))
+        XCTAssertTrue(FullscreenMonitor.forgetsInteraction(newlyCovered: ["b"], hover: nil, drag: nil, isOpen: true, openPanel: nil, allCovered: true))
+    }
+
+    func testTheOutlineCanLeaveTheBubbleOut() {
+        let notched = NotchGeometry(screenFrame: CGRect(x: 0, y: 0, width: 1710, height: 1107), notchWidth: 185, notchHeight: 33.5,
+                                    hasPhysicalNotch: true, menuBarHeight: 33.5)
+        let a = IslandActivity(id: "a", kind: .timer, content: .custom(CustomActivity(title: "A")), priority: 70)
+        let b = IslandActivity(id: "b", kind: .custom, content: .custom(CustomActivity(title: "B")), priority: 60)
+        let layout = IslandLayout.make(presentation: .compact(a, bubble: b), geometry: notched)
+        XCTAssertTrue(layout.hasBubble)
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 340)
+        let bodyMaxX = bounds.midX + layout.bodyShift + layout.frameWidth / 2
+        let onBubble = CGPoint(x: bodyMaxX + layout.bubbleGap + layout.bubbleDiameter / 2, y: layout.bubbleDiameter / 2)
+        let withBubble = NotchHostingView<EmptyView>.outline(of: layout, in: bounds)
+        let without = NotchHostingView<EmptyView>.outline(of: layout, in: bounds, includingBubble: false)
+        XCTAssertTrue(withBubble.contains(onBubble), "a click on the bubble is a click")
+        XCTAssertFalse(without.contains(onBubble), "a pointer resting on it is not a hover")
+        XCTAssertTrue(without.contains(CGPoint(x: bounds.midX, y: 10)), "the body is in both")
+    }
+}

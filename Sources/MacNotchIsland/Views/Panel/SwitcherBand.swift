@@ -11,6 +11,8 @@ struct SwitcherBand: View {
     let geometry: NotchGeometry
     let current: IslandView?
     @EnvironmentObject private var center: ActivityCenter
+    /// Which island this band is on: the open panel may be pinned on another display's.
+    @Environment(\.islandPanelID) private var panelID
     /// The slot the pointer is on, so the band can name it. Nothing else depends on it.
     @State private var hovered: IslandView?
     /// The slot a drag is resting on, and the switch it will make if it stays.
@@ -337,7 +339,7 @@ struct SwitcherBand: View {
         let selected = current == view
         let springing = springTarget == view
         let hit = Self.hit(slot: size, gap: gap)
-        return Button(action: { center.select(view, direction: direction(to: view)) }) {
+        return Button(action: { center.select(view, direction: direction(to: view), panel: panelID) }) {
             ZStack {
                 // One disc, moved from slot to slot, rather than one fading out where it was
                 // while another fades in where you are going. A mark that travels tells you
@@ -411,11 +413,13 @@ struct SwitcherBand: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
-        .opacity(center.isOpen ? 1 : 0)
-        .allowsHitTesting(center.isOpen)
+        // Only where the panel is pinned: on the other display's island, which is merely
+        // peeking, this would have closed the panel over there.
+        .opacity(center.openHere(panelID) ? 1 : 0)
+        .allowsHitTesting(center.openHere(panelID))
         .help("Close")
         .accessibilityLabel("Close")
-        .accessibilityHidden(!center.isOpen)
+        .accessibilityHidden(!center.openHere(panelID))
     }
 
     /// Which way the content pushes when jumping to `view`: the direction it sits in the ring.

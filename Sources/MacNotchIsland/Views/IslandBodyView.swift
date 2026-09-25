@@ -191,6 +191,7 @@ struct IslandBodyView: View {
         // the outline finishes arriving, which is the layering the phone's island has.
         .animation(IslandMotion.content, value: contentID)
         .environment(\.islandNamespace, islandNamespace)
+        .environment(\.islandPanelID, panelID)
     }
 }
 

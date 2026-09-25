@@ -65,22 +65,23 @@ final class FullscreenMonitor {
         let newlyCovered = covered.subtracting(center.fullscreenPanels)
         center.fullscreenPanels = covered
         if Self.forgetsInteraction(newlyCovered: newlyCovered, hover: center.hoverPanel, drag: center.dragPanel,
-                                   isOpen: center.isOpen, openPanel: center.openPanel) {
+                                   isOpen: center.isOpen, openPanel: center.openPanel,
+                                   allCovered: ActivityCenter.allHidden(live: center.livePanels, covered: covered)) {
             center.clearInteraction()
         }
     }
 
     /// Whether a display going full screen takes the pointer's work with it: it does when
     /// the pointer, a drag or the open panel was on that display, or the panel is open on
-    /// every display at once. An island on a display the film is nowhere near keeps its
-    /// panel.
+    /// every display and every one of them is now covered. An island on a display the film
+    /// is nowhere near keeps its panel.
     static func forgetsInteraction(newlyCovered: Set<String>, hover: String?, drag: String?,
-                                   isOpen: Bool, openPanel: String?) -> Bool {
+                                   isOpen: Bool, openPanel: String?, allCovered: Bool) -> Bool {
         guard !newlyCovered.isEmpty else { return false }
         if let hover, newlyCovered.contains(hover) { return true }
         if let drag, newlyCovered.contains(drag) { return true }
         guard isOpen else { return false }
-        guard let openPanel else { return true }
+        guard let openPanel else { return allCovered }
         return newlyCovered.contains(openPanel)
     }
 
@@ -93,13 +94,18 @@ final class FullscreenMonitor {
         var top: CGFloat
     }
 
-    static func screens() -> [Screen] {
+    /// Only the displays that carry an island. A film full screen on a display with no
+    /// island used to count as an island hidden, and everything asked about no island in
+    /// particular — the shortcut, the menu bar — answered "hidden".
+    static func screens(carrying panels: Set<String> = ActivityCenter.shared.livePanels) -> [Screen] {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        return NSScreen.screens.map { screen in
-            Screen(panelID: NotchPanel.panelID(for: screen),
-                   rect: CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
-                                width: screen.frame.width, height: screen.frame.height),
-                   top: screen.safeAreaInsets.top)
+        return NSScreen.screens.compactMap { screen in
+            let id = NotchPanel.panelID(for: screen)
+            guard panels.isEmpty || panels.contains(id) else { return nil }
+            return Screen(panelID: id,
+                          rect: CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
+                                       width: screen.frame.width, height: screen.frame.height),
+                          top: screen.safeAreaInsets.top)
         }
     }
 

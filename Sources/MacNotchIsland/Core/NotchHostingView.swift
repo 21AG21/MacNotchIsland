@@ -57,21 +57,24 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     /// The island's outline in this view's own top-left coordinates, or nil when nothing is
     /// drawn. This view is kept centred on the notch by its panel, so `bounds.midX` is the
     /// notch.
-    func islandPath() -> Path? {
+    func islandPath(includingBubble: Bool = true) -> Path? {
         guard let layout = islandLayoutProvider?() else { return nil }
-        return Self.outline(of: layout, in: bounds)
+        return Self.outline(of: layout, in: bounds, includingBubble: includingBubble)
     }
 
     /// The outline `IslandRootView` draws for `layout`, in a top-left space of `bounds`
     /// centred on the notch: the body shifted by `bodyShift`, hanging `topInset` below the
-    /// top, and the bubble a gap to its right.
-    static func outline(of layout: IslandLayout, in bounds: CGRect) -> Path {
+    /// top, and the bubble a gap to its right. The bubble can be left out: a click on it is
+    /// a click, but a pointer resting on it is not a hover — hovering opens a peek, and the
+    /// peek's layout has no bubble, so the thing being pointed at went away before it could
+    /// be clicked.
+    nonisolated static func outline(of layout: IslandLayout, in bounds: CGRect, includingBubble: Bool = true) -> Path {
         let width = layout.frameWidth
         let body = CGRect(x: bounds.midX + layout.bodyShift - width / 2, y: bounds.minY + layout.topInset,
                           width: width, height: layout.bodyHeight)
         var path = NotchShape(topRadius: layout.topRadius, bottomRadius: layout.bottomRadius, floating: layout.floating)
             .path(in: body)
-        if layout.hasBubble {
+        if layout.hasBubble, includingBubble {
             let d = layout.bubbleDiameter
             path.addEllipse(in: CGRect(x: body.maxX + layout.bubbleGap, y: body.minY, width: d, height: d))
         }
@@ -79,7 +82,7 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     }
 
     /// Whether `point` is on the outline, or within `margin` of its edge.
-    static func contains(_ path: Path, _ point: CGPoint, margin: CGFloat) -> Bool {
+    nonisolated static func contains(_ path: Path, _ point: CGPoint, margin: CGFloat) -> Bool {
         if path.contains(point) { return true }
         guard margin > 0 else { return false }
         return path.strokedPath(StrokeStyle(lineWidth: margin * 2)).contains(point)
@@ -94,8 +97,8 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     /// Whether a point in window coordinates lies on the island, or within `margin` of it.
     /// Pure geometry: nothing here asks SwiftUI anything, so it is safe to call from any
     /// callback at any moment.
-    func islandContains(windowPoint: NSPoint, margin: CGFloat = 0) -> Bool {
-        guard let path = islandPath() else { return false }
+    func islandContains(windowPoint: NSPoint, margin: CGFloat = 0, includingBubble: Bool = true) -> Bool {
+        guard let path = islandPath(includingBubble: includingBubble) else { return false }
         return Self.contains(path, topLeft(convert(windowPoint, from: nil)), margin: margin)
     }
 

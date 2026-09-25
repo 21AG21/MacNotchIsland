@@ -386,5 +386,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ActivityCenter.shared.islandHitTest = { [weak self] point in
             self?.panels.contains { $0.islandContains(screenPoint: point) } ?? false
         }
+        ActivityCenter.shared.panelsRebuilt(Set(panels.map(\.panelID)))
     }
 }

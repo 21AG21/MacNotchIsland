@@ -424,10 +424,11 @@ final class IslandTimer: ObservableObject {
         // The finished timer's own expanded view is the alert, the way the Clock app's Live
         // Activity takes over the island when it goes off.
         ActivityCenter.shared.forceExpanded(id: entry.id, for: 8)
-        // The banner is for when that cannot be seen: the island hidden, or an app full screen
-        // over it — which is what Privacy says it is for. Posted every time, it doubled every
-        // timer with a banner, and asked for Notifications the first time any timer rang.
-        if ActivityCenter.shared.isSuppressed { notify(entry) }
+        // The banner is for when that cannot be seen: the island hidden, an app full screen
+        // over it, or the screen locked or asleep with nobody at it — which is what Privacy
+        // says it is for. Posted every time, it doubled every timer with a banner, and asked
+        // for Notifications the first time any timer rang.
+        if ActivityCenter.shared.isSuppressed || ScreenLockMonitor.screenIsLockedOrAsleep { notify(entry) }
 
         if entry.id == pomodoroTimerID, let phase = pomodoro, let next = Self.nextPhase(after: phase) {
             // Let the finished phase sit on screen for a beat, then roll into the next one.
