@@ -107,13 +107,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                name: NSApplication.didChangeScreenParametersNotification,
                                                object: nil)
         // "Automatically hide and show the menu bar" moves the floating pill, and is part of
-        // what the panels were built for (`NotchPanel.displayKey`). Switching it changes the
-        // display's visible frame, which the path above hears; the defaults changing is heard
-        // here too, and goes the same way, settled and compared before anything is rebuilt.
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(menuBarSettingChanged),
-                                               name: UserDefaults.didChangeNotification,
-                                               object: nil)
+        // what the panels were built for (`NotchPanel.displayKey`). System Settings announces
+        // the switch to every app, and it goes the same way as a display change, settled and
+        // compared before anything is rebuilt. Not the defaults notification: that is posted
+        // for this process's own writes only, never for another's, so it would have heard
+        // every preference the island saved and never the one it was after. Switching the
+        // setting changes the display's visible frame as well, which the path above hears, so
+        // an announcement missed still rebuilds, a settle later.
+        DistributedNotificationCenter.default().addObserver(self,
+                                                            selector: #selector(menuBarSettingChanged),
+                                                            name: Notification.Name("AppleInterfaceMenuBarHidingChangedNotification"),
+                                                            object: nil)
         // The island belongs to the notch, not to a Space or an app: whenever the desktop
         // underneath changes, put every panel back on top and over its notch.
         let workspace = NSWorkspace.shared.notificationCenter
@@ -278,9 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for panel in panels { panel.refit() }
     }
 
-    /// Any default changing, this app's own included, which is most of them: only the menu
-    /// bar's hide setting moving on from what it was goes on to `screensChanged`. Posted on
-    /// whichever thread wrote the default, and looked at on the main one.
+    /// System Settings says the menu bar's hide setting was switched: only one that has moved
+    /// on from what it was goes on to `screensChanged`, so a repeated announcement, or one
+    /// the screen-parameters path has already acted on, rebuilds nothing. Delivered on
+    /// whichever thread the centre uses, and looked at on the main one.
     @objc private func menuBarSettingChanged() {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.menuBarSettingChanged() }

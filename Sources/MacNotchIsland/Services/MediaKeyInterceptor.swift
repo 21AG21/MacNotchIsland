@@ -265,16 +265,19 @@ final class MediaKeyInterceptor {
             || (wanted.brightness && !answered.brightness) || (wanted.keyboard && !answered.keyboard)
     }
 
-    /// How long after the answer was last asked for by anything but the watch timer — a new
-    /// tap, a preference change, a key the island took, an announcement — the timer goes on
-    /// asking for one still missing something wanted. A level that arrives late arrives within
-    /// this; one that never arrives — an HDMI display's sound, an output with no mute — would
-    /// otherwise be asked for every five seconds for as long as the feature was on, which is
-    /// the wakeup the announcements were meant to end.
+    /// How long after something that may be early was asked about — a new tap, a preference
+    /// change, an announcement (`askedAt`) — the watch timer goes on asking for an answer
+    /// still missing something wanted. A level that arrives late arrives within this; one
+    /// that never arrives — an HDMI display's sound, an output with no mute, brightness on a
+    /// Mac with no built-in panel — would otherwise be asked for every five seconds for as
+    /// long as the feature was on, which is the wakeup the announcements were meant to end.
+    /// A key the island took opens no window: it is proof of a capability answered, not of
+    /// one arriving, and on a Mac whose display cannot answer at all every volume press would
+    /// otherwise buy another minute of asking.
     static let reprobeWindow: TimeInterval = 60
 
     /// Whether the watch timer asks again: only for an answer still missing something wanted
-    /// (`needsReprobe`), and only within `reprobeWindow` of the last ask that was not its own.
+    /// (`needsReprobe`), and only within `reprobeWindow` of the last ask that may be early.
     /// Pure, so it is tested.
     static func watchAsksAgain(incomplete: Bool, sinceAsked: TimeInterval) -> Bool {
         incomplete && sinceAsked < reprobeWindow
@@ -291,7 +294,8 @@ final class MediaKeyInterceptor {
     /// Bumped by every change of default output, so a later look scheduled for one output
     /// (`probe(after:)`) stands down once another has taken its place and has looks of its own.
     private var outputChanges = 0
-    /// When the answer was last asked for by anything but the watch timer, see `reprobeWindow`.
+    /// When something that may be early was last asked about, see `reprobeWindow`. Set by
+    /// `start` and `probe(after:)`, and by nothing else.
     private var askedAt = Date.distantPast
     private var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
                                                            mScope: kAudioObjectPropertyScopeGlobal,
@@ -349,11 +353,14 @@ final class MediaKeyInterceptor {
     func start() {
         guard !running else {
             // Already up. `ServiceHub` calls this again on every preference change, and one of
-            // them decides which keys are the island's to take at all.
+            // them decides which keys are the island's to take at all — a key wanted from now
+            // on may be one the Mac is still arriving at, so the watch timer's minute opens.
+            askedAt = Date()
             refreshCapabilities()
             return
         }
         running = true
+        askedAt = Date()
         // Switching the feature off and on again is the user's way of saying "try again", and
         // it has to actually try: without this a run of failures would be permanent for the
         // life of the process, with nothing but a relaunch to clear it.
@@ -450,12 +457,13 @@ final class MediaKeyInterceptor {
             // the looks that follow its arrival (`arrivalProbes`) has answered no to all of
             // them, its keys have gone back to macOS, and a key handed back never reaches
             // `apply` — so without this, nothing would ask again until the output changed. For
-            // a minute after the last ask, and not for the rest of the run (`reprobeWindow`):
-            // an output that never offers what is wanted is not a question worth repeating.
+            // a minute after the last ask that may be early, and not for the rest of the run
+            // (`reprobeWindow`): an output that never offers what is wanted is not a question
+            // worth repeating.
             if self.tapArmed,
                Self.watchAsksAgain(incomplete: self.answerIsIncomplete(),
                                    sinceAsked: Date().timeIntervalSince(self.askedAt)) {
-                self.refreshCapabilities(fromWatch: true)
+                self.refreshCapabilities()
             }
         }
         timer.tolerance = 1
@@ -522,6 +530,7 @@ final class MediaKeyInterceptor {
     /// the answer is still missing something wanted, and only while this is still the latest
     /// output: a newer one has looks of its own. Main thread.
     private func probe(after change: Change) {
+        askedAt = Date()
         if change == .output { outputChanges &+= 1 }
         let generation = outputChanges
         for delay in Self.probeSchedule(afterChange: change) {
@@ -805,9 +814,9 @@ final class MediaKeyInterceptor {
     /// down — so the same output came back permanently unanswerable. A whole answer, written
     /// once, cannot be half-stale. What asks is a new tap, a preference change, a key the
     /// island took, the announcements in `watchForChanges`, and the watch timer while the
-    /// answer is missing something wanted (`fromWatch`, which opens no new `reprobeWindow`).
-    private func refreshCapabilities(fromWatch: Bool = false, then finished: (() -> Void)? = nil) {
-        if !fromWatch { askedAt = Date() }
+    /// answer is missing something wanted. Which of those may be early is `askedAt`'s to say,
+    /// not this function's (`reprobeWindow`).
+    private func refreshCapabilities(then finished: (() -> Void)? = nil) {
         // Read here on the main thread and carried in.
         let wanted = wantedCapabilities()
         Self.capabilityQueue.async { [weak self] in
