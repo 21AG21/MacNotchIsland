@@ -185,11 +185,28 @@ final class AlarmTests: XCTestCase {
     // MARK: - Missed
 
     func testAMissedAlarmIsABannerOnlyWhereTheCardCannotBeSeen() {
-        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: false),
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: false, authorized: true),
                       "a Mac wakes to its lock screen, which is where a missed alarm is found")
-        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: false, suppressed: true), "the island hidden, or an app full screen")
-        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: true))
-        XCTAssertFalse(IslandTimer.missedNeedsBanner(locked: false, suppressed: false), "the card says it, and once is enough")
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: false, suppressed: true, authorized: true),
+                      "the island hidden, or an app full screen")
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: true, authorized: true))
+        for authorized in [false, true] {
+            XCTAssertFalse(IslandTimer.missedNeedsBanner(locked: false, suppressed: false, authorized: authorized),
+                           "the card says it, and once is enough")
+        }
+    }
+
+    func testTheFirstBannerDoesNotAskForNotificationsAtTheLockScreen() {
+        // Not allowed yet: the banner would have asked, at the lock screen, to nobody or to
+        // whoever passed. It waits for the unlock, and the card comes back then.
+        XCTAssertFalse(IslandTimer.missedNeedsBanner(locked: true, suppressed: false, authorized: false))
+        XCTAssertFalse(IslandTimer.missedNeedsBanner(locked: true, suppressed: true, authorized: false))
+        XCTAssertTrue(IslandTimer.missedWaitsForUnlock(locked: true, authorized: false))
+        XCTAssertFalse(IslandTimer.missedWaitsForUnlock(locked: true, authorized: true), "allowed: the banner goes now")
+        XCTAssertFalse(IslandTimer.missedWaitsForUnlock(locked: false, authorized: false), "nothing to wait for")
+        XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: false, suppressed: true, authorized: false),
+                      "unlocked with the island hidden, somebody is there to answer the question")
+        XCTAssertGreaterThan(IslandTimer.afterUnlock, 1.2, "the unlock's own tick goes first")
     }
 
     func testATimeThatHasGoneIsNotAnAlarm() {

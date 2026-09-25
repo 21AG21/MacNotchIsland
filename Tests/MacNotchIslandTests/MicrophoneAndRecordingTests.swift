@@ -85,6 +85,48 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertTrue(mute.isHeld)
     }
 
+    /// Mute, the AirPods connect and inherit it, they go, unmute: CoreAudio keeps a mute with the
+    /// device, and the AirPods came back muted with nothing left that knew why.
+    func testAMicrophoneAwayAtTheUnmuteIsGivenItWhenItIsBack() {
+        var mute = MicrophoneControl.HeldMute()
+        mute.muted(builtIn)
+        mute.muted(airPods)
+        // The AirPods have gone, the Mac's own microphone is in use again, and it is unmuted.
+        let givenBack = mute.release(except: builtIn)
+        XCTAssertEqual(givenBack, [airPods])
+        mute.unreachable(givenBack)
+        XCTAssertFalse(mute.isHeld, "the mute is over: the next microphone inherits nothing")
+        XCTAssertEqual(mute.owed, [airPods], "but the AirPods are owed their unmute")
+        XCTAssertFalse(mute.reappeared(builtIn), "nothing is owed to a microphone that was there to be given back")
+        XCTAssertTrue(mute.reappeared(airPods), "back, with no mute in force: unmuted")
+        XCTAssertEqual(mute.owed, [])
+        XCTAssertFalse(mute.reappeared(airPods), "and only the once")
+    }
+
+    func testAMicrophoneBackUnderANewMuteStaysUnderIt() {
+        var mute = MicrophoneControl.HeldMute()
+        mute.muted(builtIn)
+        mute.muted(airPods)
+        let away = mute.release(except: builtIn)
+        mute.unreachable(away)
+        mute.muted(builtIn)   // muted again before the AirPods are back
+        XCTAssertFalse(mute.reappeared(airPods), "a mute is in force, and they stay silent under it")
+        XCTAssertEqual(mute.devices, [builtIn, airPods], "to be given back when that mute ends")
+        XCTAssertEqual(mute.owed, [])
+        XCTAssertEqual(mute.release(except: builtIn), [airPods])
+    }
+
+    func testInheritingTheMuteSettlesWhatWasOwed() {
+        var mute = MicrophoneControl.HeldMute()
+        mute.muted(airPods)
+        let away = mute.release(except: builtIn)
+        mute.unreachable(away)
+        mute.unreachable(away)
+        XCTAssertEqual(mute.owed, [airPods], "owed once, however often it is found away")
+        mute.muted(airPods)   // back as the one in use, into a mute put on since
+        XCTAssertEqual(mute.owed, [], "they are under that mute now, not owed an unmute from the last one")
+    }
+
     // MARK: - The call card and pill
 
     func testTheCallCardIsTallEnoughForItsControls() {
@@ -290,5 +332,20 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertTrue(SystemActions.lockFlags.contains(.maskCommand))
         XCTAssertFalse(SystemActions.lockFlags.contains(.maskShift), "Shift makes it Log Out")
         XCTAssertFalse(SystemActions.lockFlags.contains(.maskAlternate))
+    }
+
+    /// What the login framework's call returns is written down nowhere, so the screen says
+    /// whether it worked: anything but nought used to press the keystroke too, or put the
+    /// display to sleep, on top of a lock that had happened.
+    func testTheLockGoesAnotherWayOnlyIfTheScreenDidNotLock() {
+        XCTAssertFalse(SystemActions.lockFallback(status: 0, lockedAfter: true))
+        XCTAssertFalse(SystemActions.lockFallback(status: 1, lockedAfter: true),
+                       "locked a moment later, whatever the call answered: nothing more is pressed")
+        XCTAssertTrue(SystemActions.lockFallback(status: -1, lockedAfter: false))
+        XCTAssertTrue(SystemActions.lockFallback(status: 0, lockedAfter: false),
+                      "a nought that locked nothing is not a lock either")
+        XCTAssertTrue(SystemActions.lockFallback(status: nil, lockedAfter: false), "no call to make: straight to the keystroke")
+        XCTAssertGreaterThan(SystemActions.lockGrace, 0)
+        XCTAssertLessThanOrEqual(SystemActions.lockGrace, 1, "the way round still answers the same click")
     }
 }

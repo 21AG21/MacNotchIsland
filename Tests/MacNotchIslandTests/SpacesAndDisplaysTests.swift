@@ -244,17 +244,18 @@ final class SpacesAndDisplaysTests: XCTestCase {
         let windows = [FullscreenMonitor.Window(pid: 30, frame: safariWindow),
                        FullscreenMonitor.Window(pid: 20, frame: externalScreen.rect)]
         XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
-                                                       fullScreenFrames: nil),
+                                                       frontmost: 30, fullScreenFrames: nil),
                        ["screen-2"], "the film is still full screen, whoever is in front")
     }
 
     func testAccessibilityIsAskedOnlyOfAnAppWithAWindowThatCouldBeFullScreen() {
-        let windows = [FullscreenMonitor.Window(pid: 30, frame: safariWindow),
+        // Front to back: the app full screen on the MacBook is at the front of its display.
+        let windows = [FullscreenMonitor.Window(pid: 40, frame: belowTheHousing),
                        FullscreenMonitor.Window(pid: 40, frame: belowTheHousing),
-                       FullscreenMonitor.Window(pid: 40, frame: belowTheHousing)]
+                       FullscreenMonitor.Window(pid: 30, frame: safariWindow)]
         var asked: [pid_t] = []
         let covered = FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
-                                                      fullScreenFrames: { pid in
+                                                      frontmost: 30, fullScreenFrames: { pid in
             asked.append(pid)
             return pid == 40 ? [self.belowTheHousing] : []
         })
@@ -263,7 +264,7 @@ final class SpacesAndDisplaysTests: XCTestCase {
 
         asked = []
         let zoomed = FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen],
-                                                     fullScreenFrames: { pid in
+                                                     frontmost: 30, fullScreenFrames: { pid in
             asked.append(pid)
             return []
         })
@@ -274,14 +275,60 @@ final class SpacesAndDisplaysTests: XCTestCase {
     func testWithoutAccessibilityTheNotchedDisplayIsCoveredOnceItsMenuBarHasGone() {
         let windows = [FullscreenMonitor.Window(pid: 40, frame: belowTheHousing)]
         let bar = CGRect(x: 0, y: 0, width: 1710, height: 37)
-        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [bar], screens: [notchedScreen], fullScreenFrames: nil),
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [bar], screens: [notchedScreen],
+                                                       frontmost: 40, fullScreenFrames: nil),
                        [], "zoomed under a menu bar that is still there")
-        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen], fullScreenFrames: nil),
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen],
+                                                       frontmost: 40, fullScreenFrames: nil),
                        ["screen-1"], "it used never to count at all without Accessibility")
         var noMenuBar = notchedScreen
         noMenuBar.hasMenuBar = false
-        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [noMenuBar], fullScreenFrames: nil),
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [noMenuBar],
+                                                       frontmost: 40, fullScreenFrames: nil),
                        [], "a display that never has a menu bar cannot say anything by lacking one")
+    }
+
+    // MARK: - Full screen, and only at the front
+
+    private let safariOnExternal = CGRect(x: 1900, y: 200, width: 1200, height: 800)
+
+    /// A utility that keeps a window the size of the external display behind everything else
+    /// hid that display's island for as long as it ran.
+    func testADisplaySizedWindowBehindAnotherAppsCoversNothing() {
+        let windows = [FullscreenMonitor.Window(pid: 30, frame: safariOnExternal),
+                       FullscreenMonitor.Window(pid: 70, frame: externalScreen.rect)]
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: 30, fullScreenFrames: nil),
+                       [], "Safari is in front of it there")
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: nil, fullScreenFrames: nil),
+                       [], "and so with nobody in particular in front")
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [notchedScreen, externalScreen],
+                                                       frontmost: 70, fullScreenFrames: nil),
+                       ["screen-2"], "the app in front is what the user is in, wherever its window stands")
+    }
+
+    func testTheFindersWindowInFrontOfItIsInFrontOfIt() {
+        // The Finder never covers a display, but it can stand in front of what would.
+        let windows = [FullscreenMonitor.Window(pid: 2, frame: safariOnExternal, canCover: false),
+                       FullscreenMonitor.Window(pid: 70, frame: externalScreen.rect)]
+        XCTAssertEqual(FullscreenMonitor.coveredPanels(windows: windows, menuBars: [], screens: [externalScreen],
+                                                       frontmost: 2, fullScreenFrames: nil), [])
+        XCTAssertEqual(FullscreenMonitor.contenders(on: externalScreen, windows: windows, frontmost: 2), [],
+                       "and is never a contender itself")
+    }
+
+    func testTheFrontOfADisplayIsTheFirstWindowThatShowsOnIt() {
+        let windows = [FullscreenMonitor.Window(pid: 80, frame: CGRect(x: 1710, y: 0, width: 1, height: 1)),
+                       FullscreenMonitor.Window(pid: 81, frame: CGRect(x: -5000, y: -5000, width: 500, height: 500)),
+                       FullscreenMonitor.Window(pid: 30, frame: safariWindow),
+                       FullscreenMonitor.Window(pid: 20, frame: externalScreen.rect),
+                       FullscreenMonitor.Window(pid: 20, frame: safariOnExternal)]
+        XCTAssertEqual(FullscreenMonitor.contenders(on: externalScreen, windows: windows, frontmost: nil).map(\.pid), [20, 20],
+                       "a point-wide window, one parked off every display and one on the other display are in front of nothing")
+        XCTAssertEqual(FullscreenMonitor.contenders(on: notchedScreen, windows: windows, frontmost: nil).map(\.pid), [30])
+        XCTAssertTrue(FullscreenMonitor.isOn(externalScreen, safariOnExternal))
+        XCTAssertFalse(FullscreenMonitor.isOn(externalScreen, safariWindow))
     }
 
     private func listed(pid: pid_t, owner: String, layer: Int = 0, name: String? = nil, bounds: CGRect,
@@ -313,8 +360,11 @@ final class SpacesAndDisplaysTests: XCTestCase {
             listed(pid: 60, owner: "Ghost", bounds: film, alpha: 0),
         ], ignoring: [1, 2])
         XCTAssertEqual(seen.windows, [FullscreenMonitor.Window(pid: 20, frame: film),
-                                      FullscreenMonitor.Window(pid: 30, frame: safariWindow)],
-                       "every app's ordinary windows, not ours, the Finder's, the Dock's, a palette or one nobody can see")
+                                      FullscreenMonitor.Window(pid: 30, frame: safariWindow),
+                                      FullscreenMonitor.Window(pid: 1, frame: film, canCover: false),
+                                      FullscreenMonitor.Window(pid: 2, frame: film, canCover: false)],
+                       "every app's ordinary windows, in the list's order — ours and the Finder's for where they stand, "
+                       + "never as what covers — and not the Dock's, a palette or one nobody can see")
         XCTAssertEqual(seen.menuBars, [bar, otherBar])
     }
 

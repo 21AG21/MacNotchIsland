@@ -94,6 +94,10 @@ final class IslandTimer: ObservableObject {
     static let snoozeInterval: TimeInterval = 9 * 60
     private var alarmCheck: Timer?
     private var alarmObservers: [NSObjectProtocol] = []
+    /// Missed alarms whose report waits for somebody at the Mac, see `missedWaitsForUnlock`,
+    /// and what is listening for them.
+    private var missedAtUnlock: [IslandAlarm] = []
+    private var unlockObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     /// Whether the last run's alarms have been read back yet, see `restoreAlarms`.
     private var alarmsLoaded = false
 
@@ -585,7 +589,9 @@ final class IslandTimer: ObservableObject {
                                                        priority: 80, presentation: .expanded), duration: 5)
     }
 
-    /// The card, and a banner as well whenever the card cannot be seen, see `missedNeedsBanner`.
+    /// The card, and a banner as well whenever the card cannot be seen, see `missedNeedsBanner`
+    /// — or, where that banner would have to ask for Notifications at the lock screen, the
+    /// card again once somebody is at the Mac (`missedWaitsForUnlock`).
     private func reportMissed(_ alarm: IslandAlarm, now: Date) {
         IslandLog.island.notice("alarm missed by \(Int(now.timeIntervalSince(alarm.fireDate)), privacy: .public)s")
         let title = "Missed alarm, \(IslandAlarm.describe(alarm.fireDate, now: alarm.fireDate))"
@@ -596,9 +602,18 @@ final class IslandTimer: ObservableObject {
         card.body = Self.missedNote
         ActivityCenter.shared.showAlert(IslandActivity(id: Self.alarmMissedAlertID, kind: .custom, content: .custom(card),
                                                        priority: 85, presentation: .expanded), duration: 8)
-        if Self.missedNeedsBanner(locked: ScreenLockMonitor.screenIsLockedOrAsleep, suppressed: ActivityCenter.shared.isSuppressed) {
-            postBanner(title: title, body: alarm.hasOwnLabel ? alarm.label + ". " + Self.missedNote : Self.missedNote,
-                       id: "alarm-missed.\(alarm.id)")
+        let locked = ScreenLockMonitor.screenIsLockedOrAsleep
+        let suppressed = ActivityCenter.shared.isSuppressed
+        guard locked || suppressed else { return }
+        let body = alarm.hasOwnLabel ? alarm.label + ". " + Self.missedNote : Self.missedNote
+        notificationsAllowed { [weak self] authorized in
+            guard let self else { return }
+            if Self.missedNeedsBanner(locked: locked, suppressed: suppressed, authorized: authorized) {
+                self.postBanner(title: title, body: body, id: "alarm-missed.\(alarm.id)")
+            } else if Self.missedWaitsForUnlock(locked: locked, authorized: authorized) {
+                IslandLog.island.notice("missed alarm kept for the unlock: Notifications are not allowed yet")
+                self.reportAtUnlock(alarm)
+            }
         }
     }
 
@@ -612,8 +627,72 @@ final class IslandTimer: ObservableObject {
     /// rule a ringing timer's banner follows — only when the island cannot be seen: locked,
     /// asleep, hidden, or under an app full screen — and not otherwise, where it would only
     /// say what the card is saying.
-    static func missedNeedsBanner(locked: Bool, suppressed: Bool) -> Bool {
-        locked || suppressed
+    ///
+    /// At the lock screen, only where Notifications are allowed already (`authorized`). The
+    /// first banner asks for them, and that question was put at the lock screen, to nobody or
+    /// to whoever passed; refused, no banner is posted anyway. Such an alarm waits for the
+    /// unlock instead (`missedWaitsForUnlock`). With the Mac unlocked and the island hidden
+    /// somebody is there to answer, and the banner asks as any first banner does.
+    static func missedNeedsBanner(locked: Bool, suppressed: Bool, authorized: Bool) -> Bool {
+        if locked { return authorized }
+        return suppressed
+    }
+
+    /// Whether a missed alarm is reported again at the unlock rather than now: nobody can see
+    /// its card, and a banner could not be posted without asking first, or at all. At the
+    /// unlock its card comes back, where somebody can see it, and the banner follows if the
+    /// island is hidden even then.
+    static func missedWaitsForUnlock(locked: Bool, authorized: Bool) -> Bool {
+        locked && !authorized
+    }
+
+    /// Keeps `alarm` for the unlock, see `missedWaitsForUnlock`. The display waking with no
+    /// lock to get past counts as well: a display that was only asleep has no unlock to wait
+    /// for.
+    private func reportAtUnlock(_ alarm: IslandAlarm) {
+        missedAtUnlock.removeAll { $0.id == alarm.id }
+        missedAtUnlock.append(alarm)
+        guard unlockObservers.isEmpty else { return }
+        let distributed: NotificationCenter = DistributedNotificationCenter.default()
+        let unlock = distributed.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"),
+                                             object: nil, queue: .main) { [weak self] _ in
+            self?.somebodyIsBack(unlocked: true)
+        }
+        let workspace = NSWorkspace.shared.notificationCenter
+        let wake = workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.somebodyIsBack(unlocked: false)
+        }
+        unlockObservers = [(distributed, unlock), (workspace, wake)]
+    }
+
+    /// The screen was unlocked, or the display woke. Missed alarms kept for this are reported
+    /// now — a moment after, so the unlock's own tick on the island is not cut short by them.
+    private func somebodyIsBack(unlocked: Bool) {
+        guard unlocked || !ScreenLockMonitor.screenIsLockedOrAsleep else { return }
+        for (center, token) in unlockObservers { center.removeObserver(token) }
+        unlockObservers.removeAll()
+        let waiting = missedAtUnlock
+        missedAtUnlock.removeAll()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.afterUnlock) { [weak self] in
+            for alarm in waiting { self?.reportMissed(alarm, now: Date()) }
+        }
+    }
+
+    /// Longer than the unlock's own alert at the length it ships with (`ScreenLockMonitor`),
+    /// which a missed alarm's card would otherwise replace.
+    static let afterUnlock: TimeInterval = 1.5
+
+    /// Whether Notifications are allowed already, so that a banner goes without a question.
+    /// The notification centre answers on a queue of its own; the answer comes on the main
+    /// queue. Unbundled — `swift test` — nothing is asked and nothing answers, since the
+    /// centre traps there and no banner is ever posted (`postBanner`).
+    private func notificationsAllowed(_ answer: @escaping (Bool) -> Void) {
+        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let status = settings.authorizationStatus
+            let allowed = status == .authorized || status == .provisional
+            DispatchQueue.main.async { answer(allowed) }
+        }
     }
 
     private func saveAlarms() {

@@ -848,11 +848,40 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.overlayAlert?.id, "bt")
     }
 
+    func testACardArrivingInAPeekInUseIsABannerThere() {
+        // The hand is in the peek — on the volume, reading Today. A finished download's card
+        // used to tear the peek down under it; it is a banner in the peek's rail, as before.
+        center.setHovering(true)
+        settle(0.1)
+        guard case .panel(let peek) = center.presentation else { return XCTFail("the peek") }
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        XCTAssertEqual(center.presentation, .panel(peek), "the peek stays where the hand is")
+        XCTAssertEqual(center.overlayAlert?.id, "download-done", "and the card is a banner in it")
+        XCTAssertFalse(center.isOpen)
+    }
+
+    func testACardHoldsAgainstThePeekOnlyIfItWasThereFirst() {
+        let shown = Date(timeIntervalSince1970: 1_790_000_000)
+        XCTAssertTrue(ActivityCenter.cardHoldsAgainstPeek(holdsCard: true, shownAt: shown,
+                                                          pointerArrivedAt: shown.addingTimeInterval(0.3)),
+                      "the card first: the pointer arriving is the hand going to it")
+        XCTAssertFalse(ActivityCenter.cardHoldsAgainstPeek(holdsCard: true, shownAt: shown.addingTimeInterval(0.3),
+                                                           pointerArrivedAt: shown),
+                       "the peek first: it was in use, and the card is a banner in it")
+        XCTAssertFalse(ActivityCenter.cardHoldsAgainstPeek(holdsCard: false, shownAt: shown,
+                                                           pointerArrivedAt: shown.addingTimeInterval(0.3)),
+                       "a pill yields to the peek whichever came first")
+    }
+
     func testACardOutlastsItsTimeWhileThePointerIsOnIt() {
         center.showAlert(finishedDownload(), duration: 1.6, exact: true, haptic: false)
         center.setHovering(true)
         settle(1.9)
         XCTAssertEqual(center.alert?.id, "download-done", "its time is up, but the hand is on it")
+        // Past the second look, a second after the first: that look was asked about the one
+        // second it had been re-armed for, and the card went from under the hand there.
+        settle(1.0)
+        XCTAssertEqual(center.alert?.id, "download-done", "and it stays while the hand does, not one second more")
         center.setHovering(false)
         settle(ActivityCenter.hoverExitGrace + 1.2)
         XCTAssertNil(center.alert, "and it goes once the pointer has")
@@ -874,15 +903,41 @@ final class ActivityCenterTests: XCTestCase {
     }
 
     func testWhenAnAlertOutstaysItsTime() {
-        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, pointerOn: true, panelShowing: false, cardUnderPointer: false),
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, heldFor: 0, pointerOn: true, panelShowing: false,
+                                                cardUnderPointer: false),
                       "the pointer on the pill")
-        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, pointerOn: true, panelShowing: true, cardUnderPointer: true),
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, heldFor: 0, pointerOn: true, panelShowing: true,
+                                                cardUnderPointer: true),
                       "a card under the pointer, with the pointer opening the panel as it ships")
-        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, pointerOn: true, panelShowing: true, cardUnderPointer: false),
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, heldFor: 0, pointerOn: true, panelShowing: true,
+                                                 cardUnderPointer: false),
                        "a banner in the rail goes on its own time")
-        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 1, pointerOn: true, panelShowing: false, cardUnderPointer: true),
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 1, heldFor: 0, pointerOn: true, panelShowing: false,
+                                                 cardUnderPointer: true),
                        "a copied line goes whatever, since the click that copied left the pointer there")
-        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, pointerOn: false, panelShowing: false, cardUnderPointer: false))
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, heldFor: 0, pointerOn: false, panelShowing: false,
+                                                 cardUnderPointer: false))
+    }
+
+    func testTheLookASecondLaterIsAskedAboutTheAlertsOwnLength() {
+        // Re-armed a second at a time, each look is asked about the length the alert was shown
+        // for. Asked about that one second, as it was, the card went at the second look.
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, heldFor: 1, pointerOn: true, panelShowing: true,
+                                                cardUnderPointer: true))
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 1.6, heldFor: 30, pointerOn: true, panelShowing: true,
+                                                cardUnderPointer: true))
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 1, heldFor: 1, pointerOn: true, panelShowing: true,
+                                                 cardUnderPointer: true),
+                       "what the second look used to ask, and why the card went from under the hand")
+    }
+
+    func testTheHoldOnAnAlertHasAnEnd() {
+        XCTAssertTrue(ActivityCenter.alertHolds(seconds: 4, heldFor: ActivityCenter.alertHoldLimit - 1, pointerOn: true,
+                                                panelShowing: false, cardUnderPointer: false))
+        XCTAssertFalse(ActivityCenter.alertHolds(seconds: 4, heldFor: ActivityCenter.alertHoldLimit, pointerOn: true,
+                                                 panelShowing: false, cardUnderPointer: true),
+                       "a hand left resting over the notch is not somebody still reading")
+        XCTAssertEqual(ActivityCenter.alertHoldLimit, ActivityCenter.forcedHoldLimit, "the minute a forced card gets")
     }
 
     func testOnlyACardWithAViewOfItsOwnHolds() {
@@ -942,6 +997,45 @@ final class ActivityCenterTests: XCTestCase {
         settle(0.5)
         XCTAssertEqual(center.forcedExpandedID, "timer", "its time is up, but the hand is on it")
         guard case .card = center.presentation else { return XCTFail("still the card, not the peek panel") }
+    }
+
+    func testAnAlertSentBehindTheRingingCardKeepsItsOwnLength() {
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 5)
+        XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"])
+        XCTAssertEqual(center.pendingAlerts.first?.duration, 5, "its own five seconds, not the default 1.8")
+    }
+
+    func testAnAlertAWarningPushesAsideKeepsItsOwnLength() {
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .low)
+        center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90), duration: 5, haptic: false)
+        XCTAssertEqual(center.alert?.id, "battery")
+        XCTAssertEqual(center.pendingAlerts.first?.activity.id, "download-done")
+        XCTAssertEqual(center.pendingAlerts.first?.duration, 5)
+    }
+
+    func testTimeBehindARingingCardDoesNotCountAgainstAnAlertsPatience() {
+        // Eight seconds of ringing and a minute under the pointer, against twenty of patience.
+        XCTAssertFalse(ActivityCenter.outwaited(finishedDownload(), waited: 68, behindForcedCard: true),
+                       "a finished download that waited behind the card is still news when it goes")
+        XCTAssertTrue(ActivityCenter.outwaited(finishedDownload(), waited: 21, behindForcedCard: false))
+        XCTAssertFalse(ActivityCenter.outwaited(finishedDownload(), waited: 19, behindForcedCard: false))
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        XCTAssertTrue(ActivityCenter.outwaited(hud, waited: 5, behindForcedCard: true),
+                      "a volume tick from a while ago is stale behind the card as anywhere")
+    }
+
+    func testWhenTheCardGoesWhatWaitedStartsItsPatienceAgain() {
+        let queued = Date(timeIntervalSince1970: 1_790_000_000)
+        let gone = queued.addingTimeInterval(68)
+        let hud = IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+        let queue = [ActivityCenter.PendingAlert(activity: finishedDownload(), queuedAt: queued, duration: 5, exact: false),
+                     ActivityCenter.PendingAlert(activity: hud, queuedAt: queued, duration: 1.5, exact: false)]
+        let after = ActivityCenter.afterForcedCard(queue, now: gone)
+        XCTAssertEqual(after.map(\.queuedAt), [gone, queued], "the download from now, the HUD left to go stale")
+        XCTAssertEqual(after.first?.duration, 5, "and nothing else about it changes")
     }
 
     func testTheHoldOnAForcedCardHasAnEnd() {

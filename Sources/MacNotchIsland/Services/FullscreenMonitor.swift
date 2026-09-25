@@ -16,6 +16,10 @@ import Combine
 /// from the one window-list read there always was; the Accessibility question, a round trip to
 /// the app asked, is put only to an app with a window that could be full screen on a notched
 /// display, which is the one case the window list cannot settle (see `covers`).
+///
+/// But only a window at the front of its display, or the frontmost app's (`contenders`): a
+/// utility that keeps a display-sized window behind everything else hid that display's island
+/// for as long as it ran.
 final class FullscreenMonitor {
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
@@ -60,14 +64,16 @@ final class FullscreenMonitor {
         let screens = Self.screens()
         let trusted = AXIsProcessTrusted()
         let ignored = Self.ignoredPIDs()
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
         DispatchQueue.global(qos: .utility).async { [weak self] in
+            // On screen only, which is also front to back: `contenders` reads the order.
             let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
             let seen = Self.windowList(list, ignoring: ignored)
             // Nil without Accessibility, which is what tells `coveredPanels` to go by the menu bar.
             var ask: ((pid_t) -> [CGRect])?
             if trusted { ask = { Self.fullScreenFrames(pid: $0) } }
             let covered = Self.coveredPanels(windows: seen.windows, menuBars: seen.menuBars, screens: screens,
-                                             fullScreenFrames: ask)
+                                             frontmost: frontmost, fullScreenFrames: ask)
             DispatchQueue.main.async { self?.apply(covered) }
         }
     }
@@ -147,6 +153,9 @@ final class FullscreenMonitor {
     struct Window: Equatable {
         var pid: pid_t
         var frame: CGRect
+        /// False for this app's windows and the Finder's: never an app gone full screen, but
+        /// in front of one they can be, and then nothing behind them is full screen.
+        var canCover = true
     }
 
     /// Only the displays that carry an island. A film full screen on a display with no
@@ -174,9 +183,10 @@ final class FullscreenMonitor {
     static let menuBarOwner = "Window Server"
     static let menuBarLayer = 24
 
-    /// What one read of the window list holds: every app's ordinary windows, and where the
-    /// menu bars are. An ordinary window is at layer 0, can be seen, and is not this app's,
-    /// the Finder's (`ignoring`) or the system's.
+    /// What one read of the window list holds: every app's ordinary windows, front to back as
+    /// the list gives them, and where the menu bars are. An ordinary window is at layer 0, can
+    /// be seen, and is not the system's. This app's and the Finder's (`ignoring`) are listed
+    /// for where they stand, never as what covers a display (`Window.canCover`).
     ///
     /// A menu bar is known by its owner and its level, and by its name where the name can be
     /// read: the names of other processes' windows are withheld from an app without Screen
@@ -196,33 +206,35 @@ final class FullscreenMonitor {
                 if name == nil || name == "Menubar" { menuBars.append(bounds) }
                 continue
             }
-            guard layer == 0, !pids.contains(pid), !systemOwners.contains(owner) else { continue }
-            // A window nobody can see covers nothing.
+            guard layer == 0, !systemOwners.contains(owner) else { continue }
+            // A window nobody can see covers nothing, and is in front of nothing.
             guard ((entry[kCGWindowAlpha as String] as? Double) ?? 1) > 0 else { continue }
-            windows.append(Window(pid: pid, frame: bounds))
+            windows.append(Window(pid: pid, frame: bounds, canCover: !pids.contains(pid)))
         }
         return (windows, menuBars)
     }
 
     /// The islands whose display some app covers with a window, from one read of the window
-    /// list (`windowList`).
+    /// list (`windowList`), front to back.
     ///
-    /// A window that fills a display exactly covers it, whoever's it is. On a display with a
-    /// camera housing a full-screen window stops below the housing — which is also exactly
-    /// where a window zoomed under the menu bar stops, so such a window needs more than its
-    /// frame: its app's own word, through Accessibility (`fullScreenFrames`, asked only of the
-    /// apps that have one, each at most once), or, without Accessibility (`fullScreenFrames`
-    /// nil), the display's menu bar having gone.
-    static func coveredPanels(windows: [Window], menuBars: [CGRect], screens: [Screen],
+    /// A window that fills a display exactly covers it, whoever's it is, as long as it is at
+    /// the front there (`contenders`). On a display with a camera housing a full-screen window
+    /// stops below the housing — which is also exactly where a window zoomed under the menu bar
+    /// stops, so such a window needs more than its frame: its app's own word, through
+    /// Accessibility (`fullScreenFrames`, asked only of the apps that have one, each at most
+    /// once), or, without Accessibility (`fullScreenFrames` nil), the display's menu bar having
+    /// gone.
+    static func coveredPanels(windows: [Window], menuBars: [CGRect], screens: [Screen], frontmost: pid_t?,
                               fullScreenFrames: ((pid_t) -> [CGRect])?) -> Set<String> {
         var answers: [pid_t: [CGRect]] = [:]
         var covered = Set<String>()
         for screen in screens {
-            if windows.contains(where: { covers(screen, $0.frame, reportedFullScreen: false) }) {
+            let inFront = contenders(on: screen, windows: windows, frontmost: frontmost)
+            if inFront.contains(where: { covers(screen, $0.frame, reportedFullScreen: false) }) {
                 covered.insert(screen.panelID)
                 continue
             }
-            let candidates = windows.filter { fillsBelowHousing(screen, $0.frame) }
+            let candidates = inFront.filter { fillsBelowHousing(screen, $0.frame) }
             guard !candidates.isEmpty else { continue }
             if let fullScreenFrames {
                 for pid in Set(candidates.map(\.pid)).sorted() {
@@ -241,6 +253,28 @@ final class FullscreenMonitor {
             }
         }
         return covered
+    }
+
+    /// The windows that may be what covers `screen`: the ones belonging to the app whose window
+    /// is at the front of that display, and the frontmost app's. `windows` is front to back.
+    ///
+    /// Any app's layer-0 window used to count, wherever it stood, so a utility that keeps a
+    /// display-sized window behind everything — an overlay, a dimmer, a desktop of its own —
+    /// hid that display's island for as long as it ran, with Safari in front of it. A
+    /// full-screen app is at the front of its display, in a Space of its own; the frontmost
+    /// app counts wherever its window stands, since whatever the user is in is not behind
+    /// anything. The Finder and this app never cover a display (`Window.canCover`), but in
+    /// front of one they can be, and then nothing behind them covers it.
+    static func contenders(on screen: Screen, windows: [Window], frontmost: pid_t?) -> [Window] {
+        let front = windows.first(where: { isOn(screen, $0.frame) })?.pid
+        return windows.filter { $0.canCover && ($0.pid == front || $0.pid == frontmost) }
+    }
+
+    /// Whether a window shows on `screen` at all: more than a sliver of it lies there. A window
+    /// parked off every display, or a point wide, is in front of nothing.
+    static func isOn(_ screen: Screen, _ window: CGRect) -> Bool {
+        let overlap = screen.rect.intersection(window)
+        return !overlap.isNull && overlap.width >= 2 && overlap.height >= 2
     }
 
     /// Whether `window` fills `screen`.

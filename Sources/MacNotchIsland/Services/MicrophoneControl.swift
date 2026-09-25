@@ -89,14 +89,38 @@ final class MicrophoneControl: ObservableObject {
     struct HeldMute: Equatable {
         /// UIDs, in the order the mute reached them.
         private(set) var devices: [String] = []
+        /// Microphones the mute was on when it ended, that were not there to be given back: the
+        /// AirPods that inherited it and went before the unmute. CoreAudio keeps a mute with
+        /// the device, and they came back still muted with nothing left to say so. Each is
+        /// owed its unmute until it is next seen (`reappeared`).
+        private(set) var owed: [String] = []
 
         /// Whether the island's mute is in force, which is whether a new microphone inherits it.
         var isHeld: Bool { !devices.isEmpty }
 
         /// The mute has reached this microphone: the island muted it, or found it already silent
-        /// when it became the one in use.
+        /// when it became the one in use. Whatever it was owed is settled by that.
         mutating func muted(_ uid: String) {
             if !devices.contains(uid) { devices.append(uid) }
+            owed.removeAll { $0 == uid }
+        }
+
+        /// These were not connected to be given back when the mute ended; they are owed it.
+        mutating func unreachable(_ uids: [String]) {
+            for uid in uids where !owed.contains(uid) { owed.append(uid) }
+        }
+
+        /// A microphone owed an unmute is connected again. Whether to unmute it now: yes while
+        /// no mute is in force. With one in force it stays silent and is under that mute now,
+        /// to be given back when it ends — the mute it had was carried, and it still stands.
+        mutating func reappeared(_ uid: String) -> Bool {
+            guard owed.contains(uid) else { return false }
+            owed.removeAll { $0 == uid }
+            if isHeld {
+                muted(uid)
+                return false
+            }
+            return true
         }
 
         /// Whether the microphone in use reading unmuted ends the mute: only if the mute is on
@@ -124,6 +148,9 @@ final class MicrophoneControl: ObservableObject {
     }
 
     private var systemRegistration: Registration?
+    /// The list of devices, heard so a microphone owed its unmute is given it when it comes
+    /// back, whether or not it comes back as the one in use.
+    private var devicesRegistration: Registration?
     private var deviceRegistrations: [Registration] = []
     private var device = AudioDeviceID(0)
     /// The mute the island put there, and every microphone it is on. Released the moment the
@@ -139,6 +166,12 @@ final class MicrophoneControl: ObservableObject {
                                                  mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)
         systemRegistration = listen(AudioObjectID(kAudioObjectSystemObject), address: &address) { [weak self] in
+            self?.bind()
+        }
+        var devices = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        devicesRegistration = listen(AudioObjectID(kAudioObjectSystemObject), address: &devices) { [weak self] in
             self?.bind()
         }
         bind()
@@ -196,6 +229,7 @@ final class MicrophoneControl: ObservableObject {
 
     /// Watches the default input device, and moves the watching when the default changes.
     private func bind() {
+        settleOwed()
         let next = AudioOutputs.defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
         guard next != device else { return reload() }
         let carry = held.isHeld
@@ -235,13 +269,32 @@ final class MicrophoneControl: ObservableObject {
     }
 
     /// Unmutes microphones the island muted and has since moved on from. Only the ones still
-    /// connected and still silent: one that has gone cannot be reached, and one somebody has
-    /// turned back on is left as it is.
+    /// silent: one somebody has turned back on is left as it is. One that has gone cannot be
+    /// reached now, and is owed its unmute for when it is back (`settleOwed`).
     private func giveBack(_ uids: [String]) {
+        var away: [String] = []
         for uid in uids {
-            guard let other = Self.connectedDevice(uid: uid), other != device, Self.readsMuted(other) else { continue }
+            guard let other = Self.connectedDevice(uid: uid) else {
+                away.append(uid)
+                continue
+            }
+            guard other != device, Self.readsMuted(other) else { continue }
             if !write(false, to: other) {
                 IslandLog.audio.error("could not give back the microphone \(other, privacy: .public)")
+            }
+        }
+        held.unreachable(away)
+    }
+
+    /// Gives a microphone owed its unmute (`HeldMute.reappeared`) that unmute, now that it is
+    /// connected again and no mute is in force — before the default is looked at, so a mute
+    /// in force that it arrives into is carried to it as to any other.
+    private func settleOwed() {
+        for uid in held.owed {
+            guard let back = Self.connectedDevice(uid: uid), held.reappeared(uid) else { continue }
+            guard Self.readsMuted(back) else { continue }
+            if !write(false, to: back) {
+                IslandLog.audio.error("could not give back the microphone \(back, privacy: .public)")
             }
         }
     }

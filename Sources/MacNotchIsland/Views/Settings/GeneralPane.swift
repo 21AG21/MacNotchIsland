@@ -9,8 +9,10 @@ struct GeneralPane: View {
     /// this pane is open so the Hiding section's note goes the moment it is granted.
     @State private var accessibilityTrusted = MediaKeyInterceptor.isTrusted
     /// Held rather than built inside `onReceive`, where it would be a new publisher on every
-    /// pass of the body.
-    private let permissionTicker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    /// pass of the body — and held in `@State` rather than a `let`, which the Settings
+    /// window's own redraws would build anew, starting the two seconds over each time
+    /// (`ControlsSectionView.devicesTicker`).
+    @State private var permissionTicker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Form {

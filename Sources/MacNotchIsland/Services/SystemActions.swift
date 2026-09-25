@@ -7,22 +7,49 @@ import CoreGraphics
 /// the screen, put the display to sleep, and open the screenshot toolbar.
 ///
 /// The lock is the call the menu bar's own Lock Screen item makes, looked up by name in a
-/// private framework and walked past when it is not there; behind it is Control-Command-Q,
-/// posted as if typed, which needs Accessibility. The display goes to sleep through `pmset`,
-/// which any user may run, and the toolbar is Apple's own Screenshot app.
+/// private framework and walked past when it is not there or the screen has not locked a
+/// moment after it; behind it is Control-Command-Q, posted as if typed, which needs
+/// Accessibility. The display goes to sleep through `pmset`, which any user may run, and the
+/// toolbar is Apple's own Screenshot app.
 enum SystemActions {
     /// Locks the screen at once, the way Control-Command-Q does.
     ///
     /// The menu's own call first, because it depends on nothing: no permission, no keyboard
-    /// layout, and it says whether it worked. The keystroke used to come first, and on a
-    /// French keyboard it was Control-Command-A — see `lockKeyCode(characterFor:)` — which
-    /// locks nothing; and since posting it counted as success, nothing else was tried.
+    /// layout. The keystroke used to come first, and on a French keyboard it was
+    /// Control-Command-A — see `lockKeyCode(characterFor:)` — which locks nothing; and since
+    /// posting it counted as success, nothing else was tried. What the call returns is written
+    /// down nowhere, so it is not what decides: the screen is looked at a moment later, and
+    /// the lock goes another way only if it is still not locked (`lockFallback`).
     static func lockScreen() {
-        if let lock = loginLockScreen {
-            let status = lock()
-            if status == 0 { return }
-            IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock")
+        guard let lock = loginLockScreen else { return lockAnotherWay() }
+        let status = lock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + lockGrace) {
+            guard Self.lockFallback(status: status, lockedAfter: ScreenLockMonitor.screenIsLocked) else { return }
+            IslandLog.island.notice("the login framework answered \(status, privacy: .public) to a lock, and the screen is not locked")
+            Self.lockAnotherWay()
         }
+    }
+
+    /// How long the screen is given to lock after the login framework's call before it is
+    /// looked at.
+    static let lockGrace: TimeInterval = 0.5
+
+    /// Whether the lock goes another way: the keystroke, else the display put to sleep.
+    ///
+    /// `status` is what the login framework's call returned, nil when it is not there to call.
+    /// What the call returns is written down nowhere, so the number decides nothing: anything
+    /// but nought used to press Control-Command-Q, or put the display to sleep, on top of a lock
+    /// that had already happened, should the call answer something else when it works. The
+    /// screen decides: locked a moment later, the call worked, whatever it said; not locked, it
+    /// did not, whatever it said.
+    static func lockFallback(status: Int32?, lockedAfter: Bool) -> Bool {
+        guard status != nil else { return true }
+        return !lockedAfter
+    }
+
+    /// The lock without the login framework's call: Control-Command-Q, which needs
+    /// Accessibility, else the display put to sleep.
+    private static func lockAnotherWay() {
         if AXIsProcessTrusted(), postLockShortcut() { return }
         // Neither is open to us. Sleeping the display locks the Mac wherever "Require
         // password" is set to immediately, which is how most Macs ship; where it is not, the

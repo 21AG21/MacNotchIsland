@@ -11,7 +11,8 @@ import Combine
 ///   just rang, always wins regardless of age.
 /// - Resting the pointer on the island opens its panel after the hover delay, and leaving
 ///   closes it again after a moment's grace ("Open when the pointer rests on the island",
-///   on out of the box); an alert's card or a forced card under the pointer stays a card. A
+///   on out of the box); an alert's card that was up before the pointer came, or a forced
+///   card, stays a card under it, and one that arrives in a peek is a banner there. A
 ///   click pins the panel (the activity's expanded view, or the Home panel when nothing is
 ///   live), and a click anywhere else, Escape or the global shortcut closes it. Shortcut
 ///   modifiers + Tab cycles through every open-able view; with Shift it cycles back.
@@ -68,7 +69,15 @@ final class ActivityCenter: ObservableObject {
     /// close. Read by the views to pick a push or a cross-fade; not published, since it is
     /// always set right before the change that is.
     private(set) var navigationDirection = 0
-    @Published private(set) var forcedExpandedID: String? = nil
+    /// The card forced up (`forceExpanded`). When it goes, whichever way — its time, its Stop,
+    /// a close — what waited behind it starts its patience again from then (`afterForcedCard`).
+    @Published private(set) var forcedExpandedID: String? = nil {
+        didSet {
+            if oldValue != nil, forcedExpandedID != oldValue {
+                pendingAlerts = Self.afterForcedCard(pendingAlerts, now: Date())
+            }
+        }
+    }
     @Published private(set) var pinnedID: String? = nil
     @Published var micInUse = false
     @Published var cameraInUse = false
@@ -116,7 +125,25 @@ final class ActivityCenter: ObservableObject {
     }
 
     private var alertWork: DispatchWorkItem?
-    private var pendingAlerts: [(activity: IslandActivity, queuedAt: Date, duration: TimeInterval?, exact: Bool)] = []
+    /// An alert waiting its turn, behind a louder one or behind a card forced up.
+    struct PendingAlert {
+        var activity: IslandActivity
+        /// Where its patience is counted from: when it was queued, or when the forced card it
+        /// waited behind went (`afterForcedCard`).
+        var queuedAt: Date
+        /// What its caller asked for, kept for its turn: a finished download that waited behind
+        /// a ringing timer used to come back at the default length, not its own.
+        var duration: TimeInterval?
+        var exact: Bool
+    }
+    private(set) var pendingAlerts: [PendingAlert] = []
+    /// What the alert on screen was asked to last, so that one sent back to the queue — behind
+    /// a louder alert, or behind a card forced up — keeps it.
+    private var alertRequest: (duration: TimeInterval?, exact: Bool) = (nil, false)
+    /// When the alert on screen went up: not when an update of the same alert last replaced
+    /// it. Against `hoverArrivedAt` it says which came first, the card or the pointer
+    /// (`cardHoldsAgainstPeek`).
+    private var alertShownAt = Date.distantPast
     /// Alerts the user clicked open. They live on as activities until closed, so their own
     /// timers cannot pull the panel away.
     private var heldAlertIDs: Set<String> = []
@@ -151,6 +178,10 @@ final class ActivityCenter: ObservableObject {
     /// (`NotchPanel.clickGoesToBody`).
     private(set) var grewAt = Date.distantPast
     private(set) var grewOn: String? = nil
+    /// When the pointer last arrived on an island — the moment its peek opened, if it opens
+    /// one — for `cardHoldsAgainstPeek`. `grewAt` is no use for this: a card that holds against
+    /// the peek means nothing grew.
+    private var hoverArrivedAt = Date.distantPast
     /// Why the panel last closed, as `collapse(reason:)` was told; nil once something opens
     /// again, and for a close that did not go through `collapse`. The panel hands the keyboard
     /// back at once after a close from the keyboard (`NotchPanel.releasesKeyAtOnce`).
@@ -185,6 +216,8 @@ final class ActivityCenter: ObservableObject {
         activities = []
         alert = nil
         pendingAlerts.removeAll()
+        alertRequest = (nil, false)
+        alertShownAt = .distantPast
         heldAlertIDs.removeAll()
         hoverPanel = nil
         dragPanel = nil
@@ -205,6 +238,7 @@ final class ActivityCenter: ObservableObject {
         openedAt = .distantPast
         grewAt = .distantPast
         grewOn = nil
+        hoverArrivedAt = .distantPast
         closeReason = nil
         findQuery = nil
         findIndex = 0
@@ -384,7 +418,7 @@ final class ActivityCenter: ObservableObject {
         // this one free to show the alert.
         let openHere = openView != nil && Self.shows(openPanel: openPanel, on: panel)
         if let alert, !openHere,
-           Self.alertTakesIsland(rank: Self.alertRank(alert), holdsCard: Self.holdsCard(alert),
+           Self.alertTakesIsland(rank: Self.alertRank(alert), holdsCard: cardHoldsAgainstPeek(alert),
                                  peeking: peeking, forcedCardUp: forced != nil) {
             let large = alert.presentation == .expanded || (peeking && Self.alertRank(alert) > 2)
             if large && alert.content.hasExpandedView { return .card(alert) }
@@ -413,9 +447,9 @@ final class ActivityCenter: ObservableObject {
     /// middle of its eight seconds and grow it back after, and those alerts wait their turn
     /// behind it now (`showAlert`). With neither, an alert has the island unless the pointer is
     /// resting there, where the panel it opens wins — except over a card that is there to be
-    /// used (`holdsCard`). A screenshot's card turned into the Home peek a quarter of a second
-    /// after the pointer reached it, taking the thumbnail and Copy and Open out from under the
-    /// hand that was going to click them.
+    /// used and was there first (`holdsCard`, from `cardHoldsAgainstPeek`). A screenshot's card
+    /// turned into the Home peek a quarter of a second after the pointer reached it, taking the
+    /// thumbnail and Copy and Open out from under the hand that was going to click them.
     static func alertTakesIsland(rank: Int, holdsCard: Bool, peeking: Bool, forcedCardUp: Bool) -> Bool {
         if rank >= 6 { return true }
         if forcedCardUp { return false }
@@ -428,6 +462,19 @@ final class ActivityCenter: ObservableObject {
     /// going to use it, so it holds against the peek and stays up while the pointer is on it.
     static func holdsCard(_ alert: IslandActivity) -> Bool {
         alert.presentation == .expanded && alert.content.hasExpandedView
+    }
+
+    /// Whether a card holds against the peek: it is one there to be used (`holdsCard`), and it
+    /// was up before the pointer arrived. Then the pointer arriving is the hand going to it.
+    /// The other way round the hand was already in the peek — dragging the volume, reading
+    /// Today — and a finished download or a shelf that could not take a file tore the peek
+    /// down under it; arriving there, a card is a banner in the peek's rail, as it always was.
+    static func cardHoldsAgainstPeek(holdsCard: Bool, shownAt: Date, pointerArrivedAt: Date) -> Bool {
+        holdsCard && shownAt <= pointerArrivedAt
+    }
+
+    private func cardHoldsAgainstPeek(_ alert: IslandActivity) -> Bool {
+        Self.cardHoldsAgainstPeek(holdsCard: Self.holdsCard(alert), shownAt: alertShownAt, pointerArrivedAt: hoverArrivedAt)
     }
 
     /// The card `forceExpanded` put up, while it is up: it has to be the main activity and
@@ -469,11 +516,11 @@ final class ActivityCenter: ObservableObject {
     /// An alert that arrived while the panel is showing (a volume HUD, a finished download, a
     /// battery warning): drawn over the panel, which stays where it is. The exceptions are the
     /// ones that take an island that is merely under the pointer: a battery warning, and a
-    /// card there to be used (`holdsCard`), which stays a card rather than shrinking to a
-    /// banner in the peek's rail.
+    /// card there to be used that was up before the pointer came (`cardHoldsAgainstPeek`),
+    /// which stays a card rather than shrinking to a banner in the peek's rail.
     var overlayAlert: IslandActivity? {
         guard let alert, isPanelShowing else { return nil }
-        if !isOpen, Self.alertRank(alert) >= 6 || Self.holdsCard(alert) { return nil }
+        if !isOpen, Self.alertRank(alert) >= 6 || cardHoldsAgainstPeek(alert) { return nil }
         return alert
     }
 
@@ -582,12 +629,13 @@ final class ActivityCenter: ObservableObject {
         if activities.contains(where: { $0.id == id }) { pinnedID = id }
         // An alert already up goes behind the card rather than under it, the way a louder
         // alert keeps a quieter one for afterwards: a finished download that a ringing timer
-        // covered ran out its time there unseen. A key press's HUD is stale by then, and is
-        // left to run out under the card.
+        // covered ran out its time there unseen. It comes back as long as it was asked to be,
+        // not the default. A key press's HUD is stale by then, and is left to run out under
+        // the card.
         if forcedCardShowing, let shown = alert, (3..<6).contains(Self.alertRank(shown)) {
             alertWork?.cancel()
             alert = nil
-            enqueue(shown, duration: nil)
+            enqueue(shown, duration: alertRequest.duration, exact: alertRequest.exact)
         }
         Haptics.tap()
         scheduleForcedExpiry(id: id, after: seconds, heldFor: 0)
@@ -655,6 +703,30 @@ final class ActivityCenter: ObservableObject {
         case ...2: return 2
         case 3...4: return 20
         default: return 90
+        }
+    }
+
+    /// Whether a queued alert has waited past its patience.
+    ///
+    /// Time behind a card forced up does not count against an alert worth keeping. A pointer
+    /// can hold a ringing timer's card for its eight seconds and a minute more
+    /// (`forcedHoldLimit`), and a question from a script for as long as the script said, while
+    /// a finished download has twenty seconds of patience: it waited behind the card and was
+    /// dropped unseen. A key press's HUD goes stale behind the card as anywhere else — a volume
+    /// tick from a minute ago is no news when the card goes.
+    static func outwaited(_ activity: IslandActivity, waited: TimeInterval, behindForcedCard: Bool) -> Bool {
+        if behindForcedCard, alertRank(activity) >= 3 { return false }
+        return waited > patience(for: activity)
+    }
+
+    /// The queue once the card forced up has gone: every alert worth keeping starts its
+    /// patience again from now, so its turn is measured from when it could have one. A HUD
+    /// keeps the moment it was queued, and is dropped as stale.
+    static func afterForcedCard(_ queue: [PendingAlert], now: Date) -> [PendingAlert] {
+        queue.map { item in
+            var item = item
+            if alertRank(item.activity) >= 3 { item.queuedAt = now }
+            return item
         }
     }
 
@@ -738,17 +810,21 @@ final class ActivityCenter: ObservableObject {
             openView = nil
         }
         // A louder alert replacing a quieter one keeps the quieter one for afterwards, so a
-        // battery warning never makes a finished download vanish unseen. Key-press HUDs are
-        // stale by then and are not kept.
+        // battery warning never makes a finished download vanish unseen — at its own length.
+        // Key-press HUDs are stale by then and are not kept.
         if let previous = alert, previous.id != activity.id,
            Self.alertRank(previous) >= 3, Self.alertRank(previous) < Self.alertRank(activity) {
-            enqueue(previous, duration: nil)
+            enqueue(previous, duration: alertRequest.duration, exact: alertRequest.exact)
         }
+        // An update of the alert already up is the same alert: it keeps the moment it went up,
+        // which is what says whether it or the pointer came first.
+        if alert?.id != activity.id { alertShownAt = Date() }
         alert = activity
+        alertRequest = (duration, exact)
         if haptic { Haptics.tap() }
         let seconds = exact ? (duration ?? Self.standardAlertDuration)
                             : Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration)
-        scheduleAlertDismiss(id: activity.id, after: seconds)
+        scheduleAlertDismiss(id: activity.id, after: seconds, requested: seconds)
     }
 
     private func enqueue(_ activity: IslandActivity, duration: TimeInterval?, exact: Bool = false) {
@@ -756,16 +832,34 @@ final class ActivityCenter: ObservableObject {
         // What has gone stale leaves first: the three places hold alerts still worth showing,
         // not a Caps Lock and a mute from ten seconds ago ahead of a finished download that
         // arrives behind the same ringing timer.
-        pendingAlerts.removeAll { $0.activity.id == activity.id || now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
-        if pendingAlerts.count < 3 { pendingAlerts.append((activity, now, duration, exact)) }
+        pendingAlerts.removeAll { $0.activity.id == activity.id }
+        pruneOutwaitedAlerts(now: now)
+        if pendingAlerts.count < 3 {
+            pendingAlerts.append(PendingAlert(activity: activity, queuedAt: now, duration: duration, exact: exact))
+        }
     }
 
-    private func scheduleAlertDismiss(id: String, after seconds: TimeInterval) {
+    /// Drops what has waited past its patience (`outwaited`).
+    private func pruneOutwaitedAlerts(now: Date) {
+        let behindCard = forcedCardShowing
+        pendingAlerts.removeAll {
+            Self.outwaited($0.activity, waited: now.timeIntervalSince($0.queuedAt), behindForcedCard: behindCard)
+        }
+    }
+
+    /// How long the pointer resting on an alert can keep it past its own time: the minute a
+    /// forced card is given (`forcedHoldLimit`), for the same reason.
+    static let alertHoldLimit: TimeInterval = forcedHoldLimit
+
+    /// `requested` is the alert's own length, carried through every look after the first: the
+    /// look is re-armed a second at a time, and it used to be asked about that second.
+    private func scheduleAlertDismiss(id: String, after seconds: TimeInterval, requested: TimeInterval,
+                                      heldFor: TimeInterval = 0) {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.alert?.id == id else { return }
-            if Self.alertHolds(seconds: seconds, pointerOn: self.isHovering || self.isDragTargeted,
+            if Self.alertHolds(seconds: requested, heldFor: heldFor, pointerOn: self.isHovering || self.isDragTargeted,
                                panelShowing: self.isPanelShowing, cardUnderPointer: self.cardUnderPointer(id: id)) {
-                self.scheduleAlertDismiss(id: id, after: 1.0)
+                self.scheduleAlertDismiss(id: id, after: 1, requested: requested, heldFor: heldFor + 1)
             } else {
                 self.alert = nil
                 // A view opened on this alert closes with it, unless a live activity of the
@@ -786,11 +880,19 @@ final class ActivityCenter: ObservableObject {
     /// A real alert stays up while the pointer is on it, like holding a finger on the island;
     /// very short confirmations ("Copied") expire regardless, since a click leaves the pointer
     /// there. A banner over the panel goes on its own time too, since the pointer is there to
-    /// use the rail — but a card that held against the peek (`holdsCard`) is not a banner, and
-    /// with the pointer opening the panel, which is how the app ships, the panel always counted
-    /// as showing under it: a screenshot's card ran out on schedule with the hand on it.
-    static func alertHolds(seconds: TimeInterval, pointerOn: Bool, panelShowing: Bool, cardUnderPointer: Bool) -> Bool {
-        guard pointerOn, seconds > 1.5 else { return false }
+    /// use the rail — but a card that held against the peek (`cardHoldsAgainstPeek`) is not a
+    /// banner, and with the pointer opening the panel, which is how the app ships, the panel
+    /// always counted as showing under it: a screenshot's card ran out on schedule with the
+    /// hand on it.
+    ///
+    /// `seconds` is the alert's own length, however many seconds it has been held already
+    /// (`heldFor`). The second look was asked about the one second it had been re-armed for,
+    /// which is never past 1.5, so a card under a resting pointer went a second after its time.
+    /// Held for `alertHoldLimit`, it goes: a hand left on the trackpad over the notch is not
+    /// somebody still reading.
+    static func alertHolds(seconds: TimeInterval, heldFor: TimeInterval, pointerOn: Bool, panelShowing: Bool,
+                           cardUnderPointer: Bool) -> Bool {
+        guard pointerOn, seconds > 1.5, heldFor < alertHoldLimit else { return false }
         return !panelShowing || cardUnderPointer
     }
 
@@ -798,8 +900,7 @@ final class ActivityCenter: ObservableObject {
         // Still behind a forced card: the queue waits for it rather than going round again,
         // which would restart every waiting alert's patience. Its expiry drains the queue.
         guard !forcedCardShowing else { return }
-        let now = Date()
-        pendingAlerts.removeAll { now.timeIntervalSince($0.queuedAt) > Self.patience(for: $0.activity) }
+        pruneOutwaitedAlerts(now: Date())
         pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
         guard !pendingAlerts.isEmpty else { return }
         let next = pendingAlerts.removeFirst()
@@ -843,6 +944,9 @@ final class ActivityCenter: ObservableObject {
                 deferredHoverExit = nil
                 guard self.hoverPanel != panel, self.peekSuppressed != panel else { return }
                 if self.peekView == nil, self.hoverPeeks { self.peekView = self.defaultPeek() }
+                // Before the panel is set, which asks it: a card already up holds against the
+                // peek this arrival opens (`cardHoldsAgainstPeek`).
+                self.hoverArrivedAt = Date()
                 self.hoverPanel = panel
                 // The pill has just become the panel under the pointer — unless a card held
                 // against the peek, or the pointer opens nothing, and nothing grew.
