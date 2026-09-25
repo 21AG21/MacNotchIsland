@@ -805,6 +805,32 @@ final class ActivityCenter: ObservableObject {
         if isOpen { keyboardInvited = true }
     }
 
+    /// A swipe down on the island, with "Open and close" chosen for the vertical swipe: the
+    /// panel on what a click there would open, pinned on that island. Unlike a click, a pill
+    /// with nothing to open does not perform its action instead — a swipe is for opening —
+    /// and a key-press HUD opens what is under it. A panel only under the pointer is pinned
+    /// as it is. Returns whether it opened anything.
+    @discardableResult
+    func openBySwipe(panel: String = "main") -> Bool {
+        let view: IslandView
+        switch presentation(for: panel) {
+        case .idle:
+            view = .home(tab: Self.currentHomeTab)
+        case .compact(let a, _), .card(let a):
+            let opensItself = a.content.hasExpandedView && !Self.isTransientHUD(a, alert: alert)
+            view = opensItself ? Self.view(for: a) : defaultPeek()
+        case .panel(let shown):
+            guard !openHere(panel) else { return false }
+            view = shown
+        case .shelf:
+            // A drag is in the hand; the island is the shelf's well until it is put down.
+            return false
+        }
+        IslandLog.island.notice("swipe open on \(panel, privacy: .public)")
+        open(view, panel: panel)
+        return openHere(panel)
+    }
+
     /// Whether the open view is open on `panel` — pinned there, or everywhere.
     func openHere(_ panel: String?) -> Bool {
         openView != nil && Self.shows(openPanel: openPanel, on: panel)
@@ -939,9 +965,10 @@ final class ActivityCenter: ObservableObject {
 
     /// Start a find with the letter that was just pressed. The panel has to be pinned open on
     /// a section that is a list of things — anywhere else the letters were never claimed, so
-    /// this is never reached — and anything but a letter is left alone.
+    /// this is never reached — and anything but a letter is left alone. On Actions it is a digit
+    /// instead, and the field it opens is the timer entry (`PanelFind.begins`).
     func beginFind(with character: String) {
-        guard PanelFind.opensFind(character), PanelFind.searches(openSection) else { return }
+        guard PanelFind.begins(with: character, on: openSection) else { return }
         lastInteraction = Date()
         IslandLog.keys.notice("find opened by a key press")
         findIndex = 0
@@ -949,9 +976,10 @@ final class ActivityCenter: ObservableObject {
         keyboardControlChanged()
     }
 
-    /// Open the field with nothing in it: the magnifying glass in a section's header, clicked.
+    /// Open the field with nothing in it: the magnifying glass in a section's header, clicked,
+    /// or the timer glyph on Actions.
     func beginFind() {
-        guard PanelFind.searches(openSection), findQuery == nil else { return }
+        guard PanelFind.hasField(openSection), findQuery == nil else { return }
         lastInteraction = Date()
         findIndex = 0
         withAnimation(IslandMotion.content) { findQuery = "" }

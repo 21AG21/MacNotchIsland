@@ -40,6 +40,10 @@ struct ShelfStripView: View {
     @State private var selection: Set<URL> = []
     @State private var selectionAnchor: URL? = nil
     @State private var shareAnchor = ShelfShareAnchor()
+    /// The drag over the well: whether it carries files, and which of the three targets is
+    /// under the pointer.
+    @StateObject private var well = ShelfWellDrag()
+    @Environment(\.islandPanelID) private var panelID
 
     var body: some View {
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
@@ -51,6 +55,23 @@ struct ShelfStripView: View {
             selection = selection.intersection(live)
             if let anchor = selectionAnchor, !live.contains(anchor) { selectionAnchor = nil }
         }
+        // A drag reaching the island says straight away whether it is carrying files, so the
+        // well splits as it arrives — not only once the pointer is over the well itself. The
+        // gallery has no drag, only whatever the last real one left on the pasteboard.
+        .onChange(of: isDropTarget, initial: true) { _, targeted in
+            if !targeted {
+                well.reset()
+            } else if !RenderMode.isGallery {
+                well.carriesFiles = ShelfDropTarget.carriesFiles(NSPasteboard(name: .drag))
+            }
+        }
+    }
+
+    /// Whether the well is split into Shelf, AirDrop and Share: only mid-drag, and only for a
+    /// drag that carries files. At rest, and for a picture or a line of text, it is the one
+    /// well it always was.
+    private var isSplit: Bool {
+        isDropTarget && well.carriesFiles && !RenderMode.isGallery
     }
 
     /// The AppKit view the share picker hangs off; ImageRenderer cannot draw one, so the
@@ -77,6 +98,8 @@ struct ShelfStripView: View {
     }
 
     private var headerTitle: String {
+        // Split, the header says what letting go will do, since that now depends on where.
+        if isSplit { return well.lit.prompt }
         let picked = orderedSelection.count
         if picked > 0 { return "\(picked) selected" }
         // Only where the well cannot say it itself. An empty shelf puts "Drop to add" in the
@@ -140,24 +163,50 @@ struct ShelfStripView: View {
             // tile. A grey dashed rectangle marks one nowhere in macOS; it is the drawing
             // convention of a web page, and it was the least Apple-made thing in the app.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.accentColor.opacity(isDropTarget ? 0.18 : 0))
+                .fill(Color.accentColor.opacity(isDropTarget && !isSplit ? 0.18 : 0))
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(isDropTarget ? 0.9 : 0), lineWidth: 2)
-            if shelf.items.isEmpty {
-                emptyState
-            } else if shown.isEmpty {
-                // There are files here; none of them answers to what was typed.
-                SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
-            } else {
-                // The tiles start under the header, the way the window tiles do; the rest of
-                // the strip stays theirs to be dropped into.
-                items.frame(maxHeight: .infinity, alignment: .top)
+                .strokeBorder(Color.accentColor.opacity(isDropTarget && !isSplit ? 0.9 : 0), lineWidth: 2)
+            Group {
+                if shelf.items.isEmpty {
+                    emptyState
+                } else if shown.isEmpty {
+                    // There are files here; none of them answers to what was typed.
+                    SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
+                } else {
+                    // The tiles start under the header, the way the window tiles do; the rest
+                    // of the strip stays theirs to be dropped into.
+                    items.frame(maxHeight: .infinity, alignment: .top)
+                }
+            }
+            // Out of sight rather than out of the tree while the well is split: the tiles come
+            // straight back, scrolled where they were, the moment the drag is over.
+            .opacity(isSplit ? 0 : 1)
+            .accessibilityHidden(isSplit)
+            if isSplit {
+                ShelfDropSplitView(lit: well.lit)
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: Self.stripHeight)
         .background(anchorView)
+        .background(widthReader)
+        // The well's own drop target, which knows where in the well the pointer is. A drop
+        // anywhere else on the island is the island's, and goes to the shelf as it always did.
+        .islandDrop(of: ShelfStore.acceptedTypes,
+                    delegate: ShelfWellDropDelegate(well: well, panelID: panelID, anchor: shareAnchor))
         .animation(IslandMotion.hover, value: isDropTarget)
+        .animation(IslandMotion.hover, value: isSplit)
+        .animation(IslandMotion.hover, value: well.lit)
+    }
+
+    /// Tells the well how wide it is, for placing the pointer in one of its three columns.
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { well.width = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in well.width = width }
+        }
     }
 
     /// Its own rather than `SectionEmptyState`, because the glyph and the words change while a

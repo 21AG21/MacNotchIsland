@@ -11,7 +11,10 @@ import SwiftUI
 /// - A horizontal swipe on the compact Now Playing pill skips tracks; on the open panel it
 ///   steps to the next or previous view, the way the switcher reads.
 /// - A vertical scroll changes the output volume while the island is showing nothing that
-///   scrolls by itself.
+///   scrolls by itself — or, with "Open and close" chosen in the Island pane, a swipe down on
+///   the closed island opens the panel and a swipe up on the panel closes it.
+/// - A vertical scroll on a timer's pill moves the timer a minute at a time instead, and in
+///   "Open and close" a swipe that goes far enough still opens the panel.
 /// - Anything else is handed straight back to SwiftUI, so the clipboard list and the shelf
 ///   strip keep scrolling normally.
 ///
@@ -27,13 +30,30 @@ final class GestureRouter {
     enum Context: Equatable {
         case idle
         case compactNowPlaying
+        /// A timer's pill, while the timer has not rung: a vertical scroll moves its end.
+        case compactTimer
         case otherCompact
         /// A system card (an alert with a large view).
         case card
         /// The panel: `index` is the current view's position in the ring of `count` views;
-        /// `scrolls` when the section scrolls by itself (a list, a strip).
-        case panel(index: Int, count: Int, scrolls: Bool)
+        /// `scrolls` when the section scrolls by itself (a list, a strip); `pinned` when it was
+        /// opened rather than only shown under the pointer.
+        case panel(index: Int, count: Int, scrolls: Bool, pinned: Bool = true)
         case shelf
+    }
+
+    /// What a bare vertical scroll on the island means — the Island pane's choice, stored as
+    /// `Preferences.verticalSwipe`.
+    enum VerticalSwipe: String, CaseIterable {
+        /// The output volume, as it always was.
+        case volume
+        /// Down on the closed island opens the panel; up on the panel closes it.
+        case openClose
+
+        /// The stored preference, read back. Anything this build does not know is the volume.
+        init(preference: String) {
+            self = VerticalSwipe(rawValue: preference) ?? .volume
+        }
     }
 
     enum Action: Equatable {
@@ -46,6 +66,14 @@ final class GestureRouter {
         case brightness(delta: Double)
         /// The same, for the keyboard's backlight: what the scroll means with Control held.
         case keyboard(delta: Double)
+        /// A swipe down on the closed island (or on a panel only under the pointer): open it.
+        case openPanel
+        /// A swipe up on the panel: close it.
+        case closePanel
+        /// Where the timer under the pointer should be, in whole minutes from where it was
+        /// when the gesture began: positive is more time. The whole gesture's count, not a
+        /// change, so the router applies only what it has not applied yet.
+        case nudgeTimer(steps: Int)
         case none
     }
 
@@ -69,8 +97,19 @@ final class GestureRouter {
     static let gestureGap: TimeInterval = 0.25
     /// At most ~30 volume writes a second.
     static let volumeInterval: TimeInterval = 1.0 / 30.0
-    /// Two track skips (or view steps) can never be closer together than this.
+    /// Two track skips (or view steps, or a swipe opening or closing the panel) can never be
+    /// closer together than this.
     static let trackCooldown: TimeInterval = 0.6
+    /// Vertical distance, in points, that makes a swipe open or close the panel with the
+    /// sensitivity in the middle. Between a track skip's and a view step's: a swipe that means
+    /// it gets there easily, and the few points a hand drifts while resting on the trackpad
+    /// never do. See `openCloseThreshold(sensitivity:)` for the distance at other settings.
+    static let openCloseDistance: CGFloat = 50
+    /// How far the sensitivity slider reaches either way.
+    static let sensitivityRange: ClosedRange<Double> = 0.5...2
+    /// Vertical distance, in points, per minute a scroll moves a timer. Under the swipe's
+    /// threshold, so a small scroll moves the timer before a large one opens the panel.
+    static let timerStepDistance: CGFloat = 24
 
     /// UserDefaults key for the Home section the panel last showed.
     static let homeTabKey = "homeTab"
@@ -79,19 +118,35 @@ final class GestureRouter {
     static func consumesHorizontalSwipes(_ context: Context) -> Bool {
         switch context {
         case .compactNowPlaying: return true
-        case .panel(_, let count, _): return count > 1
-        case .idle, .otherCompact, .card, .shelf: return false
+        case .panel(_, let count, _, _): return count > 1
+        case .idle, .compactTimer, .otherCompact, .card, .shelf: return false
         }
     }
 
-    /// Whether a vertical scroll should change the volume. A section that scrolls keeps its
-    /// own scroll events.
+    /// Whether the island keeps a vertical scroll here, whatever it goes on to do with it. A
+    /// section that scrolls keeps its own scroll events, and so does the shelf's strip.
     static func consumesVerticalScroll(_ context: Context) -> Bool {
         switch context {
-        case .idle, .compactNowPlaying, .otherCompact, .card: return true
-        case .panel(_, _, let scrolls): return !scrolls
+        case .idle, .compactNowPlaying, .compactTimer, .otherCompact, .card: return true
+        case .panel(_, _, let scrolls, _): return !scrolls
         case .shelf: return false
         }
+    }
+
+    /// How far a swipe has to travel to open or close the panel at a given sensitivity: twice
+    /// as sensitive is half as far. Held to the slider's range, whatever was stored.
+    static func openCloseThreshold(sensitivity: Double) -> CGFloat {
+        let held = min(sensitivityRange.upperBound, max(sensitivityRange.lowerBound, sensitivity))
+        return openCloseDistance / CGFloat(held)
+    }
+
+    /// Whole minutes a gesture's vertical travel asks of a timer: up is more time, the way up
+    /// is more volume. Counted toward zero, so a scroll shorter than one step moves nothing.
+    static func timerSteps(travel: CGFloat) -> Int {
+        guard travel.isFinite else { return 0 }
+        // Bounded before it becomes an Int, which would trap on a figure no hand can scroll.
+        let steps = min(999, max(-999, (-travel / timerStepDistance).rounded(.towardZero)))
+        return Int(steps)
     }
 
     /// The whole gesture policy, as a pure function.
@@ -104,9 +159,21 @@ final class GestureRouter {
     /// spatial, only Tab wraps.
     ///
     /// `wantsBrightness` is Option held, `wantsKeyboard` Control held; with both, neither is
-    /// meant clearly enough to act on, and the scroll stays the volume.
+    /// meant clearly enough to act on, and the scroll stays whatever a bare scroll is. A key
+    /// held down names its level outright in either `verticalSwipe` mode.
+    ///
+    /// `travel` is the vertical distance of the whole gesture so far, which is what a swipe
+    /// and a timer's minutes are measured on; the level controls move by `dy`, the part not
+    /// applied yet. Left out, it is `dy`: one event that is the whole gesture.
+    ///
+    /// With `.openClose`, a swipe down past `openCloseThreshold(sensitivity:)` on the closed
+    /// island — idle, a pill, a card, or a panel that is only under the pointer — opens it,
+    /// and a swipe up as far on the panel closes it; a bare scroll does nothing else. On a
+    /// timer's pill, in either mode, a scroll that has not become a swipe moves the timer a
+    /// minute per `timerStepDistance`: a small scroll nudges, a big swipe opens.
     static func decide(dx: CGFloat, dy: CGFloat, context: Context, wantsBrightness: Bool = false,
-                       wantsKeyboard: Bool = false) -> Action {
+                       wantsKeyboard: Bool = false, verticalSwipe: VerticalSwipe = .volume,
+                       sensitivity: Double = 1, travel: CGFloat? = nil) -> Action {
         let threshold: CGFloat
         if case .panel = context { threshold = viewSwipeThreshold } else { threshold = swipeThreshold }
         if abs(dx) > threshold, abs(dx) >= abs(dy), consumesHorizontalSwipes(context) {
@@ -114,7 +181,7 @@ final class GestureRouter {
             switch context {
             case .compactNowPlaying:
                 return forward ? .nextTrack : .previousTrack
-            case .panel(let index, let count, _):
+            case .panel(let index, let count, _, _):
                 let next = index + (forward ? 1 : -1)
                 guard next >= 0, next < count else { return .none }
                 return .stepView(forward: forward)
@@ -122,15 +189,31 @@ final class GestureRouter {
                 return .none
             }
         }
-        if dy != 0, consumesVerticalScroll(context) {
-            let travel = Double(-dy)
-            switch (wantsBrightness, wantsKeyboard) {
-            case (true, false): return .brightness(delta: travel * brightnessStep)
-            case (false, true): return .keyboard(delta: travel * keyboardStep)
-            default: return .volume(delta: travel * volumeStep)
-            }
+        guard consumesVerticalScroll(context) else { return .none }
+        let distance = travel ?? dy
+        let level = Double(-dy)
+        switch (wantsBrightness, wantsKeyboard) {
+        case (true, false): return dy == 0 ? .none : .brightness(delta: level * brightnessStep)
+        case (false, true): return dy == 0 ? .none : .keyboard(delta: level * keyboardStep)
+        default: break
         }
-        return .none
+        if verticalSwipe == .openClose {
+            let reach = openCloseThreshold(sensitivity: sensitivity)
+            if case .panel(_, _, _, let pinned) = context {
+                if distance <= -reach { return .closePanel }
+                // A panel only under the pointer is not open yet: the swipe pins it, the way a
+                // click on it would. One already pinned has nothing further to open.
+                if distance >= reach, !pinned { return .openPanel }
+                return .none
+            }
+            if distance >= reach { return .openPanel }
+        }
+        if case .compactTimer = context {
+            let steps = timerSteps(travel: distance)
+            return steps == 0 ? .none : .nudgeTimer(steps: steps)
+        }
+        guard verticalSwipe == .volume, dy != 0 else { return .none }
+        return .volume(delta: level * volumeStep)
     }
 
     // MARK: - Gesture state (main thread only)
@@ -142,6 +225,13 @@ final class GestureRouter {
     private var accumulatedX: CGFloat = 0
     /// Vertical distance seen but not applied yet, so throttling never loses movement.
     private var pendingY: CGFloat = 0
+    /// The whole gesture's vertical distance, which a swipe and a timer's minutes are
+    /// measured on. Never spent, unlike `pendingY`.
+    private var accumulatedY: CGFloat = 0
+    /// The timer whose pill the gesture is on, when it is on one; see `currentContext`.
+    private var timerID: String?
+    /// Minutes this gesture has moved that timer so far.
+    private var timerStepsApplied = 0
     private var firedSwipe = false
     private var consumedGesture = false
     private var lastEventAt = Date.distantPast
@@ -178,6 +268,7 @@ final class GestureRouter {
         let (dx, dy) = Self.deltas(from: event)
         accumulatedX += dx
         pendingY += dy
+        accumulatedY += dy
 
         if axis == .undecided {
             let ax = abs(accumulatedX), ay = abs(pendingY)
@@ -194,7 +285,7 @@ final class GestureRouter {
             guard Self.consumesHorizontalSwipes(context) else { return false }
             consumedGesture = true
             guard !firedSwipe else { return true }
-            if perform(Self.decide(dx: accumulatedX, dy: 0, context: context), now: now) {
+            if perform(Self.decide(dx: accumulatedX, dy: 0, context: context), now: now, panel: panel) {
                 firedSwipe = true
                 accumulatedX = 0
             }
@@ -210,11 +301,22 @@ final class GestureRouter {
             // Control with Option is still the brightness, as it always was.
             let wantsKeyboard = event.modifierFlags.contains(.control) && !event.modifierFlags.contains(.option)
                 && KeyboardLight.shared.isAvailable
+            let prefs = Preferences.shared
             let action = Self.decide(dx: 0, dy: pendingY, context: context, wantsBrightness: wantsBrightness,
-                                     wantsKeyboard: wantsKeyboard)
+                                     wantsKeyboard: wantsKeyboard,
+                                     verticalSwipe: VerticalSwipe(preference: prefs.verticalSwipe),
+                                     sensitivity: prefs.swipeSensitivity, travel: accumulatedY)
             pendingY = 0
             lastVolumeAt = now
-            perform(action, now: now)
+            switch action {
+            case .openPanel, .closePanel:
+                // Once per gesture: whatever the fingers do after the panel has opened or
+                // closed is still that swipe, and nothing is ever started on its inertia.
+                guard !firedSwipe else { return true }
+                if perform(action, now: now, panel: panel) { firedSwipe = true }
+            default:
+                perform(action, now: now, panel: panel)
+            }
             return true
         }
     }
@@ -226,6 +328,8 @@ final class GestureRouter {
         axis = .undecided
         accumulatedX = 0
         pendingY = 0
+        accumulatedY = 0
+        timerStepsApplied = 0
         firedSwipe = false
         consumedGesture = false
     }
@@ -250,13 +354,20 @@ final class GestureRouter {
     /// Sections whose content scrolls by itself, and so keep their vertical scroll events.
     static let scrollingSections: Set<HomeSection> = [.clipboard, .shelf, .notes, .today, .windows, .notifications]
 
+    /// Also notes which timer's pill is showing, for a scroll that moves it.
     private func currentContext(panel: String) -> Context {
         let center = ActivityCenter.shared
+        timerID = nil
         switch center.presentation(for: panel) {
         case .idle:
             return .idle
         case .compact(let activity, _):
             if case .nowPlaying = activity.content { return .compactNowPlaying }
+            // A timer that has rung has nothing left to move; its pill is like any other.
+            if case .timer(let state) = activity.content, !state.isFinished {
+                timerID = activity.id
+                return .compactTimer
+            }
             return .otherCompact
         case .card:
             return .card
@@ -267,7 +378,7 @@ final class GestureRouter {
             if case .home(let tab) = view, let section = HomeSection(rawValue: tab) {
                 scrolls = Self.scrollingSections.contains(section)
             }
-            return .panel(index: index, count: ring.count, scrolls: scrolls)
+            return .panel(index: index, count: ring.count, scrolls: scrolls, pinned: center.openHere(panel))
         case .shelf:
             return .shelf
         }
@@ -275,9 +386,10 @@ final class GestureRouter {
 
     // MARK: - Performing
 
-    /// Returns true when the action actually happened (a cooldown can refuse it).
+    /// Returns true when the action actually happened (a cooldown can refuse it). `panel` is
+    /// the island the gesture is on, which is the one a swipe opens.
     @discardableResult
-    private func perform(_ action: Action, now: Date) -> Bool {
+    private func perform(_ action: Action, now: Date, panel: String) -> Bool {
         switch action {
         case .nextTrack:
             guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
@@ -302,9 +414,48 @@ final class GestureRouter {
             return applyBrightness(delta: delta)
         case .keyboard(let delta):
             return applyKeyboardLight(delta: delta)
+        case .openPanel:
+            guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
+            guard ActivityCenter.shared.openBySwipe(panel: panel) else { return false }
+            lastTrackAt = now
+            // No click came with it, unlike an open from the pointer, so the hand gets the
+            // same soft nod a view step gives.
+            Haptics.soft()
+            return true
+        case .closePanel:
+            guard now.timeIntervalSince(lastTrackAt) >= Self.trackCooldown else { return false }
+            lastTrackAt = now
+            ActivityCenter.shared.collapse(reason: "swipe")
+            Haptics.soft()
+            return true
+        case .nudgeTimer(let steps):
+            return nudgeTimer(toward: steps)
         case .none:
             return false
         }
+    }
+
+    /// Moves the timer under the pointer to where the gesture has asked for: `steps` minutes
+    /// from where it was when the gesture began. Only what has not been applied yet is, with a
+    /// tap for each change that lands; the pill's digits roll on their own.
+    @discardableResult
+    private func nudgeTimer(toward steps: Int) -> Bool {
+        guard let id = timerID, steps != timerStepsApplied else { return false }
+        guard moveTimer(id: id, minutes: steps - timerStepsApplied) else { return false }
+        timerStepsApplied = steps
+        Haptics.tap()
+        return true
+    }
+
+    /// `IslandTimer` adds time and cannot take it away: `add(seconds:id:)` refuses anything
+    /// that is not more, and nothing else shortens a timer. So a step up lands and a step down
+    /// is refused, and a gesture that comes back down never takes back what it added. Should
+    /// it learn to shorten, a swipe that opens the panel after a small scroll took minutes off
+    /// ought to put `timerStepsApplied` back, since the swipe was the whole gesture.
+    private func moveTimer(id: String, minutes: Int) -> Bool {
+        guard minutes > 0, let entry = IslandTimer.shared.entry(id: id), !entry.state.isFinished else { return false }
+        IslandTimer.shared.add(seconds: TimeInterval(minutes) * IslandTimer.addStep, id: id)
+        return true
     }
 
     /// Where the backlight was when this gesture started, carried from event to event for the

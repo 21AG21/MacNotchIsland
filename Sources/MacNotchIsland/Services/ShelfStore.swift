@@ -391,7 +391,16 @@ final class ShelfStore: ObservableObject {
     }
 
     func airDrop(_ urls: [URL]) {
-        guard !urls.isEmpty else { return }
+        sendByAirDrop(urls)
+    }
+
+    /// `airDrop`, saying whether AirDrop took the files. False when there were none, or when
+    /// this Mac cannot AirDrop right now — which the island has already said, with what is
+    /// in the way. A file dropped straight on the well's AirDrop target goes on the shelf
+    /// instead when this is false, so nothing dropped is ever simply lost.
+    @discardableResult
+    func sendByAirDrop(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
         let objects: [Any] = urls
         guard let service = NSSharingService(named: .sendViaAirDrop),
               service.canPerform(withItems: objects) else {
@@ -399,13 +408,14 @@ final class ShelfStore: ObservableObject {
             // on the rail this button sits on. Returning in silence made the button look
             // broken instead of pointing at the two things standing in its way.
             announceAirDropUnavailable()
-            return
+            return false
         }
         // The AirDrop window takes the pointer off the island; keep the panel up and make
         // sure the picker gets focus even though this is a background app.
         ActivityCenter.shared.holdOpen(for: 30)
         NSApp.activate(ignoringOtherApps: true)
         service.perform(withItems: objects)
+        return true
     }
 
     /// Files macOS would not put in the Trash.

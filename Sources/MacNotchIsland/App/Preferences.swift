@@ -22,6 +22,10 @@ final class Preferences: ObservableObject {
     // MARK: Activities
     @Published var nowPlayingEnabled: Bool { didSet { d.set(nowPlayingEnabled, forKey: "nowPlayingEnabled") } }
     @Published var keepPausedMinutes: Double { didSet { d.set(keepPausedMinutes, forKey: "keepPausedMinutes") } }
+    /// The buttons in the four places beside play, by raw name: two to the left, two to the
+    /// right, see `TransportSlot`. All four "none" out of the box, which is Music's row; people
+    /// who listen to podcasts will want "back15" and "forward15".
+    @Published var transportSlots: [String] { didSet { d.set(transportSlots, forKey: "transportSlots") } }
     @Published var batteryEnabled: Bool { didSet { d.set(batteryEnabled, forKey: "batteryEnabled") } }
     @Published var bluetoothEnabled: Bool { didSet { d.set(bluetoothEnabled, forKey: "bluetoothEnabled") } }
     @Published var volumeHUDEnabled: Bool { didSet { d.set(volumeHUDEnabled, forKey: "volumeHUDEnabled") } }
@@ -95,6 +99,13 @@ final class Preferences: ObservableObject {
     @Published var sneakPeekEnabled: Bool { didSet { d.set(sneakPeekEnabled, forKey: "sneakPeekEnabled") } }
     @Published var updateChecksEnabled: Bool { didSet { d.set(updateChecksEnabled, forKey: "updateChecksEnabled") } }
     @Published var gesturesEnabled: Bool { didSet { d.set(gesturesEnabled, forKey: "gesturesEnabled") } }
+    /// What a bare vertical scroll on the island means: "volume", the way it always has, or
+    /// "openClose" — down on the closed island opens the panel, up on the panel closes it.
+    /// See `GestureRouter.VerticalSwipe`.
+    @Published var verticalSwipe: String { didSet { d.set(verticalSwipe, forKey: "verticalSwipe") } }
+    /// How little a swipe has to travel to open or close the panel, 0.5 to 2 (1 is as it
+    /// ships). Read only while `verticalSwipe` is "openClose".
+    @Published var swipeSensitivity: Double { didSet { d.set(swipeSensitivity, forKey: "swipeSensitivity") } }
     /// Whether the panel answers the bare arrow keys, the digits, and Space while it is
     /// pinned open. Never while a section that is typed into is showing.
     @Published var panelKeysEnabled: Bool { didSet { d.set(panelKeysEnabled, forKey: "panelKeysEnabled") } }
@@ -163,6 +174,7 @@ final class Preferences: ObservableObject {
 
         nowPlayingEnabled = bool("nowPlayingEnabled", true)
         keepPausedMinutes = double("keepPausedMinutes", 5)
+        transportSlots = UserDefaults.standard.stringArray(forKey: "transportSlots") ?? TransportSlot.defaults.map(\.rawValue)
         batteryEnabled = bool("batteryEnabled", true)
         bluetoothEnabled = bool("bluetoothEnabled", true)
         volumeHUDEnabled = bool("volumeHUDEnabled", true)
@@ -208,6 +220,10 @@ final class Preferences: ObservableObject {
         sneakPeekEnabled = bool("sneakPeekEnabled", true)
         updateChecksEnabled = bool("updateChecksEnabled", true)
         gesturesEnabled = bool("gesturesEnabled", true)
+        verticalSwipe = UserDefaults.standard.string(forKey: "verticalSwipe") ?? "volume"
+        // Held within the slider's range here too, so a figure edited into defaults by hand
+        // shows on the slider at the value the swipe is using.
+        swipeSensitivity = min(2, max(0.5, double("swipeSensitivity", 1)))
         panelKeysEnabled = bool("panelKeysEnabled", true)
         keepClearOfMenuBar = bool("keepClearOfMenuBar", true)
         weatherEnabled = bool("weatherEnabled", false)

@@ -89,9 +89,50 @@ struct IslandPane: View {
             } header: {
                 Text("Alerts and gestures")
             } footer: {
-                Text("The seconds are an ordinary alert's, such as a Focus changing, and they set the pace for all of them: a copied line stays about half as long, a finished download or a screenshot about twice, a volume or brightness change a little less, and moving the slider moves every one of them in step — at six seconds everything stays more than three times as long as it ships. Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for the volume, and hold Option while you scroll for the brightness — the rail's two sliders, without opening the panel. A section that scrolls by itself, like the clipboard, keeps its own scroll.")
+                Text("The seconds are an ordinary alert's, such as a Focus changing, and they set the pace for all of them: a copied line stays about half as long, a finished download or a screenshot about twice, a volume or brightness change a little less, and moving the slider moves every one of them in step — at six seconds everything stays more than three times as long as it ships. Swipe sideways on the pill to skip tracks, or on the panel to step between sections; scroll up or down for the volume — or to open and close the panel, if you choose that below — and hold Option while you scroll for the brightness: the rail's two sliders, without opening the panel. A section that scrolls by itself, like the clipboard, keeps its own scroll.")
+            }
+
+            Section {
+                Picker("Vertical swipe on the island", selection: verticalSwipe) {
+                    Text("Volume").tag(GestureRouter.VerticalSwipe.volume.rawValue)
+                    Text("Open and close").tag(GestureRouter.VerticalSwipe.openClose.rawValue)
+                }
+                .help("What two fingers up or down on the island do: move the volume, or open and close the panel.")
+                .disabled(!prefs.gesturesEnabled)
+                // Only while it governs something: the slider sets how far a swipe to open or
+                // close has to go, and the volume has no such distance.
+                if GestureRouter.VerticalSwipe(preference: prefs.verticalSwipe) == .openClose {
+                    SettingsSlider("Swipe sensitivity", value: swipeSensitivity, range: 50...200, unit: "%")
+                        .help("How far a swipe has to travel to open or close the panel. Higher is a shorter swipe.")
+                        .disabled(!prefs.gesturesEnabled)
+                }
+            } header: {
+                Text("Vertical swipe")
+            } footer: {
+                Text("Volume is how the island has always read a scroll. With Open and close, swipe down on the island to open the panel on whatever it is showing, and up on the panel to close it again — once for each swipe, however far the fingers go on. The sensitivity is how far a swipe has to travel: higher is a shorter one. Option and Control still move the brightness and the keyboard's backlight either way, and a section that scrolls by itself keeps its scroll. On a running timer's pill a small scroll up gives it another minute for every step, and in Open and close a swipe down long enough still opens the panel.")
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The stored choice, read back through `VerticalSwipe` so that a value this build does not
+    /// know shows as the volume it behaves as, rather than as a menu with nothing picked.
+    private var verticalSwipe: Binding<String> {
+        Binding(
+            get: { GestureRouter.VerticalSwipe(preference: prefs.verticalSwipe).rawValue },
+            set: { prefs.verticalSwipe = $0 }
+        )
+    }
+
+    /// The slider speaks in whole percentages, the way the Motion pane's do; the preference
+    /// is the factor, held to the slider's range.
+    private var swipeSensitivity: Binding<Double> {
+        Binding(
+            get: { prefs.swipeSensitivity * 100 },
+            set: { percent in
+                let range = GestureRouter.sensitivityRange
+                prefs.swipeSensitivity = min(range.upperBound, max(range.lowerBound, percent.rounded() / 100))
+            }
+        )
     }
 }

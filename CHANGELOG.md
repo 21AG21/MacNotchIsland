@@ -6,6 +6,31 @@ the unreleased section is what the next tag will ship.
 ## Unreleased
 
 ### Added
+- **Swipe down to open, up to close.** A new choice in the Island pane, "Vertical swipe on the
+  island": Volume, which is what two fingers up and down have always done there, or Open and
+  close. With the second, a swipe down on the island — bare, a pill, a card, or a panel only
+  under the pointer — opens the panel on what a click there would open, on that display's
+  island; a swipe up on the panel closes it. Once a swipe, however far the fingers go on, and
+  never on inertia, with the same cooldown a track skip has. A sensitivity slider, shown only
+  while it means something, sets how far a swipe has to travel, from half as far to twice.
+  Sideways swipes keep their meaning, Option and Control still move the brightness and the
+  keyboard's backlight, and a section that scrolls by itself keeps its scroll. It ships on
+  Volume: nobody's scroll changes meaning under them.
+- **Drop targets.** Holding files over the island used to leave one place to put them — the
+  shelf — and sending them anywhere was a second trip. Now the shelf's well splits into three
+  side by side as the drag arrives, Shelf, AirDrop and Share, with the one under the pointer lit
+  and a tap under the finger each time that changes. Shelf does what it always did. AirDrop sends
+  them straight there, the way the shelf's own AirDrop does, and does not park them on the shelf
+  on the way; Share opens the share menu from the well and keeps the panel on the shelf while
+  it is up. Should either send be impossible — AirDrop switched off, nothing on screen to show
+  the menu from — the files go on the shelf instead, so nothing dropped is ever lost. Only a
+  drag carrying files splits the well: a picture or a line of text has only the shelf to go to,
+  and the well at rest is as it was.
+- **Scroll a timer for another minute.** A scroll up on a running timer's pill adds a minute for
+  every step, with a tap for each, and the digits roll to the new time the way they already
+  did. With Open and close chosen, a small scroll still nudges and a swipe long enough opens the
+  panel, decided by how far the gesture has gone. There is no minute off yet: the timer has no
+  way to shorten itself, and a scroll down on the pill asks it for one it cannot give.
 - **The island remembers what came past.** A notification history, in the panel: what arrived,
   from which app, when, still there an hour later, grouped by app and searchable by typing.
   The Mac has never had one — a banner you did not look up in time is gone, and Notification
