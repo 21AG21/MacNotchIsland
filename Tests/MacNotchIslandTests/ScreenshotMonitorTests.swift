@@ -65,6 +65,41 @@ final class ScreenshotMonitorTests: XCTestCase {
         XCTAssertFalse(ScreenshotMonitor.looksLikeScreenshot("Untitled.png"))
     }
 
+    /// A Mac in Arabic or Persian can write a capture's date and time in its own figures, and a
+    /// Persian one its date in the Solar Hijri calendar; only 0 to 9 were taken for figures.
+    func testCaptureNamesInFiguresOfTheirOwn() {
+        XCTAssertTrue(ScreenshotMonitor.looksLikeScreenshot("لقطة شاشة ٢٠٢٦-٠٩-٢٦ في ١٠.١٥.٣٠ ص.png"), "Arabic-Indic")
+        XCTAssertTrue(ScreenshotMonitor.looksLikeScreenshot("عکس صفحه ۱۴۰۵-۰۷-۰۴ ساعت ۱۰.۱۵.۳۰.png"),
+                      "Persian figures, and the Solar Hijri year")
+        XCTAssertTrue(ScreenshotMonitor.isCandidate(name: "स्क्रीनशॉट २०२६-०९-२६ को १०.१५.३०.png"), "Devanagari")
+    }
+
+    /// Any decimal figure, and nothing that is only a number.
+    func testAFigureIsADecimalDigitInAnyScript() {
+        for figure in ["0", "9", "٣", "۴", "७", "５"] {
+            XCTAssertTrue(ScreenshotMonitor.isDigit(Character(figure)), figure)
+        }
+        for other in ["²", "Ⅻ", "½", "a", "-", "."] {
+            XCTAssertFalse(ScreenshotMonitor.isDigit(Character(other)), other)
+        }
+        XCTAssertFalse(ScreenshotMonitor.looksLikeScreenshot("Report 2026-09-07 at 10.15.3².png"), "a superscript is not a figure")
+    }
+
+    /// `defaults write com.apple.screencapture name "Grab"`: the captures are "Grab …", and with
+    /// the date switched off only "Grab.png", "Grab 1.png".
+    func testTheNameTheUserGaveCapturesIsACapture() {
+        XCTAssertTrue(ScreenshotMonitor.isCandidate(name: "Grab.png", customName: "Grab"))
+        XCTAssertTrue(ScreenshotMonitor.isCandidate(name: "grab 1.png", customName: "Grab"))
+        XCTAssertTrue(ScreenshotMonitor.isCandidate(name: "Grab 2026-09-26 at 10.15.30.png", customName: "Grab"))
+        XCTAssertTrue(ScreenshotMonitor.isNewCapture(name: "Grab.png", isRegularFile: true, creation: Date(), now: Date(),
+                                                     customName: "Grab"))
+        XCTAssertFalse(ScreenshotMonitor.isCandidate(name: "Grab.png"), "no such name set, no such capture")
+        XCTAssertFalse(ScreenshotMonitor.isCandidate(name: "Grabbed.png", customName: "Grab"), "a whole word, not a start")
+        XCTAssertFalse(ScreenshotMonitor.isCandidate(name: "IMG_0001.jpg", customName: "IMG"))
+        XCTAssertFalse(ScreenshotMonitor.isCandidate(name: "Grab.pdf", customName: "Grab"), "and still an image or a movie")
+        XCTAssertFalse(ScreenshotMonitor.isCandidate(name: "Grab.png", customName: "  "), "a blank name is none")
+    }
+
     func testHiddenNamesNeverMatch() {
         XCTAssertFalse(ScreenshotMonitor.looksLikeScreenshot(".Screenshot 2026-09-07 at 10.15.30.png"))
         XCTAssertFalse(ScreenshotMonitor.isCandidate(name: ".Screenshot 2026-09-07 at 10.15.30.png"))

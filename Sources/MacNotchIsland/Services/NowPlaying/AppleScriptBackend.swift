@@ -192,7 +192,23 @@ final class AppleScriptBackend {
                     try
                         set m to (shuffling as text) & linefeed & (repeating as text)
                     end try
-                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & ((duration of t) / 1000) & linefeed & (player position) & linefeed & (id of t) & linefeed & (artwork url of t) & linefeed & m
+                    set d to 0
+                    try
+                        set d to (duration of t) as integer
+                    on error
+                        try
+                            set d to (duration of t) / 1000
+                        end try
+                    end try
+                    set p to 0
+                    try
+                        set p to ((player position) * 1000) as integer
+                    on error
+                        try
+                            set p to player position
+                        end try
+                    end try
+                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & d & linefeed & p & linefeed & (id of t) & linefeed & (artwork url of t) & linefeed & m
                 end if
             end tell
             return ""
@@ -212,7 +228,23 @@ final class AppleScriptBackend {
                     try
                         set m to (shuffle enabled as text) & linefeed & (song repeat as text)
                     end try
-                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (duration of t) & linefeed & (player position) & linefeed & (database ID of t) & linefeed & "" & linefeed & m
+                    set d to 0
+                    try
+                        set d to ((duration of t) * 1000) as integer
+                    on error
+                        try
+                            set d to duration of t
+                        end try
+                    end try
+                    set p to 0
+                    try
+                        set p to ((player position) * 1000) as integer
+                    on error
+                        try
+                            set p to player position
+                        end try
+                    end try
+                    return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & d & linefeed & p & linefeed & (database ID of t) & linefeed & "" & linefeed & m
                 end if
             end tell
             return ""
@@ -229,8 +261,8 @@ final class AppleScriptBackend {
         let title = parts[1]
         let artist = parts[2]
         let album = parts[3]
-        let duration = Double(parts[4].replacingOccurrences(of: ",", with: ".")) ?? 0
-        let position = Double(parts[5].replacingOccurrences(of: ",", with: ".")) ?? 0
+        let duration = Self.scriptedSeconds(parts[4])
+        let position = Self.scriptedSeconds(parts[5])
         let trackID = parts[6]
         let artworkURL = parts.count > 7 ? parts[7] : ""
         let bundle = spotify ? Self.spotifyID : Self.musicID
@@ -267,6 +299,25 @@ final class AppleScriptBackend {
         info.shuffle = Self.scriptedShuffle(parts.count > 8 ? parts[8] : "")
         info.repeatMode = Self.scriptedRepeat(parts.count > 9 ? parts[9] : "", spotify: spotify)
         return info
+    }
+
+    /// Seconds out of a length or a playhead as the poll's script writes it: whole milliseconds,
+    /// which the script works out itself (`* 1000 as integer`) so that no decimal separator is
+    /// ever written.
+    ///
+    /// The script wrote the seconds as a real, and AppleScript writes a real with the decimal
+    /// separator of the Mac's region: a comma was turned back into a point here, but a Mac set
+    /// to a region that writes "٫" read every track as 0:00 long, playing from 0:00. An integer
+    /// has no separator to get wrong. A real is still read, with any of the three separators:
+    /// the script falls back to one for a length too long for an AppleScript integer, some 149
+    /// hours of milliseconds. Anything else — "missing value" for a stream with no length — is
+    /// nought, as it always was. Pure, so it is tested.
+    static func scriptedSeconds(_ text: String) -> TimeInterval {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if let milliseconds = Int(trimmed) { return TimeInterval(milliseconds) / 1000 }
+        let pointed = trimmed.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: "\u{066B}", with: ".")
+        guard let seconds = Double(pointed), seconds.isFinite else { return 0 }
+        return seconds
     }
 
     /// How many times a track's Spotify cover is fetched before the island stops asking.

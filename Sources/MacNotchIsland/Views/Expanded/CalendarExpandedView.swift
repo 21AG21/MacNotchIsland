@@ -5,12 +5,12 @@ struct CalendarExpandedView: View {
     let geometry: NotchGeometry
     @Environment(\.insidePanel) private var insidePanel
 
-    private static let time: DateFormatter = {
-        let f = DateFormatter()
+    /// Made again when the 24-hour switch, the region or the zone changes: kept as it was
+    /// made, the card wrote the meeting in the old ones until a relaunch (`LiveDateFormatter`).
+    private static let time = LiveDateFormatter { f in
         f.timeStyle = .short
         f.dateStyle = .none
-        return f
-    }()
+    }
 
     private var tint: Color { Color.named(state.tint) }
 
@@ -35,8 +35,11 @@ struct CalendarExpandedView: View {
                         .font(.system(size: 12.5).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
-                    // The countdown sits under the time rather than shouting in the tint.
-                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    // The countdown sits under the time rather than shouting in the tint. Counted
+                    // from the start, so "Now" comes at the start and not up to half a minute
+                    // after it (`AgendaStore.countdownPhase`).
+                    TimelineView(.periodic(from: AgendaStore.countdownPhase(for: state.start, now: Date()),
+                                           by: AgendaStore.countdownStep)) { ctx in
                         Text(state.countdown(at: ctx.date))
                             .font(.system(size: 13))
                             .foregroundStyle(.white.opacity(0.45))

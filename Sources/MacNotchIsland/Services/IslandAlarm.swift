@@ -100,22 +100,30 @@ struct IslandAlarm: Identifiable, Equatable, Codable {
 
     // MARK: - Words
 
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
+    /// Made again when the 24-hour switch, the region or the zone changes, see
+    /// `LiveDateFormatter`.
+    private static let timeFormatter = LiveDateFormatter { f in
         f.dateStyle = .none
         f.timeStyle = .short
-        return f
-    }()
+    }
 
     /// "7:30 AM" or "07:30", as the Mac's own clock writes a time.
     static func clock(_ date: Date) -> String { timeFormatter.string(from: date) }
 
-    /// "7:30 AM", or "7:30 AM tomorrow" when it is not today — in the Mac's own clock format.
+    /// "7:30 AM", "7:30 AM tomorrow" or "7:30 AM yesterday", and the date after the time when
+    /// it is none of those — in the Mac's own clock format.
+    ///
+    /// Yesterday is for a missed alarm, which is described against the moment it is reported.
+    /// It used to be described against its own time, which made every one of them today's:
+    /// an alarm missed over a weekend away read "Missed alarm, 7:30 AM".
     static func describe(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let time = clock(date)
         if calendar.isDate(date, inSameDayAs: now) { return time }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
             return time + " tomorrow"
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return time + " yesterday"
         }
         let day = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none)
         return time + ", " + day
@@ -126,4 +134,97 @@ struct IslandAlarm: Identifiable, Equatable, Codable {
         let time = Self.describe(fireDate, now: now)
         return hasOwnLabel ? "\(time) — \(label)" : time
     }
+}
+
+// MARK: - Formatters that follow the Mac's settings
+
+/// A `DateFormatter` kept for reuse, and made again whenever the Mac's language, region, clock
+/// (12- or 24-hour) or time zone changes.
+///
+/// A formatter reads those settings once, when it is made. Every one this app kept in a
+/// `static let` went on writing times the old way until the app was relaunched: "5:30 PM" long
+/// after the 24-hour switch was thrown, and the day's meetings in the zone the Mac had flown out
+/// of. Making one for every string is the other way to be right, and asks ICU for a pattern each
+/// time a list is drawn; this makes one, and makes it again only once macOS has said that
+/// something it reads has changed.
+///
+/// Shared by the alarms, the agenda, Today, the calendar card and the menu bar's header. It is
+/// written here, with the alarms' clock, because that is the first of them.
+final class LiveDateFormatter {
+    private let configure: (DateFormatter) -> Void
+    private let lock = NSLock()
+    /// By zone: "" for the Mac's own, and an identifier for a zone a caller named.
+    private var made: [String: DateFormatter] = [:]
+    private var madeAt = -1
+
+    /// `configure` sets the style or the template. It runs after the locale and the zone are
+    /// set, so a template is read in the locale it will be written in.
+    init(_ configure: @escaping (DateFormatter) -> Void) {
+        self.configure = configure
+    }
+
+    /// `date` written in the settings in force now, in `timeZone` or, without one, the Mac's.
+    func string(from date: Date, timeZone: TimeZone? = nil) -> String {
+        formatter(timeZone: timeZone).string(from: date)
+    }
+
+    /// The formatter for the settings in force now. The same one until something changes, and
+    /// a new one after. A zone of the caller's own gets a formatter of its own, which is how the
+    /// forecast's hours are written in the forecast's zone.
+    func formatter(timeZone: TimeZone? = nil) -> DateFormatter {
+        let heard = Self.changesHeard()
+        lock.lock()
+        defer { lock.unlock() }
+        if heard != madeAt {
+            made.removeAll()
+            madeAt = heard
+        }
+        let key = timeZone?.identifier ?? ""
+        if let kept = made[key] { return kept }
+        let fresh = Self.make(timeZone: timeZone, configure)
+        made[key] = fresh
+        return fresh
+    }
+
+    /// A formatter set up as `configure` says, in a locale and a zone of the caller's choosing,
+    /// which is how a test pins them. Not kept. The locale and the zone are the self-updating
+    /// ones unless they are named.
+    static func make(locale: Locale = .autoupdatingCurrent, timeZone: TimeZone? = nil,
+                     _ configure: (DateFormatter) -> Void) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone ?? .autoupdatingCurrent
+        configure(formatter)
+        return formatter
+    }
+
+    // MARK: Hearing the settings change
+
+    private static let changesLock = NSLock()
+    private static var changes = 0
+
+    /// How many changes to the settings have been heard. The first call starts the listening.
+    static func changesHeard() -> Int {
+        _ = listening
+        changesLock.lock()
+        defer { changesLock.unlock() }
+        return changes
+    }
+
+    /// The language, the region and the 24-hour switch are all one notification; the zone is
+    /// another. The zone the process has in hand is cached until it is told to look again, as
+    /// `IslandTimer.watchTheClock` says, and that is done here too: the alarms only listen while
+    /// there are alarms, and `Calendar.current` — which the agenda's day ends by — reads the
+    /// zone the process has in hand. Heard on whatever thread posts it, and counted under the
+    /// lock, so nothing waits on the main thread to learn of it.
+    private static let listening: Void = {
+        for name in [NSLocale.currentLocaleDidChangeNotification, .NSSystemTimeZoneDidChange] {
+            _ = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
+                if note.name == .NSSystemTimeZoneDidChange { NSTimeZone.resetSystemTimeZone() }
+                LiveDateFormatter.changesLock.lock()
+                LiveDateFormatter.changes += 1
+                LiveDateFormatter.changesLock.unlock()
+            }
+        }
+    }()
 }

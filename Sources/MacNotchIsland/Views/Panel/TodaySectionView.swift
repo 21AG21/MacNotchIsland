@@ -61,14 +61,6 @@ struct TodaySectionView: View {
         forecast && showingList
     }
 
-    private var showsHours: Bool {
-        let today = Self.day(events: agenda.events, reminders: agenda.reminders, at: Date())
-        let list = Self.showsList(calendarOff: Self.calendarOff(agenda), rows: today.events.count + today.reminders.count)
-        return Self.showsHours(forecast: Self.showsHours(weatherOn: prefs.weatherEnabled, weather: weather),
-                               showingList: list)
-    }
-    private var listHeight: CGFloat { Self.listHeight(showingHours: showsHours) }
-
     /// How many events and reminders go into that room, and how many are left out of it:
     /// events first and at most three, then reminders, each only if the whole row fits. A row
     /// that does not fit is not drawn half over the hours.
@@ -174,16 +166,18 @@ struct TodaySectionView: View {
     }
 
     var body: some View {
+        // Once a pass, and handed down: see `Layout`.
+        let shown = layout(at: Date())
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
-            SectionHeader(Self.title(left: layout.left)) {
+            SectionHeader(Self.title(left: shown.left)) {
                 if prefs.weatherEnabled { weatherLine }
             }
-            content
+            content(shown)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // The rest of the day, along the floor of the section: the space under three
             // appointments was the emptiest part of the panel, and what happens next outside
             // is the one thing a section called Today was missing.
-            if showsHours { hourly }
+            if shown.showsHours { hourly }
         }
         .onAppear {
             holdAgenda(agendaHoldNow)
@@ -251,40 +245,63 @@ struct TodaySectionView: View {
     static let hourlyHeight: CGFloat = 42
 
     private var hourly: some View {
-        HStack(spacing: 0) {
+        // The hours are the forecast's, in the zone it was made for; and the scale is asked
+        // once for the strip, not once a figure.
+        let zone = weather.hoursZone
+        let fahrenheit = WeatherService.usesFahrenheit
+        return HStack(spacing: 0) {
             ForEach(weather.upcomingHours) { hour in
+                let degrees = WeatherService.formatTemperature(hour.temperatureC, fahrenheit: fahrenheit)
                 VStack(spacing: 1) {
-                    Text(Self.hourLabel(hour.date))
+                    Text(Self.hourLabel(hour.date, timeZone: zone))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.45))
                     Image(systemName: WeatherService.condition(code: hour.weatherCode, isDay: hour.isDay).symbol)
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.8))
                         .frame(height: 14)
-                    Text(WeatherService.formatTemperature(hour.temperatureC, fahrenheit: WeatherService.usesFahrenheit))
+                    Text(degrees)
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.white)
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(Self.hourLabel(hour.date)), \(WeatherService.formatTemperature(hour.temperatureC, fahrenheit: WeatherService.usesFahrenheit))")
+                .accessibilityLabel("\(Self.hourLabel(hour.date, spoken: true, timeZone: zone)), \(degrees)")
             }
         }
         .frame(height: Self.hourlyHeight)
         .accessibilityElement(children: .contain)
     }
 
-    /// "17", or "5 PM" where the clock is a twelve-hour one — the machine's own preference,
-    /// asked once per hour rather than formatted per cell.
-    static func hourLabel(_ date: Date, calendar: Calendar = .current) -> String {
-        let hour = calendar.component(.hour, from: date)
-        guard let template = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current),
-              template.contains("h") || template.contains("K") else {
-            return "\(hour)"
+    /// "5 PM", "17" or "17 h": the hour alone, the way the Mac's clock writes one. The "j"
+    /// template asks for the hour in the locale's own cycle, which the 24-hour switch in System
+    /// Settings overrides. `spoken` is the hour with its minutes ("jmm"), for VoiceOver, which
+    /// read a bare "17" out as a number where "17:00" is read as a time.
+    ///
+    /// The strip used to spell the hour out itself — "AM" and "PM" after a twelve-hour clock,
+    /// the bare number otherwise — which is only how American English writes it: "5 p.m." in
+    /// Canada, "5 pm" in Britain with the 24-hour switch off. It also asked ICU for the pattern
+    /// again for every figure in every pass.
+    ///
+    /// `timeZone` is the forecast's (`WeatherService.hoursZone`), the Mac's without one.
+    /// `locale` pins the language for a test; without it the formatter is the kept one, made
+    /// again when the settings change (`LiveDateFormatter`).
+    static func hourLabel(_ date: Date, spoken: Bool = false, timeZone: TimeZone? = nil, locale: Locale? = nil) -> String {
+        guard let locale else {
+            return (spoken ? spokenHourFormatter : hourFormatter).string(from: date, timeZone: timeZone)
         }
-        let suffix = hour < 12 ? "AM" : "PM"
-        let twelve = hour % 12 == 0 ? 12 : hour % 12
-        return "\(twelve) \(suffix)"
+        let template = spoken ? spokenHourTemplate : hourTemplate
+        return LiveDateFormatter.make(locale: locale, timeZone: timeZone) { $0.setLocalizedDateFormatFromTemplate(template) }
+            .string(from: date)
+    }
+
+    private static let hourTemplate = "j"
+    private static let spokenHourTemplate = "jmm"
+    private static let hourFormatter = LiveDateFormatter {
+        $0.setLocalizedDateFormatFromTemplate(TodaySectionView.hourTemplate)
+    }
+    private static let spokenHourFormatter = LiveDateFormatter {
+        $0.setLocalizedDateFormatFromTemplate(TodaySectionView.spokenHourTemplate)
     }
 
     // MARK: - Weather, in one line
@@ -346,7 +363,7 @@ struct TodaySectionView: View {
     // MARK: - The list
 
     @ViewBuilder
-    private var content: some View {
+    private func content(_ shown: Layout) -> some View {
         if Self.calendarOff(agenda) {
             SectionEmptyState(symbol: "calendar.badge.exclamationmark", title: "Calendar access is off",
                               subtitle: "Allow Calendars for Notch Island to see your day here.") {
@@ -356,32 +373,32 @@ struct TodaySectionView: View {
                     }
                 }
             }
-        } else if rows.isEmpty {
+        } else if shown.rows.isEmpty {
             // "Nothing left" is only true of what can be read: with the reminders refused it
             // is the events that are done, and the title says which.
             SectionEmptyState(symbol: "calendar",
                               title: remindersRefused ? "No events left today" : "Nothing left today",
-                              subtitle: tomorrowHint) {
+                              subtitle: Self.tomorrowHint(events: agenda.events, at: Date())) {
                 if remindersRefused { remindersPill }
             }
-        } else if layout.left > 0 {
+        } else if shown.left > 0 {
             // More of the day than the room: all of it, in a list that scrolls, with the
             // header saying how much is out of view. The rows at the top are the ones `fit`
             // would have shown, so nothing moves when the list stops fitting.
             IslandScrollStrip(axis: .vertical) {
-                list(withNote: remindersRefused)
+                list(shown, withNote: remindersRefused)
             }
         } else {
-            list(withNote: remindersRefused && remindersNoteFits)
+            list(shown, withNote: remindersRefused && remindersNoteFits(shown))
         }
     }
 
-    private func list(withNote note: Bool) -> some View {
+    private func list(_ shown: Layout, withNote note: Bool) -> some View {
         VStack(spacing: 0) {
-            ForEach(rows) { row in
+            ForEach(shown.rows) { row in
                 switch row {
-                case .event(let event): eventRow(event)
-                case .reminder(let reminder): reminderRow(reminder)
+                case .event(let event): eventRow(event, joins: shown.joins)
+                case .reminder(let reminder): reminderRow(reminder, joins: shown.joins)
                 }
             }
             if note { remindersNote }
@@ -405,8 +422,8 @@ struct TodaySectionView: View {
     /// Whether there is a reminder's row of room under the events. The rule the reminders
     /// themselves keep: three events fill the section, and where no reminder would have
     /// fitted, neither does a line about them.
-    private var remindersNoteFits: Bool {
-        rows.reduce(0) { $0 + $1.height } + Self.reminderRow <= listHeight
+    private func remindersNoteFits(_ shown: Layout) -> Bool {
+        shown.rows.reduce(0) { $0 + $1.height } + Self.reminderRow <= shown.listHeight
     }
 
     /// The same offer the weather makes for its location, to the pane that decides it.
@@ -456,39 +473,65 @@ struct TodaySectionView: View {
         }
     }
 
+    /// What one drawing of the section reads off the stores, worked out once at the top of
+    /// `body` and handed down to the parts that draw it.
+    ///
+    /// Each part used to work it out again for itself: the header, the list, the note under
+    /// it, the hours, and every row's Join column, which asked for all the rows to learn
+    /// whether any could be joined. Each asking filtered the day twice, so four rows cost the
+    /// section eighteen passes over the day to draw it once, on every redraw of the panel.
+    private struct Layout {
+        /// Whether the hours go along the floor, see `showsHours(forecast:showingList:)`.
+        var showsHours: Bool
+        /// The room the rows are counted against, see `listHeight(showingHours:)`.
+        var listHeight: CGFloat
+        /// What the header counts as left out, and so whether the list scrolls (`leftOut`).
+        var left: Int
+        /// Today's events first, then reminders: as many as fit (at most three events), or
+        /// every one of them in a list that scrolls when the room cannot hold them all.
+        var rows: [Row]
+        /// Whether anything drawn can be joined, and so whether the trailing column exists.
+        var joins: Bool
+    }
+
     /// The day, and how much of it the room holds — see `fit`, and `leftOut` for why nothing
-    /// is counted as left out while the list is not what is on screen.
-    private var layout: (events: [AgendaStore.Event], reminders: [AgendaStore.Reminder], left: Int) {
-        let today = Self.day(events: agenda.events, reminders: agenda.reminders, at: Date())
-        let left = Self.leftOut(events: today.events.count, reminders: today.reminders.count, in: listHeight,
-                                calendarOff: Self.calendarOff(agenda))
-        return (today.events, today.reminders, left)
-    }
-
-    /// Today's events first, then reminders: as many as fit (at most three events), or every
-    /// one of them in a list that scrolls when the room cannot hold them all.
-    private var rows: [Row] {
-        let day = layout
-        if day.left > 0 { return day.events.map(Row.event) + day.reminders.map(Row.reminder) }
-        let shown = Self.fit(events: day.events.count, reminders: day.reminders.count, in: listHeight)
-        return day.events.prefix(shown.events).map(Row.event) + day.reminders.prefix(shown.reminders).map(Row.reminder)
-    }
-
-    private var tomorrowHint: String? {
-        let endOfDay = AgendaStore.endOfDay(for: Date())
-        guard let next = agenda.events.first(where: { $0.start >= endOfDay }) else { return nil }
-        return "Tomorrow: \(next.title) at \(AgendaStore.timeLabel(for: next))"
-    }
-
-    // MARK: - Rows
-
-    /// Whether anything on screen can be joined, and so whether the trailing column exists.
-    private var showsJoinColumn: Bool {
-        rows.contains { row in
+    /// is counted as left out while the list is not what is on screen. The same rules, asked
+    /// the same questions, once.
+    private func layout(at now: Date) -> Layout {
+        let today = Self.day(events: agenda.events, reminders: agenda.reminders, at: now)
+        let calendarOff = Self.calendarOff(agenda)
+        let list = Self.showsList(calendarOff: calendarOff, rows: today.events.count + today.reminders.count)
+        let hours = Self.showsHours(forecast: Self.showsHours(weatherOn: prefs.weatherEnabled, weather: weather, at: now),
+                                    showingList: list)
+        let height = Self.listHeight(showingHours: hours)
+        let left = Self.leftOut(events: today.events.count, reminders: today.reminders.count, in: height,
+                                calendarOff: calendarOff)
+        let rows: [Row]
+        if left > 0 {
+            rows = today.events.map(Row.event) + today.reminders.map(Row.reminder)
+        } else {
+            let fits = Self.fit(events: today.events.count, reminders: today.reminders.count, in: height)
+            rows = today.events.prefix(fits.events).map(Row.event) + today.reminders.prefix(fits.reminders).map(Row.reminder)
+        }
+        let joins = rows.contains { row in
             if case .event(let event) = row { return event.joinURL != nil }
             return false
         }
+        return Layout(showsHours: hours, listHeight: height, left: left, rows: rows, joins: joins)
     }
+
+    /// What the day's empty state says under it: tomorrow's first event, and when. The agenda
+    /// reads the next twenty-four hours, so whatever starts after today's midnight is
+    /// tomorrow's. An all-day event has no time to be at, and a day with only a bank holiday
+    /// in it read "Tomorrow: Bank Holiday at All day". Pure, so it is tested.
+    static func tomorrowHint(events: [AgendaStore.Event], at now: Date, calendar: Calendar = .current) -> String? {
+        let endOfDay = AgendaStore.endOfDay(for: now, calendar: calendar)
+        guard let next = events.first(where: { $0.start >= endOfDay }) else { return nil }
+        if next.isAllDay { return "Tomorrow: \(next.title), all day" }
+        return "Tomorrow: \(next.title) at \(AgendaStore.timeLabel(for: next, at: now))"
+    }
+
+    // MARK: - Rows
 
     /// The trailing action column. Every row carries it once anything on screen can be
     /// joined, so the countdowns beside it line up instead of one of them stepping 74 pt
@@ -496,8 +539,8 @@ struct TodaySectionView: View {
     /// out and leaves it invisible, which is also how the column stays exactly as wide as the
     /// button in every language rather than as wide as a number somebody guessed.
     @ViewBuilder
-    private func joinColumn(_ url: URL?) -> some View {
-        if showsJoinColumn {
+    private func joinColumn(_ url: URL?, shown: Bool) -> some View {
+        if shown {
             PillButton(title: "Join", symbol: "video.fill", tint: Color.named("green"), prominent: true) {
                 if let url { NSWorkspace.shared.open(url) }
             }
@@ -516,7 +559,7 @@ struct TodaySectionView: View {
     /// nothing at all, because a rectangle with a gesture on it is not a control. Same style
     /// the rest of the app puts on a row you can press, so nothing about it looks any
     /// different until it is pressed.
-    private func eventRow(_ event: AgendaStore.Event) -> some View {
+    private func eventRow(_ event: AgendaStore.Event, joins: Bool) -> some View {
         let tint = Color.named(event.tint)
         return HStack(spacing: Self.rowGap) {
             Button(action: { OpenAction.app(bundleID: "com.apple.iCal").perform() }) {
@@ -536,7 +579,10 @@ struct TodaySectionView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
-                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                    // Counted from the start, so "Now" comes at the start and not up to half a
+                    // minute after it (`AgendaStore.countdownPhase`).
+                    TimelineView(.periodic(from: AgendaStore.countdownPhase(for: event.start, now: Date()),
+                                           by: AgendaStore.countdownStep)) { context in
                         Text(Self.countdown(event, at: context.date))
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(tint)
@@ -557,12 +603,12 @@ struct TodaySectionView: View {
             // Outside the button rather than in it: one control inside another is two answers
             // to one click, and the wrong one of them opens Calendar over the meeting somebody
             // was trying to join.
-            joinColumn(event.joinURL)
+            joinColumn(event.joinURL, shown: joins)
         }
         .frame(height: Self.eventRow)
     }
 
-    private func reminderRow(_ reminder: AgendaStore.Reminder) -> some View {
+    private func reminderRow(_ reminder: AgendaStore.Reminder, joins: Bool) -> some View {
         HStack(spacing: Self.rowGap) {
             Button(action: { agenda.setCompleted(true, reminderID: reminder.id) }) {
                 Circle()
@@ -593,18 +639,17 @@ struct TodaySectionView: View {
                     .lineLimit(1)
                     .frame(minWidth: Self.countdown, alignment: .trailing)
             }
-            joinColumn(nil)
+            joinColumn(nil, shown: joins)
         }
         .frame(height: Self.reminderRow)
         .accessibilityElement(children: .contain)
     }
 
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
+    /// Made again when the 24-hour switch, the region or the zone changes (`LiveDateFormatter`).
+    private static let timeFormatter = LiveDateFormatter { f in
         f.timeStyle = .short
         f.dateStyle = .none
-        return f
-    }()
+    }
 
     static func timeRange(_ event: AgendaStore.Event) -> String {
         if event.isAllDay { return "All day" }

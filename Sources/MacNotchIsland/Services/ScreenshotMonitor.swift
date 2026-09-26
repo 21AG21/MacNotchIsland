@@ -175,13 +175,16 @@ final class ScreenshotMonitor {
         guard let items = try? FileManager.default.contentsOfDirectory(at: directory,
                                                                         includingPropertiesForKeys: Array(keys),
                                                                         options: [.skipsHiddenFiles]) else { return [] }
+        // Asked once a walk rather than once an entry: it is one preference, and a Desktop is
+        // hundreds of entries.
+        let ownName = Self.customName()
         var found: [URL] = []
-        for url in Self.unhandled(items, seen: seen, settling: settling) {
+        for url in Self.unhandled(items, seen: seen, settling: settling, customName: ownName) {
             guard let values = try? url.resourceValues(forKeys: keys) else { continue }
             guard Self.isNewCapture(name: url.lastPathComponent,
                                     isRegularFile: values.isRegularFile == true,
                                     creation: values.creationDate ?? values.contentModificationDate,
-                                    now: now) else { continue }
+                                    now: now, customName: ownName) else { continue }
             found.append(url)
         }
         return found
@@ -195,11 +198,12 @@ final class ScreenshotMonitor {
     /// The name is read here and then again inside the whole rule: a name costs nothing to
     /// look at, and it spares the entries that are plainly not captures — most of a Desktop —
     /// the trip to the file system after it.
-    static func unhandled(_ items: [URL], seen: Set<String>, settling: Set<String>) -> [URL] {
+    static func unhandled(_ items: [URL], seen: Set<String>, settling: Set<String>,
+                          customName: String? = nil) -> [URL] {
         items.filter { url in
             let path = url.path
             guard !seen.contains(path), !settling.contains(path), !isClaimed(path) else { return false }
-            return isCandidate(name: url.lastPathComponent)
+            return isCandidate(name: url.lastPathComponent, customName: customName)
         }
     }
 
@@ -323,6 +327,15 @@ final class ScreenshotMonitor {
         return claimed.contains(path)
     }
 
+    /// The name somebody gave captures in place of "Screenshot", if they gave one:
+    /// `defaults write com.apple.screencapture name "Grab"`, which is how a Mac writes
+    /// "Grab 2026-09-26 at 10.15.30.png" — or, with the date switched off as well, only "Grab.png",
+    /// which no rule here would otherwise take for a capture. Re-read on every walk, like the
+    /// folder. Nil when there is none.
+    static func customName() -> String? {
+        UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "name")
+    }
+
     /// The folder macOS is saving captures to right now. Re-read on every start, every wake of
     /// the watcher and every switch of app, so a new location — from the screenshot toolbar or
     /// `defaults write com.apple.screencapture location …` — is picked up without a relaunch,
@@ -370,31 +383,49 @@ final class ScreenshotMonitor {
     /// Everything the walk decides about one directory entry, in one piece: a regular file,
     /// named the way a capture is named, and written just now. Kept whole and kept pure so
     /// that moving the walk off the main thread could not quietly change what it announces.
-    static func isNewCapture(name: String, isRegularFile: Bool, creation: Date?, now: Date) -> Bool {
-        guard isRegularFile, isCandidate(name: name) else { return false }
+    static func isNewCapture(name: String, isRegularFile: Bool, creation: Date?, now: Date,
+                             customName: String? = nil) -> Bool {
+        guard isRegularFile, isCandidate(name: name, customName: customName) else { return false }
         return isRecent(creation: creation, now: now)
     }
 
     /// Full filter for a directory entry: not hidden, a capture-like name and an image or
     /// movie extension (which also rules out in-flight `.crdownload` files).
-    static func isCandidate(name: String) -> Bool {
-        guard looksLikeScreenshot(name) else { return false }
+    static func isCandidate(name: String, customName: String? = nil) -> Bool {
+        guard looksLikeScreenshot(name, customName: customName) else { return false }
         return extensions.contains((name as NSString).pathExtension.lowercased())
     }
 
     /// Whether a file name is one macOS (in any common locale) or a popular capture tool
-    /// gives a screenshot or screen recording: a known leading phrase, or the generic
-    /// `<words> <YYYY-MM-DD> at <HH.MM.SS>` shape. Hidden files never match.
-    static func looksLikeScreenshot(_ name: String) -> Bool {
+    /// gives a screenshot or screen recording: a known leading phrase, the name the user gave
+    /// captures (`customName()`), or the generic `<words> <YYYY-MM-DD> at <HH.MM.SS>` shape.
+    /// Hidden files never match.
+    static func looksLikeScreenshot(_ name: String, customName: String? = nil) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, !trimmed.hasPrefix(".") else { return false }
         let options: NSString.CompareOptions = [.anchored, .caseInsensitive, .diacriticInsensitive]
         if prefixes.contains(where: { trimmed.range(of: $0, options: options) != nil }) { return true }
+        if let customName, startsWithName(trimmed, customName) { return true }
         return matchesDateTimePattern(trimmed)
+    }
+
+    /// Whether `name` is a capture under a name the user chose: that name and nothing after it
+    /// but a space or the extension — "Grab.png", "Grab 2.png", "Grab 2026-09-26 at 10.15.30.png"
+    /// for "Grab". A whole word, not a start, so a name like "IMG" does not take in every
+    /// "IMG_0001.jpg" copied to the Desktop.
+    private static func startsWithName(_ name: String, _ customName: String) -> Bool {
+        let own = customName.trimmingCharacters(in: .whitespaces)
+        guard !own.isEmpty,
+              let range = name.range(of: own, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) else {
+            return false
+        }
+        guard let next = name[range.upperBound...].first else { return true }
+        return next == " " || next == "."
     }
 
     /// `<words> <YYYY-MM-DD> [<connector>] <H[H].MM.SS>…` — "at" in English, "um", "à",
     /// "om" and friends elsewhere, or nothing at all. At least one word must precede the date.
+    /// The figures are any decimal ones (`isDigit`), and the year any four of them.
     private static func matchesDateTimePattern(_ name: String) -> Bool {
         let tokens = name.split(separator: " ").map(String.init)
         guard tokens.count >= 2 else { return false }
@@ -405,7 +436,15 @@ final class ScreenshotMonitor {
         return false
     }
 
-    private static func isDigit(_ c: Character) -> Bool { c.isASCII && c.isNumber }
+    /// A decimal figure in any script: `\p{Nd}`, one scalar. It was 0 to 9 alone, and a Mac in
+    /// Arabic, Persian or another language with figures of its own can write its captures'
+    /// dates and times in them — "١٤٠٥-٠٧-٠٤" in the Solar Hijri calendar, which is still four,
+    /// two and two figures — and those captures went by unannounced. A superscript ² or a Roman
+    /// Ⅻ is a number and not a figure, and stays out, where `Character.isNumber` alone would let
+    /// it in. Pure.
+    static func isDigit(_ c: Character) -> Bool {
+        c.unicodeScalars.count == 1 && c.unicodeScalars.first?.properties.generalCategory == .decimalNumber
+    }
 
     /// Exactly `YYYY-MM-DD`.
     private static func isDate(_ token: String) -> Bool {

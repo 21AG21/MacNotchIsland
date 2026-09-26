@@ -1131,10 +1131,31 @@ final class ShelfStore: ObservableObject {
     /// file, and from the second try on a number after it — "Note.txt", then "Note 2.txt". The
     /// second try is only ever made because the first name was taken by the time the file went
     /// in. Pure.
+    ///
+    /// At most sixty characters of its own, and never more than `nameByteLimit` bytes in all.
+    /// The file system's limit is on bytes, not characters — 255 of them, counted in the
+    /// decomposed form a Mac file name is compared in — and sixty characters were only ever
+    /// short enough for a name in Latin letters. A Korean syllable is two or three letters once
+    /// decomposed, six to nine bytes, and Devanagari and Tamil come to much the same, so the
+    /// first line of a note in any of them made a name the write refused, and the drop was
+    /// lost. Cut a whole character at a time, so no letter is left in pieces.
     static func dropFileName(_ name: String, extension ext: String, attempt: Int) -> String {
         let safe = name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = safe.isEmpty ? "Dropped" : String(safe.prefix(60))
-        return attempt <= 1 ? "\(base).\(ext)" : "\(base) \(attempt).\(ext)"
+        var base = safe.isEmpty ? "Dropped" : String(safe.prefix(60))
+        let tail = (attempt <= 1 ? "" : " \(attempt)") + ".\(ext)"
+        while base.count > 1, fileNameBytes(base + tail) > nameByteLimit { base.removeLast() }
+        // One character can still be too long: a letter under hundreds of combining marks.
+        if fileNameBytes(base + tail) > nameByteLimit { base = "Dropped" }
+        return base + tail
+    }
+
+    /// The room a drop's whole name is given, its number and extension included: the file
+    /// system's 255 bytes, with a few to spare.
+    static let nameByteLimit = 250
+
+    /// A name's length as the file system counts it: bytes of UTF-8, decomposed. Pure.
+    static func fileNameBytes(_ name: String) -> Int {
+        name.decomposedStringWithCanonicalMapping.utf8.count
     }
 
     /// Writes what a drop carried as a new file inside `dropFolder`, with the folder made if it
@@ -1162,9 +1183,16 @@ final class ShelfStore: ObservableObject {
         }
     }
 
-    /// The stamp that keeps one drop apart from the next: "Image 14.32.05".
-    private static func stamp(_ kind: String, now: Date = Date()) -> String {
+    /// The stamp that keeps one drop apart from the next: "Image 14.32.05". Pure, given `now`
+    /// and `timeZone`.
+    ///
+    /// In the POSIX locale, as every other name the app writes a time into is: a file name is
+    /// not prose. Without it the format was read in the Mac's own language — Eastern Arabic
+    /// figures on a Mac in Arabic, and "HH" given twelve hours where the clock is set to them.
+    static func stamp(_ kind: String, now: Date = Date(), timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
         formatter.dateFormat = "HH.mm.ss"
         return "\(kind) \(formatter.string(from: now))"
     }

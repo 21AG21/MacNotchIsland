@@ -3,11 +3,11 @@ import Combine
 import EventKit
 import Foundation
 
-/// Today, for the Home panel: the calendar events still ahead in the next 24 hours and the
-/// reminders due by the end of the day. Nothing is asked of EventKit until a view that shows
-/// the agenda appears; access is requested once, from a view somebody pinned open (`Hold`),
-/// and the store keeps itself fresh with the system's change notification plus a slow timer
-/// while such a view is on screen.
+/// Today, for the Home panel: the calendar events still ahead in the next 24 hours (and never
+/// short of the end of today, see `fetchEnd`) and the reminders due by the end of the day.
+/// Nothing is asked of EventKit until a view that shows the agenda appears; access is requested
+/// once, from a view somebody pinned open (`Hold`), and the store keeps itself fresh with the
+/// system's change notification plus a slow timer while such a view is on screen.
 ///
 /// None of that asking happens on the main thread. A calendar in an Exchange or CalDAV
 /// account is not a file on this Mac: reading it is a round trip to somebody's mail server,
@@ -143,6 +143,11 @@ final class AgendaStore: ObservableObject {
         viewers += 1
         if mayAsk { requestAccessIfNeeded() }
         guard viewers == 1 else { return }
+        // Today ends at midnight by `Calendar.current`, which reads the zone the process has in
+        // hand, and the process holds on to the zone it first read until it is told to look
+        // again. What tells it listens from here on (`LiveDateFormatter.changesHeard`), so a
+        // Mac that changes zone has its day end at the new midnight by the next minute's poll.
+        _ = LiveDateFormatter.changesHeard()
         observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
             self?.refresh()
         }
@@ -274,6 +279,15 @@ final class AgendaStore: ObservableObject {
         return calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(24 * 3600)
     }
 
+    /// How far ahead the events are read: the next twenty-four hours, or to the end of today
+    /// when that is further. On the day the clocks go back the day is twenty-five hours long,
+    /// and between midnight and one in the morning twenty-four hours stopped short of it: the
+    /// last hour of the day was never read, and a meeting in it was missing from Today until
+    /// one o'clock came. Pure, so the long day is tested.
+    static func fetchEnd(for now: Date, calendar: Calendar = .current) -> Date {
+        max(now.addingTimeInterval(24 * 3600), endOfDay(for: now, calendar: calendar))
+    }
+
     /// Where every reading lands, and the only place any of this is written: the main queue.
     private func publish(events: [Event], reminders: [Reminder], answering: Int) {
         DispatchQueue.main.async { [weak self] in
@@ -335,7 +349,7 @@ final class AgendaStore: ObservableObject {
     /// anywhere near the main thread. An `EKEvent` belongs to the thread that fetched it, so
     /// the mapping happens here rather than on the other side of the hand-off.
     private static func dayEvents(in store: EKEventStore, at now: Date) -> [Event] {
-        let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-5 * 60), end: now.addingTimeInterval(24 * 3600), calendars: nil)
+        let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-5 * 60), end: fetchEnd(for: now), calendars: nil)
         return store.events(matching: predicate)
             .filter { $0.status != .canceled && $0.endDate > now }
             .sorted { a, b in
@@ -507,16 +521,38 @@ final class AgendaStore: ObservableObject {
         return due < now ? "Overdue" : Self.dayFormatter.string(from: due)
     }
 
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
+    // Both made again when the 24-hour switch, the region or the zone changes: kept as they
+    // were made, they wrote the day in the old ones until a relaunch (`LiveDateFormatter`).
+    private static let timeFormatter = LiveDateFormatter { f in
         f.timeStyle = .short
         f.dateStyle = .none
-        return f
-    }()
+    }
 
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
+    private static let dayFormatter = LiveDateFormatter { f in
         f.dateFormat = "EEE"
-        return f
-    }()
+    }
+
+    // MARK: - Counting down to an event
+
+    /// How often a countdown to an event is looked at again.
+    static let countdownStep: TimeInterval = 30
+
+    /// Where a countdown's timeline starts: a whole number of steps before the event starts,
+    /// already past, and a hair after that moment.
+    ///
+    /// A countdown's words change at the event's own minutes ("in 2 min" becomes "in 1 min" a
+    /// minute before it starts, "Now" at the start), and its timeline ticked every half minute
+    /// from whenever the view appeared: up to thirty seconds after a meeting had begun its row
+    /// still said "in 1 min". Counted from the start instead, every look lands on one of those
+    /// moments. A hair after, so the look finds the words already changed rather than on the
+    /// edge of changing; and in the past, so the timeline has a first look to give now rather
+    /// than one it is waiting for. Pure, so it is tested.
+    static func countdownPhase(for start: Date, now: Date, step: TimeInterval = AgendaStore.countdownStep) -> Date {
+        let steps = (start.timeIntervalSince(now) / step).rounded(.down) + 2
+        return start.addingTimeInterval(-steps * step + countdownHair)
+    }
+
+    /// The hair: late enough to be past the moment whatever the arithmetic of a date rounds to,
+    /// and far too soon after it for anybody to see.
+    static let countdownHair: TimeInterval = 0.05
 }

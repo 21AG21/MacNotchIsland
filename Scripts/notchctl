@@ -15,7 +15,7 @@
 #   notchctl timer add [minutes]                (another minute for the running timer)
 #   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
 #   notchctl sleep [minutes]                     notchctl sleep cancel
-#   notchctl alarm <07:30|19:30|7:30pm> [label]  (the next time the clock reads it)
+#   notchctl alarm <07:30|19:30|7:30 pm|7pm> [label]  (the next time the clock reads it)
 #   notchctl alarm cancel [07:30]                (that one, or every alarm)
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
@@ -30,15 +30,17 @@
 #
 # Lengths are numbers, in the unit the flag names (minutes for timers, seconds for --ttl,
 # --duration and ask's --timeout), or numbers with a unit of their own: 45, 45m, 90s, 1.5h. A
-# timer is at most a day. Anything else is bad usage, and nothing is sent.
+# timer is at most a day. --progress is a share from 0 to 1, 0.4 for 40%. An alarm's time is
+# H:MM or HH:MM (or 19.30, 19h30, 7h), 24-hour unless am or pm follows, with or without a space:
+# 7pm, 7:30 pm. Anything else is bad usage, and nothing is sent.
 #
 # Exit status. Only `ask` has answers, and only a yes is success, so `if notchctl ask …; then`
 # means what it says; nothing that goes wrong before a question is asked exits 1 or 2.
 #     0    sent; for ask, answered yes
 #     1    ask: answered no
 #     2    ask: nobody answered in time, or the island never wrote an answer
-#    64    bad usage: a missing argument, an unknown command or flag, or a length that is not
-#          one; nothing was sent
+#    64    bad usage: a missing argument, an unknown command or flag, or a length, a share or a
+#          time that is not one; nothing was sent
 #    66    shelf add: no such file
 #    69    Notch Island could not be reached: `open` refused the notchisland:// URL
 #    73    ask: no folder could be made in /tmp for the answer; nothing was sent
@@ -115,6 +117,61 @@ need_count() {
   if ! [[ "$2" =~ ^[0-9]{1,4}$ ]] || (( 10#$2 == 0 )); then usage "notchctl: $1 takes a whole number above nought, not \"$2\""; fi
 }
 
+# A share of the way, as the island reads `progress=` (`LiveActivityAPI`): a plain decimal from
+# 0 to 1, with a point. The island read anything else as no bar at all or as a full one — "0,4"
+# was no bar and "40" a bar at 100% — while this said nothing and exited 0.
+need_fraction() {
+  if ! [[ "$2" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || ! length_in "$2" 's <= 1'; then
+    usage "notchctl: $1 takes a share from 0 to 1 (0.4 for 40%), not \"$2\""
+  fi
+}
+
+# Whether a time is one the island reads as a time on the clock (`TimerEntry.clockTime`): H or
+# HH, then a colon, a point or an h and two figures of minutes ("7:30", "07.30", "19h30"), or an
+# h alone for the hour ("7h"); 24-hour, unless am or pm follows ("7pm", "7:30 p.m.", "7 a"), and
+# then the hour is 1 to 12. A bare number is not a time — the island reads it as minutes, and
+# refused `alarm 7` while this exited 0 — unless am or pm says it is. In the C locale, so a
+# figure is 0 to 9 whatever the caller's language.
+is_clock_time() {
+  local LC_ALL=C
+  local t mark="" m hour minute sep
+  t=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  t="${t#"${t%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"
+  # The same marks in the same order as the island, so "7:30 a.m." loses "a.m." and not "."
+  for m in a.m. p.m. am pm a p; do
+    if [[ "$t" == *"$m" ]]; then
+      mark="${m:0:1}"; t="${t%"$m"}"; t="${t%"${t##*[![:space:]]}"}"
+      break
+    fi
+  done
+  if [[ "$t" =~ ^([0-9]{1,2})([:.h])([0-9]*)$ ]]; then
+    hour="${BASH_REMATCH[1]}"; sep="${BASH_REMATCH[2]}"; minute="${BASH_REMATCH[3]}"
+    # An h ends a time, as a colon does not: "7h" is on the hour, "7:" is nothing.
+    if [ -z "$minute" ] && [ "$sep" = h ]; then minute=00; fi
+    [[ "$minute" =~ ^[0-9]{2}$ ]] || return 1
+    (( 10#$minute < 60 )) || return 1
+  elif [[ "$t" =~ ^[0-9]{1,2}$ ]] && [ -n "$mark" ]; then
+    hour="$t"
+  else
+    return 1
+  fi
+  if [ -n "$mark" ]; then (( 10#$hour >= 1 && 10#$hour <= 12 )); else (( 10#$hour < 24 )); fi
+}
+
+alarm_usage='usage: notchctl alarm <time> [label] | cancel [time]   (a time is 7:30, 19:30, 19h30, 7pm or 7:30 pm)'
+
+# The time at the front of an alarm command's words, into `alarm_at`, and how many words it took,
+# into `alarm_words`. "7:30 pm" typed as two words is one time: the pm was read as the alarm's
+# name, and `alarm 7:30 pm` set half past seven in the morning, called "pm"; `alarm cancel 7:30
+# pm` took the morning one away. Bad usage when it is not a time the island reads.
+alarm_time() {
+  alarm_at="$1"; alarm_words=1
+  case "$(printf '%s' "${2-}" | tr '[:upper:]' '[:lower:]')" in
+    am|pm|a.m.|p.m.) alarm_at="$1 $2"; alarm_words=2 ;;
+  esac
+  if ! is_clock_time "$alarm_at"; then usage "notchctl alarm: \"$alarm_at\" is not a time" "$alarm_usage"; fi
+}
+
 open_url() {
   local base="$1" q=""
   if (( ${#query[@]} )); then q="?$(IFS='&'; echo "${query[*]}")"; fi
@@ -165,6 +222,7 @@ parse_flags() {
     esac
     if (( ! have )); then usage "notchctl: $flag needs a value"; fi
     case "$key" in
+      progress) need_fraction "$flag" "$value" ;;
       work|rest|long) need_length "$flag" "$value" 60 "$timer_range" "$timer_hint" ;;
       cycles) need_count "$flag" "$value" ;;
       ttl|duration) need_length "$flag" "$value" 1 's > 0' 'a length above nought (600, 10m)' ;;
@@ -209,14 +267,23 @@ case "$cmd" in
       "") open_url "sleep" ;;
       *) need_length "sleep" "$1" 60 "$timer_range" "$timer_hint"; add minutes "$1"; open_url "sleep" ;;
     esac ;;
-  # The time is read by the app with the same rule as a time typed on Actions, so anything
-  # the island would take there it takes here; the label is the rest of the line.
+  # The time is read by the app with the same rule as a time typed on Actions, and checked
+  # here against that rule first (`is_clock_time`), so what the island would refuse is bad usage
+  # rather than a 0 for nothing done. The label is the rest of the line.
   alarm)
     case "${1:-}" in
-      cancel|stop) shift; if [ -n "${1:-}" ]; then add at "$1"; fi; open_url "alarm/cancel" ;;
-      "") usage "usage: notchctl alarm <time> [label] | cancel [time]" ;;
+      cancel|stop)
+        shift
+        if (( $# )); then
+          alarm_time "$@"; shift "$alarm_words"
+          if (( $# )); then usage "notchctl alarm cancel: one time, and nothing after it: \"$*\"" "$alarm_usage"; fi
+          add at "$alarm_at"
+        fi
+        open_url "alarm/cancel" ;;
+      "") usage "$alarm_usage" ;;
       *)
-        add at "$1"; shift
+        alarm_time "$@"; shift "$alarm_words"
+        add at "$alarm_at"
         if [[ "${1:-}" == --* ]]; then parse_flags "$@"; elif (( $# )); then add label "$*"; fi
         open_url "alarm" ;;
     esac ;;

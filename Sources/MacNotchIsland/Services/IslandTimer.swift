@@ -645,7 +645,8 @@ final class IslandTimer: ObservableObject {
     /// card again once somebody is at the Mac (`missedWaitsForUnlock`).
     private func reportMissed(_ alarm: IslandAlarm, now: Date) {
         IslandLog.island.notice("alarm missed by \(Int(now.timeIntervalSince(alarm.fireDate)), privacy: .public)s")
-        let title = "Missed alarm, \(IslandAlarm.describe(alarm.fireDate, now: alarm.fireDate))"
+        // Against the moment it is reported, so one missed days ago says which day.
+        let title = "Missed alarm, \(IslandAlarm.describe(alarm.fireDate, now: now))"
         var card = CustomActivity(title: title)
         card.subtitle = alarm.hasOwnLabel ? alarm.label : nil
         card.symbol = "alarm"

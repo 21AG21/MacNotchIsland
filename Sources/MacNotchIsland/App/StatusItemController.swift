@@ -14,12 +14,6 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     /// One item per waiting alarm, under the Timer submenu's item and rebuilt each time the
     /// menu opens, see `refreshAlarms`.
     private var alarmItems: [NSMenuItem] = []
-    private lazy var timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f
-    }()
 
     override init() {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -145,7 +139,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         // disagree about whether to offer "Hide" or "Show".
         let paused = IslandMenu.isPaused(until: until)
         if paused {
-            header.title = "Hidden until " + timeFormatter.string(from: Date(timeIntervalSince1970: until))
+            // The Mac's clock as it is set now. A formatter of this menu's own was made once, at
+            // launch, and went on writing the old 12- or 24-hour clock and the old zone until a
+            // relaunch; the alarms' is made again when either changes (`LiveDateFormatter`).
+            header.title = "Hidden until " + IslandAlarm.clock(Date(timeIntervalSince1970: until))
             visibility.title = IslandMenu.showTitle
             visibility.action = #selector(showNow)
         } else if center.isSuppressed {

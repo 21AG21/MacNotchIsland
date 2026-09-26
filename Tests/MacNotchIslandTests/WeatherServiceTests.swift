@@ -111,6 +111,8 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertEqual(values["daily"], "temperature_2m_max,temperature_2m_min")
         XCTAssertEqual(values["hourly"], "temperature_2m,weather_code,is_day")
         XCTAssertEqual(values["timezone"], "auto")
+        XCTAssertEqual(values["timeformat"], "unixtime",
+                       "the hours as moments: a wall clock is not one on the nights it is changed")
         // Two, because "the next six hours" at nine in the evening is tomorrow.
         XCTAssertEqual(values["forecast_days"], "2")
     }
@@ -234,7 +236,8 @@ final class WeatherServiceTests: XCTestCase {
         let original = WeatherService.Snapshot(temperatureC: 21.4, weatherCode: 2,
                                                isDay: true, highC: 24.1, lowC: 14.6,
                                                placeName: "Berlin",
-                                               updatedAt: Date(timeIntervalSince1970: 1_757_246_100))
+                                               updatedAt: Date(timeIntervalSince1970: 1_757_246_100),
+                                               timeZone: "Europe/Berlin", utcOffset: 7200)
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(WeatherService.Snapshot.self, from: data)
         XCTAssertEqual(decoded, original)
@@ -249,6 +252,7 @@ final class WeatherServiceTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(WeatherService.Snapshot.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.temperatureC, 9, accuracy: 0.0001)
+        XCTAssertNil(decoded.timeZone, "a reading cached before the zone was kept has none, and is read all the same")
     }
 
     // MARK: - How old a reading is
@@ -301,24 +305,33 @@ final class WeatherServiceTests: XCTestCase {
 
     // MARK: - Which units, for whom
 
-    /// Three measurement systems, not two, and only one of them is Fahrenheit: Britain is not
-    /// metric and takes its temperature in Celsius.
-    func testTheUnitedKingdomGetsCelsius() {
-        for (system, fahrenheit) in [(Locale.MeasurementSystem.metric, false), (.uk, false), (.us, true)] {
-            XCTAssertEqual(system == .us, fahrenheit, "\(system) and Fahrenheit")
-        }
-        XCTAssertEqual(WeatherService.formatTemperature(21.4, fahrenheit: false), "21°")
+    private func fahrenheit(_ identifier: String) -> Bool {
+        WeatherService.isFahrenheit(for: Locale(identifier: identifier))
+    }
+
+    /// The United States reads the weather in Fahrenheit; Britain, with a measurement system of
+    /// its own, and everywhere metric, in Celsius.
+    func testTheUnitedStatesGetsFahrenheitAndBritainCelsius() {
+        XCTAssertTrue(fahrenheit("en_US"))
+        XCTAssertFalse(fahrenheit("en_GB"), "Britain is not metric, and takes its temperature in Celsius")
+        XCTAssertFalse(fahrenheit("de_DE"))
+        XCTAssertFalse(fahrenheit("fr_CA"))
+    }
+
+    /// The scale was read off the measurement system, and a temperature is not a length: Puerto
+    /// Rico measures in metres and reads the weather in Fahrenheit, Liberia the other way about.
+    func testTheScaleIsTheRegionsOwnNotItsMeasurementSystem() {
+        XCTAssertTrue(fahrenheit("es_PR"), "metric, and Fahrenheit")
+        XCTAssertFalse(fahrenheit("en_LR"), "the American system, and Celsius")
+        XCTAssertEqual(WeatherService.formatTemperature(21.4, fahrenheit: fahrenheit("es_PR")), "71°")
     }
 
 
     // MARK: - The next few hours
 
-    private func times(_ offsets: [Int], from now: Date) -> [String] {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = Calendar.current.timeZone
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
-        return offsets.map { formatter.string(from: now.addingTimeInterval(Double($0) * 3600)) }
+    /// Hours from `now`, as the answer gives them: seconds since 1970.
+    private func times(_ offsets: [Int], from now: Date) -> [TimeInterval] {
+        offsets.map { now.addingTimeInterval(Double($0) * 3600).timeIntervalSince1970 }
     }
 
     func testTheStripStartsAfterNowAndStopsAtSix() {
@@ -367,11 +380,63 @@ final class WeatherServiceTests: XCTestCase {
                                                                                weatherCode: nil, isDay: nil)).isEmpty)
     }
 
-    func testAnHourIsLabelledTheWayTheClockIs() {
-        let calendar = Calendar.current
-        let afternoon = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
-        let label = TodaySectionView.hourLabel(afternoon, calendar: calendar)
-        XCTAssertTrue(label == "17" || label == "5 PM", label)
+    // MARK: - How an hour is labelled
+
+    private let utc = TimeZone(identifier: "UTC")!
+    /// Five in the afternoon, UTC.
+    private let five = Date(timeIntervalSince1970: 1_790_010_000)
+
+    /// A narrow or a plain no-break space is what CLDR puts between a figure and "PM" now; a
+    /// space is a space for these.
+    private func plain(_ text: String) -> String {
+        text.replacingOccurrences(of: "\u{202F}", with: " ").replacingOccurrences(of: "\u{00A0}", with: " ")
+    }
+
+    private func hourText(_ identifier: String, spoken: Bool = false) -> String {
+        TodaySectionView.hourLabel(five, spoken: spoken, timeZone: utc, locale: Locale(identifier: identifier))
+    }
+
+    func testTheFixtureIsFiveInTheAfternoon() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = utc
+        XCTAssertEqual(calendar.component(.hour, from: five), 17)
+        XCTAssertEqual(calendar.component(.minute, from: five), 0)
+    }
+
+    /// The strip wrote "AM" and "PM" itself, which is only how American English writes them,
+    /// and the bare number everywhere else.
+    func testAnHourIsWrittenTheWayTheLocaleWritesIt() {
+        XCTAssertEqual(plain(hourText("en_US")), "5 PM")
+        XCTAssertEqual(hourText("en_GB"), "17", "a 24-hour region writes the hour alone")
+        let french = hourText("fr_FR")
+        XCTAssertTrue(french.hasPrefix("17"), french)
+        XCTAssertFalse(french.contains("PM"), french)
+        XCTAssertEqual(french, LiveDateFormatter.make(locale: Locale(identifier: "fr_FR"), timeZone: utc) {
+            $0.setLocalizedDateFormatFromTemplate("j")
+        }.string(from: five), "whatever the locale's own template makes of it")
+    }
+
+    /// VoiceOver read "17" out as a number; "17:00" is read as a time.
+    func testASpokenHourIsATime() {
+        XCTAssertEqual(hourText("en_GB", spoken: true), "17:00")
+        XCTAssertEqual(plain(hourText("en_US", spoken: true)), "5:00 PM")
+    }
+
+    /// The hours are the forecast's, and are written in its zone: five in the afternoon in
+    /// London is two in the morning in Tokyo.
+    func testAnHourIsWrittenInTheZoneItIsGivenIn() throws {
+        let tokyo = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        XCTAssertEqual(TodaySectionView.hourLabel(five, timeZone: tokyo, locale: Locale(identifier: "en_GB")), "02")
+    }
+
+    /// The kept formatter is the same one until the settings change, and a new one after.
+    func testTheKeptFormatterIsMadeAgainWhenTheSettingsChange() {
+        let kept = LiveDateFormatter { $0.setLocalizedDateFormatFromTemplate("j") }
+        let first = kept.formatter()
+        XCTAssertTrue(first === kept.formatter(), "made once, and kept")
+        XCTAssertFalse(first === kept.formatter(timeZone: utc), "a zone of its own is a formatter of its own")
+        NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil)
+        XCTAssertFalse(first === kept.formatter(), "the 24-hour switch, the region or the language changed")
     }
 
     // MARK: - The zone a forecast is written in
@@ -384,31 +449,80 @@ final class WeatherServiceTests: XCTestCase {
         XCTAssertNil(WeatherService.forecastZone(identifier: nil, offset: nil))
     }
 
-    /// `timezone=auto` answers in the zone of the place, and the times were read in the Mac's:
-    /// a Mac still on home time put the strip hours early or late.
-    func testTheHoursAreReadInTheForecastsZoneNotTheMacs() throws {
-        let tokyo = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
-        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
-        var macCalendar = Calendar(identifier: .gregorian)
-        macCalendar.timeZone = newYork
+    /// The times are moments, whatever zone the Mac or the place is in: the moment the answer
+    /// gives is the moment of the hour.
+    func testTheHoursAreTheMomentsTheAnswerGives() throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-26T00:00:00Z"))
-        // 10:00 and 11:00 on the 26th in Tokyo are 01:00 and 02:00 UTC.
-        let block = WeatherService.Forecast.Hourly(time: ["2026-09-26T10:00", "2026-09-26T11:00"], temperature: [20, 21],
-                                                   weatherCode: [1, 2], isDay: [1, 1])
-        let hours = WeatherService.hours(from: block, zone: tokyo, now: now, calendar: macCalendar)
-        XCTAssertEqual(hours.map(\.date), [now.addingTimeInterval(3600), now.addingTimeInterval(7200)])
-        let unsaid = WeatherService.hours(from: block, now: now, calendar: macCalendar)
-        XCTAssertEqual(unsaid.first?.date, now.addingTimeInterval(14 * 3600), "an answer that names no zone is read in the Mac's")
+        let block = WeatherService.Forecast.Hourly(time: [now.timeIntervalSince1970 + 3600, now.timeIntervalSince1970 + 7200],
+                                                   temperature: [20, 21], weatherCode: [1, 2], isDay: [1, 1])
+        XCTAssertEqual(WeatherService.hours(from: block, now: now).map(\.date),
+                       [now.addingTimeInterval(3600), now.addingTimeInterval(7200)])
     }
 
-    func testTheParsedForecastUsesTheZoneItNames() throws {
+    /// 1 November 2026 in New York: one in the morning comes round twice. As wall-clock times it
+    /// was one moment twice, two hours with the same id in the strip; as moments it is two.
+    func testTheHourAutumnRepeatsIsTwoHours() throws {
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        // 05:00 UTC is 1:00 EDT; 06:00 UTC is 1:00 EST, the hour over again; 07:00 UTC is 2:00 EST.
+        let first = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-01T05:00:00Z"))
+        let stamps = [0, 1, 2].map { first.timeIntervalSince1970 + Double($0) * 3600 }
+        let block = WeatherService.Forecast.Hourly(time: stamps, temperature: [8, 8, 7], weatherCode: nil, isDay: nil)
+        let hours = WeatherService.hours(from: block, now: first.addingTimeInterval(-1))
+        XCTAssertEqual(hours.count, 3)
+        XCTAssertEqual(Set(hours.map(\.id)).count, 3, "three hours, three ids")
+        let labels = hours.map { TodaySectionView.hourLabel($0.date, timeZone: newYork, locale: Locale(identifier: "en_GB")) }
+        XCTAssertEqual(labels, ["01", "01", "02"], "and the one that comes round again is labelled as the clock reads it")
+    }
+
+    /// 8 March 2026 in New York: two in the morning never happens. As a wall-clock time it would
+    /// not read, and was dropped with the hour after it misplaced; as moments nothing is missing.
+    func testTheHourSpringSkipsLeavesNoGap() throws {
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        // 06:00 UTC is 1:00 EST; 07:00 UTC is 3:00 EDT.
+        let first = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-08T06:00:00Z"))
+        let stamps = [0, 1].map { first.timeIntervalSince1970 + Double($0) * 3600 }
+        let block = WeatherService.Forecast.Hourly(time: stamps, temperature: [2, 3], weatherCode: [0, 0], isDay: [0, 0])
+        let hours = WeatherService.hours(from: block, now: first.addingTimeInterval(-1))
+        XCTAssertEqual(hours.map(\.date), [first, first.addingTimeInterval(3600)])
+        XCTAssertEqual(hours.map { TodaySectionView.hourLabel($0.date, timeZone: newYork, locale: Locale(identifier: "en_GB")) },
+                       ["01", "03"])
+    }
+
+    /// The strip is drawn by id, which is the moment: an answer that gave one twice would draw
+    /// one hour twice.
+    func testAnHourGivenTwiceIsShownOnce() {
+        let now = Date()
+        let stamps = times([1, 1, 2], from: now)
+        let block = WeatherService.Forecast.Hourly(time: stamps, temperature: [10, 10, 11], weatherCode: nil, isDay: nil)
+        XCTAssertEqual(WeatherService.hours(from: block, now: now).map(\.temperatureC), [10, 11])
+    }
+
+    func testTheParsedForecastKeepsTheZoneItNames() throws {
+        // 2999-01-01T00:00:00Z, which is nine in the morning in Tokyo.
         let json = """
         {"utc_offset_seconds": 32400, "timezone": "Asia/Tokyo",
-         "current": {"temperature_2m": 20, "weather_code": 1, "is_day": 1},
-         "hourly": {"time": ["2999-01-01T09:00"], "temperature_2m": [20], "weather_code": [1], "is_day": [1]}}
+         "current": {"time": 32472144000, "temperature_2m": 20, "weather_code": 1, "is_day": 1},
+         "daily": {"time": [32472111600], "temperature_2m_max": [24], "temperature_2m_min": [15]},
+         "hourly": {"time": [32472144000], "temperature_2m": [20], "weather_code": [1], "is_day": [1]}}
         """
         let snapshot = try XCTUnwrap(WeatherService.parse(Data(json.utf8)))
         let expected = try XCTUnwrap(ISO8601DateFormatter().date(from: "2999-01-01T00:00:00Z"))
         XCTAssertEqual(snapshot.hours.first?.date, expected)
+        XCTAssertEqual(snapshot.timeZone, "Asia/Tokyo")
+        XCTAssertEqual(snapshot.utcOffset, 32400)
+        XCTAssertEqual(WeatherService.forecastZone(identifier: snapshot.timeZone, offset: snapshot.utcOffset)?.identifier,
+                       "Asia/Tokyo", "the zone the strip labels the hours in")
+        XCTAssertEqual(try XCTUnwrap(snapshot.highC), 24, accuracy: 0.0001)
+    }
+
+    /// An hourly block in some other shape is no strip; the reading above it still stands.
+    func testHoursWrittenAsTextAreNoStripButTheReadingStands() throws {
+        let json = """
+        {"current": {"temperature_2m": 20, "weather_code": 1, "is_day": 1},
+         "hourly": {"time": ["2999-01-01T09:00"], "temperature_2m": [20], "weather_code": [1], "is_day": [1]}}
+        """
+        let snapshot = try XCTUnwrap(WeatherService.parse(Data(json.utf8)))
+        XCTAssertEqual(snapshot.temperatureC, 20, accuracy: 0.0001)
+        XCTAssertTrue(snapshot.hours.isEmpty)
     }
 }

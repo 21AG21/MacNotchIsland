@@ -184,6 +184,34 @@ final class AlarmTests: XCTestCase {
 
     // MARK: - Missed
 
+    /// A missed alarm was described against its own time, which made it today's however long
+    /// ago it was: "Missed alarm, 7:30 AM" for one missed over a weekend away.
+    func testAnAlarmMissedYesterdaySaysSo() {
+        let calendar = Calendar.current
+        let morning = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: Date()) ?? Date()
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: morning) ?? morning
+        let fire = calendar.date(bySettingHour: 7, minute: 30, second: 0, of: yesterday) ?? yesterday
+        XCTAssertEqual(IslandAlarm.describe(fire, now: morning, calendar: calendar), IslandAlarm.clock(fire) + " yesterday")
+        let longAgo = calendar.date(byAdding: .day, value: -3, to: fire) ?? fire
+        let described = IslandAlarm.describe(longAgo, now: morning, calendar: calendar)
+        XCTAssertTrue(described.hasPrefix(IslandAlarm.clock(longAgo) + ", "), described)
+        XCTAssertNotEqual(described, IslandAlarm.clock(longAgo), "and the day, when it is further back than that")
+        XCTAssertEqual(IslandAlarm.describe(fire, now: fire, calendar: calendar), IslandAlarm.clock(fire),
+                       "today's is the time alone")
+    }
+
+    func testTheMissedCardSaysWhichDay() {
+        let now = Date()
+        let old = IslandAlarm(label: "Wake", fireDate: now.addingTimeInterval(-50 * 3600))
+        defaults.set(IslandAlarm.encode([old]), forKey: IslandTimer.alarmsKey)
+        timer.forgetAlarmsForTesting()
+        timer.restoreAlarms(now: now)
+        guard let shown = center.alert, case .custom(let card) = shown.content else { return XCTFail("no card") }
+        XCTAssertEqual(shown.id, IslandTimer.alarmMissedAlertID)
+        XCTAssertEqual(card.title, "Missed alarm, " + IslandAlarm.describe(old.fireDate, now: now))
+        XCTAssertNotEqual(card.title, "Missed alarm, " + IslandAlarm.clock(old.fireDate), "two days ago is not today")
+    }
+
     func testAMissedAlarmIsABannerOnlyWhereTheCardCannotBeSeen() {
         XCTAssertTrue(IslandTimer.missedNeedsBanner(locked: true, suppressed: false, authorized: true),
                       "a Mac wakes to its lock screen, which is where a missed alarm is found")

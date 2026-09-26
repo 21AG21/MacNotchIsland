@@ -278,6 +278,16 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The weather follows the Temperature setting in System Settings and the region's own habit, so Puerto Rico reads Fahrenheit and Liberia Celsius, whatever the measurement system.
+- The hour strip writes hours the way the Mac's region does ("17", "5 pm", "17 h"), in the forecast's own zone, VoiceOver reads them as times, and the strip no longer loses the hour that spring skips or shows the autumn hour twice.
+- Times in Today, the calendar card, the alarms and the menu bar follow a change to the 24-hour clock, region or time zone without a relaunch.
+- Today reads the whole of the 25-hour autumn day, an all-day event tomorrow reads "Tomorrow: Bank Holiday, all day", and a meeting's countdown says "Now" when it starts rather than up to 30 seconds later.
+- A missed alarm says which day it was missed ("yesterday", or the date).
+- `notchctl alarm 7:30 pm` sets half past seven in the evening instead of a morning alarm named "pm", and a time or a `--progress` the app would refuse is bad usage (exit 64) instead of a silent success.
+- Text dropped on the shelf with a long Korean, Hindi or Tamil first line is no longer lost to the 255-byte file-name limit, and a drop's time stamp is always written in Western digits.
+- Music and Spotify track length and position read correctly in regions that write "٫" as the decimal separator.
+- Screenshots named with Arabic, Persian or other native digits, or under a custom `com.apple.screencapture name`, are picked up.
+- Today no longer works out the day again for every row and hour on each redraw.
 - The Music section no longer asks LaunchServices and the disk for the player's name on every redraw; the name is looked up once per player, and the section is no longer redrawn on every step of a volume drag on the rail or for things the island's centre publishes that it never shows.
 - The Home grid no longer redraws every tile when the pointer crosses from one tile to the next or when a Now Playing report arrives, and the Notes tile reads only as far as the scratchpad's first line.
 - The call card looks up its app's icon once, instead of on the first frame of its spring and again at every microphone mute change.

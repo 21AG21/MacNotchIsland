@@ -61,6 +61,11 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         var updatedAt: Date
         /// The next few hours, when the forecast carried them.
         var hours: [Hour] = []
+        /// The zone of the place the forecast is for, by name and as seconds from UTC, which
+        /// is the zone its hours are labelled in (`forecastZone`). Nil in a reading cached by a
+        /// build that did not keep it, whose hours are labelled in the Mac's zone.
+        var timeZone: String?
+        var utcOffset: Int?
 
         init(temperatureC: Double,
              weatherCode: Int,
@@ -69,7 +74,9 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
              lowC: Double? = nil,
              placeName: String? = nil,
              updatedAt: Date = Date(),
-             hours: [Hour] = []) {
+             hours: [Hour] = [],
+             timeZone: String? = nil,
+             utcOffset: Int? = nil) {
             self.temperatureC = temperatureC
             self.weatherCode = weatherCode
             self.isDay = isDay
@@ -78,6 +85,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             self.placeName = placeName
             self.updatedAt = updatedAt
             self.hours = hours
+            self.timeZone = timeZone
+            self.utcOffset = utcOffset
         }
     }
 
@@ -94,6 +103,9 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     @Published private(set) var updatedAt: Date? = nil
     /// The next few hours, for the strip in Today. Empty until a forecast carrying them lands.
     @Published private(set) var hours: [Hour] = []
+    /// The zone the strip labels those hours in: the one the forecast was made for, which is
+    /// where the sun in its glyphs is up or down. Nil is the Mac's own.
+    @Published private(set) var hoursZone: TimeZone? = nil
 
     /// The hours still to come, which is what the strip shows. `hours` is kept as it was
     /// fetched — and as it was cached, which is how a morning relaunch with no network put
@@ -365,6 +377,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         conditionText = ""
         updatedAt = nil
         hours = []
+        hoursZone = nil
         UserDefaults.standard.removeObject(forKey: Self.cacheKey)
     }
 
@@ -466,7 +479,12 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             URLQueryItem(name: "current", value: "temperature_2m,weather_code,is_day"),
             URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min"),
             URLQueryItem(name: "hourly", value: "temperature_2m,weather_code,is_day"),
+            // The day's high and low are the place's own day, and the answer names the zone
+            // the hours are labelled in (`forecastZone`).
             URLQueryItem(name: "timezone", value: "auto"),
+            // The hours as moments, seconds since 1970, rather than as local times with no zone
+            // on them: see `hours(from:now:)`.
+            URLQueryItem(name: "timeformat", value: "unixtime"),
             // Two days, because "the next six hours" at nine in the evening is tomorrow.
             URLQueryItem(name: "forecast_days", value: "2"),
         ]
@@ -519,15 +537,15 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
                         isDay: (current.isDay ?? 1) != 0,
                         highC: decoded.daily?.maxTemperature?.first,
                         lowC: decoded.daily?.minTemperature?.first,
-                        hours: hours(from: decoded.hourly,
-                                     zone: forecastZone(identifier: decoded.timezone, offset: decoded.utcOffset)))
+                        hours: hours(from: decoded.hourly),
+                        timeZone: decoded.timezone,
+                        utcOffset: decoded.utcOffset)
     }
 
-    /// The zone a forecast's times are written in. `timezone=auto` answers in the zone of the
-    /// place the forecast is for, which the answer names ("Europe/Berlin") and gives as an
-    /// offset from UTC as well. The name first, since it knows where summer time begins; the
-    /// offset when the name is not one this Mac knows; nil when the answer says neither.
-    /// Pure, so it is tested.
+    /// The zone of the place a forecast is for, which `timezone=auto` makes the answer name
+    /// ("Europe/Berlin") and give as an offset from UTC as well. The hours are labelled in it.
+    /// The name first, since it knows where summer time begins; the offset when the name is
+    /// not one this Mac knows; nil when the answer says neither. Pure, so it is tested.
     static func forecastZone(identifier: String?, offset: Int?) -> TimeZone? {
         if let identifier, let zone = TimeZone(identifier: identifier) { return zone }
         return offset.flatMap { TimeZone(secondsFromGMT: $0) }
@@ -538,21 +556,20 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     /// The next few hours out of an hourly block, starting with the one after this one.
     ///
-    /// Open-Meteo returns local wall-clock times with no zone on them, because the request
-    /// asked for `timezone=auto`: local to the place the forecast is for, which is `zone`
-    /// (`forecastZone`). They were read in the Mac's own zone, which is the same place only
-    /// while the Mac's clock is set for where it is — not a laptop kept on home time abroad,
-    /// nor one that has landed and not yet changed zone — and then the strip started hours
-    /// early or late. The Mac's zone (`calendar`'s) is only for an answer that does not say.
+    /// The times are moments, seconds since 1970 (`timeformat=unixtime`). They were local
+    /// wall-clock times with no zone on them, read back in the place's zone, and a wall clock
+    /// is not a moment on the two nights a year it is changed: the hour that spring skips does
+    /// not exist, so it would not read and was dropped; the hour that autumn repeats came back
+    /// as one moment twice, two hours with the same `id` in the strip; and the hours after the
+    /// change could be placed an hour off. A moment has none of that to get wrong. Which zone
+    /// they are shown in is the strip's business (`hoursZone`).
+    ///
+    /// An hour that is not later than the one before it is passed over: the strip is drawn by
+    /// `id`, which is the moment, and an answer that repeats one would draw one hour twice.
     ///
     /// Pure, so the arithmetic can be tested without the network.
-    static func hours(from block: Forecast.Hourly?, zone: TimeZone? = nil, now: Date = Date(),
-                      calendar: Calendar = .current) -> [Hour] {
+    static func hours(from block: Forecast.Hourly?, now: Date = Date()) -> [Hour] {
         guard let block, let times = block.time else { return [] }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = zone ?? calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
         // The three arrays are parallel, and a short one is a malformed answer rather than a
         // reason to read off the end of it.
         func value<T>(_ array: [T]?, _ index: Int) -> T? {
@@ -560,8 +577,10 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             return array[index]
         }
         var out: [Hour] = []
-        for (index, raw) in times.enumerated() {
-            guard let date = formatter.date(from: raw), date > now else { continue }
+        for (index, seconds) in times.enumerated() {
+            guard seconds.isFinite else { continue }
+            let date = Date(timeIntervalSince1970: seconds)
+            guard date > now, out.last.map({ date > $0.date }) ?? true else { continue }
             guard let temperature = value(block.temperature, index) else { continue }
             out.append(Hour(date: date,
                             temperatureC: temperature,
@@ -587,7 +606,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         }
 
         struct Hourly: Decodable {
-            let time: [String]?
+            /// Seconds since 1970, see `hours(from:now:)`.
+            let time: [TimeInterval]?
             let temperature: [Double]?
             let weatherCode: [Int]?
             let isDay: [Int]?
@@ -613,13 +633,25 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         let current: Current
         let daily: Daily?
         let hourly: Hourly?
-        /// The zone the times are in, by name and as seconds from UTC (`forecastZone`).
+        /// The zone of the place, by name and as seconds from UTC (`forecastZone`).
         let timezone: String?
         let utcOffset: Int?
 
         enum CodingKeys: String, CodingKey {
             case current, daily, hourly, timezone
             case utcOffset = "utc_offset_seconds"
+        }
+
+        /// The hours are the one part read leniently: an hourly block in a shape other than the
+        /// one asked for — the times written as text, say — is no strip, and the reading above
+        /// it still stands. The rest is read as strictly as it always was.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            current = try container.decode(Current.self, forKey: .current)
+            daily = try container.decodeIfPresent(Daily.self, forKey: .daily)
+            hourly = try? container.decodeIfPresent(Hourly.self, forKey: .hourly)
+            timezone = try container.decodeIfPresent(String.self, forKey: .timezone)
+            utcOffset = try container.decodeIfPresent(Int.self, forKey: .utcOffset)
         }
     }
 
@@ -643,6 +675,7 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         lastPlaceName = fresh.placeName ?? lastPlaceName
         updatedAt = fresh.updatedAt
         hours = fresh.hours
+        hoursZone = Self.forecastZone(identifier: fresh.timeZone, offset: fresh.utcOffset)
         state = .ready
         if cache { writeCache(fresh) }
     }
@@ -663,12 +696,22 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
 
     // MARK: - Formatting (pure, unit-tested)
 
-    /// Whether this Mac's reader wants Fahrenheit.
+    /// Whether this Mac's reader wants Fahrenheit: the Temperature setting in System Settings
+    /// (General > Language & Region) and, where that is left alone, the region's own habit.
+    static var usesFahrenheit: Bool { isFahrenheit(for: .autoupdatingCurrent) }
+
+    /// Whether the weather is read in Fahrenheit in `locale`. Pure given the locale, so each
+    /// region is tested.
     ///
-    /// `Locale.MeasurementSystem` has three cases and only one of them is `.metric`: the
-    /// United Kingdom is its own, and it takes its temperature in Celsius. Asking `!= .metric`
-    /// would put Fahrenheit in front of every reader in Britain.
-    static var usesFahrenheit: Bool { Locale.current.measurementSystem == .us }
+    /// It was read off the measurement system, `.us` for Fahrenheit, and a temperature is not
+    /// a length. Puerto Rico, the Bahamas, Belize and the Cayman Islands measure in metres and
+    /// read the weather in Fahrenheit; Liberia and Myanmar measure the American way and read it
+    /// in Celsius; and the Temperature setting, which is the reader saying which they want, was
+    /// never asked. The unit Foundation prefers for the weather in a locale answers all three,
+    /// the setting first, since the current locale carries it.
+    static func isFahrenheit(for locale: Locale) -> Bool {
+        UnitTemperature(forLocale: locale, usage: .weather).symbol == UnitTemperature.fahrenheit.symbol
+    }
 
     /// WMO weather interpretation code → an SF Symbol and a short label. Night codes get
     /// the moon variants where one exists. Anything unrecognised falls back to plain cloud.
@@ -696,7 +739,8 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     }
 
     /// "21°" — whole degrees in the reader's scale, which the caller names rather than the
-    /// number spelling it out, the way every weather widget shows it.
+    /// number spelling it out, the way every weather widget shows it. `fahrenheit` is the
+    /// scale `isFahrenheit(for:)` chose.
     static func formatTemperature(_ celsius: Double, fahrenheit: Bool) -> String {
         let value = fahrenheit ? celsius * 9 / 5 + 32 : celsius
         let rounded = Int(value.rounded())

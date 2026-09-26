@@ -256,6 +256,84 @@ final class AgendaStoreTests: XCTestCase {
                        "midnight itself belongs to the day it starts")
     }
 
+    // MARK: - How far ahead the day is read
+
+    /// Half past midnight on 1 November 2026 in New York: twenty-four hours on is half past
+    /// eleven that night, the day being twenty-five hours long, and the last half hour of it was
+    /// never read.
+    func testTheLongDayIsReadToItsEnd() throws {
+        let early = try moment(11, 1, 0, 30)
+        let midnight = try moment(11, 2, 0)
+        XCTAssertLessThan(early.addingTimeInterval(24 * 3600), midnight, "twenty-four hours stop short of it")
+        XCTAssertEqual(AgendaStore.fetchEnd(for: early, calendar: newYork), midnight)
+    }
+
+    func testAnOrdinaryDayIsReadTwentyFourHoursAhead() throws {
+        let afternoon = try moment(9, 25, 15)
+        XCTAssertEqual(AgendaStore.fetchEnd(for: afternoon, calendar: newYork), afternoon.addingTimeInterval(24 * 3600),
+                       "tomorrow's morning is still read, for the line that names it")
+        let early = try moment(3, 8, 0, 30)
+        XCTAssertEqual(AgendaStore.fetchEnd(for: early, calendar: newYork), early.addingTimeInterval(24 * 3600),
+                       "the short day is read a day ahead too, past its end")
+    }
+
+    // MARK: - What the empty day says about tomorrow
+
+    private func allDay(_ id: String, on day: Int, month: Int = 9) throws -> AgendaStore.Event {
+        AgendaStore.Event(id: id, title: id, start: try moment(month, day, 0), end: try moment(month, day + 1, 0),
+                          isAllDay: true, location: nil, joinURL: nil, tint: "blue")
+    }
+
+    /// A day with only an all-day event in it has no time for it to be at.
+    func testTomorrowsAllDayEventIsSaidToBeAllDay() throws {
+        let evening = try moment(9, 25, 21)
+        let hint = TodaySectionView.tomorrowHint(events: [try allDay("Bank Holiday", on: 26)], at: evening, calendar: newYork)
+        XCTAssertEqual(hint, "Tomorrow: Bank Holiday, all day")
+    }
+
+    func testTomorrowsFirstTimedEventIsSaidWithItsTime() throws {
+        let evening = try moment(9, 25, 21)
+        let standup = event("standup", at: try moment(9, 26, 9))
+        XCTAssertEqual(TodaySectionView.tomorrowHint(events: [standup], at: evening, calendar: newYork),
+                       "Tomorrow: Event standup at \(AgendaStore.timeLabel(for: standup, at: evening))")
+        XCTAssertNil(TodaySectionView.tomorrowHint(events: [event("late", at: try moment(9, 25, 22))], at: evening,
+                                                   calendar: newYork),
+                     "tonight's is not tomorrow's")
+        XCTAssertNil(TodaySectionView.tomorrowHint(events: [], at: evening, calendar: newYork))
+    }
+
+    // MARK: - Counting down to an event
+
+    /// The countdown's timeline ticked from whenever the row appeared, so "in 1 min" could
+    /// stand for thirty seconds after the meeting began. Counted from the start, every look
+    /// lands a hair after one of the start's own minutes.
+    func testACountdownIsCountedFromTheStart() throws {
+        let start = try moment(9, 25, 10)
+        let step = AgendaStore.countdownStep
+        for offset in [-3600.0, -100, -61, -60, -30.5, -0.01, 0, 45, 1800] {
+            let now = start.addingTimeInterval(offset)
+            let phase = AgendaStore.countdownPhase(for: start, now: now)
+            XCTAssertLessThanOrEqual(phase, now, "a look to give now, at \(offset)")
+            XCTAssertGreaterThan(phase, now.addingTimeInterval(-3 * step), "and not long ago, at \(offset)")
+            let steps = (start.timeIntervalSince(phase) + AgendaStore.countdownHair) / step
+            XCTAssertEqual(steps, steps.rounded(), accuracy: 1e-6, "on the start's own half minutes, at \(offset)")
+        }
+    }
+
+    /// A hair after each of those moments, the words have already changed.
+    func testALookAtTheStartSaysNow() throws {
+        let start = try moment(9, 25, 10)
+        let meeting = AgendaStore.Event(id: "m", title: "Meeting", start: start, end: start.addingTimeInterval(1800),
+                                        isAllDay: false, location: nil, joinURL: nil, tint: "blue")
+        let phase = AgendaStore.countdownPhase(for: start, now: start.addingTimeInterval(-100))
+        let looks = (0..<8).map { phase.addingTimeInterval(Double($0) * AgendaStore.countdownStep) }
+        let atStart = try XCTUnwrap(looks.first { $0 >= start })
+        XCTAssertEqual(atStart.timeIntervalSince(start), AgendaStore.countdownHair, accuracy: 1e-6)
+        XCTAssertEqual(TodaySectionView.countdown(meeting, at: atStart), "Now")
+        let minuteBefore = try XCTUnwrap(looks.first { $0 >= start.addingTimeInterval(-60) })
+        XCTAssertEqual(TodaySectionView.countdown(meeting, at: minuteBefore), "in 1 min")
+    }
+
     // MARK: - A permission granted after launch
 
     func testAGrantMadeInSystemSettingsIsNoticed() {

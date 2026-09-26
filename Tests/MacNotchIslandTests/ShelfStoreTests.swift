@@ -117,6 +117,51 @@ final class ShelfStoreTests: XCTestCase {
                        String(repeating: "x", count: 60) + ".txt")
     }
 
+    /// The file system counts a name's bytes, decomposed, not its characters: sixty Korean
+    /// syllables are 540 of them, and the write refused the name and lost the drop.
+    func testANameIsCutToTheBytesTheFileSystemAllows() {
+        let korean = String(repeating: "한", count: 80)
+        XCTAssertEqual(ShelfStore.fileNameBytes(String(korean.prefix(60))), 540, "nine bytes a syllable, decomposed")
+        for attempt in [1, 2, 123] {
+            let name = ShelfStore.dropFileName(korean, extension: "txt", attempt: attempt)
+            XCTAssertLessThanOrEqual(ShelfStore.fileNameBytes(name), ShelfStore.nameByteLimit, name)
+            XCTAssertLessThanOrEqual(ShelfStore.fileNameBytes(name), 255)
+            XCTAssertTrue(name.hasSuffix(attempt == 1 ? ".txt" : " \(attempt).txt"), name)
+            XCTAssertTrue(name.hasPrefix("한"), "cut, not emptied")
+            XCTAssertTrue(name.dropLast(attempt == 1 ? 4 : 4 + " \(attempt)".count).allSatisfy { $0 == "한" },
+                          "cut a whole syllable at a time: \(name)")
+        }
+        // As much as fits: one syllable more would not have.
+        let base = String(ShelfStore.dropFileName(korean, extension: "txt", attempt: 1).dropLast(4))
+        XCTAssertGreaterThan(ShelfStore.fileNameBytes(base + "한.txt"), ShelfStore.nameByteLimit)
+    }
+
+    func testANameInTamilIsCutWithoutBreakingALetter() throws {
+        // "தமிழ்" is five scalars in three letters, fifteen bytes; sixty letters are 300.
+        let tamil = String(repeating: "தமிழ்", count: 30)
+        let name = ShelfStore.dropFileName(tamil, extension: "txt", attempt: 1)
+        XCTAssertLessThanOrEqual(ShelfStore.fileNameBytes(name), ShelfStore.nameByteLimit)
+        let base = name.dropLast(4)
+        XCTAssertTrue(tamil.hasPrefix(String(base)), name)
+        let last = try XCTUnwrap(base.last)
+        XCTAssertTrue(["த", "மி", "ழ்"].contains(String(last)), "a whole letter at the end, not half of one: \(last)")
+    }
+
+    func testANameThatAlreadyFitsIsLeftAlone() {
+        XCTAssertEqual(ShelfStore.dropFileName("Réunion", extension: "txt", attempt: 1), "Réunion.txt")
+        XCTAssertEqual(ShelfStore.dropFileName("회의록", extension: "txt", attempt: 2), "회의록 2.txt")
+    }
+
+    /// A file name is not prose: written in the Mac's own language, the stamp came out in
+    /// Eastern Arabic figures on a Mac in Arabic.
+    func testTheStampIsWrittenTheSameEverywhere() throws {
+        let utc = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        // 2026-09-21 14:32:05 UTC.
+        let moment = Date(timeIntervalSince1970: 1_790_001_125)
+        XCTAssertEqual(ShelfStore.stamp("Image", now: moment, timeZone: utc), "Image 14.32.05")
+        XCTAssertTrue(ShelfStore.stamp("Text", now: moment, timeZone: utc).unicodeScalars.allSatisfy(\.isASCII))
+    }
+
     /// A folder of the test's own, so nothing here touches the app's.
     private func scratchFolder() throws -> URL {
         let url = dir.appendingPathComponent("drops-\(UUID().uuidString)", isDirectory: true)

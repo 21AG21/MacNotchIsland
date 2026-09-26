@@ -69,4 +69,31 @@ final class NowPlayingSanitizeTests: XCTestCase {
         XCTAssertFalse(MarqueeText.isRightToLeft("2024 — 12"), "no letter at all")
         XCTAssertTrue(MarqueeText.isRightToLeft("\u{200F}1, 2, 3"), "a right-to-left mark")
     }
+
+    // MARK: - What a player's script says
+
+    /// The poll's script writes whole milliseconds, so no decimal separator is ever in them. It
+    /// wrote seconds as a real, in the region's own notation, and a Mac whose region writes "٫"
+    /// read every track as 0:00 long.
+    func testAPlayersTimesAreReadAsMilliseconds() {
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("213000"), 213)
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("61500"), 61.5)
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("0"), 0)
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds(" 1000 "), 1)
+    }
+
+    /// A real is still read, whichever separator it was written with: the script falls back to
+    /// one for a length too long for an AppleScript integer.
+    func testARealIsStillReadWithAnySeparator() {
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("213.5"), 213.5)
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("213,5"), 213.5)
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("213\u{066B}5"), 213.5, "the Arabic decimal separator")
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("6.0E+5"), 600_000)
+    }
+
+    func testWhatIsNotANumberIsNought() {
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("missing value"), 0, "a stream with no length")
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds(""), 0)
+        XCTAssertEqual(AppleScriptBackend.scriptedSeconds("inf"), 0)
+    }
 }
