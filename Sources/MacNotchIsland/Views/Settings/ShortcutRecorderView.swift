@@ -48,18 +48,28 @@ struct ShortcutRecorderView: View {
     /// The small grey line under the row: a nudge while recording, otherwise the conflict warning.
     private var note: String? {
         if let hint = hint { return hint }
-        return Self.conflictNote(registrationFailed: hotkey.registrationFailed, takenBySystem: hotkey.takenBySystem)
+        return Self.conflictNote(registrationFailed: hotkey.registrationFailed, takenBySystem: hotkey.takenBySystem,
+                                 stepsWithheld: !HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers))
     }
 
     /// What is said about a combination somebody else has. Two different somebodies: another
     /// app refuses the registration outright, while macOS lets it through and then answers the
     /// keys itself first — so the second was never said at all, on any Mac with two input
     /// sources and the shortcut as it shipped. Pure, so a test holds each to its sentence.
-    static func conflictNote(registrationFailed: Bool, takenBySystem: Bool) -> String? {
+    ///
+    /// `stepsWithheld` is a third: a combination with fewer than two of ⌃⌥⌘, stored before
+    /// the recorder refused one, whose Tab and arrow steps are every app's and are left to them
+    /// (`HotKeyService.stepsAreSafe`). It still opens and closes the island, and nothing else
+    /// said the steps listed under it had gone.
+    static func conflictNote(registrationFailed: Bool, takenBySystem: Bool, stepsWithheld: Bool = false) -> String? {
         if registrationFailed { return "Another app is already using this shortcut." }
         if takenBySystem {
             return "macOS uses this for one of its own shortcuts and answers it first — with two input sources, "
                 + "switching between them. Choose another, or turn that one off in System Settings, under Keyboard Shortcuts."
+        }
+        if stepsWithheld {
+            return "This opens and closes the island, but its steps are left off: apps use Tab and the arrows with it held. "
+                + "Choose one with two of Control, Option and Command to step with them too."
         }
         return nil
     }
@@ -136,15 +146,23 @@ struct ShortcutRecorderView: View {
         /// combination is the shortcut and the step at once, and the second of the two to be
         /// registered loses in silence.
         case ownStep
+        /// Fewer than two of Control, Option and Command. The steps ride on Tab and the arrows
+        /// with the same modifiers, and with one of them — or Shift alone with a function key —
+        /// those are editing keys in every app: ⌃K took ⌃Tab from every browser, ⌥Space the
+        /// word jumps on ⌥← and ⌥→. See `HotKeyService.stepsAreSafe`.
+        case tooFewModifiers
 
         var message: String {
             switch self {
             case .bareKey:
-                return "Add Control, Option, Shift or Command."
+                return "Add two of Control, Option and Command."
             case .shiftAlone:
-                return "Shift alone types a capital or extends a selection in every app. Add Control, Option or Command."
+                return "Shift alone types a capital or extends a selection in every app. Add two of Control, Option and Command."
             case .ownStep:
                 return "Tab, ← and → are the island's own steps, with whatever this shortcut holds. Choose another key."
+            case .tooFewModifiers:
+                return "Apps use Tab and the arrows with this held — ⌃Tab for tabs, ⌥→ to jump a word — and the island's "
+                    + "steps would take them. Choose one with two of Control, Option and Command."
             }
         }
     }
@@ -157,18 +175,22 @@ struct ShortcutRecorderView: View {
         // thing to say about it.
         if ownStepKeys.contains(keyCode) { return .ownStep }
         if modifiers == shiftKey, !functionKeys.contains(keyCode) { return .shiftAlone }
+        // Last: every refusal above is the more particular thing to say about its combination.
+        if !HotKeyService.stepsAreSafe(modifiers: modifiers) { return .tooFewModifiers }
         return nil
     }
 
     /// The keys the island's other shortcuts sit on. `HotKeyService.register()` puts the next
-    /// section on Tab and `registerWhileOpen()` the sideways steps on the arrows, each with
+    /// section on Tab and `registerStepKeys()` the sideways steps on the arrows, each with
     /// `currentModifiers` — the modifiers of whatever was recorded here — which is why no set
     /// of modifiers makes these safe. Listed here rather than read from there because the
     /// service is not this view's to change; the pane's "Next section" and "Step sideways"
     /// rows show the same three keys.
     static let ownStepKeys: Set<Int> = [kVK_Tab, kVK_LeftArrow, kVK_RightArrow]
 
-    /// F1 to F20: the keys that type nothing, and so the only ones Shift alone is a shortcut with.
+    /// F1 to F20: the keys that type nothing. Shift alone with one of them is no capital and
+    /// no selection, so it is not `shiftAlone` — but it is still refused, for the steps it
+    /// would put on ⇧Tab and ⇧← and ⇧→ (`tooFewModifiers`).
     static let functionKeys: Set<Int> = [
         kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
         kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20,

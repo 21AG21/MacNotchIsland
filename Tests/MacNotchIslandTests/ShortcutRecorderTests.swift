@@ -18,8 +18,8 @@ final class ShortcutRecorderTests: XCTestCase {
         XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: 0), Rejection.bareKey)
         XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_F5, modifiers: 0), Rejection.bareKey,
                        "a function key on its own is still a key every app may want")
-        XCTAssertEqual(Rejection.bareKey.message, "Add Control, Option, Shift or Command.",
-                       "the line the row has always shown for this")
+        XCTAssertEqual(Rejection.bareKey.message, "Add two of Control, Option and Command.",
+                       "what the recorder takes now, rather than one modifier it would refuse next")
     }
 
     func testShiftAloneWithAKeyThatTypesIsRefused() {
@@ -34,17 +34,61 @@ final class ShortcutRecorderTests: XCTestCase {
                        "⇧↑ extends a selection in every text field")
     }
 
-    func testShiftAloneWithAFunctionKeyIsAllowed() {
-        // The function keys type nothing, so Shift with one of them is a shortcut and nothing else.
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_F5, modifiers: shift))
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_F19, modifiers: shift))
+    func testShiftAloneWithAFunctionKeyIsRefusedForItsSteps() {
+        // The function keys type nothing, so ⇧F5 takes no capital from anyone — but the steps
+        // would be ⇧Tab and ⇧← and ⇧→, which go back a field and extend a selection everywhere.
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_F5, modifiers: shift), Rejection.tooFewModifiers)
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_F19, modifiers: shift), Rejection.tooFewModifiers)
         XCTAssertEqual(ShortcutRecorderView.functionKeys.count, 20, "F1 to F20")
     }
 
-    func testShiftBesideAnotherModifierIsAllowed() {
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: shift | cmd))
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: shift | control))
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_1, modifiers: shift | option))
+    func testShiftBesideTwoOfTheOthersIsAllowed() {
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: shift | cmd | control))
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: shift | control | option))
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_1, modifiers: shift | option | cmd))
+    }
+
+    func testFewerThanTwoOfControlOptionAndCommandIsRefused() {
+        // Each of these took the editing keys its steps sit on from every app on the Mac.
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_K, modifiers: control), Rejection.tooFewModifiers,
+                       "⌃K: ⌃Tab switches tabs in every browser and in Xcode")
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_Space, modifiers: option), Rejection.tooFewModifiers,
+                       "⌥Space: ⌥← and ⌥→ jump a word")
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_K, modifiers: cmd), Rejection.tooFewModifiers,
+                       "⌘K: ⌘← and ⌘→ go to either end of the line")
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: shift | cmd), Rejection.tooFewModifiers,
+                       "Shift is not one of the two")
+        XCTAssertEqual(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_A, modifiers: shift), Rejection.shiftAlone,
+                       "Shift alone with a key that types still says so, which is the truer thing to say")
+    }
+
+    /// The rule the service registers the steps by, and the recorder refuses by.
+    func testTheStepsAreRegisteredOnlyWithTwoOfControlOptionAndCommand() {
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: control | option))
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: control | cmd))
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: option | cmd | shift))
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: control | option | cmd))
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: HotKeyService.defaultModifiers), "⌃⌥Space steps on ⌃⌥Tab")
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: HotKeyService.fallbackModifiers), "and ⌃⌥I on the same")
+        for single in [control, option, cmd, shift] {
+            XCTAssertFalse(HotKeyService.stepsAreSafe(modifiers: single), "\(single) alone keeps its toggle, not its steps")
+        }
+        XCTAssertFalse(HotKeyService.stepsAreSafe(modifiers: cmd | shift), "Shift is half of the backward step already")
+        XCTAssertFalse(HotKeyService.stepsAreSafe(modifiers: control | shift))
+        XCTAssertFalse(HotKeyService.stepsAreSafe(modifiers: 0))
+    }
+
+    func testTheRowSaysWhenAStoredShortcutHasLostItsSteps() {
+        // A combination recorded before the rule still opens and closes the island; the row
+        // says where its steps went.
+        let note = ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: false, stepsWithheld: true)
+        XCTAssertTrue(note?.contains("Tab") == true)
+        XCTAssertTrue(note?.contains("Choose") == true, "with what to do about it")
+        XCTAssertNil(ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: false, stepsWithheld: false))
+        XCTAssertTrue(ShortcutRecorderView.conflictNote(registrationFailed: true, takenBySystem: false, stepsWithheld: true)?
+            .contains("Another app") == true, "a refusal is the harder fact, and is said first")
+        XCTAssertTrue(ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: true, stepsWithheld: true)?
+            .contains("macOS") == true, "and so is the system answering the shortcut itself")
     }
 
     func testTheIslandsOwnStepsAreRefusedWhateverIsHeld() {
@@ -69,15 +113,15 @@ final class ShortcutRecorderTests: XCTestCase {
         XCTAssertNil(ShortcutRecorderView.rejection(keyCode: HotKeyService.defaultKeyCode,
                                                     modifiers: HotKeyService.defaultModifiers),
                      "the shipping shortcut passes its own rule")
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_K, modifiers: cmd | shift))
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_K, modifiers: cmd | option))
         XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_UpArrow, modifiers: control | option),
                      "the vertical arrows are nobody's step")
-        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_Escape, modifiers: cmd),
-                     "Escape is claimed bare, and only while something is open; with a modifier it is free")
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_Escape, modifiers: control | option),
+                     "Escape is claimed bare, and only while something is open; with modifiers it is free")
     }
 
     func testEveryRefusalSaysSomethingAPersonCanActOn() {
-        for refusal in [Rejection.bareKey, .shiftAlone, .ownStep] {
+        for refusal in [Rejection.bareKey, .shiftAlone, .ownStep, .tooFewModifiers] {
             XCTAssertFalse(refusal.message.isEmpty)
             XCTAssertTrue(refusal.message.hasSuffix("."), "\"\(refusal.message)\" should read as a sentence")
             XCTAssertTrue(refusal.message.contains("Add") || refusal.message.contains("Choose"),

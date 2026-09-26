@@ -390,7 +390,9 @@ final class NotchPanel: NSPanel {
             beginPress()
             guard event.type != .otherMouseDown else { break }
             let center = ActivityCenter.shared
-            if event.type == .leftMouseDown, center.currentView(on: panelID) != nil {
+            // A card as well as a panel: a ringing timer's Stop, or a script's question, can
+            // take the place of a peek under a click already on its way to it.
+            if event.type == .leftMouseDown, center.guardsClicks(on: panelID) {
                 let sinceGrew = center.sinceGrew(on: panelID)
                 if Self.clickGoesToBody(sinceGrew: sinceGrew, clickCount: event.clickCount,
                                         sinceOpened: Date().timeIntervalSince(center.openedAt)) {
@@ -424,7 +426,8 @@ final class NotchPanel: NSPanel {
     static let growthGuard: TimeInterval = 0.3
 
     /// Whether a left click on a panel that is showing goes to the body — pinning the peek, as
-    /// a click on it does, and asking for the keyboard — rather than to what is under it.
+    /// a click on it does, and asking for the keyboard — rather than to what is under it. A
+    /// card is read the same way (`ActivityCenter.guardsClicks(on:)`), and its body opens it.
     ///
     /// It does within `growthGuard` of the island growing, and for the second click of a double
     /// click whose first opened the panel from the pill. Either way the hand was aiming at the
@@ -629,15 +632,18 @@ final class NotchPanel: NSPanel {
     }
 
     /// With an island on several screens, the one under the pointer takes the keyboard;
-    /// failing that, the main screen's.
+    /// failing that, the main screen's — of the islands that are drawn. The live windows are
+    /// read here; the choice is `PanelKeyboard.owner`.
     private var ownsKeyboard: Bool {
-        // The panel was opened on one island: that island types.
-        if let open = ActivityCenter.shared.openPanel { return open == panelID }
+        let center = ActivityCenter.shared
         let mouse = NSEvent.mouseLocation
-        if screen?.frame.contains(mouse) == true { return true }
-        let panels = NSApp.windows.compactMap { $0 as? NotchPanel }.filter { $0.isVisible }
-        guard !panels.contains(where: { $0.screen?.frame.contains(mouse) == true }) else { return false }
-        return screen == NSScreen.main || panels.first === self
+        let islands = NSApp.windows.compactMap { $0 as? NotchPanel }.filter { $0.isVisible }.map { panel -> PanelKeyboard.Island in
+            PanelKeyboard.Island(id: panel.panelID,
+                                 underPointer: panel.screen.map { NotchPanel.pointer(mouse, isIn: $0.frame) } ?? false,
+                                 onMainScreen: panel.screen != nil && panel.screen == NSScreen.main,
+                                 suppressed: center.isSuppressed(panel: panel.panelID))
+        }
+        return PanelKeyboard.owner(openPanel: center.openPanel, islands: islands) == panelID
     }
 
     /// Hands key status back to the app in front. A window that stays on screen has one way to
@@ -728,10 +734,38 @@ final class NotchPanel: NSPanel {
     /// Whether a point in screen coordinates lies on this panel's island (not merely inside
     /// the window, whose slack around the island is click-through). Geometry only; it never
     /// runs a view hit test, so it costs nothing and touches no view state.
+    ///
+    /// The point is the pointer's, and is read by AppKit's rule for the pointer: see
+    /// `pointer(_:isIn:)` and `pointerSample(_:in:)`. `frame.contains` left out the top edge,
+    /// and the window's top edge is the screen's — so a pointer thrown up into the notch, which
+    /// reads `y == frame.maxY`, was off the island: the window let it through, the peek never
+    /// opened and an open one closed after its grace, a click on the switcher's top row went
+    /// to the menu bar and the click-outside monitor closed the pinned panel.
     func islandContains(screenPoint: NSPoint, margin: CGFloat = 0, includingBubble: Bool = true) -> Bool {
-        guard frame.contains(screenPoint), let hosting else { return false }
-        return hosting.islandContains(windowPoint: convertPoint(fromScreen: screenPoint), margin: margin,
-                                      includingBubble: includingBubble)
+        guard Self.pointer(screenPoint, isIn: frame), let hosting else { return false }
+        return hosting.islandContains(windowPoint: convertPoint(fromScreen: Self.pointerSample(screenPoint, in: frame)),
+                                      margin: margin, includingBubble: includingBubble)
+    }
+
+    /// Whether the pointer at `point`, in screen coordinates as `NSEvent.mouseLocation` gives
+    /// it, is inside `rect`: `NSMouseInRect` unflipped, which counts the top edge in and the
+    /// bottom edge out.
+    ///
+    /// AppKit names the pixel under the pointer by its top edge in unflipped coordinates, so
+    /// the top row of a screen reads `y == screen.frame.maxY`. `CGRect.contains` counts the
+    /// bottom edge rather than the top, and put the top row of every screen outside that
+    /// screen. For two displays one above the other, the row where they meet belongs to the
+    /// lower display's top, which is where the pointer is.
+    static func pointer(_ point: NSPoint, isIn rect: NSRect) -> Bool {
+        NSMouseInRect(point, rect, false)
+    }
+
+    /// The point the island's outline is asked about for a pointer at `point` inside `rect`:
+    /// the point itself, except on the top edge, where it is the middle of the top row. The
+    /// outline is a shape, and a shape's own edge is no place to ask whether a point is in it.
+    static func pointerSample(_ point: NSPoint, in rect: NSRect) -> NSPoint {
+        guard point.y >= rect.maxY else { return point }
+        return NSPoint(x: point.x, y: rect.maxY - 0.5)
     }
 
     /// The resting frame for a screen before any state exists: the bare notch plus slack.
@@ -873,5 +907,32 @@ enum PanelKeyboard {
     /// is the key window, in which case the island leaves the keyboard where it is.
     static func heldByAnotherOfOurs(_ windows: [(isKey: Bool, isPanel: Bool)]) -> Bool {
         windows.contains { $0.isKey && !$0.isPanel }
+    }
+
+    /// One island on screen, as the choice of who types reads it.
+    struct Island: Equatable {
+        let id: String
+        /// The pointer is on this island's display (`NotchPanel.pointer(_:isIn:)`).
+        let underPointer: Bool
+        let onMainScreen: Bool
+        /// Drawn nowhere — under a full-screen app, or the island paused or hidden for the
+        /// app in front (`ActivityCenter.isSuppressed(panel:)`).
+        let suppressed: Bool
+    }
+
+    /// The island whose window takes key status when the panel wants the keyboard: the one
+    /// the panel was opened on; with it open everywhere, the one under the pointer, else the
+    /// main screen's, else the first. Only among the islands that are drawn.
+    ///
+    /// A suppressed island was a candidate like any other. With a film full screen on one of
+    /// two displays and the pointer there, the panel opened from the shortcut or the menu bar
+    /// gave key status to the invisible window over the film: the film lost the keyboard,
+    /// Space played and paused the music, and the Notes open on the other display could not
+    /// be typed into. Nil when nothing that is drawn should have it.
+    static func owner(openPanel: String?, islands: [Island]) -> String? {
+        let drawn = islands.filter { !$0.suppressed }
+        if let openPanel { return drawn.contains(where: { $0.id == openPanel }) ? openPanel : nil }
+        let chosen = drawn.first(where: { $0.underPointer }) ?? drawn.first(where: { $0.onMainScreen }) ?? drawn.first
+        return chosen?.id
     }
 }

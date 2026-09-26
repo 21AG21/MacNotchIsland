@@ -58,6 +58,10 @@ final class ActivityCenter: ObservableObject {
                 if openView == nil {
                     navigationDirection = 0
                     keyboardInvited = false
+                    // With no pointer on any island there is no peek, and one kept past the
+                    // close is the view the next peek opens on. `collapse` let it go; an
+                    // activity ending, a timed Home and an island hidden did not.
+                    if hoverPanel == nil, peekView != nil { peekView = nil }
                 }
                 // Every change, not only opening and closing: the keys the panel answers
                 // depend on which section it is on.
@@ -658,6 +662,8 @@ final class ActivityCenter: ObservableObject {
     /// Temporarily force an activity into its expanded view (e.g. a timer finishing).
     func forceExpanded(id: String, for seconds: TimeInterval = 6) {
         forcedWork?.cancel()
+        // What each island showed, so the ones the card takes count as grown under a click.
+        let before = shownOnIslands()
         forcedExpandedID = id
         // A forced activity must be the primary one, or nothing visible happens.
         if activities.contains(where: { $0.id == id }) { pinnedID = id }
@@ -671,8 +677,52 @@ final class ActivityCenter: ObservableObject {
             alert = nil
             enqueue(shown, duration: alertRequest.duration, exact: alertRequest.exact)
         }
+        noteCardArrival(since: before)
         Haptics.tap()
         scheduleForcedExpiry(id: id, after: seconds, heldFor: 0)
+    }
+
+    /// What each island shows right now: every island there is, or no island in particular
+    /// while none has been built. Read before a change that can put a card up, for
+    /// `noteCardArrival`.
+    private func shownOnIslands() -> [(island: String?, shown: IslandPresentation)] {
+        let islands: [String?] = livePanels.isEmpty ? [nil] : livePanels.sorted().map { Optional($0) }
+        return islands.map { (island: $0, shown: presentation(for: $0)) }
+    }
+
+    /// A card has just gone up — one forced up, or an alert nothing may keep off the island —
+    /// and the islands where it took the place of something else count as grown under the
+    /// pointer (`noteGrowth`), so the growth guard reads a click there as it does after a peek
+    /// opens (`NotchPanel.clickGoesToBody`). Nothing recorded the change: watching a timer's
+    /// card in a peek when it rang, or when a question from `notchctl ask` arrived, the click
+    /// already on its way to the peek pressed Stop or Repeat, or answered the question.
+    ///
+    /// One island that changed is that island; several, the one under the pointer if it is
+    /// one of them, else every island.
+    private func noteCardArrival(since before: [(island: String?, shown: IslandPresentation)]) {
+        let changed = before.filter { Self.cardReplaces($0.shown, with: presentation(for: $0.island)) }.map { $0.island }
+        guard let first = changed.first else { return }
+        if changed.count == 1 { return noteGrowth(on: first) }
+        if let hoverPanel, changed.contains(where: { $0 == hoverPanel }) { return noteGrowth(on: hoverPanel) }
+        noteGrowth(on: nil)
+    }
+
+    /// Whether `after` puts a card where `before` showed something else — a peek, a pill, the
+    /// bare notch, or another card — so that a click aimed at what was there lands on the
+    /// card's controls. The same card again, updated, is no change.
+    static func cardReplaces(_ before: IslandPresentation, with after: IslandPresentation) -> Bool {
+        guard case .card(let card) = after else { return false }
+        if case .card(let was) = before, was.id == card.id { return false }
+        return true
+    }
+
+    /// Whether a left click on `panel`'s island is one the growth guard reads
+    /// (`NotchPanel.clickGoesToBody`): the island shows a panel, or a card. A card's buttons
+    /// can grow under a click as a panel's slots can, and it has no panel view to say so.
+    func guardsClicks(on panel: String) -> Bool {
+        if currentView(on: panel) != nil { return true }
+        if case .card = presentation(for: panel) { return true }
+        return false
     }
 
     /// How long a pointer resting on a forced card can keep it past its own time. A ringing
@@ -873,6 +923,10 @@ final class ActivityCenter: ObservableObject {
             enqueue(activity, duration: duration, exact: exact)
             return
         }
+        // An alert nothing keeps off the island takes a peek's place as a card forced up does,
+        // and counts as grown where it does (`noteCardArrival`). Quieter ones yield to a peek
+        // and are banners in it, so they are left out.
+        let before: [(island: String?, shown: IslandPresentation)] = Self.alertRank(activity) >= 6 ? shownOnIslands() : []
         alertWork?.cancel()
         MenuBarClearance.shared.refresh()
         // The user may have opened the alert being replaced; unless a live activity carries the
@@ -894,6 +948,7 @@ final class ActivityCenter: ObservableObject {
         if alert?.id != activity.id { alertShownAt = Date() }
         alert = activity
         alertRequest = (duration, exact)
+        if !before.isEmpty { noteCardArrival(since: before) }
         if haptic { Haptics.tap() }
         let seconds = exact ? (duration ?? Self.standardAlertDuration)
                             : Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration)
@@ -1047,7 +1102,10 @@ final class ActivityCenter: ObservableObject {
             if hovering {
                 deferredHoverExit = nil
                 guard self.hoverPanel != panel, self.peekSuppressed != panel else { return }
-                if self.peekView == nil, self.hoverPeeks { self.peekView = self.defaultPeek() }
+                // Not on an island the panel is pinned on, which shows no peek: seeded there,
+                // it outlived the panel, and the next peek anywhere opened on it — Home at its
+                // last section — rather than on what was playing.
+                if self.peekView == nil, self.hoverPeeks, !self.openHere(panel) { self.peekView = self.defaultPeek() }
                 // Before the panel is set, which asks it: a card already up holds against the
                 // peek this arrival opens (`cardHoldsAgainstPeek`).
                 self.hoverArrivedAt = Date()
@@ -1075,7 +1133,10 @@ final class ActivityCenter: ObservableObject {
             return
         }
         hoverPanel = nil
-        if openView == nil { peekView = nil }
+        // Whatever is pinned: the peek was this island's, and no island is under the pointer
+        // now. Kept while a panel was pinned on the other display, it came back on the next
+        // visit here in place of what was playing.
+        if peekView != nil { peekView = nil }
         // Forget which way the last step went. Only `open` and `collapse` used to clear this,
         // and a hover exit goes through neither — so after ever stepping sideways in a peeked
         // panel, every hover-open afterwards grew on the flat navigate spring instead of the
@@ -1098,7 +1159,8 @@ final class ActivityCenter: ObservableObject {
         pendingHover = nil
         guard hoverPanel == deferred else { return }
         hoverPanel = nil
-        if openView == nil { peekView = nil }
+        // As in `applyHoverExit`: the peek was that island's, pinned panel or not.
+        if peekView != nil { peekView = nil }
     }
 
     static let hoverExitGrace: TimeInterval = 0.4
@@ -1254,17 +1316,23 @@ final class ActivityCenter: ObservableObject {
         homeWork?.cancel()
         lastInteraction = Date()
         navigationDirection = direction
+        let island = panel ?? (openView != nil ? openPanel : nil)
+        // A pill, a card or the bare notch becoming the panel grows the island; a peek being
+        // pinned, or a step, only changes what the panel already there is showing.
+        //
+        // Asked before an alert clicked open is held, which takes it off the island: with the
+        // pointer resting there and the pointer opening the panel, the island was then asked
+        // about with the peek under the card uncovered, and read as a panel already showing —
+        // so the 440-point card growing into the 720-point panel went unrecorded, and a quick
+        // second click landed on a switcher slot that had grown under it.
+        let grows = shownView(on: island) == nil
         if case .activity(let id) = view { holdAlertIfNeeded(id: id) }
         let target = validated(view)
-        let island = panel ?? (openView != nil ? openPanel : nil)
         // A hidden island opens nothing. The shortcut opened an invisible panel over a
         // full-screen film, and its keys were claimed system-wide with nothing to show for
         // them until Escape.
         guard !isSuppressed(panel: island) else { return }
         if invitesKeyboard { keyboardInvited = true }
-        // A pill, a card or the bare notch becoming the panel grows the island; a peek being
-        // pinned, or a step, only changes what the panel already there is showing.
-        let grows = shownView(on: island) == nil
         guard openView != target else {
             // The same view, asked for from a second island: it shows on both.
             if openPanel != island { openPanel = nil }

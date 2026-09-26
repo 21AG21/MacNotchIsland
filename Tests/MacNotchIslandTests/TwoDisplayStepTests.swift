@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import MacNotchIsland
 
@@ -206,5 +207,81 @@ final class TwoDisplayStepTests: XCTestCase {
         center.open(ring[1], panel: "b")
         XCTAssertNil(center.openPanel, "it shows on both")
         XCTAssertEqual(center.grewOn, "b", "and b is the island that grew")
+    }
+
+    // MARK: - A peek left on the other island
+
+    func testAPeekLeftOnTheOtherIslandIsNotWhereTheNextVisitOpens() {
+        // The panel pinned on a, the peek on b moved to another section, the pointer gone
+        // from b: the peek stayed, and the next visit to b opened on it instead of on what
+        // was playing.
+        center.upsert(IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(NowPlayingService.fakeTrack()),
+                                     priority: 50))
+        let music = IslandView.home(tab: HomeSection.music.rawValue)
+        let others = center.ring.indices.filter { center.ring[$0] != music }
+        guard others.count >= 3 else { return XCTFail("sections enough to pin one and peek at another") }
+        let ring = pinnedOnAPeekingOnB(pinned: others[0], peeked: others[1])
+        center.setHovering(false, panel: "b")
+        settle(ActivityCenter.hoverExitGrace + 0.2)
+        XCTAssertNil(center.hoverPanel)
+        XCTAssertNil(center.peekView, "no pointer on any island, no peek")
+        XCTAssertEqual(center.currentView(on: "a"), ring[others[0]], "the panel pinned on a is as it was")
+        center.setHovering(true, panel: "b")
+        settle(0.1)
+        XCTAssertEqual(center.currentView(on: "b"), music, "a fresh peek, on what is playing")
+    }
+
+    // MARK: - Who takes the keyboard
+
+    private typealias Island = PanelKeyboard.Island
+
+    func testAnIslandHiddenUnderAFullScreenAppDoesNotTakeTheKeyboard() {
+        // Open everywhere from the shortcut, a film full screen on b, the pointer there: the
+        // invisible window over the film took key status, and Notes on a took no typing.
+        let a = Island(id: "a", underPointer: false, onMainScreen: true, suppressed: false)
+        let b = Island(id: "b", underPointer: true, onMainScreen: false, suppressed: true)
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: nil, islands: [a, b]), "a", "the island that is drawn")
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: nil, islands: [b, a]), "a", "whatever order the windows are in")
+        let bOnMain = Island(id: "b", underPointer: true, onMainScreen: true, suppressed: true)
+        let aElsewhere = Island(id: "a", underPointer: false, onMainScreen: false, suppressed: false)
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: nil, islands: [bOnMain, aElsewhere]), "a",
+                       "not the main screen's either, when that is the one hidden")
+        XCTAssertNil(PanelKeyboard.owner(openPanel: "b", islands: [a, b]), "pinned on the hidden island: nobody types")
+        XCTAssertNil(PanelKeyboard.owner(openPanel: nil, islands: [b]), "and with every island hidden, nobody")
+    }
+
+    func testTheIslandUnderThePointerTakesTheKeyboardAmongThoseDrawn() {
+        let a = Island(id: "a", underPointer: false, onMainScreen: true, suppressed: false)
+        let b = Island(id: "b", underPointer: true, onMainScreen: false, suppressed: false)
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: nil, islands: [a, b]), "b", "the one under the pointer")
+        let bAway = Island(id: "b", underPointer: false, onMainScreen: false, suppressed: false)
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: nil, islands: [bAway, a]), "a", "failing that, the main screen's")
+        let aAway = Island(id: "a", underPointer: false, onMainScreen: false, suppressed: false)
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: nil, islands: [bAway, aAway]), "b", "failing that, the first")
+        XCTAssertEqual(PanelKeyboard.owner(openPanel: "a", islands: [a, b]), "a", "pinned on one island: that one types")
+        XCTAssertNil(PanelKeyboard.owner(openPanel: nil, islands: []))
+    }
+
+    // MARK: - The pointer on a screen's top row
+
+    func testAPointerOnTheTopRowIsOnTheDisplayWhoseTopItIs() {
+        // AppKit reads the top row of a screen as y == maxY. `CGRect.contains` put it off the
+        // screen, and off the island whose window starts at that edge.
+        let lower = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let upper = NSRect(x: 0, y: 982, width: 1920, height: 1080)
+        let top = NSPoint(x: 756, y: 982)
+        XCTAssertTrue(NotchPanel.pointer(top, isIn: lower), "the lower display's top row")
+        XCTAssertFalse(NotchPanel.pointer(top, isIn: upper), "not the upper display's bottom")
+        XCTAssertFalse(lower.contains(top), "which is where the rectangle's own rule put it")
+        XCTAssertTrue(NotchPanel.pointer(NSPoint(x: 756, y: 500), isIn: lower))
+        XCTAssertFalse(NotchPanel.pointer(NSPoint(x: 756, y: 1100), isIn: lower))
+
+        // The island's window hangs from that edge; its outline is asked about the middle of
+        // the top row there, and about any other point as it is.
+        let window = NSRect(x: 596, y: 642, width: 320, height: 340)
+        XCTAssertTrue(NotchPanel.pointer(top, isIn: window))
+        XCTAssertEqual(NotchPanel.pointerSample(top, in: window), NSPoint(x: 756, y: 981.5))
+        let below = NSPoint(x: 756, y: 960)
+        XCTAssertEqual(NotchPanel.pointerSample(below, in: window), below)
     }
 }

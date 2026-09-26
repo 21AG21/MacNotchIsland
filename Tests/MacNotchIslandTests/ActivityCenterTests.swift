@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import MacNotchIsland
 
@@ -1246,5 +1247,92 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(center.escapeArmed, "the hand that clicked pause is going back to its typing")
         center.tap()
         XCTAssertTrue(center.escapeArmed, "a click on the island's body asks for the keyboard, and Escape comes with it")
+    }
+
+    // MARK: - A card that takes the place of a peek
+
+    /// How long since the panel opened, as `NotchPanel.sendEvent` asks it.
+    private var sinceOpened: TimeInterval { Date().timeIntervalSince(center.openedAt) }
+
+    func testACardThatTakesThePeeksPlaceGivesTheClickAimedAtThePeekToItsBody() {
+        // Watching the timer in a peek when it rang: the card took the peek's place, and the
+        // click already on its way pressed Stop.
+        center.upsert(rungTimer())
+        center.setHovering(true)
+        settle(NotchPanel.growthGuard + 0.3)
+        guard case .panel = center.presentation(for: "main") else { return XCTFail("the peek") }
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: center.sinceGrew(on: "main"), clickCount: 1,
+                                                  sinceOpened: sinceOpened),
+                       "a peek that has settled takes its own clicks")
+
+        center.forceExpanded(id: "timer", for: 5)
+        guard case .card(let card) = center.presentation(for: "main") else { return XCTFail("the ringing card") }
+        XCTAssertEqual(card.id, "timer")
+        XCTAssertTrue(center.guardsClicks(on: "main"), "a card is read by the growth guard as a panel is")
+        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: center.sinceGrew(on: "main"), clickCount: 1,
+                                                 sinceOpened: sinceOpened),
+                      "the click aimed at the peek goes to the card's body, not to Stop")
+        center.tap(panel: "main")
+        XCTAssertEqual(center.openView, .activity(id: "timer"), "and the body opens the card, as a click on it does")
+    }
+
+    func testABatteryAboutToRunOutOverAPeekIsGrowthToo() {
+        center.setHovering(true)
+        settle(NotchPanel.growthGuard + 0.3)
+        guard case .panel = center.presentation(for: "main") else { return XCTFail("the peek") }
+        let low = BatteryState(percent: 8, isCharging: false, isPluggedIn: false, event: .low)
+        center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(low), priority: 90),
+                         duration: 5, haptic: false)
+        guard case .card(let card) = center.presentation(for: "main") else { return XCTFail("the warning's card") }
+        XCTAssertEqual(card.id, "battery")
+        XCTAssertLessThan(center.sinceGrew(on: "main"), NotchPanel.growthGuard)
+    }
+
+    func testWhatCountsAsACardTakingAnIslandsPlace() {
+        let timer = rungTimer()
+        let peek = IslandPresentation.panel(.home(tab: HomeSection.music.rawValue))
+        XCTAssertTrue(ActivityCenter.cardReplaces(peek, with: .card(timer)))
+        XCTAssertTrue(ActivityCenter.cardReplaces(.compact(timer, bubble: nil), with: .card(timer)), "the pill grew into it")
+        XCTAssertTrue(ActivityCenter.cardReplaces(.card(finishedDownload()), with: .card(timer)), "another card's buttons")
+        XCTAssertFalse(ActivityCenter.cardReplaces(.card(timer), with: .card(timer)), "the same card, updated")
+        XCTAssertFalse(ActivityCenter.cardReplaces(.card(timer), with: peek), "a card going is not a card arriving")
+        XCTAssertFalse(ActivityCenter.cardReplaces(.idle, with: .compact(timer, bubble: nil)))
+    }
+
+    /// With the pointer on a card that held against the peek, a click holds the alert — which
+    /// takes it off the island — before it opens the card's panel, and the island was asked
+    /// whether it grew after that: the peek under the card said a panel was already showing.
+    func testAClickedCardGrowingIntoThePanelUnderThePointerIsGrowth() {
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        center.setHovering(true)
+        settle(NotchPanel.growthGuard + 0.3)
+        guard case .card = center.presentation(for: "main") else { return XCTFail("the card holds against the peek") }
+        XCTAssertGreaterThan(center.sinceGrew(on: "main"), NotchPanel.growthGuard, "nothing grew when the pointer came")
+        center.tap(panel: "main")
+        XCTAssertEqual(center.openView, .activity(id: "download-done"))
+        XCTAssertNil(center.alert, "held, as a clicked alert is")
+        XCTAssertLessThan(center.sinceGrew(on: "main"), NotchPanel.growthGuard,
+                          "the card grew into the panel, so a quick second click is the body's")
+    }
+
+    // MARK: - A peek left over
+
+    func testAPeekIsNotSeededUnderAPinnedPanelNorKeptPastIt() {
+        // Pinned on a section, with the pointer coming to rest on it: the peek it seeded
+        // outlived a close that did not go through `collapse`, and the next hover opened on
+        // that section instead of on what had started playing since.
+        center.open(.home(tab: HomeSection.clipboard.rawValue))
+        center.setHovering(true)
+        settle(0.1)
+        XCTAssertEqual(center.hoverPanel, "main")
+        XCTAssertNil(center.peekView, "an island the panel is pinned on shows no peek, and seeds none")
+        center.upsert(IslandActivity(id: "nowplaying", kind: .nowPlaying, content: .nowPlaying(NowPlayingService.fakeTrack()),
+                                     priority: 50))
+        center.clearInteraction()
+        XCTAssertFalse(center.isOpen)
+        XCTAssertNil(center.peekView, "no pointer on any island, no peek")
+        center.setHovering(true)
+        settle(0.1)
+        XCTAssertEqual(center.currentView, .home(tab: HomeSection.music.rawValue), "the peek opens on what is playing")
     }
 }

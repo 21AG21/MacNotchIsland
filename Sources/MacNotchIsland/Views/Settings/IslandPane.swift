@@ -16,9 +16,16 @@ struct IslandPane: View {
                     .help("Summon the island from anywhere, even in full-screen apps.")
                 if prefs.hotkeyEnabled {
                     ShortcutRecorderView()
-                    LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
-                    LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
-                    LabeledContent("Step sideways", value: HotKeyService.displayString(keyCode: kVK_LeftArrow, carbonModifiers: HotKeyService.currentModifiers) + " and " + HotKeyService.displayString(keyCode: kVK_RightArrow, carbonModifiers: HotKeyService.currentModifiers))
+                    // The steps ride on Tab and the arrows with the shortcut's modifiers, and are
+                    // registered only where those hold two of ⌃⌥⌘ (`HotKeyService.stepsAreSafe`);
+                    // a combination stored with one keeps its toggle, and the recorder's note says
+                    // the steps are left to the app in front. Rows for keys that do nothing would
+                    // say otherwise.
+                    if HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers) {
+                        LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
+                        LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
+                        LabeledContent("Step sideways", value: HotKeyService.displayString(keyCode: kVK_LeftArrow, carbonModifiers: HotKeyService.currentModifiers) + " and " + HotKeyService.displayString(keyCode: kVK_RightArrow, carbonModifiers: HotKeyService.currentModifiers))
+                    }
                     LabeledContent("Close", value: "Escape")
                 }
             } header: {

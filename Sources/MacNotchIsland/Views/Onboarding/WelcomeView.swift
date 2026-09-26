@@ -52,8 +52,13 @@ struct WelcomeView: View {
                                            carbonModifiers: HotKeyService.currentModifiers)
     }
 
-    private var tabShortcut: String {
-        HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers)
+    /// Nil where the shortcut has no steps: they ride on Tab with its modifiers, and are
+    /// registered only where those hold two of ⌃⌥⌘ (`HotKeyService.stepsAreSafe`). The tour
+    /// taught a Tab step that a one-modifier shortcut stored before the recorder refused one
+    /// never had.
+    private var tabShortcut: String? {
+        guard HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers) else { return nil }
+        return HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers)
     }
 
     var body: some View {
@@ -160,11 +165,13 @@ struct WelcomeView: View {
     /// The keyboard row. It named ⌃⌥Space on every Mac, including the ones where macOS takes
     /// ⌃⌥Space first for the input menu — the tour's one instruction, and it did nothing. It
     /// names the shortcut only when there is one that works, and otherwise where to set one.
-    static func keyboardRow(shortcut: String?, tab: String) -> (title: String, detail: String) {
+    /// `tab` is nil where the shortcut has no steps (`tabShortcut`), and the row teaches none.
+    static func keyboardRow(shortcut: String?, tab: String?) -> (title: String, detail: String) {
         guard let shortcut else {
             return ("Choose a shortcut",
                     "Pick a key combination in Settings, under Island, and it opens the panel from anywhere. Escape closes.")
         }
+        guard let tab else { return ("Press \(shortcut)", "Opens the panel from anywhere; Escape closes.") }
         return ("Press \(shortcut)", "Opens the panel from anywhere. \(tab) steps through every section; Escape closes.")
     }
 

@@ -9,7 +9,8 @@ import Foundation
 /// that, see `shippingDefault`) and toggles the island; the same modifiers with Tab
 /// step forward through every view, with Shift+Tab backward; Escape closes whatever is open,
 /// and the modifiers with the arrow keys step sideways; those are only registered while
-/// something is open. Uses Carbon's RegisterEventHotKey, which works for
+/// something is open. The Tab and arrow steps need two of ⌃⌥⌘ in the combination, see
+/// `stepsAreSafe`. Uses Carbon's RegisterEventHotKey, which works for
 /// background apps with no permissions.
 final class HotKeyService: ObservableObject {
     /// One owner for the registration, so Settings can watch it while ServiceHub drives it.
@@ -176,8 +177,12 @@ final class HotKeyService: ObservableObject {
             if takenBySystem != taken { takenBySystem = taken }
             // Tab with the same modifiers cycles views; adding Shift reverses. When the main
             // combo already holds Shift the two coincide, and only the forward step registers.
-            register(.next, keyCode: kVK_Tab, modifiers: modifiers)
-            if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
+            // Only where those are nobody else's (`stepsAreSafe`): a combination recorded
+            // before the recorder asked for two of ⌃⌥⌘ keeps its toggle and loses its steps.
+            if Self.stepsAreSafe(modifiers: modifiers) {
+                register(.next, keyCode: kVK_Tab, modifiers: modifiers)
+                if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
+            }
         } else {
             // Nothing was asked of the system, so nothing was refused.
             registrationFailed = false
@@ -199,12 +204,14 @@ final class HotKeyService: ObservableObject {
 
     /// The main combo's modifiers with the arrow keys, which step between sections the way a
     /// swipe does. Claimed the whole time the island has something open, whether or not it
-    /// asked for the keyboard: the combo is the island's already, and the arrows beside it
-    /// take nothing from anyone. Separate from Escape, which comes and goes with the
-    /// keyboard's invitation.
+    /// asked for the keyboard: the combo is the island's already, and with two of ⌃⌥⌘ in it
+    /// the arrows beside it take nothing from anyone (`stepsAreSafe`); with one they are a
+    /// word or a line in every text field, and are left alone. Separate from Escape, which
+    /// comes and goes with the keyboard's invitation.
     private func registerStepKeys() {
         guard Preferences.shared.hotkeyEnabled else { return }
         let modifiers = Self.currentModifiers
+        guard Self.stepsAreSafe(modifiers: modifiers) else { return }
         // Both are registered whatever the other does; `&&` would skip the second.
         let left = register(.left, keyCode: kVK_LeftArrow, modifiers: modifiers)
         let right = register(.right, keyCode: kVK_RightArrow, modifiers: modifiers)
@@ -364,9 +371,10 @@ final class HotKeyService: ObservableObject {
     /// Every key class goes the same way, and deliberately so. The digits and the arrows and
     /// Space do less damage than a letter — a caret moved, a track paused — but each of them is
     /// a keystroke somebody pressed while looking somewhere else, and there is no honest line
-    /// to draw between them. The keyboard shortcut's own combinations are untouched: modifiers
-    /// with Tab or an arrow are nobody else's to lose, so those stay claimed the whole time the
-    /// island is open, and a panel that never gets the keyboard can still be steered with them.
+    /// to draw between them. The keyboard shortcut's own combinations are untouched: two of ⌃⌥⌘
+    /// with Tab or an arrow are nobody else's to lose (`stepsAreSafe`), so those stay claimed
+    /// the whole time the island is open, and a panel that never gets the keyboard can still be
+    /// steered with them.
     static func claim(pinnedOpen: Bool, holdsKeyboard: Bool, textFieldUp: Bool,
                       listSection: Bool, enabled: Bool) -> KeyClaim {
         guard enabled, pinnedOpen, holdsKeyboard, !textFieldUp else { return .nothing }
@@ -392,8 +400,25 @@ final class HotKeyService: ObservableObject {
     static var currentModifiers: Int {
         let stored = normalized(Preferences.shared.hotkeyModifiers, fallback: defaultModifiers)
         // Without a modifier the island would claim Tab and the arrow keys system-wide. The
-        // recorder refuses such a combo; a hand-edited defaults entry is refused here.
+        // recorder refuses such a combo; a hand-edited defaults entry is refused here. One
+        // modifier keeps its shortcut and loses its steps instead, see `stepsAreSafe`.
         return stored == 0 ? defaultModifiers : stored
+    }
+
+    /// Whether the steps — Tab, Shift-Tab and the arrows, each with the shortcut's own
+    /// modifiers — may be taken from every app: only when those hold at least two of Control,
+    /// Option and Command.
+    ///
+    /// Carbon takes a registered combination from every application at once, and with one
+    /// modifier the steps are keys people edit with all day: ⌃Tab moves between tabs in every
+    /// browser and in Xcode, ⌥← and ⌥→ jump a word, ⌘← and ⌘→ go to either end of the line,
+    /// Shift-Tab goes back a field and Shift with an arrow extends a selection. With ⌃K
+    /// recorded, ⌃Tab stopped switching tabs anywhere on the Mac. Shift is not counted: it
+    /// is half of the backward step already. The recorder refuses such a combination
+    /// (`ShortcutRecorderView.Rejection.tooFewModifiers`); one stored before it did keeps
+    /// opening and closing the island, and the steps are left to the app in front.
+    static func stepsAreSafe(modifiers: Int) -> Bool {
+        [controlKey, optionKey, cmdKey].filter { modifiers & $0 != 0 }.count >= 2
     }
 
     /// Preferences store these as Doubles; a stale or hand-edited defaults entry must never
