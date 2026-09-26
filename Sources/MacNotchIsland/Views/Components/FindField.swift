@@ -93,8 +93,9 @@ struct FindField: View {
         .onChange(of: matches, initial: true) { _, now in
             // One island says it. The find is open on every display that shows the section,
             // and each draws a field of its own, so the count was heard once a display; the
-            // field whose window holds the keyboard is the one being typed into.
-            guard Self.speaksCount(panelID: panelID, keyPanelID: (NSApp.keyWindow as? NotchPanel)?.panelID),
+            // field whose window holds the keyboard is the one being typed into. The app is
+            // optional here: the gallery draws the field in a process with no application.
+            guard Self.speaksCount(panelID: panelID, keyPanelID: (NSApp?.keyWindow as? NotchPanel)?.panelID),
                   let words = Self.countAnnouncement(matches: now, query: ActivityCenter.shared.findQuery) else { return }
             IslandAccessibility.announce(words, high: false)
         }
