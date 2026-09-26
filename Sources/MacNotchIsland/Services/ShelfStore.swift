@@ -3,6 +3,29 @@ import Combine
 import QuickLookThumbnailing
 import UniformTypeIdentifiers
 
+/// One file's picture on the shelf: its icon, and QuickLook's thumbnail once one has been made.
+///
+/// Published on its own, one per file, and watched by that file's tile alone. The thumbnails
+/// were one dictionary published by the store, which every tile watched whole, and they are
+/// made one at a time: a drop of eight files drew all eight tiles, the strip and its header,
+/// and everything else that watches the shelf, eight times over as they came in. Main thread.
+final class ShelfPicture: ObservableObject {
+    let url: URL
+    /// QuickLook's thumbnail, once it has been made. Written by the store.
+    @Published fileprivate(set) var thumbnail: NSImage?
+
+    /// The file's icon, for until there is a thumbnail: looked up the first time a tile draws
+    /// it, and kept. It was asked of the workspace on every pass of the tile's body, each time a
+    /// new image for SwiftUI to take in afresh, and a file's icon does not change while it waits
+    /// on a shelf. Asked where the tile is drawn, the way the call card asks for its app's
+    /// (`CallAppIcon`): it is AppKit's, and cheap, once.
+    private(set) lazy var icon: NSImage = NSWorkspace.shared.icon(forFile: url.path)
+
+    init(url: URL) {
+        self.url = url
+    }
+}
+
 /// One file kept on the shelf. `addedAt` drives the age label and the expiry sweep.
 struct ShelfItem: Identifiable, Equatable, Hashable {
     let url: URL
@@ -30,7 +53,10 @@ final class ShelfStore: ObservableObject {
             }
         }
     }
-    @Published private var thumbnails: [URL: NSImage] = [:]
+    /// Each file's picture, by its standardized URL. Not published: each is an object of its
+    /// own that its tile watches (`ShelfPicture`), so a thumbnail landing draws that tile and
+    /// nothing else.
+    private var pictures: [URL: ShelfPicture] = [:]
     /// Whether this store owns the island's "shelf" activity. Only the shared store does;
     /// the stores the tests build must not touch the real ActivityCenter unless asked.
     var publishesActivity: Bool
@@ -136,7 +162,17 @@ final class ShelfStore: ObservableObject {
         return items.contains { $0.url == target }
     }
 
-    func thumbnail(for url: URL) -> NSImage? { thumbnails[url.standardizedFileURL] }
+    func thumbnail(for url: URL) -> NSImage? { pictures[url.standardizedFileURL]?.thumbnail }
+
+    /// The picture a tile draws for `url`, the same object for as long as the file is on the
+    /// shelf. Main thread.
+    func picture(for url: URL) -> ShelfPicture {
+        let key = url.standardizedFileURL
+        if let known = pictures[key] { return known }
+        let made = ShelfPicture(url: key)
+        pictures[key] = made
+        return made
+    }
 
     func add(_ urls: [URL]) {
         let files = urls.filter { $0.isFileURL }.map { $0.standardizedFileURL }
@@ -267,7 +303,7 @@ final class ShelfStore: ObservableObject {
         guard !items.isEmpty else { return }
         let leaving = urls
         items.removeAll()
-        thumbnails.removeAll()
+        pictures.removeAll()
         thumbnailQueue.removeAll()
         discardOwned(leaving)
         persist()
@@ -1258,12 +1294,12 @@ final class ShelfStore: ObservableObject {
 
     private func pruneThumbnailCache() {
         let live = Set(items.map(\.url))
-        thumbnails = thumbnails.filter { live.contains($0.key) }
+        pictures = pictures.filter { live.contains($0.key) }
         thumbnailQueue.removeAll { !live.contains($0) }
     }
 
     private func requestThumbnail(_ url: URL) {
-        guard backgroundWork, thumbnails[url] == nil, !thumbnailQueue.contains(url) else { return }
+        guard backgroundWork, pictures[url]?.thumbnail == nil, !thumbnailQueue.contains(url) else { return }
         thumbnailQueue.append(url)
         pumpThumbnails()
     }
@@ -1273,7 +1309,7 @@ final class ShelfStore: ObservableObject {
     private func pumpThumbnails() {
         while thumbnailsInFlight < Self.maxConcurrentThumbnails, !thumbnailQueue.isEmpty {
             let url = thumbnailQueue.removeFirst()
-            guard thumbnails[url] == nil else { continue }
+            guard pictures[url]?.thumbnail == nil else { continue }
             thumbnailsInFlight += 1
             let request = QLThumbnailGenerator.Request(fileAt: url,
                                                        size: CGSize(width: 88, height: 88),
@@ -1283,8 +1319,9 @@ final class ShelfStore: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.thumbnailsInFlight = max(0, self.thumbnailsInFlight - 1)
+                    // To the file's own picture, which only its tile watches.
                     if let rep, self.items.contains(where: { $0.url == url }) {
-                        self.thumbnails[url] = rep.nsImage
+                        self.picture(for: url).thumbnail = rep.nsImage
                     }
                     self.pumpThumbnails()
                 }

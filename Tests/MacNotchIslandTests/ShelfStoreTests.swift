@@ -66,6 +66,30 @@ final class ShelfStoreTests: XCTestCase {
         ShelfItem(url: url, addedAt: Date().addingTimeInterval(-hoursAgo * 3600))
     }
 
+    // MARK: - Pictures
+
+    /// A tile asks for its picture on every pass and watches what it is given, so it has to be
+    /// given the same one each time: a new one would be a picture nobody ever sends a thumbnail
+    /// to.
+    func testEachFileKeepsOnePictureForAsLongAsItIsOnTheShelf() throws {
+        let store = makeStore()
+        let file = try makeFile("a.txt")
+        store.add([file])
+        let picture = store.picture(for: file)
+        XCTAssertTrue(picture === store.picture(for: file))
+        let roundabout = file.deletingLastPathComponent().appendingPathComponent(".")
+            .appendingPathComponent(file.lastPathComponent)
+        XCTAssertTrue(picture === store.picture(for: roundabout), "the same file however its path is written")
+        XCTAssertNil(picture.thumbnail, "a store doing no background work makes no thumbnails")
+        store.remove([file])
+        store.add([file])
+        let again = store.picture(for: file)
+        XCTAssertFalse(picture === again, "a file taken off the shelf takes its picture with it")
+        store.clear()
+        store.add([file])
+        XCTAssertFalse(again === store.picture(for: file), "and so does a Clear")
+    }
+
     // MARK: - Anything can be dropped
 
     func testDroppedTextBecomesAFileNamedAfterItsFirstLine() throws {

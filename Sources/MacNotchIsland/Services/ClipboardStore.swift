@@ -174,7 +174,10 @@ final class ClipboardStore: ObservableObject {
     static let shared = ClipboardStore()
 
     @Published private(set) var items: [ClipboardItem] = []
-    @Published private var thumbnails: [UUID: NSImage] = [:]
+    /// Each picture's thumbnail, by the entry's id. Not published: each is an object of its own
+    /// that its row watches (`ClipboardPicture`), so a thumbnail landing draws that row and
+    /// nothing else.
+    private var thumbnails: [UUID: ClipboardPicture] = [:]
     /// The entries whose files have all gone, as of the last sweep. Kept here, keyed by the
     /// entry's own id, because the row that shows it is redrawn far more often than the answer
     /// can possibly change.
@@ -213,7 +216,6 @@ final class ClipboardStore: ObservableObject {
     private var running = false
     private var cancellables = Set<AnyCancellable>()
     private var persistWork: DispatchWorkItem?
-    private var pendingThumbnails: Set<UUID> = []
     /// The TIFF half of the last picture put back on the pasteboard, still only promised. Held
     /// here as well as by the pasteboard item, so it is there for as long as the entry is.
     private var tiffPromise: TIFFPromise?
@@ -743,7 +745,6 @@ final class ClipboardStore: ObservableObject {
         guard items.contains(where: { $0.id == item.id }) else { return }
         items.removeAll { $0.id == item.id }
         thumbnails[item.id] = nil
-        pendingThumbnails.remove(item.id)
         missingFileIDs.remove(item.id)
         schedulePersist()
     }
@@ -799,7 +800,6 @@ final class ClipboardStore: ObservableObject {
         let ids = Set(going.map(\.id))
         items.removeAll { ids.contains($0.id) }
         pruneThumbnails()
-        pendingThumbnails.subtract(ids)
         missingFileIDs.subtract(ids)
         schedulePersist()
         forgetUndo()
@@ -894,21 +894,26 @@ final class ClipboardStore: ObservableObject {
 
     // MARK: - Thumbnails (lazy, images only)
 
-    /// Returns a cached thumbnail, kicking off a background decode the first time.
-    func thumbnail(for item: ClipboardItem) -> NSImage? {
-        if let cached = thumbnails[item.id] { return cached }
-        guard let data = item.imageData, !pendingThumbnails.contains(item.id) else { return nil }
-        pendingThumbnails.insert(item.id)
+    /// The thumbnail a row draws for a picture, the same object for as long as the entry is in
+    /// the history; nil for an entry with no picture. Decoded the first time it is asked for, on
+    /// a background queue, and published on the picture alone: the thumbnails were one
+    /// dictionary published by the store, and every row watched the store whole, so each one
+    /// decoded drew every row in the list again. Main thread.
+    func picture(for item: ClipboardItem) -> ClipboardPicture? {
+        if let known = thumbnails[item.id] { return known }
+        guard let data = item.imageData else { return nil }
+        let picture = ClipboardPicture()
+        thumbnails[item.id] = picture
         let id = item.id
         DispatchQueue.global(qos: .utility).async {
             let image = ClipboardStore.makeThumbnail(from: data, maxPixel: 64)
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.pendingThumbnails.remove(id)
-                if let image { self.thumbnails[id] = image }
+                // An entry taken out of the history in the meantime keeps nothing.
+                guard let self, self.thumbnails[id] === picture, let image else { return }
+                picture.image = image
             }
         }
-        return nil
+        return picture
     }
 
     private static func makeThumbnail(from data: Data, maxPixel: Int) -> NSImage? {
@@ -995,6 +1000,13 @@ final class ClipboardStore: ObservableObject {
             }
         }
     }
+}
+
+/// One picture's thumbnail in the history, published on its own and watched by its row alone
+/// (`ClipboardStore.picture(for:)`). Main thread.
+final class ClipboardPicture: ObservableObject {
+    /// Nil until it has been decoded, and for bytes that turn out not to be a picture.
+    @Published fileprivate(set) var image: NSImage?
 }
 
 /// The TIFF of a picture put back on the pasteboard, made only when an app asks for it. PNG is

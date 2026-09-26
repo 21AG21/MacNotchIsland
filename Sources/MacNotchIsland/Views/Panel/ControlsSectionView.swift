@@ -20,16 +20,18 @@ struct ControlsSectionView: View {
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var wifi = WiFiScanner.shared
     // Watched for what they decide about the rail's overflow, as the rail watches them — the
-    // shelf and the sound devices through the one thing the overflow takes from each
-    // (`NarrowReadings`), as the rail does. The sound devices are otherwise the Sound column's
-    // alone (`SoundColumn`): watched here, every write of a drag of the rail's volume slider
-    // drew the networks, the paired devices and the overflow again with it, and so did every
-    // thumbnail made for a file on the shelf.
+    // shelf, the sound devices, the display's brightness and the keyboard's light through the
+    // one thing the overflow takes from each (`NarrowReadings`), as the rail does. The sound
+    // devices are otherwise the Sound column's alone (`SoundColumn`): watched here, every write
+    // of a drag of the rail's volume slider drew the networks, the paired devices and the
+    // overflow again with it, and so did every write of a drag of its brightness slider, and
+    // every thumbnail made for a file on the shelf. The radios are watched whole, above, since
+    // the two columns show them.
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var shelfHasFiles = NarrowReadings.shelfHasFiles
     @ObservedObject private var outputChoice = NarrowReadings.hasOutputChoice
-    @ObservedObject private var brightness = BrightnessControl.shared
-    @ObservedObject private var keyboard = KeyboardLight.shared
+    @ObservedObject private var brightnessAvailable = NarrowReadings.brightnessAvailable
+    @ObservedObject private var keyboardHasLight = NarrowReadings.keyboardHasLight
     // A webcam plugged in or pulled out adds or takes away the mirror's disc, which can be
     // one of the overflow; it did nothing until something else redrew the section.
     @ObservedObject private var camera = CameraPresence.shared

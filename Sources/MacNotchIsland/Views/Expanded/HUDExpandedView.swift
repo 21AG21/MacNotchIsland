@@ -1,12 +1,16 @@
 import SwiftUI
 
 struct HUDExpandedView: View {
+    /// The HUD as the card was handed it. The level as it moves is `HUDLevel`'s, which this
+    /// card watches, so it follows the level whether or not the alert it came in moves with it.
     let state: LevelHUD
     let geometry: NotchGeometry
     @Environment(\.insidePanel) private var insidePanel
+    @ObservedObject private var live = ActivityCenter.shared.hudLevel
 
     var body: some View {
-        VStack(spacing: 0) {
+        let state = HUDLevel.shown(self.state, live: live.state)
+        return VStack(spacing: 0) {
             NotchClearance(geometry: geometry, extra: 12)
             HStack(spacing: 14) {
                 ZStack {

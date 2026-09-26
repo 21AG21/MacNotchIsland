@@ -278,6 +278,12 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- An alert sent again unchanged, such as the volume key pressed at the top of the bar or a second "Copied", no longer redraws the whole island, and the HUD's card follows the level on its own.
+- A thumbnail made for a file on the shelf redraws that file's tile alone rather than every tile, the strip and the Home grid, and each file's icon is looked up once rather than on every redraw.
+- A picture's thumbnail in the clipboard list redraws its own row's glyph rather than every row in the list.
+- The rail and the Controls section are no longer redrawn on every write of a drag of the brightness slider, only the slider is, and a monitor's slider keeps its display for the whole of a drag that pauses with the button down.
+- Music and Spotify covers read by AppleScript are decoded off the main thread at no more than the size the island draws, with their accent colour worked out from that copy.
+- The keyboard backlight's last look after it goes missing is no longer called off by a wake or a display change that also finds nothing, so a backlight that comes back late is still found.
 - A wide album cover is no longer blurred in the Music section: it is kept sharp along the side that fills its square rather than the long one.
 - The rail is no longer redrawn, every disc on it, on every write of a drag of the volume slider or for every thumbnail made for a file on the shelf: only the volume is, and the slider writes at most thirty times a second, the last level always written.
 - The Controls section no longer redraws the networks, the paired devices and the rail's overflow on every step of a volume drag or for every shelf thumbnail, and Clear Shelf in the island's menu is no longer re-read for each thumbnail either.

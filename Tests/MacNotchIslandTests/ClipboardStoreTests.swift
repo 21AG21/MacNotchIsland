@@ -706,6 +706,37 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(arrivals.takeAll(), [], "the hop that comes after a flush finds nothing left to add twice")
     }
 
+    /// A row asks for its picture on every pass and watches what it is given, so it is given the
+    /// same one for as long as the entry is in the history, and a copy with no picture none.
+    func testAPictureKeepsOneThumbnailForAsLongAsItIsInTheHistory() {
+        let previousOverride = IslandFiles.overrideFolder
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clipboard-pictures-\(UUID().uuidString)", isDirectory: true)
+        let wasGallery = RenderMode.isGallery
+        let store = ClipboardStore.shared
+        IslandFiles.overrideFolder = folder
+        RenderMode.isGallery = true
+        defer {
+            store.seedForGallery([])
+            store.flush()
+            RenderMode.isGallery = wasGallery
+            IslandFiles.overrideFolder = previousOverride
+            try? FileManager.default.removeItem(at: folder)
+        }
+        var shot = item("Screenshot", kind: .image, at: 2)
+        // Not a picture at all: its decode comes to nothing, and the row keeps the kind's glyph.
+        shot.imageData = Data([0x00, 0x01, 0x02])
+        let words = item("words", at: 1)
+        store.seedForGallery([shot, words])
+
+        XCTAssertNil(store.picture(for: words), "a copy with no picture has no thumbnail to watch")
+        let picture = store.picture(for: shot)
+        XCTAssertNotNil(picture)
+        XCTAssertTrue(picture === store.picture(for: shot))
+        store.remove(item: shot)
+        XCTAssertFalse(picture === store.picture(for: shot), "an entry taken out takes its thumbnail with it")
+    }
+
     /// Added on the conversion queue and taken on the main thread, as the store does: nothing is
     /// lost between them and nothing reordered.
     func testCopiesAddedOnOneQueueAreAllTakenOnAnother() {

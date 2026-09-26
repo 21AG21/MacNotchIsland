@@ -17,17 +17,17 @@ struct ControlRail: View {
     /// than two that do the same. This is the way to the shelf from every other section, so
     /// it stands down on that one.
     var showingShelf = false
-    // Watched for what they decide about the rail's shape — whether the output picker, AirDrop,
-    // Wi-Fi, Bluetooth and the keyboard's light are on it at all — not for what the buttons
-    // show, which each button watches for itself. The sound devices and the shelf through the
-    // one thing the shape takes from each (`NarrowReadings`): watched whole, every write of a
-    // drag of the volume slider and every thumbnail made for a file on the shelf drew the whole
-    // rail again, every disc on it included.
+    // Watched for what they decide about the rail's shape — whether the output picker, the
+    // brightness slider, AirDrop, Wi-Fi, Bluetooth and the keyboard's light are on it at all —
+    // not for what the buttons and the sliders show, which each watches for itself. Each
+    // service through the one thing the shape takes from it (`NarrowReadings`): watched whole,
+    // every write of a drag of the volume or the brightness slider, and every thumbnail made
+    // for a file on the shelf, drew the whole rail again, every disc on it included.
     @ObservedObject private var outputChoice = NarrowReadings.hasOutputChoice
     @ObservedObject private var shelfHasFiles = NarrowReadings.shelfHasFiles
-    @ObservedObject private var brightness = BrightnessControl.shared
-    @ObservedObject private var toggles = SystemToggles.shared
-    @ObservedObject private var keyboard = KeyboardLight.shared
+    @ObservedObject private var brightnessAvailable = NarrowReadings.brightnessAvailable
+    @ObservedObject private var radios = NarrowReadings.radios
+    @ObservedObject private var keyboardHasLight = NarrowReadings.keyboardHasLight
     // A webcam plugged in or pulled out adds or takes away the mirror's disc
     // (`RailControl.Presence`); unwatched, the rail kept its shape until something else redrew it.
     @ObservedObject private var camera = CameraPresence.shared
@@ -36,6 +36,10 @@ struct ControlRail: View {
     @Environment(\.islandPanelID) private var panelID
     /// The display this rail told the brightness service it is on, to be given back when it goes.
     @State private var watchedDisplay: CGDirectDisplayID?
+    /// Told when the rail comes and goes, and not watched: the slider watches it (`RailBrightness`).
+    private var brightness: BrightnessControl { .shared }
+    /// Told when the rail comes and goes, and not watched: each radio's disc watches it.
+    private var toggles: SystemToggles { .shared }
     /// When the rail went on screen, and nothing until it has. Everything the rail shows is read
     /// just after that moment, over the top of the panel's opening spring. See `RailAssembly`.
     @State private var mountedAt: TimeInterval?
@@ -51,7 +55,7 @@ struct ControlRail: View {
     var body: some View {
         // A reading the brightness service already has, rather than a fresh walk of the display
         // list: the rail is rebuilt on every hover.
-        let hasBrightness = brightness.isAvailable
+        let hasBrightness = brightnessAvailable.value
         let hasPicker = outputChoice.value || RenderMode.isGallery
         let plan = RailPlan.current(prefs: prefs, showingShelf: showingShelf, showingMirror: showingMirror)
         // The row is not a fixed set: the brightness slider comes with a display that has one,
@@ -68,7 +72,7 @@ struct ControlRail: View {
             // how loud it is. Only when there is a choice to make — one output is not a
             // picker, it is a label nobody asked for.
             if hasPicker { RailOutputPicker() }
-            if hasBrightness { brightnessControl }
+            if hasBrightness { RailBrightness() }
             Spacer(minLength: RailMetrics.minSpacer)
             ForEach(plan.rail, id: \.self) { control in
                 RailControlView(control: control, showingMirror: $showingMirror)
@@ -161,11 +165,23 @@ struct ControlRail: View {
         }
         return MuteButton(symbol: symbol, label: label, help: label, isEnabled: true)
     }
+}
 
-    /// The brightness of the display this panel is on, where that display answers; otherwise
-    /// the driven one — the built-in panel — named when there is more than one display to
-    /// mistake it for. See `BrightnessControl.railTarget`.
-    private var brightnessControl: some View {
+/// The brightness of the display this panel is on, where that display answers; otherwise the
+/// driven one — the built-in panel — named when there is more than one display to mistake it
+/// for. See `BrightnessControl.railTarget`.
+///
+/// A view of its own, and the only part of the rail that watches the whole of
+/// `BrightnessControl`, whose level is published on every write a drag of this slider makes and
+/// on every poll that finds the brightness keys have moved it: watched from the rail, each drew
+/// every disc on it again. Which display this rail is on, and telling the service so, stay the
+/// rail's (`watchedDisplay`), since they belong to the rail's coming and going and not to what
+/// the slider shows.
+private struct RailBrightness: View {
+    @ObservedObject private var brightness = BrightnessControl.shared
+    @Environment(\.islandPanelID) private var panelID
+
+    var body: some View {
         let panelDisplay = BrightnessControl.display(forPanel: panelID)
         let driven = brightness.drivenDisplay
         let target = BrightnessControl.railTarget(panelDisplay: panelDisplay, driven: driven,
@@ -179,7 +195,7 @@ struct ControlRail: View {
             Image(systemName: level < 0.5 ? "sun.min.fill" : "sun.max.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
-                .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
+                .frame(width: ControlRail.leadingGlyph, height: 28, alignment: .leading)
                 .accessibilityHidden(true)
             IslandSlider(value: level, onChange: { value in
                 if let target {
@@ -384,6 +400,37 @@ enum NarrowReadings {
                                                initial: AudioOutputs.shared.hasChoice)
     /// Where the sound goes and comes from, for the rail's output picker.
     static let outputRoute = NarrowReading(AudioOutputs.shared.routeChanges, initial: AudioOutputs.shared.route)
+    /// Whether there is a display brightness to set: whether the rail has a brightness slider,
+    /// and so how much room it has left (`RailPlan`). Not the level, which is the slider's alone
+    /// (`RailBrightness`) and is published on every write of a drag of it.
+    static let brightnessAvailable = NarrowReading(BrightnessControl.shared.$isAvailable,
+                                                   initial: BrightnessControl.shared.isAvailable)
+    /// Whether the keyboard has a backlight: whether its disc is on the rail at all
+    /// (`RailControl.Presence`). Not the level, which its popover polls while it is open.
+    static let keyboardHasLight = NarrowReading(KeyboardLight.shared.$isAvailable,
+                                                initial: KeyboardLight.shared.isAvailable)
+    /// Which radios have a disc on the rail (`RailRadios`). Not whether they are on, which each
+    /// disc watches for itself.
+    static let radios = NarrowReading(
+        SystemToggles.shared.$hasWiFi
+            .combineLatest(SystemToggles.shared.$hasBluetooth, SystemToggles.shared.$bluetoothAccessRefused)
+            .map { RailRadios.present(hasWiFi: $0.0, hasBluetooth: $0.1, accessRefused: $0.2) },
+        initial: RailRadios.present(hasWiFi: SystemToggles.shared.hasWiFi,
+                                    hasBluetooth: SystemToggles.shared.hasBluetooth,
+                                    accessRefused: SystemToggles.shared.bluetoothAccessRefused))
+}
+
+/// The radios the rail has a disc for, as `RailControl.available` counts them: Wi-Fi where the
+/// Mac has it, and Bluetooth where it has it or this app has been refused it — that disc stays,
+/// and opens the Privacy pane.
+struct RailRadios: Equatable {
+    var wifi: Bool
+    var bluetooth: Bool
+
+    /// Pure, so the rule is tested.
+    static func present(hasWiFi: Bool, hasBluetooth: Bool, accessRefused: Bool) -> RailRadios {
+        RailRadios(wifi: hasWiFi, bluetooth: hasBluetooth || accessRefused)
+    }
 }
 
 /// What the rail holds and what it has no room for, from the live readings: the chosen controls
@@ -1080,10 +1127,11 @@ final class BrightnessControl: ObservableObject {
     /// A display nobody watches keeps its last level while it is online, so a rail mounted on
     /// it again starts from that rather than from the driven display's; and a watched display
     /// under a hold that gave no reading this pass keeps what it showed, rather than handing
-    /// its slider to the driven display in the middle of a drag — for the write's hold and no
-    /// longer. Only a reading or `unwatch` ended the hold, so a display that stopped answering
-    /// after a drag stayed a target for as long as its rail was up, and its slider did nothing;
-    /// once the hold is over it is let go, and the slider drives the driven display again.
+    /// its slider to the driven display in the middle of a drag — for the write's hold, and for
+    /// as long as the drag goes on (`holdStands`). Only a reading or `unwatch` ended the hold,
+    /// so a display that stopped answering after a drag stayed a target for as long as its rail
+    /// was up, and its slider did nothing; once the hold is over and the drag with it, it is let
+    /// go, and the slider drives the driven display again.
     private func takeOthers(_ readings: [CGDirectDisplayID: Double]) {
         let online = Set(NSScreen.screens.compactMap {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
@@ -1092,7 +1140,7 @@ final class BrightnessControl: ObservableObject {
         for (id, shown) in panelLevels where watched[id] == nil && online.contains(id) { next[id] = shown }
         let now = LocalWrite.now()
         for (id, hold) in panelPending where watched[id] != nil && readings[id] == nil {
-            guard now < hold.until else {
+            guard Self.holdStands(until: hold.until, now: now, dragging: ActivityCenter.shared.controlDragging) else {
                 panelPending[id] = nil
                 continue
             }
@@ -1110,5 +1158,15 @@ final class BrightnessControl: ObservableObject {
             next[id] = shown.map { abs($0 - value) > 0.001 ? value : $0 } ?? value
         }
         if next != panelLevels { panelLevels = next }
+    }
+
+    /// Whether a write's hold on another display's slider still stands on a pass that brought no
+    /// reading of that display: until its time is up, and whatever the time while a slider is
+    /// still held down. The slider writes only when the pointer moves, so a drag that rested
+    /// for more than `writeSettle` with the button still down, on a pass the display did not
+    /// answer, let the hold go, and the rest of that same drag went to the built-in panel — the
+    /// label and the level jumping under the pointer. Pure, so it is tested.
+    static func holdStands(until: TimeInterval, now: TimeInterval, dragging: Bool) -> Bool {
+        dragging || now < until
     }
 }

@@ -1447,4 +1447,73 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(shown.contains("download-done"), "never put up only to be taken straight down")
         XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"], "still waiting, now behind the question")
     }
+
+    // MARK: - Only what changed is news
+
+    private func volumeHUD(_ level: Double, muted: Bool = false) -> IslandActivity {
+        IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: level, isMuted: muted)),
+                       priority: 85)
+    }
+
+    func testAReportTheSameAsTheAlertUpChangesNothing() {
+        let up = volumeHUD(1)
+        var again = volumeHUD(1)
+        again.startedAt = up.startedAt.addingTimeInterval(3)
+        XCTAssertFalse(ActivityCenter.alertChanges(from: up, to: again),
+                       "made a moment later, and the same in every other way")
+        XCTAssertTrue(ActivityCenter.alertChanges(from: up, to: volumeHUD(0.5)), "a level the bar is not at")
+        XCTAssertTrue(ActivityCenter.alertChanges(from: up, to: volumeHUD(1, muted: true)))
+        XCTAssertTrue(ActivityCenter.alertChanges(from: nil, to: up), "nothing was up")
+        XCTAssertTrue(ActivityCenter.alertChanges(from: custom("copied"), to: up), "another alert was")
+    }
+
+    /// The volume key pressed again at the top of the bar sends the same HUD, and every view
+    /// that watches the centre was drawn again for it.
+    func testTheSameReportAgainDoesNotRedrawTheIsland() {
+        center.showAlert(volumeHUD(1), duration: 5, haptic: false)
+        var published = 0
+        let watching = center.objectWillChange.sink { _ in published += 1 }
+        center.showAlert(volumeHUD(1), duration: 5, haptic: false)
+        XCTAssertEqual(published, 0, "nothing new to draw")
+        XCTAssertEqual(center.alert?.id, "hud", "and it is still up")
+        center.showAlert(volumeHUD(0.9), duration: 5, haptic: false)
+        XCTAssertEqual(published, 1, "a level that moved is drawn")
+        watching.cancel()
+        center.dismissAlert()
+    }
+
+    func testTheHUDsLevelIsDrawnOverTheHUDItBelongsTo() {
+        let half = LevelHUD(kind: .volume, level: 0.5)
+        var quarter = half
+        quarter.level = 0.25
+        XCTAssertTrue(HUDLevel.sameShape(half, quarter))
+        XCTAssertEqual(HUDLevel.shown(half, live: quarter), quarter, "the same HUD, at the level it has moved to")
+        var muted = quarter
+        muted.isMuted = true
+        XCTAssertFalse(HUDLevel.sameShape(half, muted))
+        XCTAssertEqual(HUDLevel.shown(half, live: muted), half, "a view handed another HUD draws its own to the end")
+        XCTAssertEqual(HUDLevel.shown(half, live: LevelHUD(kind: .brightness, level: 0.25)), half)
+        var elsewhere = quarter
+        elsewhere.device = "AirPods Pro"
+        XCTAssertEqual(HUDLevel.shown(half, live: elsewhere), half, "nor another output's")
+        XCTAssertEqual(HUDLevel.shown(half, live: nil), half)
+    }
+
+    func testTheCentreHandsOnTheLevelOfEveryHUDItPutsUp() {
+        center.showAlert(volumeHUD(0.5), duration: 5, haptic: false)
+        XCTAssertEqual(center.hudLevel.state?.level, 0.5)
+        var published = 0
+        let watching = center.hudLevel.objectWillChange.sink { _ in published += 1 }
+        center.showAlert(volumeHUD(0.5), duration: 5, haptic: false)
+        XCTAssertEqual(published, 0, "the same level again is not news")
+        center.showAlert(volumeHUD(0.75), duration: 5, haptic: false)
+        XCTAssertEqual(published, 1)
+        XCTAssertEqual(center.hudLevel.state?.level, 0.75)
+        center.showAlert(custom("copied"), duration: 5, haptic: false)
+        XCTAssertEqual(published, 1, "an alert that is not a HUD leaves the level where it was")
+        watching.cancel()
+        center.dismissAlert()
+        center.resetForTesting()
+        XCTAssertNil(center.hudLevel.state)
+    }
 }

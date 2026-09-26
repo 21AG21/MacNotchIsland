@@ -262,6 +262,17 @@ final class RailControlTests: XCTestCase {
         watching.cancel()
     }
 
+    /// The radios the rail keeps a disc for, as it is watched: a Mac with the radio, or with the
+    /// radio refused this app, which keeps the disc that opens the Privacy pane.
+    func testTheRailKeepsADiscForARadioItHasOrHasBeenRefused() {
+        XCTAssertEqual(RailRadios.present(hasWiFi: true, hasBluetooth: true, accessRefused: false),
+                       RailRadios(wifi: true, bluetooth: true))
+        XCTAssertEqual(RailRadios.present(hasWiFi: false, hasBluetooth: false, accessRefused: false),
+                       RailRadios(wifi: false, bluetooth: false), "a Mac with neither has neither disc")
+        XCTAssertEqual(RailRadios.present(hasWiFi: true, hasBluetooth: false, accessRefused: true),
+                       RailRadios(wifi: true, bluetooth: true), "refused is not absent")
+    }
+
     /// The rail's output picker is drawn from the route alone, and says what the service would:
     /// whether there is a choice, and where the sound is going.
     func testTheRouteThePickerIsDrawnFromSaysWhatTheServiceWould() {

@@ -49,8 +49,8 @@ final class ActivityCenter: ObservableObject {
                 // A find belongs to the list it was typed into; stepping to the next section
                 // starts again rather than carrying somebody's search somewhere it means
                 // nothing. Set before the keys are settled, which read it.
-                findQuery = nil
-                findIndex = 0
+                if findQuery != nil { findQuery = nil }
+                if findIndex != 0 { findIndex = 0 }
                 // A close of any kind — a card's Stop, an alert replaced, a timed Home —
                 // forgets which way the last step went. `collapse` did; the other closes
                 // left the step in place, and the next open grew on the navigate spring and
@@ -118,7 +118,7 @@ final class ActivityCenter: ObservableObject {
     /// The panels were built again: these are the islands now. A view opened on an island
     /// that is gone is opened everywhere, rather than drawn nowhere with Escape armed.
     func panelsRebuilt(_ panels: Set<String>) {
-        livePanels = panels
+        if livePanels != panels { livePanels = panels }
         if let openPanel, !panels.contains(openPanel) { self.openPanel = nil }
     }
     /// True while an app the user listed under "hide for these apps" is frontmost.
@@ -219,6 +219,8 @@ final class ActivityCenter: ObservableObject {
     /// all while nothing will.
     private var expiryTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    /// The level the key-press HUD shows, published on its own. See `HUDLevel`.
+    let hudLevel = HUDLevel()
 
     private init() {
         Preferences.shared.objectWillChange
@@ -290,6 +292,7 @@ final class ActivityCenter: ObservableObject {
         pinnedID = nil
         micInUse = false
         cameraInUse = false
+        hudLevel.reset()
     }
 
     // MARK: - Derived state
@@ -348,8 +351,8 @@ final class ActivityCenter: ObservableObject {
     func clearInteraction() {
         forgetPointer()
         if openView != nil { IslandLog.island.notice("closing: island hidden") }
-        openView = nil
-        openPanel = nil
+        if openView != nil { openView = nil }
+        if openPanel != nil { openPanel = nil }
     }
 
     /// Nothing the pointer was doing on an island is true any longer — the panels are being
@@ -413,8 +416,8 @@ final class ActivityCenter: ObservableObject {
     func clearInteraction(on panels: Set<String>) {
         forgetPointer(on: panels)
         if openView != nil { IslandLog.island.notice("closing: island hidden") }
-        openView = nil
-        openPanel = nil
+        if openView != nil { openView = nil }
+        if openPanel != nil { openPanel = nil }
     }
 
     /// True while something the user opened is on screen.
@@ -658,7 +661,7 @@ final class ActivityCenter: ObservableObject {
             IslandLog.island.notice("closing: activity \(id, privacy: .public) ended")
             closedUnderPointer()
             openView = nil
-            openPanel = nil
+            if openPanel != nil { openPanel = nil }
         }
         // An alert the user was holding, or a card forced up, ended before its time — its own
         // close button, a Stop. What waited behind it gets its turn now, as it does when the
@@ -675,7 +678,7 @@ final class ActivityCenter: ObservableObject {
     /// Make the bubble activity the primary one (tap on the minimal bubble).
     func promote(id: String) {
         guard activities.contains(where: { $0.id == id }) else { return }
-        pinnedID = id
+        if pinnedID != id { pinnedID = id }
     }
 
     /// Temporarily force an activity into its expanded view (e.g. a timer finishing).
@@ -683,9 +686,9 @@ final class ActivityCenter: ObservableObject {
         forcedWork?.cancel()
         // What each island showed, so the ones the card takes count as grown under a click.
         let before = shownOnIslands()
-        forcedExpandedID = id
+        if forcedExpandedID != id { forcedExpandedID = id }
         // A forced activity must be the primary one, or nothing visible happens.
-        if activities.contains(where: { $0.id == id }) { pinnedID = id }
+        if activities.contains(where: { $0.id == id }), pinnedID != id { pinnedID = id }
         // An alert already up goes behind the card rather than under it, the way a louder
         // alert keeps a quieter one for afterwards: a finished download that a ringing timer
         // covered ran out its time there unseen. It comes back as long as it was asked to be,
@@ -997,13 +1000,34 @@ final class ActivityCenter: ObservableObject {
         // An update of the alert already up is the same alert: it keeps the moment it went up,
         // which is what says whether it or the pointer came first.
         if alert?.id != activity.id { alertShownAt = Date() }
-        alert = activity
+        // The level first, for the views that draw it from there (`HUDLevel`).
+        hudLevel.take(activity)
+        // Written only when it says something new. A report the same as the one up — the
+        // volume key pressed again at the top, "Copied" for a second row picked while the first
+        // is still up — drew every view that watches the centre again, the whole island, for
+        // nothing. Its time is still started over below, as it always was.
+        if Self.alertChanges(from: alert, to: activity) { alert = activity }
         alertRequest = (duration, exact)
         if !before.isEmpty { noteCardArrival(since: before) }
         if haptic { Haptics.tap() }
         let seconds = exact ? (duration ?? Self.standardAlertDuration)
                             : Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration)
         scheduleAlertDismiss(id: activity.id, after: seconds, requested: seconds)
+    }
+
+    /// Whether putting `next` up in place of `shown` changes the alert on screen. The moment it
+    /// was made does not count: every report is made with its own (`IslandActivity.startedAt`),
+    /// so a report the same as the one up in every other way was never the same, and redrew
+    /// the island to show what it already showed. Such a report leaves the one up as it is,
+    /// its start with it. Pure, so it is tested.
+    ///
+    /// A HUD's level still counts. The pill and the banner in the rail draw it from the alert;
+    /// once they draw it from `hudLevel` instead, as the HUD's card does, a change of level
+    /// alone need not be a change of the alert either (`HUDLevel.sameShape`).
+    static func alertChanges(from shown: IslandActivity?, to next: IslandActivity) -> Bool {
+        guard var same = shown, same.id == next.id else { return true }
+        same.startedAt = next.startedAt
+        return same != next
     }
 
     private func enqueue(_ activity: IslandActivity, duration: TimeInterval?, exact: Bool = false) {
@@ -1146,7 +1170,7 @@ final class ActivityCenter: ObservableObject {
     func dismissAlert() {
         alertWork?.cancel()
         if let alert, openView == .activity(id: alert.id), activity(id: alert.id) == nil { openView = nil }
-        alert = nil
+        if alert != nil { alert = nil }
         pendingAlerts.removeAll()
     }
 
@@ -1302,8 +1326,10 @@ final class ActivityCenter: ObservableObject {
     private func scheduleDragExit() {
         dragExitWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.dragExitWork = nil
-            withAnimation(IslandMotion.fade) { self?.dragPanel = nil }
+            guard let self else { return }
+            self.dragExitWork = nil
+            guard self.dragPanel != nil else { return }
+            withAnimation(IslandMotion.fade) { self.dragPanel = nil }
         }
         dragExitWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dragExitGrace, execute: work)
@@ -1412,7 +1438,7 @@ final class ActivityCenter: ObservableObject {
         if invitesKeyboard { keyboardInvited = true }
         guard openView != target else {
             // The same view, asked for from a second island: it shows on both.
-            if openPanel != island { openPanel = nil }
+            if openPanel != island, openPanel != nil { openPanel = nil }
             if grows { noteGrowth(on: island) }
             return
         }
@@ -1422,8 +1448,8 @@ final class ActivityCenter: ObservableObject {
         let peekElsewhere = hoverPanel != nil && island != nil && hoverPanel != island
         withAnimation(direction == 0 ? IslandMotion.open : IslandMotion.navigate) {
             if case .home(let tab) = target { Self.selectHomeTab(tab) }
-            if !peekElsewhere { peekView = nil }
-            openPanel = island
+            if !peekElsewhere, peekView != nil { peekView = nil }
+            if openPanel != island { openPanel = island }
             openView = target
         }
         if grows { noteGrowth(on: island) }
@@ -1522,7 +1548,8 @@ final class ActivityCenter: ObservableObject {
     /// Moves the find's mark by a row, wrapping at both ends the way a menu does.
     func moveFind(by delta: Int, count: Int) {
         guard findQuery != nil, count > 0 else { return }
-        findIndex = Self.wrapped(findIndex + delta, count: count)
+        let moved = Self.wrapped(findIndex + delta, count: count)
+        if findIndex != moved { findIndex = moved }
     }
 
     /// Pure: an index brought back inside a list of `count` by wrapping round it.
@@ -1547,8 +1574,8 @@ final class ActivityCenter: ObservableObject {
         guard PanelFind.begins(with: character, on: openSection) else { return }
         lastInteraction = Date()
         IslandLog.keys.notice("find opened by a key press")
-        findIndex = 0
-        withAnimation(IslandMotion.content) { findQuery = character }
+        if findIndex != 0 { findIndex = 0 }
+        if findQuery != character { withAnimation(IslandMotion.content) { findQuery = character } }
         keyboardControlChanged()
     }
 
@@ -1557,7 +1584,7 @@ final class ActivityCenter: ObservableObject {
     func beginFind() {
         guard PanelFind.hasField(openSection), findQuery == nil else { return }
         lastInteraction = Date()
-        findIndex = 0
+        if findIndex != 0 { findIndex = 0 }
         withAnimation(IslandMotion.content) { findQuery = "" }
         keyboardControlChanged()
     }
@@ -1566,9 +1593,10 @@ final class ActivityCenter: ObservableObject {
     func updateFind(_ text: String) {
         guard findQuery != nil else { return }
         // Every keystroke narrows the list under the mark, so the mark goes back to the top:
-        // pointing at the fourth of two rows is not somewhere anybody asked to be.
-        findIndex = 0
-        findQuery = text
+        // pointing at the fourth of two rows is not somewhere anybody asked to be. The field
+        // hands back what it already holds as often as it hands a change, and that is none.
+        if findIndex != 0 { findIndex = 0 }
+        if findQuery != text { findQuery = text }
     }
 
     /// Leave the find, keeping the panel where it is. Returns false when there was no find to
@@ -1577,7 +1605,7 @@ final class ActivityCenter: ObservableObject {
     func endFind() -> Bool {
         guard findQuery != nil else { return false }
         lastInteraction = Date()
-        findIndex = 0
+        if findIndex != 0 { findIndex = 0 }
         withAnimation(IslandMotion.content) { findQuery = nil }
         keyboardControlChanged()
         return true
@@ -1838,10 +1866,10 @@ final class ActivityCenter: ObservableObject {
         let hovering = isHovering
         closedUnderPointer()
         withAnimation(IslandMotion.close) {
-            openView = nil
-            openPanel = nil
-            peekView = nil
-            forcedExpandedID = nil
+            if openView != nil { openView = nil }
+            if openPanel != nil { openPanel = nil }
+            if peekView != nil { peekView = nil }
+            if forcedExpandedID != nil { forcedExpandedID = nil }
             for id in held { end(id: id) }
             if !hovering, alert != nil {
                 alertWork?.cancel()
@@ -1895,7 +1923,7 @@ final class ActivityCenter: ObservableObject {
             // Whatever the panel pinned on the other display is doing, this was the peek there
             // was — `open` keeps `peekView` only for a peek on another island — unless the
             // pointer is on some third island, whose peek it is.
-            if hoverPanel == nil { peekView = nil }
+            if hoverPanel == nil, peekView != nil { peekView = nil }
             navigationDirection = 0
         }
     }
@@ -1923,7 +1951,7 @@ final class ActivityCenter: ObservableObject {
             guard let self, case .home = self.openView, !self.isHovering,
                   self.lastInteraction <= opened else { return }
             self.openView = nil
-            self.openPanel = nil
+            if self.openPanel != nil { self.openPanel = nil }
         }
         homeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -2048,6 +2076,47 @@ extension ActivityCenter {
         // The tail of the click that opened the panel is not a click outside it.
         guard sinceOpened > 0.4, !onIsland else { return }
         collapse(reason: "click outside")
+    }
+}
+
+/// The level the key-press HUD is showing, published apart from the centre.
+///
+/// A drag of the volume or a held brightness key sends a HUD every step, and the level is the
+/// only thing in it that moves. Carried in the alert, each step is a change to the centre,
+/// which every view on the island watches: the pill, the panel with its section and its
+/// switcher, and the rail under them are all drawn again to move one bar. A view that draws
+/// the level watches this, and draws what it says over the HUD it was handed (`shown`), so the
+/// level can move without the alert having to; the HUD's card does. Why a step is still a
+/// change to the alert is `ActivityCenter.alertChanges`. Main thread, where the centre is.
+final class HUDLevel: ObservableObject {
+    /// The HUD last put up, level and all; nil until one has been.
+    @Published private(set) var state: LevelHUD?
+
+    /// Takes the HUD `activity` carries, if it is one, publishing only a change.
+    fileprivate func take(_ activity: IslandActivity) {
+        guard case .hud(let hud) = activity.content, state != hud else { return }
+        state = hud
+    }
+
+    fileprivate func reset() {
+        if state != nil { state = nil }
+    }
+
+    /// Whether two HUDs are the same but for their level: the same kind, mute, output and
+    /// availability. Pure, so it is tested.
+    static func sameShape(_ one: LevelHUD, _ other: LevelHUD) -> Bool {
+        var levelled = one
+        levelled.level = other.level
+        return levelled == other
+    }
+
+    /// What a view handed `drawn` shows: the live HUD where it is the same HUD at another
+    /// level, and `drawn` itself otherwise — a view still on screen with a HUD that has been
+    /// replaced by one of another kind, muted, or for another output, draws its own to the end.
+    /// Pure, so it is tested.
+    static func shown(_ drawn: LevelHUD, live: LevelHUD?) -> LevelHUD {
+        guard let live, sameShape(live, drawn) else { return drawn }
+        return live
     }
 }
 

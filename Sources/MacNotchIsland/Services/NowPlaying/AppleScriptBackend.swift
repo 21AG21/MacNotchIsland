@@ -269,12 +269,19 @@ final class AppleScriptBackend {
 
         let key = bundle + "|" + trackID + "|" + title
         var cover = covers[bundle] ?? Cover()
+        // Every cover is decoded here, on the script queue, no larger than the island draws one
+        // (`NSImage.cover(from:)`), with its accent worked out from that copy. The player's own
+        // bytes are its cover at whatever size it has, many hundreds of pixels and often more,
+        // and they were kept whole, for the main thread to draw and scale down on every frame
+        // that showed them. The cover goes out in the report it was fetched for, so it can never
+        // land on a later track's; and a poll that comes back after `cancel` is not passed on
+        // (`generation`), cover and all.
         if key != cover.key {
             cover = Cover(key: key)
-            if !spotify {
+            if !spotify, let decoded = fetchMusicArtwork().flatMap({ NSImage.cover(from: $0) }) {
                 // Music hands its cover over itself, from the Mac: nothing leaves it.
-                cover.image = fetchMusicArtwork()
-                cover.accent = cover.image?.dominantColor() ?? .white
+                cover.image = decoded.image
+                cover.accent = decoded.accent
             }
         }
         // Spotify names its cover by address. It is fetched only with "Find missing album art"
@@ -284,8 +291,9 @@ final class AppleScriptBackend {
         if spotify, Self.fetchesCover(hasCover: cover.image != nil, attempts: cover.attempts),
            let url = Self.spotifyArtworkURL(artworkURL, lookupEnabled: artworkLookup) {
             cover.attempts += 1
-            cover.image = fetchSpotifyArtwork(url)
-            cover.accent = cover.image?.dominantColor() ?? .white
+            let decoded = fetchSpotifyArtwork(url).flatMap { NSImage.cover(from: $0) }
+            cover.image = decoded?.image
+            cover.accent = decoded?.accent ?? .white
         }
         covers[bundle] = cover
         // Changes when the cover arrives, so a cover that comes on a later poll is a changed
@@ -353,7 +361,8 @@ final class AppleScriptBackend {
         return NowPlayingInfo.RepeatMode(rawValue: word)
     }
 
-    private func fetchMusicArtwork() -> NSImage? {
+    /// The bytes of Music's cover for the current track, as Music hands them over.
+    private func fetchMusicArtwork() -> Data? {
         let source = """
         tell application "Music"
             try
@@ -365,7 +374,7 @@ final class AppleScriptBackend {
         """
         let outcome = ScriptQueue.execute(ScriptQueue.timed(source, seconds: Self.pollTimeout))
         guard outcome.succeeded, let data = outcome.descriptor?.data, !data.isEmpty else { return nil }
-        return NSImage(data: data)
+        return data
     }
 
     /// The address of the cover Spotify names for a track, when it is to be fetched: an http
@@ -379,10 +388,10 @@ final class AppleScriptBackend {
     /// How long the poll waits for a Spotify cover.
     static let coverTimeout: TimeInterval = 2.5
 
-    /// Fetches a cover, waiting no longer than `coverTimeout`. The request carries the same
-    /// timeout, and one still out when the wait is over is cancelled: it used to run on for
+    /// Fetches a cover's bytes, waiting no longer than `coverTimeout`. The request carries the
+    /// same timeout, and one still out when the wait is over is cancelled: it used to run on for
     /// the shared session's sixty seconds with nobody left to take its answer.
-    private func fetchSpotifyArtwork(_ url: URL) -> NSImage? {
+    private func fetchSpotifyArtwork(_ url: URL) -> Data? {
         let semaphore = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var fetched: Data?
@@ -401,7 +410,7 @@ final class AppleScriptBackend {
         lock.lock()
         let data = fetched
         lock.unlock()
-        return data.flatMap { NSImage(data: $0) }
+        return data
     }
 
     /// Runs a script against `bundleID`'s player and says whether it went through. A refusal is

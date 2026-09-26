@@ -352,7 +352,10 @@ struct ShelfItemView: View {
     var targets: () -> [URL]
     var onSelect: () -> Void
 
-    @ObservedObject private var shelf = ShelfStore.shared
+    /// Not watched. The tile's picture is the one thing it takes from the store as it changes,
+    /// and that is watched by the picture's own view (`ShelfThumbnail`); watched whole, every
+    /// thumbnail made for any file on the shelf drew every tile on it again.
+    private var shelf: ShelfStore { .shared }
     @State private var hovering = false
 
     private var url: URL { item.url }
@@ -431,21 +434,15 @@ struct ShelfItemView: View {
 
     private var thumbnail: some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                if let thumb = shelf.thumbnail(for: url) {
-                    Image(nsImage: thumb).resizable().aspectRatio(contentMode: .fit)
-                } else {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().aspectRatio(contentMode: .fit)
+            ShelfThumbnail(picture: shelf.picture(for: url))
+                .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white, lineWidth: 2)
+                    }
                 }
-            }
-            .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.white, lineWidth: 2)
-                }
-            }
         }
     }
 
@@ -519,5 +516,20 @@ struct ShelfItemView: View {
         guard seconds >= 3600 else { return "" }
         if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
         return "\(Int(seconds / 86_400))d"
+    }
+}
+
+/// A tile's picture: the file's thumbnail, or its icon until there is one. The only part of the
+/// tile that watches anything, and what it watches is this file's picture alone, so a thumbnail
+/// arriving draws this and nothing else (`ShelfPicture`).
+private struct ShelfThumbnail: View {
+    @ObservedObject var picture: ShelfPicture
+
+    var body: some View {
+        if let thumbnail = picture.thumbnail {
+            Image(nsImage: thumbnail).resizable().aspectRatio(contentMode: .fit)
+        } else {
+            Image(nsImage: picture.icon).resizable().aspectRatio(contentMode: .fit)
+        }
     }
 }

@@ -38,7 +38,8 @@ struct ClipboardView: View {
         return IslandScrollStrip(axis: .vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { item in
-                    ClipboardRowView(item: item, isHovered: hoveredID == item.id || found == item.id, pastes: pastes)
+                    ClipboardRowView(item: item, isHovered: hoveredID == item.id || found == item.id, pastes: pastes,
+                                     missing: store.filesAreGone(item))
                         .onHover { hovering in
                             if hovering {
                                 hoveredID = item.id
@@ -95,8 +96,16 @@ private struct ClipboardRowView: View {
     /// Whether a click pastes (`ClipboardStore.pickPastes`), read once by the list for all of
     /// its rows, for the hint and the tooltip that say what a click does.
     var pastes: Bool
+    /// A copied file that has since been moved or deleted, so the list never offers a dead
+    /// reference silently. Read by the list, which watches the store, from the store's last
+    /// sweep rather than from the disk: a row is redrawn on every hover and every scroll, and
+    /// asking the disk here meant a `stat` per file per redraw on the thread that draws.
+    var missing: Bool
 
-    @ObservedObject private var store = ClipboardStore.shared
+    /// Not watched. A row's picture is the one thing it takes from the store as it changes, and
+    /// the picture's own view watches that (`ClipboardThumbnail`); watched whole, every
+    /// thumbnail decoded for any picture in the history drew every row in the list again.
+    private var store: ClipboardStore { .shared }
 
     /// The row's leading mark stands on the section's column, like every other section's
     /// content, rather than six points inside it. The hover highlight is the column exactly:
@@ -105,12 +114,6 @@ private struct ClipboardRowView: View {
     static let glyphGap: CGFloat = 10
     /// Where a row's text starts, and so where the hairline between two rows starts.
     static var textInset: CGFloat { glyphBox + glyphGap }
-
-    /// A copied file that has since been moved or deleted, so the list never offers a dead
-    /// reference silently. Read from the store's last sweep rather than from the disk: a row
-    /// is redrawn on every hover and every scroll, and asking here meant a `stat` per file
-    /// per redraw on the thread that draws.
-    private var missing: Bool { store.filesAreGone(item) }
 
     /// Drawn from inside a timeline that turns each minute. The row's body runs when its item
     /// or its hover changes, and nothing else: "now" went on saying now, and "4m" four
@@ -163,18 +166,19 @@ private struct ClipboardRowView: View {
 
     @ViewBuilder
     private var glyph: some View {
-        if item.kind == .image, let thumbnail = store.thumbnail(for: item) {
-            Image(nsImage: thumbnail)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: Self.glyphBox, height: Self.glyphBox)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        if item.kind == .image, let picture = store.picture(for: item) {
+            ClipboardThumbnail(picture: picture, symbol: item.kind.symbol)
         } else {
-            Image(systemName: item.kind.symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
-                .frame(width: Self.glyphBox, height: Self.glyphBox, alignment: .leading)
+            Self.symbolGlyph(item.kind.symbol)
         }
+    }
+
+    /// The kind's own glyph, for a row with no picture to show.
+    fileprivate static func symbolGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.5))
+            .frame(width: glyphBox, height: glyphBox, alignment: .leading)
     }
 
     @ViewBuilder
@@ -218,6 +222,26 @@ private struct ClipboardRowView: View {
     }
 
     private func copyBack() { store.pick(item: item) }
+}
+
+/// A picture's row glyph: its thumbnail, or the kind's glyph until the thumbnail is decoded.
+/// The only part of the row that watches anything, and what it watches is this picture alone
+/// (`ClipboardPicture`).
+private struct ClipboardThumbnail: View {
+    @ObservedObject var picture: ClipboardPicture
+    let symbol: String
+
+    var body: some View {
+        if let image = picture.image {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: ClipboardRowView.glyphBox, height: ClipboardRowView.glyphBox)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        } else {
+            ClipboardRowView.symbolGlyph(symbol)
+        }
+    }
 }
 
 /// Small hairline-free glyph button used only inside a clipboard row.

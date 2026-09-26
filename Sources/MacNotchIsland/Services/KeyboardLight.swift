@@ -178,7 +178,11 @@ final class KeyboardLight: ObservableObject {
     /// took the disc away and handed the keys back to macOS until the next wake.
     private func reprobe(isTheSecondLook: Bool = false) {
         guard let bridge else {
-            use(Bridge.load())
+            // Only a keyboard found is news here. With no bridge before and none now there is
+            // nothing to put in its place, and `use` would begin by calling off the last look a
+            // drop left waiting (`.drop` below): the wake's own look two seconds after a lid
+            // opened, or a display coming back, cancelled the one look still to come.
+            if let fresh = Bridge.load() { use(fresh) }
             return
         }
         var named = bridge.namedKeyboard()
@@ -207,8 +211,9 @@ final class KeyboardLight: ObservableObject {
             use(nil)
             // One last look, well after the two that found nothing: a daemon slower than the
             // second look allowed gave the keyboard back a moment later, and nothing asked again
-            // until the next wake or display change. The slot the second look used holds it,
-            // and a keyboard found by any other look calls it off (`use`).
+            // until the next wake or display change. The slot the second look used holds it. A
+            // keyboard found by another look before then calls it off (`use`); another look
+            // that finds nothing leaves it waiting, since it is still the one to come.
             let last = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.secondLook = nil

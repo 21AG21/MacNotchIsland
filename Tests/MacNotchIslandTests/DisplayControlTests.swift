@@ -104,6 +104,17 @@ final class DisplayControlTests: XCTestCase {
         XCTAssertEqual(BrightnessControl.sliderLabel(drivenName: nil, drivesPanelsOwn: false, displaysOnline: 2), "Brightness")
     }
 
+    /// A drag of a monitor's slider that rests with the button down, on a pass the monitor does
+    /// not answer, is still that monitor's drag.
+    func testAHoldOnAMonitorsSliderStandsForAsLongAsTheDragDoes() {
+        XCTAssertTrue(BrightnessControl.holdStands(until: 10, now: 9, dragging: false), "inside the write's hold")
+        XCTAssertFalse(BrightnessControl.holdStands(until: 10, now: 10, dragging: false), "and not a moment past it")
+        XCTAssertTrue(BrightnessControl.holdStands(until: 10, now: 15, dragging: true),
+                      "a drag resting with the button down keeps it")
+        XCTAssertFalse(BrightnessControl.holdStands(until: 10, now: 15, dragging: false),
+                       "let go, the monitor that stopped answering is let go too")
+    }
+
     /// Twice a second, on battery and under a lock alike, while every other poller on the rail
     /// backed off.
     func testTheRailsBrightnessPollBacksOffWithTheEnergyPolicy() {
