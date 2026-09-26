@@ -56,14 +56,22 @@ struct AskRequest: Equatable {
         return raw
     }
 
-    /// How long the question waits, in seconds. Anything that is not a finite number is the
-    /// minute it waits by default; a number is held to `timeoutRange`, since "0" would answer
-    /// itself on arrival and "86400" would keep a card over the island all day.
+    /// How long the question waits, in seconds, read as every other length a script sends is
+    /// (`LiveActivityAPI.length`: "90", "2m"). Nothing is the minute it waits by default; a
+    /// number is held to `timeoutRange`, since "0" would answer itself on arrival and "86400"
+    /// would keep a card over the island all day; and one that cannot be read is the default
+    /// too, said in the log — the question is worth more to the script waiting on it than a
+    /// refusal is, and "timeout=2m" used to be a silent sixty seconds.
     static func timeout(_ raw: String?) -> TimeInterval {
-        guard let value = raw.flatMap({ Double($0.trimmingCharacters(in: .whitespaces)) }), value.isFinite else {
+        switch LiveActivityAPI.length(raw, per: 1) {
+        case .absent:
             return defaultTimeout
+        case .unreadable:
+            IslandLog.island.error("ask: timeout=\(raw ?? "", privacy: .public) is not a length; waiting the default")
+            return defaultTimeout
+        case .seconds(let value):
+            return min(timeoutRange.upperBound, max(timeoutRange.lowerBound, value))
         }
-        return min(timeoutRange.upperBound, max(timeoutRange.lowerBound, value))
     }
 
     /// A button's name: one line, and no longer than a card has room for, or the default when
@@ -238,6 +246,9 @@ final class IslandAsk {
     }
 
     private var pending: Pending?
+    /// Whether a question is up, for the activity center's alert queue: an alert let through
+    /// while the question's card was on its way back would blink on and off. Main thread.
+    var isAsking: Bool { pending != nil }
     private var timeoutWork: DispatchWorkItem?
     private var cardWatch: AnyCancellable?
     private var forcedWatch: AnyCancellable?
@@ -362,10 +373,12 @@ final class IslandAsk {
         center.forceExpanded(id: Self.activityID, for: remaining)
     }
 
-    /// `notchctl ask` makes the reply's folder and removes it when it exits, however it exits.
-    /// A folder that goes while the question is up is a script that is not waiting any more —
-    /// killed, or its terminal closed with it — and the question comes down with it, the way a
-    /// cancel takes it down. One kernel event on the folder, not a look every so often.
+    /// `notchctl ask` makes the reply's folder and removes it when it exits, however it exits
+    /// short of a SIGKILL, which skips its trap — then the folder stays and the question waits
+    /// out its time. A folder that goes while the question is up is a script that is not
+    /// waiting any more — interrupted, or its terminal closed with it — and the question comes
+    /// down with it, the way a cancel takes it down. One kernel event on the folder, not a look
+    /// every so often.
     private func watchReplyFolder(of reply: String, token: String) {
         folderWatch?.cancel()
         folderWatch = nil

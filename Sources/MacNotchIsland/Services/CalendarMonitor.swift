@@ -161,9 +161,27 @@ final class CalendarMonitor: NSObject {
         let haystack = text.replacingOccurrences(of: "\n", with: " ")
         let range = NSRange(haystack.startIndex..., in: haystack)
         for match in regex.matches(in: haystack, range: range) {
-            guard let r = Range(match.range, in: haystack), let url = URL(string: String(haystack[r])),
-                  let host = url.host, isMeetingHost(host) else { continue }
-            return url
+            guard let r = Range(match.range, in: haystack), let url = URL(string: String(haystack[r])) else { continue }
+            if let host = url.host, isMeetingHost(host) { return url }
+            if let inner = unwrapped(url) { return inner }
+        }
+        return nil
+    }
+
+    /// The meeting link inside a link that only wraps one: Outlook's Safe Links put the real
+    /// address in a `url=` query on their own host, and Google's redirects in `q=`. The wrapper's
+    /// host is nobody's meeting service, so the Join button went missing from every invitation
+    /// that came through either. What comes back is the inner link, checked as any other, so
+    /// the click goes to the meeting service and never through the wrapper. Pure.
+    static func unwrapped(_ url: URL) -> URL? {
+        guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
+        for item in items where ["url", "q", "u", "target"].contains(item.name.lowercased()) {
+            // Query items come back percent-decoded; a value encoded twice is decoded once more.
+            guard let raw = item.value else { continue }
+            let text = raw.contains("%3A") || raw.contains("%2F") ? (raw.removingPercentEncoding ?? raw) : raw
+            guard let inner = URL(string: text), let scheme = inner.scheme?.lowercased(), scheme.hasPrefix("http"),
+                  let host = inner.host, isMeetingHost(host) else { continue }
+            return inner
         }
         return nil
     }

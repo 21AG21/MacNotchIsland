@@ -167,11 +167,45 @@ enum IslandFiles {
         // Registered before the write, so a write that fails half-way is taken away too.
         defer { unlink(scratch.path) }
         try data.write(to: scratch, options: .withoutOverwriting)
-        for attempt in 1...max(1, attempts) {
+        let last = max(1, attempts)
+        for attempt in 1...last {
             let candidate = folder.appendingPathComponent(named(attempt))
             if link(scratch.path, candidate.path) == 0 { return candidate }
             let code = errno
-            guard code == EEXIST else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
+            if code == EEXIST { continue }
+            // A disk with no hard links to give — some network homes, exFAT — refuses the
+            // link outright rather than the name. The same promise is kept another way there:
+            // an exclusive create refuses a taken name as a link does, and the bytes go in
+            // behind it; only a disk that fills part of the way through can leave a short file.
+            guard code == ENOTSUP || code == EPERM || code == EXDEV || code == EACCES || code == EINVAL else {
+                throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+            }
+            return try createNew(data, in: folder, from: attempt, through: last, named: named)
+        }
+        throw CocoaError(.fileWriteFileExists)
+    }
+
+    /// `writeNew` for a disk without hard links: the first free name from `first` to `last`,
+    /// taken with an exclusive create, and the bytes written into it.
+    private static func createNew(_ data: Data, in folder: URL, from first: Int, through last: Int,
+                                  named: (Int) -> String) throws -> URL {
+        for attempt in first...max(first, last) {
+            let candidate = folder.appendingPathComponent(named(attempt))
+            let fd = Darwin.open(candidate.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            if fd < 0 {
+                let code = errno
+                guard code == EEXIST else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
+                continue
+            }
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+            do {
+                try handle.write(contentsOf: data)
+                try handle.close()
+            } catch {
+                unlink(candidate.path)
+                throw error
+            }
+            return candidate
         }
         throw CocoaError(.fileWriteFileExists)
     }

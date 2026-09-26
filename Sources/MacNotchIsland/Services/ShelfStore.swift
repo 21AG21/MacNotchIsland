@@ -629,7 +629,7 @@ final class ShelfStore: ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
             process.arguments = Self.dittoArguments(archiving: files, gatheredIn: gathered, to: destination)
-            process.terminationHandler = { task in
+            process.terminationHandler = { [weak self] task in
                 if let gathered { try? FileManager.default.removeItem(at: gathered) }
                 DispatchQueue.main.async {
                     guard task.terminationStatus == 0,

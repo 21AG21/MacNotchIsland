@@ -283,6 +283,20 @@ final class AgendaStoreTests: XCTestCase {
         XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://evil.example/meet.google.com/abc"))
         XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://notzoom.us/j/1"))
         XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://zoom.us@evil.example/j/1"), "a user name is not the host")
+    }
+
+    /// Outlook's Safe Links and Google's redirects wrap the real address in a query on a host of
+    /// their own; the Join button went missing from every invitation that came through either.
+    /// The inner link is what comes back, so the click never goes through the wrapper.
+    func testAMeetingLinkWrappedByASafeLinkOrARedirectIsUnwrapped() {
+        let safe = "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fteams.microsoft.com%2Fl%2Fmeetup-join%2F19%3Aabc&data=05"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join: \(safe)")?.absoluteString,
+                       "https://teams.microsoft.com/l/meetup-join/19:abc")
+        let redirect = "https://www.google.com/url?q=https://meet.google.com/abc-defg-hij&sa=D"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join \(redirect)")?.absoluteString, "https://meet.google.com/abc-defg-hij")
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "https://evil.example/?url=https://evil.example/zoom.us"),
+                     "a wrapper around a link that is not a meeting's is still nothing")
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "https://evil.example/?url=zoom.us"), "and a bare word is not a link")
         XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join https://zoom.us/j/1")?.absoluteString, "https://zoom.us/j/1")
         XCTAssertEqual(CalendarMonitor.meetingLink(in: "https://us02web.zoom.us/j/123?pwd=a")?.host, "us02web.zoom.us")
         XCTAssertNotNil(CalendarMonitor.meetingLink(in: "https://teams.microsoft.com/l/meetup-join/x"))

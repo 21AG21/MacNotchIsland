@@ -551,7 +551,8 @@ final class FullscreenMonitor {
     }
 
     /// What `isZoomed` answered, by window — its app, its number and its frame — so a window
-    /// that fills its display is asked about once rather than on every reading. Kept for
+    /// that fills its display is asked about once per idle reading rather than on every one of
+    /// the quick readings while something is covered or an event is settling. Kept for
     /// `life` at most, and by the event it was asked after (`epoch`, the monitor's count of events): the first answer
     /// given after a newer event forgets every older one, and an answer from a reading that
     /// started before it is not kept. A window going full screen changes the Space, which is

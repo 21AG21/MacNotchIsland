@@ -366,6 +366,11 @@ final class LiveActivityAPI {
             // A script's own figure is taken as it stands. The alert slider scales the island's
             // alerts against each other; it is not a licence to turn "three seconds" into ten.
             let seconds = Self.seconds(q["duration"])
+            if let raw = q["duration"], seconds == nil {
+                // Shown for its usual time rather than refused: the alert is the point, and a
+                // script that misspelt the length still meant to say something. Said in the log.
+                IslandLog.island.error("alert: duration=\(raw, privacy: .public) is not a length; shown for the usual time")
+            }
             center.showAlert(activity, duration: seconds, exact: seconds != nil)
 
         // Every length below is read by `length`, and one that is there and cannot be read, or
