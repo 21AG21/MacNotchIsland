@@ -4,8 +4,9 @@ import Foundation
 /// minutes, a time on the clock is an alarm for the next time the clock reads it.
 ///
 ///   5, 25, 90, 25m, 25 min      a timer, in minutes
+///   2h, 2 hours                 a timer, in hours
 ///   7:30, 07:30, 19:05, 7.30    an alarm, on the 24-hour clock
-///   19h30, 7h                   the same, the French and Portuguese way
+///   19h30, 7h00                 the same, the French and Portuguese way
 ///   7:30pm, 7:30 PM, 7pm, 7 a.m. an alarm, on the 12-hour clock
 ///
 /// Any decimal figures will do — a full-width ７ from a Japanese or Chinese input method, an
@@ -45,21 +46,34 @@ extension TimerEntry {
         return .alarm(date)
     }
 
-    /// Digits, and optionally "m" or "min" after them.
+    /// Digits, and optionally "m" or "min" after them; or digits and "h" for that many hours,
+    /// which is what `notchctl timer 2h` means by it (`LiveActivityAPI.unitWords`). A bare "7h"
+    /// is seven hours here and there both, never seven o'clock: the two ways in were reading
+    /// the same keys differently, and an alarm set for two in the morning by someone who asked
+    /// for a two-hour timer is the worse mistake.
     static func typedMinutes(_ text: String) -> Int? {
         var body = westernFigures(text)
-        for suffix in ["minutes", "minute", "mins", "min", "m"] where body.hasSuffix(suffix) {
+        var minutesEach = 1
+        for suffix in ["hours", "hour", "hrs", "hr", "h"] where body.hasSuffix(suffix) {
             body = String(body.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+            minutesEach = 60
             break
         }
-        guard isDigits(body), body.count <= 4, let minutes = Int(body),
-              (1...maxTypedMinutes).contains(minutes) else { return nil }
-        return minutes
+        if minutesEach == 1 {
+            for suffix in ["minutes", "minute", "mins", "min", "m"] where body.hasSuffix(suffix) {
+                body = String(body.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+                break
+            }
+        }
+        guard isDigits(body), body.count <= 4, let count = Int(body),
+              (1...maxTypedMinutes).contains(count * minutesEach) else { return nil }
+        return count * minutesEach
     }
 
     /// Hours and minutes on the clock, 24-hour unless it ends in am or pm. A bare number is not
-    /// a time — it is minutes — unless am or pm says it is: "7pm" is seven in the evening — or
-    /// an h does: "7h" is seven in the morning, the way "19h30" is half past seven at night.
+    /// a time — it is minutes — unless am or pm says it is: "7pm" is seven in the evening. An h
+    /// between the figures is the French and Portuguese colon, "19h30"; on its own after them
+    /// it counts hours (`typedMinutes`), so a time written that way wants its minutes, "7h00".
     static func clockTime(_ text: String) -> (hour: Int, minute: Int)? {
         var body = westernFigures(text)
         var meridiem: Character?
@@ -73,10 +87,7 @@ extension TimerEntry {
         let minuteText: Substring?
         if let separator = body.firstIndex(where: { hourSeparators.contains($0) }) {
             hourText = body[..<separator]
-            let rest = body[body.index(after: separator)...]
-            // "7h" is on the hour, as "7:" is not: an h ends a time where a colon only
-            // interrupts one.
-            minuteText = body[separator] == "h" && rest.isEmpty ? "00" : rest
+            minuteText = body[body.index(after: separator)...]
         } else {
             hourText = body[...]
             minuteText = nil

@@ -83,19 +83,35 @@ final class TimerEntryParseTests: XCTestCase {
         XCTAssertEqual(parse("19.30"), .alarm(at(25, 19, 30)))
     }
 
-    /// "19h30" is how a time is written in French and Portuguese, and "7h" is seven o'clock.
+    /// "19h30" is how a time is written in French and Portuguese.
     func testAnHSeparatesTheHoursFromTheMinutes() {
         XCTAssertEqual(parse("19h30"), .alarm(at(25, 19, 30)))
         XCTAssertEqual(parse("7h30"), .alarm(at(26, 7, 30)))
         XCTAssertEqual(parse("19H30"), .alarm(at(25, 19, 30)), "in either case")
-        XCTAssertEqual(parse("7h"), .alarm(at(26, 7, 0)), "on the hour")
-        XCTAssertEqual(parse("19h"), .alarm(at(25, 19, 0)))
-        XCTAssertEqual(parse("0h"), .alarm(at(26, 0, 0)))
-        XCTAssertEqual(parse("7h pm"), .alarm(at(25, 19, 0)))
+        XCTAssertEqual(parse("7h00"), .alarm(at(26, 7, 0)), "on the hour, with its minutes")
+        XCTAssertEqual(parse("0h00"), .alarm(at(26, 0, 0)))
         XCTAssertEqual(TimerEntry.clockTime("19h30")?.hour, 19)
         XCTAssertEqual(TimerEntry.clockTime("19h30")?.minute, 30)
         XCTAssertNil(TimerEntry.clockTime("7:"), "a colon still wants its minutes")
+        XCTAssertNil(TimerEntry.clockTime("7h"), "and so does an h: on its own it counts hours")
         XCTAssertEqual(parse("7"), .minutes(7), "and a bare number is still minutes")
+    }
+
+    /// A bare "2h" is two hours, as it is to `notchctl timer 2h`, and not two in the morning:
+    /// the field and the command read the same keys the same way.
+    func testABareHourCountIsATimer() {
+        XCTAssertEqual(parse("2h"), .minutes(120))
+        XCTAssertEqual(parse("7h"), .minutes(7 * 60), "seven hours, not seven o'clock")
+        XCTAssertEqual(parse("19h"), .minutes(19 * 60))
+        XCTAssertEqual(parse("1 hour"), .minutes(60))
+        XCTAssertEqual(parse("2 hours"), .minutes(120))
+        XCTAssertEqual(parse("3hrs"), .minutes(180))
+        XCTAssertEqual(parse("24h"), .minutes(24 * 60), "a day, the most a typed timer can be")
+        XCTAssertNil(parse("25h"), "and no longer")
+        XCTAssertNil(parse("0h"))
+        XCTAssertNil(parse("7h pm"), "hours have no afternoon")
+        XCTAssertEqual(parse("2h", numberRow: ["é": "2"]), .minutes(120))
+        XCTAssertEqual(parse("éh", numberRow: ["é": "2"]), .minutes(120), "from a French number row too")
     }
 
     // MARK: - Figures that are not Western ones
@@ -196,8 +212,8 @@ final class TimerEntryParseTests: XCTestCase {
     func testGarbageIsNothing() {
         let garbage = ["", " ", "abc", "seven", "7:", ":30", "7:3", "7:300", "7:60", "24:00", "25:00",
                        "13pm", "0am", "0:30am", "13:00pm", "7:30:00", "7 30", "1e3", "-5", "+5", "5.5",
-                       "7:30xm", "am", "pm", "m", "7:30 pmx", "7::30", "007:30", "²", "Ⅻ", "7h3", "7h60", "24h",
-                       "h30", "h", "7.", "25h", "7 h", "é"]
+                       "7:30xm", "am", "pm", "m", "7:30 pmx", "7::30", "007:30", "²", "Ⅻ", "7h3", "7h60", "0h",
+                       "h30", "h", "7.", "25h", "7h pm", "é"]
         for text in garbage {
             XCTAssertNil(parse(text), "\"\(text)\" is neither minutes nor a time")
         }
