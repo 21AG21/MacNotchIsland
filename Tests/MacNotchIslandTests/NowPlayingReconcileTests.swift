@@ -650,12 +650,28 @@ final class NowPlayingReconcileTests: XCTestCase {
         let bytes = try png(width: 1200, height: 800, color: .systemPink)
         let cover = try XCTUnwrap(NSImage.cover(from: bytes))
         let kept = try XCTUnwrap(cover.image.representations.first)
-        XCTAssertEqual(kept.pixelsWide, NSImage.coverPixels, "the long side at the most the island draws")
-        XCTAssertEqual(kept.pixelsHigh, NSImage.coverPixels * 2 / 3, "and the short side in proportion")
+        XCTAssertEqual(kept.pixelsHigh, NSImage.coverPixels, "the short side, which fills the square, at the most the island draws")
+        XCTAssertEqual(kept.pixelsWide, NSImage.coverPixels * 3 / 2, "and the long side in proportion")
         XCTAssertEqual(cover.image.size, NSSize(width: kept.pixelsWide, height: kept.pixelsHigh),
                        "a point to a pixel, as the bytes had it")
         assertClose(cover.accent, NSImage(data: bytes)?.dominantColor(), "the accent the whole picture gives")
         XCTAssertGreaterThanOrEqual(NSImage.coverPixels, 120, "the 60 pt cover on a Retina display is not made blurry")
+    }
+
+    /// A cover is drawn filling a square, so a wide one is cropped to its height, and its height
+    /// is what has to be sharp: capping the width left a 2:1 cover with half the pixels the box
+    /// has. A banner is not kept as a strip thousands of pixels long for it, though.
+    func testAWideCoverKeepsItsHeight() throws {
+        let wide = try XCTUnwrap(NSImage.cover(from: png(width: 1280, height: 480, color: .systemPink)))
+        let kept = try XCTUnwrap(wide.image.representations.first)
+        XCTAssertEqual(kept.pixelsHigh, NSImage.coverPixels)
+        XCTAssertEqual(kept.pixelsWide, NSImage.coverPixels * 1280 / 480)
+        let tall = try XCTUnwrap(NSImage.cover(from: png(width: 480, height: 1280, color: .systemPink)))
+        XCTAssertEqual(try XCTUnwrap(tall.image.representations.first).pixelsWide, NSImage.coverPixels, "either way up")
+        XCTAssertEqual(NSImage.coverLongSide(width: 1200, height: 800, maxPixels: 240), 360)
+        XCTAssertEqual(NSImage.coverLongSide(width: 800, height: 800, maxPixels: 240), 240, "a square as before")
+        XCTAssertEqual(NSImage.coverLongSide(width: 3000, height: 200, maxPixels: 240), 960, "a banner: four times, no more")
+        XCTAssertEqual(NSImage.coverLongSide(width: 0, height: 200, maxPixels: 240), 240, "no size, the old cap")
     }
 
     func testASmallCoverIsNotMadeLarger() throws {

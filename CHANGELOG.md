@@ -278,6 +278,7 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- A wide album cover is no longer blurred in the Music section: it is kept sharp along the side that fills its square rather than the long one.
 - The rail is no longer redrawn, every disc on it, on every write of a drag of the volume slider or for every thumbnail made for a file on the shelf: only the volume is, and the slider writes at most thirty times a second, the last level always written.
 - The Controls section no longer redraws the networks, the paired devices and the rail's overflow on every step of a volume drag or for every shelf thumbnail, and Clear Shelf in the island's menu is no longer re-read for each thumbnail either.
 - The menu bar's spare room is measured at most once a second, on a queue of its own, and the last ask is the one answered, so an alert right after an app switch no longer measures the old app's bar.

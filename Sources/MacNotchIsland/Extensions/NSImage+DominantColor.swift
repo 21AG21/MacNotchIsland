@@ -48,32 +48,52 @@ extension NSImage {
         return NSColor(hue: hue, saturation: min(sat, 0.8), brightness: max(bri, 0.8), alpha: 1)
     }
 
-    /// The most pixels a cover is kept at along its long side.
+    /// The most pixels a cover is kept at along its short side.
     ///
     /// The largest cover the island draws is the Music section's, 60 pt, which is 120 pixels on
     /// a Retina display; the pill's and the Home tile's are smaller. Twice that is a clean
     /// halving at the largest and sharper than the screen can show anywhere. A player hands
     /// over its cover at whatever size it has — many hundreds of pixels, often more, and the
     /// search's are 600 — and the whole of it used to be decoded on the main thread, kept, and
-    /// scaled down again on every frame it was drawn.
+    /// scaled down again on every frame it was drawn. The short side, because every cover is
+    /// drawn filling a square: a wide one is cropped to its height, so its height is what has
+    /// to be sharp, and capping its width at this left a 2:1 cover with 120 pixels of height
+    /// for 120 pixels of box.
     static let coverPixels = 240
 
-    /// A player's cover from its encoded bytes, decoded no larger than `maxPixels` on its long
-    /// side, with its accent worked out from that copy (`dominantColor(of:)`). Nil when the
-    /// bytes are not a picture.
+    /// The most pixels a cover of `width` by `height` is decoded to along its long side, so that
+    /// its short side keeps `maxPixels` where the picture has them. Never more than four times
+    /// that: a banner gives up a little of its height rather than be kept as a strip thousands
+    /// of pixels long. Pure.
+    static func coverLongSide(width: Int, height: Int, maxPixels: Int) -> Int {
+        guard width > 0, height > 0 else { return maxPixels }
+        let ratio = Double(max(width, height)) / Double(min(width, height))
+        return min(maxPixels * 4, Int((Double(maxPixels) * ratio).rounded(.up)))
+    }
+
+    /// A player's cover from its encoded bytes, decoded no larger than `maxPixels` on its short
+    /// side (`coverLongSide`), with its accent worked out from that copy (`dominantColor(of:)`).
+    /// Nil when the bytes are not a picture.
     ///
     /// For a queue other than the main one: this is the whole decode, done at once
     /// (`kCGImageSourceShouldCacheImmediately`) so that nothing is left for the first frame
     /// that draws it. Bytes ImageIO cannot read are handed to `NSImage` as they always were.
     static func cover(from data: Data, maxPixels: Int = NSImage.coverPixels) -> (image: NSImage, accent: NSColor)? {
-        if let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
-           let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-               kCGImageSourceCreateThumbnailFromImageAlways: true,
-               kCGImageSourceCreateThumbnailWithTransform: true,
-               kCGImageSourceShouldCacheImmediately: true,
-               kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-           ] as CFDictionary) {
-            return (NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), dominantColor(of: cg))
+        if let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) {
+            var longSide = maxPixels
+            if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+               let width = properties[kCGImagePropertyPixelWidth] as? Int,
+               let height = properties[kCGImagePropertyPixelHeight] as? Int {
+                longSide = coverLongSide(width: width, height: height, maxPixels: maxPixels)
+            }
+            if let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: longSide,
+            ] as CFDictionary) {
+                return (NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), dominantColor(of: cg))
+            }
         }
         guard let image = NSImage(data: data) else { return nil }
         return (image, image.dominantColor())
