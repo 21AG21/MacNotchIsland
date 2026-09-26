@@ -1199,4 +1199,17 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertNil(BluetoothState(name: "", address: "", symbol: "", batteryCase: 70).summaryPercent,
                      "nor is the case the thing in your ears")
     }
+
+    // MARK: - The appearance switch, on the script queue
+
+    /// A refusal is put right in Privacy's Automation pane, and every failure used to open it.
+    /// Run with a timeout on the one script queue now, the switch can also run out of time, and
+    /// that is not a question of permission.
+    func testOnlyAFailureThatIsNotATimeoutOpensTheAutomationPane() {
+        XCTAssertTrue(SystemToggles.appearanceFailureOpensAutomation(errorNumber: AutomationConsent.refusedStatus))
+        XCTAssertTrue(SystemToggles.appearanceFailureOpensAutomation(errorNumber: -1744), "not asked yet")
+        XCTAssertTrue(SystemToggles.appearanceFailureOpensAutomation(errorNumber: 0), "a script that did not compile, as before")
+        XCTAssertFalse(SystemToggles.appearanceFailureOpensAutomation(errorNumber: ScriptQueue.timedOutStatus),
+                       "System Events slow to answer")
+    }
 }

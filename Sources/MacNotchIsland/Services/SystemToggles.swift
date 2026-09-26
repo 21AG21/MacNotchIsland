@@ -266,6 +266,9 @@ final class SystemToggles: ObservableObject {
         }
     }
 
+    /// How long the appearance switch waits for System Events to answer.
+    static let appearanceTimeout = 5
+
     /// Switches the Mac between light and dark. There is no API for this that does not go
     /// through System Events, so the first use asks for permission to control it.
     func toggleAppearance() {
@@ -274,21 +277,38 @@ final class SystemToggles: ObservableObject {
         let source = """
         tell application "System Events" to tell appearance preferences to set dark mode to \(wanted)
         """
-        // Its own queue rather than the radios': System Events can take seconds to answer the
-        // first time, and the rail's poll should not be waiting behind it.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var error: NSDictionary?
-            _ = NSAppleScript(source: source)?.executeAndReturnError(&error)
-            let failed = error != nil
+        // On the one queue every AppleScript in the app runs on, not a global queue of its own:
+        // `NSAppleScript` is not safe on two threads at once, and this ran beside Now Playing's
+        // polls and presses. Not the radios' queue either: System Events can take seconds to
+        // answer the first time, and the rail's poll should not be waiting behind it.
+        ScriptQueue.async { [weak self] in
+            let outcome = ScriptQueue.execute(ScriptQueue.timed(source, seconds: Self.appearanceTimeout))
             DispatchQueue.main.async {
-                if failed {
-                    // Permission refused, or System Events is unavailable: show the truth again.
+                if !outcome.succeeded {
+                    // Permission refused, System Events unavailable or not answering in time:
+                    // show the truth again.
                     self?.pending[Switch.appearance.rawValue] = nil
-                    SystemSettingsPane.automation.open()
+                    let reason = outcome.error.map { String(describing: $0) } ?? "the script did not compile"
+                    IslandLog.display.error("appearance switch failed (\(outcome.errorNumber, privacy: .public)): \(reason, privacy: .public)")
+                    if Self.appearanceFailureOpensAutomation(errorNumber: outcome.errorNumber) {
+                        SystemSettingsPane.automation.open()
+                    }
                 }
                 self?.refresh()
             }
         }
+    }
+
+    /// Whether a failed appearance switch sends the user to Privacy's Automation pane. Pure, so
+    /// it is tested.
+    ///
+    /// Every failure did, and the usual one is a refusal (-1743), which is put right there. A
+    /// script that ran out of time, which it can since it moved onto `ScriptQueue` with a
+    /// timeout, did not fail for want of permission: System Events was slow to answer, or
+    /// macOS's question about it can still be on screen, and the pane opened over that points at
+    /// the wrong thing.
+    static func appearanceFailureOpensAutomation(errorNumber: Int) -> Bool {
+        errorNumber != ScriptQueue.timedOutStatus
     }
 
     // MARK: - Bluetooth, which has no public switch

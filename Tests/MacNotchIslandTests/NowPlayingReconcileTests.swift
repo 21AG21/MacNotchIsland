@@ -219,7 +219,7 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertFalse(NowPlayingService.needsTick(adapterAnswering: true, mediaRemoteAnswering: true, activeBackend: .inactive),
                        "nothing playing, and both saying so")
         XCTAssertFalse(NowPlayingService.needsTick(adapterAnswering: false, mediaRemoteAnswering: true, activeBackend: .inactive),
-                       "MediaRemote answering with nothing to show holds AppleScript back just the same")
+                       "MediaRemote holding AppleScript back does as the helper does")
     }
 
     func testTheTickRunsWhileAppleScriptIsTheOneToAsk() {
@@ -367,6 +367,21 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertFalse(NowPlayingService.nothingEndsCard(from: .appleScript, answering: true, active: .mediaRemote, activeAnswering: true))
         XCTAssertFalse(NowPlayingService.nothingEndsCard(from: .adapter, answering: false, active: .mediaRemote, activeAnswering: true),
                        "a helper that has died says nothing about MediaRemote's card")
+    }
+
+    /// Up to macOS 15.3, a MediaRemote wedged after a wake answers "nothing" with Music playing.
+    /// Counted because it was heard, it ended AppleScript's card; now its "nothing" counts over
+    /// a card from below it only while it has had a track to show, which is what `handle`
+    /// passes as answering.
+    func testMediaRemotesNothingWithNoTrackLatelyLeavesTheFallbacksCard() {
+        XCTAssertFalse(NowPlayingService.nothingEndsCard(from: .mediaRemote, answering: false, active: .appleScript, activeAnswering: true),
+                       "heard, but with no track to show lately")
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .mediaRemote, answering: true, active: .appleScript, activeAnswering: true),
+                      "one that has just shown a track is believed")
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .mediaRemote, answering: false, active: .mediaRemote, activeAnswering: true),
+                      "its own card, as always")
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .mediaRemote, answering: false, active: .adapter, activeAnswering: false),
+                      "and a helper's card the helper has stopped answering for")
     }
 
     // MARK: - Covers the helper has sent
@@ -521,6 +536,18 @@ final class NowPlayingReconcileTests: XCTestCase {
     func testAPressThatWaitedTooLongIsNotSent() {
         XCTAssertTrue(AppleScriptBackend.stillWanted(press(.toggle), now: t0 + AppleScriptBackend.pressPatience))
         XCTAssertFalse(AppleScriptBackend.stillWanted(press(.toggle), now: t0 + AppleScriptBackend.pressPatience + 1))
+        XCTAssertFalse(AppleScriptBackend.stillWanted(press(.next), now: t0 + AppleScriptBackend.pressPatience + 1))
+        XCTAssertFalse(AppleScriptBackend.stillWanted(press(.like), now: t0 + AppleScriptBackend.pressPatience + 1))
+    }
+
+    /// The sleep timer's pause, queued behind a press that was slow to come back, was dropped
+    /// with the card showing paused and the music playing on. A pause sent late cannot start
+    /// anything.
+    func testAPauseIsNeverTooLate() {
+        XCTAssertTrue(AppleScriptBackend.stillWanted(press(.pause), now: t0 + AppleScriptBackend.pressPatience + 1))
+        XCTAssertTrue(AppleScriptBackend.stillWanted(press(.pause), now: t0 + 120))
+        XCTAssertTrue(AppleScriptBackend.stillWanted(press(.pause, player: AppleScriptBackend.spotifyID), now: t0 + 120),
+                      "in either player")
     }
 
     func testEveryScriptHasATimeout() {
@@ -542,14 +569,53 @@ final class NowPlayingReconcileTests: XCTestCase {
     /// A player open with nothing playing was scripted every two seconds for as long as it
     /// stayed open.
     func testAppleScriptAsksLessOftenWhileItKeepsFindingNothing() {
-        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 0, nobodyLooking: false), 2)
-        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: false), 4)
-        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 5, nobodyLooking: false), 6)
-        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 30, nobodyLooking: false), 10)
-        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: true), 20,
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 0, nobodyLooking: false,
+                                                              mediaRemoteSaysNothing: false), 2)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: false,
+                                                              mediaRemoteSaysNothing: false), 4)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 5, nobodyLooking: false,
+                                                              mediaRemoteSaysNothing: false), 6)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 30, nobodyLooking: false,
+                                                              mediaRemoteSaysNothing: false), 10)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: true,
+                                                              mediaRemoteSaysNothing: false), 20,
                        "nobody at the Mac")
-        XCTAssertEqual(NowPlayingService.idleAnswers(after: nil, count: 3), 4)
-        XCTAssertEqual(NowPlayingService.idleAnswers(after: info(playing: false), count: 3), 4, "a paused track is nothing new")
-        XCTAssertEqual(NowPlayingService.idleAnswers(after: info(playing: true), count: 30), 0, "one that plays starts again")
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: .answered(nil), count: 3), 4)
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: .answered(info(playing: false)), count: 3), 4,
+                       "a paused track is nothing new")
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: .answered(info(playing: true)), count: 30), 0,
+                       "one that plays starts again")
+    }
+
+    /// A poll with neither player open counted as idle, so three minutes with both closed and a
+    /// track started in a newly opened Music came up to ten seconds late.
+    func testAPollWithNoPlayerOpenStartsTheCountAgain() {
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: .noPlayer, count: 30), 0)
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: .noPlayer, count: 0), 0)
+        XCTAssertNil(AppleScriptBackend.PollResult.noPlayer.report, "and the island is told nothing is playing")
+        XCTAssertNil(AppleScriptBackend.PollResult.answered(nil).report)
+        XCTAssertEqual(AppleScriptBackend.PollResult.answered(info(playing: true)).report, info(playing: true))
+    }
+
+    /// Up to macOS 15.3, MediaRemote's "nothing" held AppleScript back altogether, and a
+    /// MediaRemote wedged after a wake that said it with Music playing kept the card dark for
+    /// good. Now AppleScript still looks, at its slowest.
+    func testMediaRemoteSayingNothingSlowsAppleScriptRatherThanStoppingIt() {
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 0, nobodyLooking: false,
+                                                              mediaRemoteSaysNothing: true), 10)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: false,
+                                                              mediaRemoteSaysNothing: true), 20, "on battery")
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 30, nobodyLooking: true,
+                                                              mediaRemoteSaysNothing: true), 10, "never slower than the slowest")
+    }
+
+    func testMediaRemoteSaysNothingOnlyWhereItAnswersThisApp() {
+        XCTAssertTrue(NowPlayingService.mediaRemoteSaysNothing(answersThisApp: true, answering: true, deliveringTrack: false))
+        XCTAssertFalse(NowPlayingService.mediaRemoteSaysNothing(answersThisApp: true, answering: true, deliveringTrack: true),
+                       "a track lately: it holds AppleScript back, as before")
+        XCTAssertFalse(NowPlayingService.mediaRemoteSaysNothing(answersThisApp: true, answering: false, deliveringTrack: false),
+                       "not answering is not saying anything")
+        XCTAssertFalse(NowPlayingService.mediaRemoteSaysNothing(answersThisApp: false, answering: true, deliveringTrack: false),
+                       "from 15.4 its empty answers are not this, and change nothing")
     }
 }

@@ -409,7 +409,10 @@ final class AdapterBackend {
                                   isPlaying: NowPlayingInfo.isPlaying(rate: rate, flag: flag), bundleID: nil,
                                   artwork: cover?.image, artworkID: cover == nil ? 0 : hash.hashValue,
                                   accent: cover?.accent ?? .white)
-        info.reportsPosition = reportedElapsed != nil || reportedTimestamp != nil
+        // The elapsed time is where the playhead is; a timestamp on its own says only when. A
+        // stream whose position the helper left out (NaN, or none) still carries one, and it
+        // counted from 0:00 at it, back to the start each time the player stamped it again.
+        info.reportsPosition = reportedElapsed != nil
         Self.readModes(from: obj, into: &info)
 
         DispatchQueue.main.async { [weak self] in

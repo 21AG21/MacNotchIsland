@@ -24,10 +24,12 @@ struct NowPlayingInfo: Equatable {
     /// Nil when it gave no list, which is most of the time on some versions of macOS: a
     /// missing list says nothing either way, and the other evidence is weighed instead.
     var remoteSupports: Set<Command>? = nil
-    /// Whether the report said where the playhead is: an elapsed time, or the moment one was
-    /// measured. A live stream can say neither, and was read as starting again from nothing on
-    /// every report; the service keeps the clock it had instead (`NowPlayingService.carryingPosition`).
-    /// Not part of `==`: it says how a report was made, not what the card shows.
+    /// Whether the report said where the playhead is, which is an elapsed time. A timestamp on
+    /// its own says when, not where: a live stream that gives no position, or one that is not a
+    /// number, still carries one, and counted as saying where it was, it was read as starting
+    /// again from nothing at every stamp. The service keeps the clock it had instead
+    /// (`NowPlayingService.carryingPosition`). Not part of `==`: it says how a report was made,
+    /// not what the card shows.
     var reportsPosition = true
 
     /// The optional buttons of the transport row. Play, pause and the two skips are not here:

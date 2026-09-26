@@ -62,10 +62,11 @@ static MRGetSupportedCommandsFn sGetSupported;
 static MRCommandInfoGetCommandFn sInfoCommand;
 static MRCommandInfoGetEnabledFn sInfoEnabled;
 static MRGetIsPlayingFn sGetIsPlaying;
-/// The hash of the cover whose bytes went out last, or 0 when the last payload carried none.
-/// Bytes go out only when this changes, so it is reset by every payload that goes out without a
-/// cover: the app lets go of a cover a report does not name, and the next track with the same
-/// cover must bring the bytes again rather than a hash the app can no longer match.
+/// The hash of the cover whose bytes went out last, or 0 once nothing is playing. Bytes go out
+/// only when this changes. A payload without a cover — an advert, the gap between tracks —
+/// leaves it: the app keeps the covers it has been sent by hash (AdapterBackend.CoverCache), so
+/// the next track with the same cover names one it still has, and resetting here only sent the
+/// same bytes across the pipe again. Nothing playing resets it, as it always did.
 static unsigned long long sLastArtworkHash = 0;
 /// The last list of supported commands MediaRemote gave, sorted; nil until it has given one.
 static NSArray<NSNumber *> *sSupported = nil;
@@ -188,12 +189,10 @@ static void emit(void) {
     refreshSupported();
     sGetInfo(dispatch_get_main_queue(), ^(NSDictionary *info) {
         NSMutableDictionary *out = [NSMutableDictionary dictionary];
-        BOOL carriesArtwork = NO;
         for (NSString *key in info) {
             id value = info[key];
             if ([value isKindOfClass:[NSData class]]) {
                 if ([key isEqualToString:@"kMRMediaRemoteNowPlayingInfoArtworkData"] && [(NSData *)value length] > 0) {
-                    carriesArtwork = YES;
                     unsigned long long h = fnv1a((NSData *)value);
                     out[@"artworkHash"] = [NSString stringWithFormat:@"%llx", h];
                     if (h != sLastArtworkHash) {
@@ -210,7 +209,7 @@ static void emit(void) {
                 if (safe) out[key] = safe;
             }
         }
-        if (!carriesArtwork) sLastArtworkHash = 0;
+        if (info.count == 0) sLastArtworkHash = 0;
         if (info.count > 0 && sSupported) out[@"supportedCommands"] = sSupported;
         void (^finish)(void) = ^{
             if (sGetPID) {

@@ -60,9 +60,19 @@ final class NowPlayingService: ObservableObject {
     /// The paused track "Keep paused music for" last took off the island, see `staysDismissed`.
     private var dismissedPaused: NowPlayingInfo?
     private var ticks = 0
-    /// AppleScript polls in a row that found nothing playing, see `appleScriptPollEvery`.
+    /// AppleScript polls in a row that found nothing playing, see `appleScriptPollEvery`. Started
+    /// again by a poll that found no player open (`idleAnswers`), a track playing from any
+    /// backend, the card changing hands or ending (`activeBackend`), and a press on the card.
+    /// Only AppleScript's own playing track and play, pause and the scrubber used to start it
+    /// again, and a poll with no player open counted as idle: three minutes with neither open,
+    /// and a track then started in Music's own window came up as much as ten seconds late,
+    /// twenty on battery; and a count built up with a player paused outlived hours of the
+    /// helper showing tracks. Main queue.
     private var idlePolls = 0
-    private(set) var activeBackend: Backend = .inactive
+    /// Whose card is up. A change, the card ending included, starts `idlePolls` again. Main queue.
+    private(set) var activeBackend: Backend = .inactive {
+        didSet { if activeBackend != oldValue { idlePolls = 0 } }
+    }
     /// What the user just asked for, held against stale backend reports for a moment.
     private var optimistic: Optimistic?
     /// A pending removal of the Now Playing card, see `clearGrace`.
@@ -190,7 +200,7 @@ final class NowPlayingService: ObservableObject {
             if !health.isEmpty { health = [:] }
             return
         }
-        let appleScriptOutranked = adapter.isAnswering || mediaRemote.isAnswering
+        let appleScriptOutranked = adapter.isAnswering || mediaRemoteHoldsBack
         let fresh: [Backend: Health] = [
             .adapter: Self.backendHealth(available: adapter.isAvailable, answering: adapter.isAnswering,
                                          deliveringTrack: adapter.isDeliveringTrack, outranked: false),
@@ -203,9 +213,9 @@ final class NowPlayingService: ObservableObject {
             // with nothing, so it is answering whenever it is asked — unless every player it
             // would ask has refused it under Automation (`AppleScriptBackend.isRefused`), which
             // is a backend switched on, asked, and never able to say anything. It is asked only
-            // while neither of the others answers, the same gate `tick` polls it behind, and
-            // the refusal is only looked up then: it walks the running applications, and an
-            // outranked backend is standing by whatever it would say.
+            // while neither of the others holds it back (`mediaRemoteHoldsBack`), the same gate
+            // `tick` polls it behind, and the refusal is only looked up then: it walks the
+            // running applications, and an outranked backend is standing by whatever it would say.
             .appleScript: Self.backendHealth(available: true,
                                              answering: appleScriptOutranked || !appleScript.isRefused,
                                              deliveringTrack: activeBackend == .appleScript,
@@ -236,6 +246,10 @@ final class NowPlayingService: ObservableObject {
     /// every second for as long as Now Playing was on with nothing to do but look at the
     /// paused-track limit — which is a look of its own now, at the one moment it can matter
     /// (`pausedTrackDue`). Pure, so the gate is tested.
+    ///
+    /// `mediaRemoteAnswering` is MediaRemote answering in the way that holds AppleScript back
+    /// (`mediaRemoteHoldsBack`): up to macOS 15.3, an answer of nothing with no track lately
+    /// leaves AppleScript asked at its slowest, and the tick on to ask it.
     static func needsTick(adapterAnswering: Bool, mediaRemoteAnswering: Bool, activeBackend: Backend) -> Bool {
         (!adapterAnswering && !mediaRemoteAnswering) || activeBackend == .mediaRemote
     }
@@ -268,7 +282,10 @@ final class NowPlayingService: ObservableObject {
         guard running, !Self.fakesTrack else { return }
         refreshHealth()
         let adapterAnswering = adapter.isAnswering
-        let mediaRemoteAnswering = mediaRemote.isAnswering
+        // Its moment is still no later than its freshness window from now (`recheckDate`): it
+        // stops holding back when its last answer lapses, or up to 15.3 its last track, and
+        // both are counted over that one window.
+        let mediaRemoteAnswering = mediaRemoteHoldsBack
         if Self.needsTick(adapterAnswering: adapterAnswering, mediaRemoteAnswering: mediaRemoteAnswering,
                           activeBackend: activeBackend) {
             recheck?.invalidate()
@@ -303,13 +320,18 @@ final class NowPlayingService: ObservableObject {
         // AppleScript polling spawns a real process; keep it off entirely while asleep, and
         // back off on battery, with nobody looking, and while it keeps finding nothing playing.
         let energy = EnergyPolicy.shared
+        // MediaRemote's "nothing" slows AppleScript to its slowest rather than shutting it out
+        // (`mediaRemoteSaysNothing`) — unless the card up is AppleScript's own, which is the
+        // players saying otherwise, and that card is kept up to date at the usual rate.
+        let saysNothing = mediaRemoteSaysNothingNow && activeBackend != .appleScript
         let pollEvery = Self.appleScriptPollEvery(onBattery: energy.isOnBattery, idleAnswers: idlePolls,
-                                                  nobodyLooking: energy.nobodyLooking)
+                                                  nobodyLooking: energy.nobodyLooking, mediaRemoteSaysNothing: saysNothing)
         // MediaRemote asked again once it has gone quiet, not only while it shows the track —
         // where it answers this app at all (up to macOS 15.3). Its "nothing is playing" is an
-        // answer that keeps AppleScript shut, and it was never asked for one: fifteen seconds
-        // after the music stopped it counted as silent and Music and Spotify were scripted
-        // every two seconds with nothing playing. From 15.4 it answers nothing, and is left.
+        // answer that slows AppleScript right down, and it was never asked for one: fifteen
+        // seconds after the music stopped it counted as silent and Music and Spotify were
+        // scripted every two seconds with nothing playing. From 15.4 it answers nothing, and is
+        // left.
         var askedMediaRemote = false
         if !adapter.isAnswering,
            activeBackend == .mediaRemote || (MediaRemoteBackend.answersThisApp && !mediaRemote.isAnswering) {
@@ -324,12 +346,14 @@ final class NowPlayingService: ObservableObject {
         // — and a helper that was asleep with the Mac has not, so for its first silence window
         // after a wake it still counts as answering, see `AdapterBackend.isOverdue`.
         // A question just put to MediaRemote is given its answer before AppleScript is asked.
+        // A poll skipped because a press is on its way (`AppleScriptBackend.poll`) is sent on
+        // the first of these turns after it, with nothing else to arrange.
         if !askedMediaRemote, !energy.isAsleep, Self.scriptsPlayers(Preferences.shared), !adapter.isAnswering,
-           !mediaRemote.isAnswering, ticks % pollEvery == 0 {
-            appleScript.poll(artworkLookup: Preferences.shared.artworkLookupEnabled, preferring: info?.bundleID) { [weak self] report in
+           !mediaRemoteHoldsBack, ticks % pollEvery == 0 {
+            appleScript.poll(artworkLookup: Preferences.shared.artworkLookupEnabled, preferring: info?.bundleID) { [weak self] result in
                 guard let self else { return }
-                self.idlePolls = Self.idleAnswers(after: report, count: self.idlePolls)
-                self.handle(report, from: .appleScript)
+                self.idlePolls = Self.idleAnswers(after: result, count: self.idlePolls)
+                self.handle(result.report, from: .appleScript)
             }
         }
         // Which also stops the tick, once there is nothing left for it to do.
@@ -363,20 +387,58 @@ final class NowPlayingService: ObservableObject {
     ///
     /// Every two seconds, four on battery — and three times as long once a handful of polls in a
     /// row (`idleAnswers`) have found nothing playing, or a paused track, and five times as long
-    /// after half a minute's worth of them or with nobody at the Mac. A player open with nothing
-    /// playing was scripted every two seconds for as long as it stayed open. A track that plays,
-    /// or a press on the card, puts it back to the start.
-    static func appleScriptPollEvery(onBattery: Bool, idleAnswers: Int, nobodyLooking: Bool) -> Int {
+    /// after half a minute's worth of them, with nobody at the Mac, or while MediaRemote says
+    /// nothing is playing (`mediaRemoteSaysNothing`). A player open with nothing playing was
+    /// scripted every two seconds for as long as it stayed open. A track that plays, or a press
+    /// on the card, puts it back to the start.
+    static func appleScriptPollEvery(onBattery: Bool, idleAnswers: Int, nobodyLooking: Bool,
+                                     mediaRemoteSaysNothing: Bool) -> Int {
         let base = onBattery ? 4 : 2
-        if nobodyLooking || idleAnswers >= 30 { return base * 5 }
+        if nobodyLooking || mediaRemoteSaysNothing || idleAnswers >= 30 { return base * 5 }
         if idleAnswers >= 5 { return base * 3 }
         return base
     }
 
-    /// The count of idle polls after `report`: nothing, or a track that is not playing, adds one;
-    /// a track that plays starts it again.
-    static func idleAnswers(after report: NowPlayingInfo?, count: Int) -> Int {
-        report?.isPlaying == true ? 0 : count + 1
+    /// The count of idle polls after one that came to `result`: nothing, or a track that is not
+    /// playing, adds one; a track that plays starts it again, and so does a poll that found
+    /// neither player open. Nobody was asked then, so there is nothing to back off from, and a
+    /// player opened next is most likely opened to play something. Counted as idle, a Mac with
+    /// neither open for three minutes asked a newly opened Music only every ten seconds. Pure,
+    /// so it is tested.
+    static func idleAnswers(after result: AppleScriptBackend.PollResult, count: Int) -> Int {
+        switch result {
+        case .noPlayer: return 0
+        case .answered(let report): return report?.isPlaying == true ? 0 : count + 1
+        }
+    }
+
+    /// Whether MediaRemote is answering, where it answers this app at all (up to macOS 15.3),
+    /// with only "nothing is playing", and has had no track to show lately. Pure, so it is
+    /// tested.
+    ///
+    /// That answer is usually the truth, and there is no call to script Music and Spotify every
+    /// two seconds to hear it again. It is also what a MediaRemote wedged after a wake says with
+    /// Music playing, and while it held AppleScript back altogether the fallback never looked:
+    /// the card stayed dark, and MediaRemote, asked again every fifteen seconds or so, renewed
+    /// its answering with every empty reply. So AppleScript still looks, at its slowest
+    /// (`appleScriptPollEvery`), and MediaRemote's "nothing" ends a card from below it only
+    /// while it has had a track to show (`handle`). From 15.4 MediaRemote has nothing for this
+    /// app, and that is not this.
+    static func mediaRemoteSaysNothing(answersThisApp: Bool, answering: Bool, deliveringTrack: Bool) -> Bool {
+        answersThisApp && answering && !deliveringTrack
+    }
+
+    /// `mediaRemoteSaysNothing`, now. Main queue, where MediaRemote's answers arrive.
+    private var mediaRemoteSaysNothingNow: Bool {
+        Self.mediaRemoteSaysNothing(answersThisApp: MediaRemoteBackend.answersThisApp,
+                                    answering: mediaRemote.isAnswering, deliveringTrack: mediaRemote.isHealthy)
+    }
+
+    /// Whether MediaRemote holds AppleScript back: answering, other than with only "nothing"
+    /// (`mediaRemoteSaysNothing`). The one gate `handle` drops AppleScript's reports behind,
+    /// the tick polls it behind, and the health calls it standing by behind. Main queue.
+    private var mediaRemoteHoldsBack: Bool {
+        mediaRemote.isAnswering && !mediaRemoteSaysNothingNow
     }
 
     /// Sets the one look at the paused track for the moment it is due, or none. Called when
@@ -413,11 +475,16 @@ final class NowPlayingService: ObservableObject {
     private func handle(_ new: NowPlayingInfo?, from backend: Backend) {
         guard running else { return }   // a late poll must not bring the pill back after stop()
         // Lower-ranked backends stay quiet once a better one is delivering.
-        if backend == .appleScript && (adapter.isAnswering || mediaRemote.isAnswering) { return }
+        if backend == .appleScript && (adapter.isAnswering || mediaRemoteHoldsBack) { return }
         if backend == .mediaRemote && adapter.isAnswering { return }
 
         guard var new = new.map(Self.sanitized) else {
-            if Self.nothingEndsCard(from: backend, answering: isAnswering(backend),
+            // MediaRemote's "nothing" speaks over a card from below it only while it has had a
+            // track to show (`isHealthy`), not merely while it is heard: up to 15.3 an empty
+            // answer is also what a MediaRemote wedged after a wake gives with Music playing,
+            // and it ended AppleScript's card, see `mediaRemoteSaysNothing`.
+            let answering = backend == .mediaRemote ? mediaRemote.isHealthy : isAnswering(backend)
+            if Self.nothingEndsCard(from: backend, answering: answering,
                                     active: activeBackend, activeAnswering: isAnswering(activeBackend)) {
                 scheduleClear()
             }
@@ -441,6 +508,9 @@ final class NowPlayingService: ObservableObject {
         }
         if reconciled.isPlaying {
             pausedSince = nil
+            // Something is playing, whoever says so: AppleScript, should it be asked next, is
+            // asked at its full rate (`idlePolls`).
+            idlePolls = 0
         } else if pausedSince == nil {
             pausedSince = now
         }
@@ -482,7 +552,8 @@ final class NowPlayingService: ObservableObject {
     }
 
     /// Whether `backend` is answering, for `nothingEndsCard`. AppleScript has no health of its
-    /// own: it is asked only while neither of the others answers, and always comes back.
+    /// own: it is asked only while neither of the others holds it back, and always comes back.
+    /// MediaRemote's own "nothing" is weighed by its track instead, see `handle`.
     private func isAnswering(_ backend: Backend) -> Bool {
         switch backend {
         case .adapter: return adapter.isAnswering
@@ -594,10 +665,11 @@ final class NowPlayingService: ObservableObject {
     }
 
     /// A report that does not say where the playhead is (`NowPlayingInfo.reportsPosition`) keeps
-    /// the clock the card has for the same track. A live stream that reports neither an elapsed
-    /// time nor a timestamp was read as starting from nothing on every report, so its clock went
-    /// back to 0:00 every five seconds. A change of play state is taken, from where the playhead
-    /// is now. Pure, so it is tested.
+    /// the clock the card has for the same track. A live stream that reports no elapsed time was
+    /// read as starting from nothing on every report, so its clock went back to 0:00 every five
+    /// seconds — and, with a timestamp and no elapsed time, every time the player stamped it
+    /// again. A change of play state is taken, from where the playhead is now. Pure, so it is
+    /// tested.
     static func carryingPosition(into incoming: NowPlayingInfo, from current: NowPlayingInfo?, now: Date) -> NowPlayingInfo {
         guard !incoming.reportsPosition, let current, sameTrack(incoming, current) else { return incoming }
         var result = incoming
@@ -873,6 +945,7 @@ final class NowPlayingService: ObservableObject {
     /// set by script, counts as off.
     func toggleShuffle() {
         guard let current = info else { return }
+        idlePolls = 0   // somebody at the Mac, as for play (`transport`)
         let target = !(current.shuffle ?? false)
         switch Self.route(.shuffle, active: activeBackend, info: current, scripted: scriptedModes) {
         case .appleScript:
@@ -887,6 +960,7 @@ final class NowPlayingService: ObservableObject {
     /// The next repeat, see `nextRepeat`.
     func cycleRepeat() {
         guard let current = info else { return }
+        idlePolls = 0   // somebody at the Mac, as for play (`transport`)
         let backend = Self.route(.cycleRepeat, active: activeBackend, info: current, scripted: scriptedModes)
         let target = Self.nextRepeat(after: current.repeatMode ?? .off, bundleID: current.bundleID, via: backend)
         switch backend {
@@ -935,6 +1009,7 @@ final class NowPlayingService: ObservableObject {
     /// `likedKey(afterFavouriting:succeeded:now:)` and `likedKey(afterUnfavouriting:succeeded:now:)`.
     func toggleFavourite() {
         guard let current = info else { return }
+        idlePolls = 0   // somebody at the Mac, as for play (`transport`)
         switch Self.heartPress(liked: isLiked(current), active: activeBackend, info: current) {
         case .favourite(let backend):
             let pressed = Self.trackKey(current)

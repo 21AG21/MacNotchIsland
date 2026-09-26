@@ -10,8 +10,8 @@ import Foundation
 ///
 /// Every script sent through here carries a `with timeout` (`timed`), so a player that has stopped
 /// answering holds the queue for seconds rather than the two minutes an Apple event waits by
-/// default. Small and free of Now Playing on purpose: the other scripts in the app — the
-/// appearance switch in `SystemToggles` — can move onto it as they are.
+/// default. Small and free of Now Playing on purpose: the appearance switch in `SystemToggles`
+/// runs here too, and any other script the app comes to send can as it is.
 enum ScriptQueue {
     static let queue = DispatchQueue(label: "com.macnotchisland.applescript", qos: .userInitiated)
 

@@ -103,17 +103,39 @@ final class AppleScriptBackend {
 
     // MARK: Polling
 
+    /// What a poll came to.
+    enum PollResult {
+        /// Neither player is open, so nobody was asked.
+        case noPlayer
+        /// A player was asked: its track, or nil for nothing playing, or for no answer in time.
+        case answered(NowPlayingInfo?)
+
+        /// The track the island is told about: none, where there was no player to ask.
+        var report: NowPlayingInfo? {
+            guard case .answered(let info) = self else { return nil }
+            return info
+        }
+    }
+
     /// `artworkLookup` is "Find missing album art", read on the main thread by the caller and
     /// carried to the poll's queue: Privacy lists the fetch of a cover Spotify names under that
     /// switch, and the poll fetched it whatever the switch said (`spotifyArtworkURL`).
     /// `preferring` is the player of the card on screen, see `choose`.
-    func poll(artworkLookup: Bool, preferring bundleID: String?, _ completion: @escaping (NowPlayingInfo?) -> Void) {
-        guard !pollRunning else { return }
+    ///
+    /// Not sent while a press is running or waiting (`pressRunning`, `presses`). The queue is
+    /// serial, and a poll sent the moment the last one came back went in ahead of a press made
+    /// meanwhile: with one player not answering, a poll holds the queue for seconds, and the
+    /// press waited behind it and then behind the next. Presses used to have a queue of their
+    /// own so a slow poll never delayed a click; on the one queue, presses go first. The
+    /// once-a-second tick asks again, so the poll skipped here is sent on the first of its
+    /// turns after the presses are through.
+    func poll(artworkLookup: Bool, preferring bundleID: String?, _ completion: @escaping (PollResult) -> Void) {
+        guard !pollRunning, !pressRunning, presses.isEmpty else { return }
         let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
         let hasSpotify = running.contains(Self.spotifyID)
         let hasMusic = running.contains(Self.musicID)
         guard hasSpotify || hasMusic else {
-            completion(nil)
+            completion(.noPlayer)
             return
         }
         pollRunning = true
@@ -124,7 +146,7 @@ final class AppleScriptBackend {
         // itself is still running, and no other is sent until it is back (`pollRunning`).
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.pollWatchdog) { [weak self] in
             guard let self, self.generation == myGeneration, self.pollRunning else { return }
-            completion(nil)
+            completion(.answered(nil))
         }
         ScriptQueue.async { [self] in
             var candidates: [NowPlayingInfo] = []
@@ -135,7 +157,7 @@ final class AppleScriptBackend {
                 // Only one poll runs at a time, so this is always the one that set it.
                 self.pollRunning = false
                 guard self.generation == myGeneration else { return }
-                completion(chosen)
+                completion(.answered(chosen))
             }
         }
     }
@@ -382,12 +404,14 @@ final class AppleScriptBackend {
 
     /// Presses waiting for the one before them to come back, oldest first. Main queue.
     private var presses: [Press] = []
-    /// A press whose script is running. Main queue.
+    /// A press sent to the script queue and not back yet: running, or waiting there behind a
+    /// poll that was already running. No poll is sent meanwhile (`poll`). Main queue.
     private var pressRunning = false
 
     /// How long a press may wait its turn and still be sent. One that has waited longer is
     /// behind a player that was not answering, and would land after the user has moved on — a
-    /// play/pause that starts the music a quarter of a minute after it was pressed.
+    /// play/pause that starts the music a quarter of a minute after it was pressed. A pause is
+    /// the exception, see `stillWanted`.
     static let pressPatience: TimeInterval = 6
 
     /// The presses waiting once `press` has joined them. Pure, so it is tested.
@@ -417,9 +441,15 @@ final class AppleScriptBackend {
         return result
     }
 
-    /// Whether a press that has waited since `press.at` is still worth sending. Pure.
+    /// Whether a press that has waited since `press.at` is still worth sending. Pure, so it is
+    /// tested.
+    ///
+    /// A pause always is. Sent late it stops music that is still playing, or finds it stopped
+    /// already and does nothing; it cannot start anything, which is what patience is there to
+    /// prevent. The sleep timer's pause, queued behind a press that was slow to come back, was
+    /// dropped after six seconds with the card already showing paused and the music playing on.
     static func stillWanted(_ press: Press, now: Date) -> Bool {
-        now.timeIntervalSince(press.at) <= pressPatience
+        press.kind == .pause || now.timeIntervalSince(press.at) <= pressPatience
     }
 
     private func submit(_ kind: Press.Kind, source: String, bundleID: String?, done: ((Bool) -> Void)? = nil) {
@@ -439,6 +469,10 @@ final class AppleScriptBackend {
         sendNextPress()
     }
 
+    /// Patience is asked twice: here, of the presses still waiting, and again on the script
+    /// queue, the moment the press would start. Asked here only, a press that passed went to
+    /// the queue behind a poll already running there, and a poll held back by a player that
+    /// was not answering ran it seconds later with nobody having asked whether it still should.
     private func sendNextPress() {
         guard !pressRunning else { return }
         let now = Date()
@@ -451,8 +485,10 @@ final class AppleScriptBackend {
         let press = presses.removeFirst()
         pressRunning = true
         ScriptQueue.async { [self] in
-            let succeeded = execute(press.source, app: press.player).succeeded
+            let wanted = Self.stillWanted(press, now: Date())
+            let succeeded = wanted ? execute(press.source, app: press.player).succeeded : false
             DispatchQueue.main.async {
+                if !wanted { IslandLog.media.notice("dropped a press that waited too long for its player") }
                 self.pressRunning = false
                 press.done?(succeeded)
                 self.sendNextPress()

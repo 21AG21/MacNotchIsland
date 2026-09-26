@@ -49,10 +49,13 @@ final class MediaRemoteBackend {
 
     /// Whether MediaRemote is answering at all, which is a different question and the one the
     /// fallback turns on. A payload with nothing playing in it is an answer: it says the Mac is
-    /// silent, and there is nothing AppleScript can add to that. Reading "not delivering a
-    /// track" as "not answering" had a Mac with the music stopped firing a round trip at Music
-    /// and at Spotify every two seconds for as long as it was switched on, each one able to
-    /// raise an Automation prompt.
+    /// silent. Reading "not delivering a track" as "not answering" had a Mac with the music
+    /// stopped firing a round trip at Music and at Spotify every two seconds for as long as it
+    /// was switched on, each one able to raise an Automation prompt. It is not the last word,
+    /// though: a MediaRemote wedged after a wake says the same with Music playing. So while it
+    /// answers with nothing and has shown no track lately (`isHealthy`), AppleScript is still
+    /// asked, at its slowest, and this "nothing" does not end AppleScript's card
+    /// (`NowPlayingService.mediaRemoteSaysNothing`).
     var isAnswering: Bool { BackendHealth.isFresh(lastHeard, now: Date(), within: Self.staleAfter) }
 
     /// Whether we are registered for notifications *right now* — not whether the framework has
@@ -205,7 +208,9 @@ final class MediaRemoteBackend {
                                   timestamp: reportedTimestamp ?? Date(),
                                   isPlaying: NowPlayingInfo.isPlaying(rate: rate, flag: nil), bundleID: nil,
                                   artwork: lastArtwork, artworkID: lastArtworkHash, accent: lastAccent)
-        info.reportsPosition = reportedElapsed != nil || reportedTimestamp != nil
+        // The elapsed time is where the playhead is; a timestamp on its own says only when,
+        // and a report that carried one and no position counted from 0:00 at it.
+        info.reportsPosition = reportedElapsed != nil
         // The same keys the helper passes through, read the same way. No list of supported
         // commands here: that is asked for inside the helper only.
         info.shuffle = NowPlayingInfo.shuffle(fromRemote: (d["kMRMediaRemoteNowPlayingInfoShuffleMode"] as? NSNumber)?.intValue)

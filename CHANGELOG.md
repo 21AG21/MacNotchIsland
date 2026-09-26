@@ -278,6 +278,12 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- A press on the Now Playing card no longer waits behind a poll sent after it. Its six-second limit is checked when it actually starts, and a pause, including the sleep timer's, is never dropped as too late.
+- A stream that reports a timestamp but no position keeps its clock instead of going back to 0:00 each time the player stamps it.
+- AppleScript goes back to its full rate when a track plays from any source, the card changes hands or ends, or a button beside play is pressed. A poll with no player open no longer counts toward slowing it down, so a newly opened Music is picked up within seconds.
+- On macOS 15.3 and earlier, MediaRemote saying "nothing" slows the Music and Spotify fallback instead of stopping it, and no longer ends the fallback's card unless MediaRemote has shown a track lately. A MediaRemote stuck after a wake no longer leaves the island dark while Music plays.
+- The helper sends a cover's bytes again only when the cover changes or nothing was playing, not after every advert or gap between tracks.
+- The Dark Mode switch runs on the app's single script queue with a five-second timeout, and a switch that times out no longer opens the Automation pane.
 - The Join button only unwraps a Safe Links or Google redirect to a real web link; an inner `httpfoo://zoom.us/…` is no longer handed to whatever app claims that scheme.
 - A Teams meeting link that arrives through Outlook's Safe Links opens intact: the inner link is decoded a second time only when it was encoded as a whole, so its own `%26` and `%23` no longer split its query.
 - Bluetooth that goes away while Controls is open (access taken back in Privacy, a USB radio pulled out) now shows the switch off, and the paired list is no longer asked for every poll.
@@ -313,14 +319,14 @@ the unreleased section is what the next tag will ship.
 - Seeking or pausing just before a track ends no longer carries over into the next track.
 - The sleep timer sends a pause and can never start the music.
 - With Music and Spotify both open and paused, pausing one no longer switches the card to the other.
-- A player that stops responding no longer makes play/pause presses land late or pile up: every script has a timeout, and presses made meanwhile are folded together.
+- A player that stops responding no longer makes presses pile up: every Apple event in a script has a timeout, presses made meanwhile are folded together, and one that has waited too long is dropped rather than sent late.
 - Volume, brightness and mute keys show their bezel during a new track's preview, and a queued preview is dropped rather than shown long after its track began.
 - Long Hebrew and Arabic titles scroll from their beginning.
-- The heart lights only when the favourite actually went through.
+- The heart lights only when the favourite was sent: the script ran, or the helper took the command.
 - Music and Spotify are no longer asked every two seconds for as long as nothing plays, and MediaRemote's "nothing is playing" is heard on macOS 15.3 and earlier.
-- Spotify covers that come in slowly still appear, and the playhead no longer runs behind by the time the cover took.
+- A Spotify cover that missed one poll's wait is asked for again on the next, and the playhead no longer runs behind by the time the cover took.
 - Lyrics are looked up only while the lyrics line is on screen.
-- A live stream's clock no longer jumps back to 0:00 on every report.
+- A live stream that reports no playhead keeps the card's clock rather than jumping back to 0:00 on every report.
 - A finished-download banner no longer blinks on and off when a question from notchctl comes back onto the island.
 - Play, pause and the skips with no card up go to the helper when it is answering, and MediaRemote's own word on whether a player is playing is used where it gives one.
 - Locking the screen or sleeping the display from the rail now closes the panel, so nothing keeps polling behind the lock.
