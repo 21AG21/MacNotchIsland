@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import XCTest
 @testable import MacNotchIsland
 
@@ -18,8 +19,10 @@ final class TimerEntryParseTests: XCTestCase {
         calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute, second: second))!
     }
 
-    private func parse(_ text: String) -> TimerEntry.Typed? {
-        TimerEntry.parse(text, now: now, calendar: calendar)
+    /// Read as on a keyboard whose number row types its figures, so the answer is the same on
+    /// every Mac that runs this; the French and Czech rows are put to it below.
+    private func parse(_ text: String, numberRow: [Character: Character] = [:]) -> TimerEntry.Typed? {
+        TimerEntry.parse(text, now: now, calendar: calendar, numberRow: numberRow)
     }
 
     // MARK: - Minutes
@@ -72,12 +75,90 @@ final class TimerEntryParseTests: XCTestCase {
 
     func testTheWrapCrossesTheEndOfTheMonth() {
         let late = at(30, 23, 0)
-        XCTAssertEqual(TimerEntry.parse("6:45", now: late, calendar: calendar), .alarm(at(1, 6, 45, month: 10)))
+        XCTAssertEqual(TimerEntry.parse("6:45", now: late, calendar: calendar, numberRow: [:]), .alarm(at(1, 6, 45, month: 10)))
     }
 
     func testAFullStopWorksAsTheSeparator() {
         XCTAssertEqual(parse("7.30"), .alarm(at(26, 7, 30)), "the way half of Europe writes a time")
         XCTAssertEqual(parse("19.30"), .alarm(at(25, 19, 30)))
+    }
+
+    /// "19h30" is how a time is written in French and Portuguese, and "7h" is seven o'clock.
+    func testAnHSeparatesTheHoursFromTheMinutes() {
+        XCTAssertEqual(parse("19h30"), .alarm(at(25, 19, 30)))
+        XCTAssertEqual(parse("7h30"), .alarm(at(26, 7, 30)))
+        XCTAssertEqual(parse("19H30"), .alarm(at(25, 19, 30)), "in either case")
+        XCTAssertEqual(parse("7h"), .alarm(at(26, 7, 0)), "on the hour")
+        XCTAssertEqual(parse("19h"), .alarm(at(25, 19, 0)))
+        XCTAssertEqual(parse("0h"), .alarm(at(26, 0, 0)))
+        XCTAssertEqual(parse("7h pm"), .alarm(at(25, 19, 0)))
+        XCTAssertEqual(TimerEntry.clockTime("19h30")?.hour, 19)
+        XCTAssertEqual(TimerEntry.clockTime("19h30")?.minute, 30)
+        XCTAssertNil(TimerEntry.clockTime("7:"), "a colon still wants its minutes")
+        XCTAssertEqual(parse("7"), .minutes(7), "and a bare number is still minutes")
+    }
+
+    // MARK: - Figures that are not Western ones
+
+    /// A Japanese or Chinese input method left on types full-width figures, and an Arabic
+    /// layout its own; each is the figure it stands for.
+    func testAnyDecimalFigureCounts() {
+        XCTAssertEqual(parse("１２"), .minutes(12), "full-width")
+        XCTAssertEqual(parse("٣"), .minutes(3), "Arabic-Indic")
+        XCTAssertEqual(parse("۲۵"), .minutes(25), "Persian")
+        XCTAssertEqual(parse("१५"), .minutes(15), "Devanagari")
+        XCTAssertEqual(parse("１９：３０"), .alarm(at(25, 19, 30)), "with the full-width colon that comes with them")
+        XCTAssertEqual(parse("٧:٣٠pm"), .alarm(at(25, 19, 30)))
+        XCTAssertEqual(parse("１９h３０"), .alarm(at(25, 19, 30)))
+        XCTAssertEqual(TimerEntry.westernFigures("٠١٢٣٤٥٦٧٨٩"), "0123456789")
+        XCTAssertEqual(TimerEntry.westernFigures("²Ⅻ½"), "²Ⅻ½", "numbers that are not figures stay as they are")
+        XCTAssertEqual(LiveActivityAPI.alarmDate("１９:３０", now: now, calendar: calendar), at(25, 19, 30),
+                       "and a script is read the same way")
+    }
+
+    // MARK: - A number row that types letters
+
+    /// The number row's keys with the figures printed on them, as `numberRowFold` is given them.
+    private let numberRowKeys: [(keyCode: Int, digit: Int)] =
+        HotKeyService.numberRowKeyCodes.enumerated().map { index, code in (keyCode: code, digit: (index + 1) % 10) }
+
+    /// A French keyboard types punctuation and é è ç à on 1 to 0 without Shift. The field opened
+    /// on the figure printed on the first key, and everything typed after it was letters.
+    func testAFrenchNumberRowIsReadAsItsFigures() {
+        let fold = TimerEntry.numberRowFold(keys: numberRowKeys, character: TestLayout.azerty)
+        XCTAssertEqual(fold["é"], "2")
+        XCTAssertEqual(fold["à"], "0")
+        XCTAssertEqual(fold["&"], "1")
+        XCTAssertEqual(fold.count, 10)
+        XCTAssertEqual(parse("é(", numberRow: fold), .minutes(25), "25, typed without Shift")
+        XCTAssertEqual(parse("2(", numberRow: fold), .minutes(25), "the first figure from the key that opened the field")
+        XCTAssertEqual(parse("&ç:\"à", numberRow: fold), .alarm(at(25, 19, 30)))
+        XCTAssertEqual(parse("&çh\"à", numberRow: fold), .alarm(at(25, 19, 30)))
+        XCTAssertEqual(parse("25", numberRow: fold), .minutes(25), "and Shift's figures are figures")
+        XCTAssertNil(parse("é("), "not on a keyboard that types figures there")
+    }
+
+    func testACzechNumberRowIsReadAsItsFigures() {
+        let czech: (Int) -> String? = { code in
+            let row = ["+", "ě", "š", "č", "ř", "ž", "ý", "á", "í", "é"]
+            return HotKeyService.numberRowKeyCodes.firstIndex(of: code).map { row[$0] }
+        }
+        let fold = TimerEntry.numberRowFold(keys: numberRowKeys, character: czech)
+        XCTAssertEqual(parse("řé", numberRow: fold), .minutes(50))
+        XCTAssertEqual(parse("+ž:šé", numberRow: fold), .alarm(at(25, 16, 30)))
+    }
+
+    func testANumberRowThatTypesFiguresFoldsNothing() {
+        XCTAssertTrue(TimerEntry.numberRowFold(keys: numberRowKeys, character: TestLayout.us).isEmpty)
+        XCTAssertTrue(TimerEntry.numberRowFold(keys: numberRowKeys, character: TestLayout.german).isEmpty)
+        XCTAssertTrue(TimerEntry.numberRowFold(keys: numberRowKeys, character: TestLayout.dvorak).isEmpty)
+        XCTAssertTrue(TimerEntry.numberRowFold(keys: numberRowKeys, character: TestLayout.unknown).isEmpty)
+        // A key that types something the entry reads for itself keeps it: an m is minutes,
+        // an h or a colon a time, whatever key it is on.
+        let odd: (Int) -> String? = { code in
+            [kVK_ANSI_1: "m", kVK_ANSI_2: "h", kVK_ANSI_3: ":", kVK_ANSI_4: ".", kVK_ANSI_5: " ", kVK_ANSI_6: "٦"][code]
+        }
+        XCTAssertTrue(TimerEntry.numberRowFold(keys: numberRowKeys, character: odd).isEmpty)
     }
 
     // MARK: - Morning and afternoon
@@ -115,7 +196,8 @@ final class TimerEntryParseTests: XCTestCase {
     func testGarbageIsNothing() {
         let garbage = ["", " ", "abc", "seven", "7:", ":30", "7:3", "7:300", "7:60", "24:00", "25:00",
                        "13pm", "0am", "0:30am", "13:00pm", "7:30:00", "7 30", "1e3", "-5", "+5", "5.5",
-                       "7:30xm", "am", "pm", "m", "7:30 pmx", "１２", "٣", "7::30", "007:30"]
+                       "7:30xm", "am", "pm", "m", "7:30 pmx", "7::30", "007:30", "²", "Ⅻ", "7h3", "7h60", "24h",
+                       "h30", "h", "7.", "25h", "7 h", "é"]
         for text in garbage {
             XCTAssertNil(parse(text), "\"\(text)\" is neither minutes nor a time")
         }
@@ -155,7 +237,7 @@ final class TimerEntryParseTests: XCTestCase {
     /// (`LiveActivityAPI.length`), and the longest timer either will start is the same day.
     func testAScriptReadsMinutesTheWayTheFieldDoes() {
         for typed in ["5", "25m", "25 min", "90 minutes", "1440"] {
-            guard case .minutes(let minutes)? = TimerEntry.parse(typed, now: now, calendar: calendar) else { return XCTFail(typed) }
+            guard case .minutes(let minutes)? = parse(typed) else { return XCTFail(typed) }
             XCTAssertEqual(LiveActivityAPI.timerStart(minutes: typed, seconds: nil), TimeInterval(minutes) * 60, typed)
         }
         XCTAssertNil(TimerEntry.typedMinutes("1441"))

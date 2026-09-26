@@ -415,6 +415,8 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             return
         }
         let w = NSWindow(contentViewController: makeContent())
+        // The initialiser's title binding kept the first controller alive past a rebuild; the title is set by hand.
+        w.unbind(NSBindingName.title)
         w.styleMask = [.titled, .closable, .fullSizeContentView]
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden

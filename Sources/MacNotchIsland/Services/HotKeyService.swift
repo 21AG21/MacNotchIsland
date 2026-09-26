@@ -35,8 +35,25 @@ final class HotKeyService: ObservableObject {
     /// it before any app sees it — while `RegisterEventHotKey` still says yes, so nothing said
     /// the shortcut the tour had just taught was dead. I is in none of the system's lists, and
     /// clear of the island's own steps, which ride on Tab and the arrows.
+    ///
+    /// The letter, not the key: a hot key is registered by key code, which is a position, and
+    /// where I sits on an American keyboard is the key that types C on a Dvorak one and U on a
+    /// Colemak one — while the tour, the recorder and the Reset button all said "⌃⌥I". The key
+    /// is found by what it types (`fallbackKey(character:)`), the way the question's keys
+    /// are, and named by what it types everywhere it is shown.
+    static let fallbackLetter: Character = "i"
+    /// Where I sits on an American keyboard: the fallback's key where no key types an I — a
+    /// Russian layout, whose keys type Cyrillic — or where the layout cannot be asked.
     static let fallbackKeyCode = kVK_ANSI_I
     static let fallbackModifiers = controlKey | optionKey
+
+    /// The key that types `fallbackLetter` on the layout `character` answers for. The letter
+    /// keys first, then the keys around them, which carry the Turkish Q layout's dotted i.
+    /// Pure, so a test can put any layout to it.
+    static func fallbackKey(character: (Int) -> String?) -> Int {
+        keyCode(typing: fallbackLetter, among: letterKeyCodes + punctuationKeyCodes,
+                character: character, otherwise: fallbackKeyCode)
+    }
 
     private enum Slot: UInt32 {
         case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6
@@ -44,46 +61,96 @@ final class HotKeyService: ObservableObject {
         case panelLeft = 7, panelRight = 8, volumeUp = 9, volumeDown = 10, playPause = 11
         /// Control-Y and Control-N, claimed only while a question from `notchctl ask` is up.
         case askYes = 12, askNo = 13
-        case slot1 = 21, slot2 = 22, slot3 = 23, slot4 = 24, slot5 = 25
-        case slot6 = 26, slot7 = 27, slot8 = 28, slot9 = 29
-        /// Zero, which has no switcher slot of its own: it is claimed only so that a time typed
-        /// on Actions can start "07:30".
-        case digit0 = 30
-        /// The twenty-six letter keys, in alphabetical order, claimed alongside the rest so
-        /// that typing on a section which is a list of things starts a find in it.
-        case letterA = 31, letterB = 32, letterC = 33, letterD = 34, letterE = 35, letterF = 36
-        case letterG = 37, letterH = 38, letterI = 39, letterJ = 40, letterK = 41, letterL = 42
-        case letterM = 43, letterN = 44, letterO = 45, letterP = 46, letterQ = 47, letterR = 48
-        case letterS = 49, letterT = 50, letterU = 51, letterV = 52, letterW = 53, letterX = 54
-        case letterY = 55, letterZ = 56
-
-        /// The switcher slot a digit key stands for, counting from zero.
-        var switcherIndex: Int? {
-            guard (21...29).contains(rawValue) else { return nil }
-            return Int(rawValue) - 21
-        }
-
-        /// The virtual key code this slot was registered for, when it is one of the letters.
-        var letterKeyCode: Int? {
-            guard (31...56).contains(rawValue) else { return nil }
-            return HotKeyService.letterKeyCodes[Int(rawValue) - 31]
-        }
     }
 
-    /// Every slot the panel claims while it is open, so they are released together.
-    private static let panelSlots: [Slot] =
-        [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause, .digit0]
-        + (0..<9).compactMap { Slot(rawValue: UInt32(21 + $0)) }
-        + (0..<26).compactMap { Slot(rawValue: UInt32(31 + $0)) }
+    /// The panel's own keys that do one job whatever the layout: the arrows and Space. The
+    /// keys that do what they type are `typingKeys`, released with these.
+    private static let panelSlots: [Slot] = [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause]
 
-    /// The ANSI digits 1 to 9, in that order. Their virtual key codes are not consecutive,
-    /// which is why they are written out rather than counted.
-    private static let digitKeyCodes = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
-                                        kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
+    /// A key the panel claims for what it types rather than for one job of its own.
+    ///
+    /// These used to be the twenty-six keys where A to Z sit on an American keyboard and the
+    /// ten figures of its number row, each with its job fixed by that position. Everywhere
+    /// else that was wrong in two ways. Letters that live on the keys around the alphabet —
+    /// the French M, the German Ö Ä Ü and ß, the Scandinavian Å Ä Ö Æ Ø, the Spanish Ñ, seven
+    /// Russian letters, the Turkish i — were never claimed, so no find could start with them.
+    /// And the letters on a French or Czech number row — é è ç à, ě š č ř ž ý á í é — jumped
+    /// the switcher instead of starting a find. So a press is now read for what the layout
+    /// types (`keyRole`): a letter is a find where there is a list to search, and only a key
+    /// that types no letter falls back to the figure printed on it.
+    struct TypingKey: Equatable {
+        enum Kind: Equatable {
+            /// The row of figures above the letters, nothing held.
+            case numberRow
+            /// The same row with Shift held, which is how a French or Czech keyboard types its
+            /// figures. Claimed only where the layout types a figure with it
+            /// (`claims(_:letters:typed:)`), so ⇧2 stays an @ everywhere it is one.
+            case shiftedNumberRow
+            /// The keypad's figures, which type the same on every layout.
+            case keypad
+            /// The twenty-six keys that carry the alphabet on an American keyboard.
+            case letter
+            /// The keys around them, which carry punctuation on an American keyboard and
+            /// letters on many others. Claimed only where they type a letter.
+            case punctuation
+        }
+
+        let keyCode: Int
+        let kind: Kind
+        /// The figure printed on the key, for the number row and the keypad: what it stands
+        /// for where the layout types no figure on it, as a French keyboard types é on the 2.
+        let digit: Int?
+
+        /// The modifiers it is registered with.
+        var modifiers: Int { kind == .shiftedNumberRow ? shiftKey : 0 }
+    }
+
+    /// Every `TypingKey`, in the order their hot key ids are counted from `typingKeyIDBase`.
+    static let typingKeys: [TypingKey] = {
+        var keys: [TypingKey] = []
+        for (code, digit) in zip(numberRowKeyCodes, figures) {
+            keys.append(TypingKey(keyCode: code, kind: .numberRow, digit: digit))
+        }
+        for (code, digit) in zip(numberRowKeyCodes, figures) {
+            keys.append(TypingKey(keyCode: code, kind: .shiftedNumberRow, digit: digit))
+        }
+        for (code, digit) in zip(keypadKeyCodes, figures) {
+            keys.append(TypingKey(keyCode: code, kind: .keypad, digit: digit))
+        }
+        for code in letterKeyCodes { keys.append(TypingKey(keyCode: code, kind: .letter, digit: nil)) }
+        for code in punctuationKeyCodes { keys.append(TypingKey(keyCode: code, kind: .punctuation, digit: nil)) }
+        return keys
+    }()
+
+    /// The first hot key id a typing key is registered under; the rest follow in the order of
+    /// `typingKeys`. Clear of every `Slot`.
+    static let typingKeyIDBase: UInt32 = 100
+
+    /// The typing key a hot key id was registered for.
+    static func typingKey(id: UInt32) -> TypingKey? {
+        guard id >= typingKeyIDBase else { return nil }
+        let index = Int(id - typingKeyIDBase)
+        return typingKeys.indices.contains(index) ? typingKeys[index] : nil
+    }
+
+    /// The figures on the number row and the keypad, in the order their keys are listed: one
+    /// to nine, then zero, as they run across the keyboard.
+    private static let figures = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
+
+    /// The number row, 1 to 9 and then 0. Their virtual key codes are not consecutive, which
+    /// is why they are written out rather than counted.
+    static let numberRowKeyCodes = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
+                                    kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9, kVK_ANSI_0]
+
+    /// The keypad's figures, in the same order.
+    static let keypadKeyCodes = [kVK_ANSI_Keypad1, kVK_ANSI_Keypad2, kVK_ANSI_Keypad3, kVK_ANSI_Keypad4,
+                                 kVK_ANSI_Keypad5, kVK_ANSI_Keypad6, kVK_ANSI_Keypad7, kVK_ANSI_Keypad8,
+                                 kVK_ANSI_Keypad9, kVK_ANSI_Keypad0]
 
     /// A to Z, in that order. Virtual key codes are positions rather than letters, so what
-    /// these twenty-six are is "the keys that carry the alphabet"; which letter each of them
-    /// types on the layout in force is `KeyLayout`'s question, asked when one is pressed.
+    /// these twenty-six are is "the keys that carry the alphabet" on an American keyboard;
+    /// which letter each of them types on the layout in force is `KeyLayout`'s question, asked
+    /// when one is pressed.
     static let letterKeyCodes = [kVK_ANSI_A, kVK_ANSI_B, kVK_ANSI_C, kVK_ANSI_D, kVK_ANSI_E,
                                  kVK_ANSI_F, kVK_ANSI_G, kVK_ANSI_H, kVK_ANSI_I, kVK_ANSI_J,
                                  kVK_ANSI_K, kVK_ANSI_L, kVK_ANSI_M, kVK_ANSI_N, kVK_ANSI_O,
@@ -91,7 +158,16 @@ final class HotKeyService: ObservableObject {
                                  kVK_ANSI_U, kVK_ANSI_V, kVK_ANSI_W, kVK_ANSI_X, kVK_ANSI_Y,
                                  kVK_ANSI_Z]
 
-    private var hotKeyRefs: [Slot: EventHotKeyRef] = [:]
+    /// The keys around the letters: [ ] ; ' , . / - = ` and \ where an American keyboard has
+    /// them, and the ISO key beside 1 (§ on a British Mac). Where Ö, Ä, Ü, Ñ, Å, Ø, the French
+    /// M and most of the Russian and Turkish letters are.
+    static let punctuationKeyCodes = [kVK_ANSI_LeftBracket, kVK_ANSI_RightBracket, kVK_ANSI_Semicolon,
+                                      kVK_ANSI_Quote, kVK_ANSI_Comma, kVK_ANSI_Period, kVK_ANSI_Slash,
+                                      kVK_ANSI_Minus, kVK_ANSI_Equal, kVK_ANSI_Grave, kVK_ANSI_Backslash,
+                                      kVK_ISO_Section]
+
+    /// Every hot key registered now, by its id: a `Slot`'s raw value, or a typing key's.
+    private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
     private var escapeArmed = false
     private var stepKeysArmed = false
@@ -113,11 +189,17 @@ final class HotKeyService: ObservableObject {
             let read = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                                          nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             // Only our own, well-formed hot keys are acted on; anything else is logged and dropped.
-            guard read == noErr, hotKeyID.signature == HotKeyService.signature, let slot = Slot(rawValue: hotKeyID.id) else {
+            guard read == noErr, hotKeyID.signature == HotKeyService.signature else {
                 IslandLog.keys.error("hot key event ignored: status \(read, privacy: .public) id \(hotKeyID.id, privacy: .public)")
                 return noErr
             }
-            DispatchQueue.main.async { HotKeyService.handle(slot) }
+            if let slot = Slot(rawValue: hotKeyID.id) {
+                DispatchQueue.main.async { HotKeyService.handle(slot) }
+            } else if let key = HotKeyService.typingKey(id: hotKeyID.id) {
+                DispatchQueue.main.async { HotKeyService.handle(key) }
+            } else {
+                IslandLog.keys.error("hot key event ignored: unknown id \(hotKeyID.id, privacy: .public)")
+            }
             return noErr
         }, 1, &eventType, nil, &handlerRef)
         guard status == noErr else {
@@ -237,22 +319,41 @@ final class HotKeyService: ObservableObject {
         register(.volumeUp, keyCode: kVK_UpArrow, modifiers: 0)
         register(.volumeDown, keyCode: kVK_DownArrow, modifiers: 0)
         register(.playPause, keyCode: kVK_Space, modifiers: 0)
-        for (index, code) in Self.digitKeyCodes.enumerated() {
-            guard let slot = Slot(rawValue: UInt32(21 + index)) else { continue }
-            register(slot, keyCode: code, modifiers: 0)
-        }
-        register(.digit0, keyCode: kVK_ANSI_0, modifiers: 0)
-        // The alphabet, but only where there is a list to look through: on Now Playing or
-        // Stats a letter is nobody's to take, so it is left alone.
-        guard panelClaim.letters else { return }
-        for (index, code) in Self.letterKeyCodes.enumerated() {
-            guard let slot = Slot(rawValue: UInt32(31 + index)) else { continue }
-            register(slot, keyCode: code, modifiers: 0)
+        // The figures and, where there is a list to look through, the letters — each asked of
+        // the layout in force for whether it is worth taking at all (`claims`). The layout is
+        // looked at once for each set of modifiers, not once a key.
+        let letters = panelClaim.letters
+        let plain = letters ? KeyLayout.characters(for: Self.punctuationKeyCodes) : [:]
+        let shifted = KeyLayout.characters(for: Self.numberRowKeyCodes, modifiers: shiftKey)
+        for (index, key) in Self.typingKeys.enumerated() {
+            let typed = key.kind == .shiftedNumberRow ? shifted[key.keyCode] : plain[key.keyCode]
+            guard Self.claims(key.kind, letters: letters, typed: typed) else { continue }
+            register(id: Self.typingKeyIDBase + UInt32(index), keyCode: key.keyCode, modifiers: key.modifiers)
         }
     }
 
     private func unregisterPanelKeys() {
         for slot in Self.panelSlots { unregister(slot) }
+        for index in Self.typingKeys.indices { unregister(id: Self.typingKeyIDBase + UInt32(index)) }
+    }
+
+    /// Whether a typing key is worth claiming, given whether the section is a list to look
+    /// through and what the key types on the layout in force.
+    ///
+    /// The number row and the keypad always: a figure, or a slot of the switcher, wherever the
+    /// panel is. The number row with Shift only where it types a figure — the French and Czech
+    /// way of typing one — so that on an American keyboard ⇧2 is left alone as it always was.
+    /// The letter keys wherever there is a list to search. The keys around them only where they
+    /// type a letter as well, which on an American keyboard is none of them, so nothing more
+    /// is taken there than before; on a German one it is Ö, Ä and Ü, on a French one the M.
+    /// Pure, so any layout can be put to it.
+    static func claims(_ kind: TypingKey.Kind, letters: Bool, typed: String?) -> Bool {
+        switch kind {
+        case .numberRow, .keypad: return true
+        case .shiftedNumberRow: return figure(typed) != nil
+        case .letter: return letters
+        case .punctuation: return letters && PanelFind.opensFind(typed ?? "")
+        }
     }
 
     /// Control-Y and Control-N answer the question `notchctl ask` put on the island. Claimed
@@ -280,18 +381,30 @@ final class HotKeyService: ObservableObject {
     ///
     /// Pure: the layout is asked through `character`, so the rule can be tested for any of them.
     static func askKeyCode(typing letter: Character, among codes: [Int], character: (Int) -> String?) -> Int {
+        keyCode(typing: letter, among: codes, character: character,
+                otherwise: letter.lowercased() == "n" ? kVK_ANSI_N : kVK_ANSI_Y)
+    }
+
+    /// The first of `codes` that types `letter` on the layout `character` answers for, in
+    /// either case; `otherwise` where none of them does.
+    static func keyCode(typing letter: Character, among codes: [Int], character: (Int) -> String?,
+                        otherwise: Int) -> Int {
         let wanted = String(letter).lowercased()
-        if let code = codes.first(where: { character($0)?.lowercased() == wanted }) { return code }
-        return letter.lowercased() == "n" ? kVK_ANSI_N : kVK_ANSI_Y
+        return codes.first(where: { character($0)?.lowercased() == wanted }) ?? otherwise
     }
 
     @discardableResult
     private func register(_ slot: Slot, keyCode: Int, modifiers: Int) -> Bool {
-        let id = EventHotKeyID(signature: Self.signature, id: slot.rawValue)
+        register(id: slot.rawValue, keyCode: keyCode, modifiers: modifiers)
+    }
+
+    @discardableResult
+    private func register(id: UInt32, keyCode: Int, modifiers: Int) -> Bool {
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id, GetApplicationEventTarget(), 0, &ref)
+        let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hotKeyID, GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else { return false }
-        hotKeyRefs[slot] = ref
+        hotKeyRefs[id] = ref
         return true
     }
 
@@ -301,7 +414,11 @@ final class HotKeyService: ObservableObject {
     }
 
     private func unregister(_ slot: Slot) {
-        if let ref = hotKeyRefs.removeValue(forKey: slot) { UnregisterEventHotKey(ref) }
+        unregister(id: slot.rawValue)
+    }
+
+    private func unregister(id: UInt32) {
+        if let ref = hotKeyRefs.removeValue(forKey: id) { UnregisterEventHotKey(ref) }
     }
 
     /// Escape is claimed only while the island has something open and the keyboard is its,
@@ -332,12 +449,12 @@ final class HotKeyService: ObservableObject {
                 if armed { registerAskKeys() } else { unregisterAskKeys() }
             }
         }
-        return armed && hotKeyRefs[.askYes] != nil && hotKeyRefs[.askNo] != nil
+        return armed && hotKeyRefs[Slot.askYes.rawValue] != nil && hotKeyRefs[Slot.askNo.rawValue] != nil
     }
 
     /// The two halves of the claim: the keys the panel answers itself — the arrows, the digits
-    /// and Space — and the alphabet, which costs twenty-six more keys and only means something
-    /// where there is a list to look through.
+    /// and Space — and the alphabet, which costs the letter keys and those around them that type
+    /// a letter, and only means something where there is a list to look through.
     struct KeyClaim: Equatable {
         let bareKeys: Bool
         let letters: Bool
@@ -496,19 +613,30 @@ final class HotKeyService: ObservableObject {
     }
 
     /// The combination this Mac gets while nobody has recorded one: ⌃⌥Space, or ⌃⌥I where
-    /// macOS uses ⌃⌥Space to switch input sources — see `fallbackKeyCode`. Pure over
-    /// `symbolic` and the count of keyboard sources.
-    static func shippingDefault(symbolic: [[String: Any]], keyboardSources: Int) -> (keyCode: Int, modifiers: Int) {
+    /// macOS uses ⌃⌥Space to switch input sources — see `fallbackKeyCode` — with I found by
+    /// what the keys type on the layout `character` answers for (`fallbackKey(character:)`).
+    /// Pure over `symbolic`, the count of keyboard sources and the layout.
+    static func shippingDefault(symbolic: [[String: Any]], keyboardSources: Int,
+                                character: (Int) -> String?) -> (keyCode: Int, modifiers: Int) {
         systemTakes(keyCode: defaultKeyCode, modifiers: defaultModifiers, symbolic: symbolic,
                     keyboardSources: keyboardSources)
-            ? (fallbackKeyCode, fallbackModifiers)
+            ? (fallbackKey(character: character), fallbackModifiers)
             : (defaultKeyCode, defaultModifiers)
     }
 
-    /// The same, from this Mac's own list and input sources. What Preferences writes down the
-    /// first time the app runs, and what the recorder's Reset goes back to. Main thread.
+    /// The same, from this Mac's own list, input sources and layout. What Preferences writes
+    /// down the first time the app runs, and what the recorder's Reset goes back to. Main thread.
     static var shippingDefaultOnThisMac: (keyCode: Int, modifiers: Int) {
-        shippingDefault(symbolic: systemHotKeys(), keyboardSources: selectableKeyboardSources())
+        shippingDefault(symbolic: systemHotKeys(), keyboardSources: selectableKeyboardSources(),
+                        character: KeyLayout.character(for:))
+    }
+
+    /// The fallback as it reads on the layout `character` answers for: "⌃⌥I" wherever a key
+    /// types an I, whichever key that is. What the recorder's Reset button names beside
+    /// ⌃⌥Space, so that the two can never disagree about which key it is.
+    static func fallbackDisplay(character: (Int) -> String?) -> String {
+        displayString(keyCode: fallbackKey(character: character), carbonModifiers: fallbackModifiers,
+                      character: character)
     }
 
     /// How many keyboard input sources the input menu can switch between: the enabled
@@ -592,43 +720,129 @@ final class HotKeyService: ObservableObject {
             } else {
                 NowPlayingService.shared.togglePlayPause()
             }
-        // The digits and the letters, which are the only slots left.
-        default:
-            if let digit = Self.typedDigit(slot), PanelFind.takesEntry(center.openSection) {
-                // On Actions a number is a timer's minutes or the start of an alarm's time,
-                // typed into the field this opens; the switcher is a Tab or an arrow away.
-                center.beginFind(with: digit)
-            } else if let index = slot.switcherIndex {
-                center.selectSlot(index)
-            } else if let code = slot.letterKeyCode, let character = KeyLayout.character(for: code) {
-                center.beginFind(with: character)
-            }
         }
     }
 
-    /// The digit a slot's key types, for the timer entry on Actions.
-    private static func typedDigit(_ slot: Slot) -> String? {
-        if slot == .digit0 { return "0" }
-        return slot.switcherIndex.map { String($0 + 1) }
+    /// A typing key, read for what it types on the layout in force at the moment it is
+    /// pressed rather than for where it sits on an American keyboard — see `keyRole`.
+    private static func handle(_ key: TypingKey) {
+        let center = ActivityCenter.shared
+        let sinceOpened = Date().timeIntervalSince(center.openedAt)
+        IslandLog.keys.notice("typing key \(key.keyCode, privacy: .public) \(sinceOpened, privacy: .public)s after opening")
+        let section = center.openSection
+        let role = keyRole(typed: KeyLayout.character(for: key.keyCode, modifiers: key.modifiers), digit: key.digit,
+                           searchable: PanelFind.searches(section), takesEntry: PanelFind.takesEntry(section))
+        switch role {
+        case .find(let letter):
+            // Under an input method the key is the start of a composition, not a letter of
+            // the query: the field opens empty and focused for it to be typed again there.
+            if KeyLayout.prefillsFindOnThisMac {
+                center.beginFind(with: letter)
+            } else {
+                center.beginFind()
+            }
+        case .entry(let digits):
+            // On Actions a number is a timer's minutes or the start of an alarm's time,
+            // typed into the field this opens; the switcher is a Tab or an arrow away.
+            center.beginFind(with: digits)
+        case .slot(let index):
+            center.selectSlot(index)
+        case .nothing:
+            break
+        }
+    }
+
+    /// What a press of one of the typing keys does.
+    enum KeyRole: Equatable {
+        /// Start a find with this letter.
+        case find(String)
+        /// Open the timer entry on Actions with this figure, always a Western one.
+        case entry(String)
+        /// Go straight to this slot of the switcher, counting from zero.
+        case slot(Int)
+        /// Nothing: neither a letter where there is a list, nor a figure.
+        case nothing
+    }
+
+    /// What a typing key does, given what it types with the modifiers it was pressed with
+    /// (`typed`, nil where the layout cannot say), the figure printed on it (`digit`, for the
+    /// number row and the keypad), and whether the section on screen is a list to search or
+    /// Actions, where figures type a timer.
+    ///
+    /// What the key types comes first, and only a key that types no letter falls back to the
+    /// figure printed on it. A letter is a find wherever there is a list to look through,
+    /// whichever key it is on: the é on a French 2 and the ö beside a German L as much as an
+    /// A. A figure the layout types is the figure — ⇧2 on a French keyboard is 2, and so is
+    /// an Arabic ٢ — and a key that types neither stands for the figure printed on it, so the
+    /// French 2 still reaches the second slot where there is nothing to search, and still
+    /// types a 2 on Actions. On an American keyboard every figure key types its own figure
+    /// and every letter key its own letter, so nothing there changes. Pure, so any layout can
+    /// be put to it.
+    static func keyRole(typed: String?, digit: Int?, searchable: Bool, takesEntry: Bool) -> KeyRole {
+        if searchable, let typed, PanelFind.opensFind(typed) { return .find(typed) }
+        guard let value = figure(typed) ?? digit else { return .nothing }
+        if takesEntry { return .entry(String(value)) }
+        // Zero has no slot of its own.
+        return value > 0 ? .slot(value - 1) : .nothing
+    }
+
+    /// The figure a key types, when what it types is one: any decimal digit, so that a
+    /// full-width ５ or an Arabic ٥ counts as the 5 it is. Nil for anything else, a superscript
+    /// ² or a Roman Ⅻ included.
+    static func figure(_ typed: String?) -> Int? {
+        guard let typed, typed.count == 1, let character = typed.first,
+              character.unicodeScalars.count == 1,
+              character.unicodeScalars.first?.properties.numericType == .decimal,
+              let value = character.wholeNumberValue, (0...9).contains(value) else { return nil }
+        return value
     }
 
     // MARK: - Display
 
-    /// "⌃⌥Space", "⇧⌘K", "F5" — modifiers in Apple's canonical order, then the key name.
-    static func displayString(keyCode: Int, carbonModifiers: Int) -> String {
+    /// "⌃⌥Space", "⇧⌘K", "F5" — modifiers in Apple's canonical order, then the key's name,
+    /// which for a key that types something is what it types on the layout `character`
+    /// answers for (`keyName`).
+    static func displayString(keyCode: Int, carbonModifiers: Int,
+                              character: (Int) -> String? = KeyLayout.character(for:)) -> String {
         var text = ""
         if (carbonModifiers & controlKey) != 0 { text += "⌃" }
         if (carbonModifiers & optionKey) != 0 { text += "⌥" }
         if (carbonModifiers & shiftKey) != 0 { text += "⇧" }
         if (carbonModifiers & cmdKey) != 0 { text += "⌘" }
-        return text + keyName(for: keyCode)
+        return text + keyName(for: keyCode, character: character)
     }
 
-    /// Maps a Carbon virtual key code to a printable name (ANSI layout).
-    static func keyName(for keyCode: Int) -> String {
+    /// A key's name as its own cap would print it.
+    ///
+    /// A key code is a position, and this used to name each one by the American legend at that
+    /// position: a German Mac with ⌃⌥Z recorded was shown ⌃⌥Y, a French one with ⌃⌥A was
+    /// shown ⌃⌥Q, and the key beside 1 on every ISO keyboard was "Key 0x0A". A key that types
+    /// something is named by what it types on the layout in force, as a capital; the keys that
+    /// type nothing — Return, Tab, the arrows, the function keys — by their names; and the
+    /// American legend is kept for when the layout cannot be asked.
+    static func keyName(for keyCode: Int, character: (Int) -> String? = KeyLayout.character(for:)) -> String {
+        if typingKeyCodes.contains(keyCode), let printed = legend(typed: character(keyCode)) { return printed }
         if let name = keyNames[keyCode] { return name }
         let hex = String(keyCode, radix: 16, uppercase: true)
         return "Key 0x" + (hex.count < 2 ? "0" + hex : hex)
+    }
+
+    /// The keys named by what they type: the letters, the number row, the keys around the
+    /// letters, and the two JIS keys beside them. Not the keypad, whose figures would read as
+    /// the number row's.
+    static let typingKeyCodes: Set<Int> =
+        Set(letterKeyCodes + numberRowKeyCodes + punctuationKeyCodes + [kVK_JIS_Yen, kVK_JIS_Underscore])
+
+    /// What a key's cap says for the character it types: a letter as a capital, the way caps
+    /// and menus print one, and anything else as it is. A letter whose capital is two of them
+    /// — the German ß — keeps its own form rather than reading as "SS". Nil for nothing, a
+    /// space or a control character, which leave the name to the table.
+    static func legend(typed: String?) -> String? {
+        guard let typed, !typed.isEmpty,
+              !typed.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0)
+                  || CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        let capital = typed.uppercased()
+        return capital.count == typed.count ? capital : typed
     }
 
     /// The AppKit modifier flags of a recorded event, as the Carbon masks RegisterEventHotKey wants.
@@ -641,8 +855,11 @@ final class HotKeyService: ObservableObject {
         return mask
     }
 
-    /// Virtual key codes are layout-independent positions; these are the ANSI legends.
+    /// Virtual key codes are layout-independent positions; these are the ANSI legends, with
+    /// the ISO key beside 1 and the two JIS keys beside the letters as a British and a Japanese
+    /// Mac print them. What a typing key is called when the layout cannot be asked.
     private static let keyNames: [Int: String] = [
+        10: "§", 93: "¥", 94: "_",
         0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X", 8: "C", 9: "V",
         11: "B", 12: "Q", 13: "W", 14: "E", 15: "R", 16: "Y", 17: "T",
         18: "1", 19: "2", 20: "3", 21: "4", 22: "6", 23: "5", 25: "9", 26: "7", 28: "8", 29: "0",

@@ -46,7 +46,9 @@ struct IslandPane: View {
                     LabeledContent("Play or pause", value: "Space")
                     LabeledContent("Quick Look the shelf", value: "Space")
                     LabeledContent("Volume", value: "↑ and ↓")
-                    LabeledContent("Find in a list", value: "A to Z")
+                    // Any letter the keyboard types, not the American A to Z: an é, an ö or
+                    // a ж starts a find as well (`HotKeyService.keyRole`).
+                    LabeledContent("Find in a list", value: "Any letter")
                     LabeledContent("Walk the matches", value: "↑ and ↓")
                     LabeledContent("Take the one you are on", value: "Return")
                     LabeledContent("Leave the find", value: "Escape")

@@ -278,6 +278,13 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- Typing to find in a list works with any letter the keyboard types, not only the 26 American letter keys: the French M, German Ö Ä Ü ß, Scandinavian Å Æ Ø, Spanish Ñ, Russian and Turkish letters now start a find, and the é è ç à on a French number row, or the Czech letters there, start a find instead of jumping the switcher.
+- On Actions, a timer can be typed with Shift and the number row on a French or Czech keyboard, and with the numeric keypad; number-row keys typed without Shift are read as the figures printed on them.
+- Shortcuts are shown by what their key types on the current layout: ⌃⌥Z on a German keyboard no longer reads ⌃⌥Y, ⌃⌥A on a French one no longer reads ⌃⌥Q, and the ISO § key has a name instead of "Key 0x0A".
+- Where macOS uses ⌃⌥Space, the fallback shortcut is the key that types I, so a Dvorak or Colemak Mac gets the ⌃⌥I the tour and Settings name.
+- With Pinyin, Japanese or Korean input on, typing opens the find empty and ready for the input method, instead of starting it with a stray Latin letter.
+- The timer field accepts full-width and Arabic figures, and times written as 19h30 or 7h.
+- Reopening the welcome tour no longer keeps the previous copy of its content alive.
 - The Stats row, the battery card's watts, Settings' seconds and Motion figures, and the stopwatch's tenths use your region's decimal mark ("38,5 GB", "+34,2 W", "0,35 s", "01:05,3"), matching the network figures beside them.
 - Settings writes percentages as "150%", like the rest of the app.
 - VoiceOver hears ages and countdowns in words: "4 minutes ago" for clipboard, notification and shelf items, and "Standup, in 7 minutes" for the calendar pill, instead of "4m", which it read as metres.

@@ -120,6 +120,22 @@ final class ShortcutRecorderTests: XCTestCase {
                      "Escape is claimed bare, and only while something is open; with modifiers it is free")
     }
 
+    /// The Reset button's tooltip said "⌃⌥I" in so many words, beside a fallback that was
+    /// wherever I sits on an American keyboard. It is made from the key Reset goes back to now,
+    /// named by what that key types, so a Dvorak Mac is told ⌃⌥I and gets the key it types I with.
+    func testTheResetTooltipNamesTheKeysAsTheyType() {
+        for layout in [TestLayout.us, TestLayout.german, TestLayout.azerty, TestLayout.dvorak, TestLayout.colemak] {
+            XCTAssertEqual(ShortcutRecorderView.resetHelp(character: layout),
+                           "Go back to the shipping shortcut: ⌃⌥Space, or ⌃⌥I where macOS uses that.")
+        }
+        // Where no key types an I the fallback is the American place, named by what it types.
+        let russian: (Int) -> String? = { $0 == kVK_ANSI_I ? "ш" : "ж" }
+        XCTAssertEqual(HotKeyService.fallbackKey(character: russian), kVK_ANSI_I)
+        XCTAssertTrue(ShortcutRecorderView.resetHelp(character: russian).contains("⌃⌥Ш"))
+        XCTAssertTrue(ShortcutRecorderView.resetHelp(character: TestLayout.unknown).contains("⌃⌥I"),
+                      "and by the American legend where the layout cannot be asked")
+    }
+
     func testEveryRefusalSaysSomethingAPersonCanActOn() {
         for refusal in [Rejection.bareKey, .shiftAlone, .ownStep, .tooFewModifiers] {
             XCTAssertFalse(refusal.message.isEmpty)

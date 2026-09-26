@@ -24,7 +24,7 @@ struct ShortcutRecorderView: View {
                     }
                     .help("Record a new shortcut.")
                     Button("Reset") { reset() }
-                        .help("Go back to the shipping shortcut: ⌃⌥Space, or ⌃⌥I where macOS uses that.")
+                        .help(Self.resetHelp(character: KeyLayout.character(for:)))
                 }
             }
             if let note {
@@ -43,6 +43,19 @@ struct ShortcutRecorderView: View {
             keyCode: HotKeyService.normalized(prefs.hotkeyKeyCode, fallback: HotKeyService.defaultKeyCode),
             carbonModifiers: HotKeyService.normalized(prefs.hotkeyModifiers, fallback: HotKeyService.defaultModifiers)
         )
+    }
+
+    /// The Reset button's tooltip, naming the two shortcuts a Mac may ship with as they read on
+    /// the layout `character` answers for. "⌃⌥I" used to be written in by hand beside a key
+    /// that was where I sits on an American keyboard, and types C on a Dvorak one; the name is
+    /// now made from the same key Reset goes back to (`HotKeyService.fallbackKey(character:)`),
+    /// so the two cannot disagree. Pure, so any layout can be put to it.
+    static func resetHelp(character: (Int) -> String?) -> String {
+        let shipping = HotKeyService.displayString(keyCode: HotKeyService.defaultKeyCode,
+                                                   carbonModifiers: HotKeyService.defaultModifiers,
+                                                   character: character)
+        return "Go back to the shipping shortcut: \(shipping), or \(HotKeyService.fallbackDisplay(character: character)) "
+            + "where macOS uses that."
     }
 
     /// The small grey line under the row: a nudge while recording, otherwise the conflict warning.
@@ -116,8 +129,9 @@ struct ShortcutRecorderView: View {
         return nil
     }
 
-    /// Back to what this Mac ships with, which is ⌃⌥I where macOS has ⌃⌥Space: resetting to
-    /// a combination the system answers first would reset to a shortcut that does nothing.
+    /// Back to what this Mac ships with, which is ⌃⌥I — whichever key types the I — where
+    /// macOS has ⌃⌥Space: resetting to a combination the system answers first would reset to a
+    /// shortcut that does nothing.
     private func reset() {
         endRecording()
         hint = nil

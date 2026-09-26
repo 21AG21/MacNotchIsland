@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon
 @testable import MacNotchIsland
 
 /// Exercises the pure parts of HotKeyService: how a stored combo is rendered for the settings
@@ -71,10 +72,10 @@ final class HotKeyServiceTests: XCTestCase {
         XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: 34, modifiers: control | option))
         XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: 49, modifiers: control | option | shift))
 
-        let one = HotKeyService.shippingDefault(symbolic: inputMenu, keyboardSources: 1)
+        let one = HotKeyService.shippingDefault(symbolic: inputMenu, keyboardSources: 1, character: TestLayout.us)
         XCTAssertEqual(one.keyCode, HotKeyService.defaultKeyCode, "one layout keeps the shortcut the README names")
         XCTAssertEqual(one.modifiers, HotKeyService.defaultModifiers)
-        let two = HotKeyService.shippingDefault(symbolic: inputMenu, keyboardSources: 2)
+        let two = HotKeyService.shippingDefault(symbolic: inputMenu, keyboardSources: 2, character: TestLayout.us)
         XCTAssertEqual(two.keyCode, HotKeyService.fallbackKeyCode)
         XCTAssertEqual(two.modifiers, HotKeyService.fallbackModifiers)
     }
@@ -139,20 +140,22 @@ final class HotKeyServiceTests: XCTestCase {
 
     /// A Mac where macOS has ⌃⌥Space starts on ⌃⌥I, which the tour then names.
     func testTheShippingShortcutStepsAsideForTheSystem() {
-        let free = HotKeyService.shippingDefault(symbolic: [], keyboardSources: 2)
+        let free = HotKeyService.shippingDefault(symbolic: [], keyboardSources: 2, character: TestLayout.us)
         XCTAssertEqual(free.keyCode, HotKeyService.defaultKeyCode)
         XCTAssertEqual(free.modifiers, HotKeyService.defaultModifiers)
 
         let taken = HotKeyService.shippingDefault(symbolic: [symbolic(49, control | option, enabled: true)],
-                                                  keyboardSources: 2)
+                                                  keyboardSources: 2, character: TestLayout.us)
         XCTAssertEqual(taken.keyCode, HotKeyService.fallbackKeyCode)
         XCTAssertEqual(taken.modifiers, HotKeyService.fallbackModifiers)
-        XCTAssertEqual(HotKeyService.displayString(keyCode: taken.keyCode, carbonModifiers: taken.modifiers), "⌃⌥I")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: taken.keyCode, carbonModifiers: taken.modifiers,
+                                                   character: TestLayout.us), "⌃⌥I")
         XCTAssertNil(ShortcutRecorderView.rejection(keyCode: taken.keyCode, modifiers: taken.modifiers),
                      "and the fallback is one the recorder would have taken")
 
         let both = [symbolic(49, control | option, enabled: true), symbolic(34, control | option, enabled: true)]
-        XCTAssertEqual(HotKeyService.shippingDefault(symbolic: both, keyboardSources: 2).keyCode, HotKeyService.fallbackKeyCode,
+        XCTAssertEqual(HotKeyService.shippingDefault(symbolic: both, keyboardSources: 2, character: TestLayout.us).keyCode,
+                       HotKeyService.fallbackKeyCode,
                        "the fallback is not second-guessed: it is the one default there is")
     }
 
@@ -168,9 +171,11 @@ final class HotKeyServiceTests: XCTestCase {
     }
 
     func testModifiersUseApplesCanonicalOrder() {
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 40, carbonModifiers: shift | cmd), "⇧⌘K")
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 0, carbonModifiers: cmd | shift | option | control), "⌃⌥⇧⌘A")
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 8, carbonModifiers: cmd), "⌘C")
+        let us = TestLayout.us
+        XCTAssertEqual(HotKeyService.displayString(keyCode: 40, carbonModifiers: shift | cmd, character: us), "⇧⌘K")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: 0, carbonModifiers: cmd | shift | option | control, character: us),
+                       "⌃⌥⇧⌘A")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: 8, carbonModifiers: cmd, character: us), "⌘C")
     }
 
     func testNoModifiersRendersTheBareKey() {
@@ -199,15 +204,19 @@ final class HotKeyServiceTests: XCTestCase {
     }
 
     func testDigitsUseTheAnsiLayout() {
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 18, carbonModifiers: 0), "1")
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 23, carbonModifiers: 0), "5")
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 22, carbonModifiers: 0), "6")
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 29, carbonModifiers: 0), "0")
+        for character in [TestLayout.us, TestLayout.unknown] {
+            XCTAssertEqual(HotKeyService.displayString(keyCode: 18, carbonModifiers: 0, character: character), "1")
+            XCTAssertEqual(HotKeyService.displayString(keyCode: 23, carbonModifiers: 0, character: character), "5")
+            XCTAssertEqual(HotKeyService.displayString(keyCode: 22, carbonModifiers: 0, character: character), "6")
+            XCTAssertEqual(HotKeyService.displayString(keyCode: 29, carbonModifiers: 0, character: character), "0")
+        }
     }
 
     func testUnknownKeyCodesFallBackToHex() {
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 0x7F, carbonModifiers: control), "⌃Key 0x7F")
-        XCTAssertEqual(HotKeyService.displayString(keyCode: 0x0A, carbonModifiers: 0), "Key 0x0A")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: 0x7F, carbonModifiers: control, character: TestLayout.us),
+                       "⌃Key 0x7F")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: 0x0A, carbonModifiers: 0, character: TestLayout.unknown), "§",
+                       "the ISO key beside 1 has a name of its own, even where the layout cannot be asked")
     }
 
     func testEveryKindOfKeyOnTheBoardRendersAsItsOwnLegend() {
@@ -223,13 +232,14 @@ final class HotKeyServiceTests: XCTestCase {
             115: "Home", 121: "Page Down",
             123: "←", 124: "→", 125: "↓", 126: "↑",
         ]
+        // Asked of no layout, which is when the table is what names a key.
         for (code, legend) in legends {
-            XCTAssertEqual(HotKeyService.keyName(for: code), legend, "key code \(code)")
+            XCTAssertEqual(HotKeyService.keyName(for: code, character: TestLayout.unknown), legend, "key code \(code)")
         }
         // And the hex form is kept for a code the table really has no legend for: 0x7F is one
         // past the last key on the board, and 200 is 0xC8, two digits with nothing to pad.
-        XCTAssertEqual(HotKeyService.keyName(for: 0x7F), "Key 0x7F")
-        XCTAssertEqual(HotKeyService.keyName(for: 200), "Key 0xC8")
+        XCTAssertEqual(HotKeyService.keyName(for: 0x7F, character: TestLayout.unknown), "Key 0x7F")
+        XCTAssertEqual(HotKeyService.keyName(for: 200, character: TestLayout.unknown), "Key 0xC8")
     }
 
     // MARK: carbonModifiers(from:)
@@ -276,11 +286,11 @@ final class HotKeyServiceTests: XCTestCase {
     // MARK: - The letters
 
     func testTheAlphabetIsClaimedInAlphabeticalOrder() {
-        // The slot a letter key is registered in is its position in this list, so the list
-        // being A to Z is what makes a key press come back as the right letter.
+        // The question's keys and the fallback shortcut are found among these by the letter
+        // they type, and the American A to Z is where they are looked for first.
         XCTAssertEqual(HotKeyService.letterKeyCodes.count, 26)
         XCTAssertEqual(Set(HotKeyService.letterKeyCodes).count, 26, "no key is claimed twice")
-        let names = HotKeyService.letterKeyCodes.map { HotKeyService.keyName(for: $0) }
+        let names = HotKeyService.letterKeyCodes.map { HotKeyService.keyName(for: $0, character: TestLayout.unknown) }
         XCTAssertEqual(names, (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) })
     }
 
@@ -378,4 +388,296 @@ final class HotKeyServiceTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - What a key types, not where it is
+
+    private typealias Role = HotKeyService.KeyRole
+
+    /// A press as the handler reads it: what the layout types on the key, and the figure
+    /// printed on it where it has one, on a list, on Now Playing, or on Actions.
+    private func role(_ typed: String?, digit: Int? = nil, on section: HomeSection) -> Role {
+        HotKeyService.keyRole(typed: typed, digit: digit,
+                              searchable: PanelFind.searches(section), takesEntry: PanelFind.takesEntry(section))
+    }
+
+    func testAnAmericanKeyboardDoesWhatItAlwaysDid() {
+        // The letters find, the figures jump the switcher or type a timer, zero has no slot.
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_A), on: .clipboard), .find("a"))
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_2), digit: 2, on: .clipboard), .slot(1))
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_2), digit: 2, on: .music), .slot(1))
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_0), digit: 0, on: .clipboard), .nothing)
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_2), digit: 2, on: .actions), .entry("2"))
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_0), digit: 0, on: .actions), .entry("0"))
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_A), on: .music), .nothing, "no list, no find")
+        XCTAssertEqual(role(TestLayout.us(kVK_ANSI_Semicolon), on: .clipboard), .nothing)
+    }
+
+    /// The French number row types é è ç à without Shift. Those jumped the switcher on a list
+    /// rather than starting a find, and Shift, which is how the figures are typed there, was
+    /// never claimed at all.
+    func testALetterOnTheNumberRowFindsWhereThereIsAList() {
+        let azerty = TestLayout.azerty
+        XCTAssertEqual(role(azerty(kVK_ANSI_2), digit: 2, on: .windows), .find("é"))
+        XCTAssertEqual(role(azerty(kVK_ANSI_9), digit: 9, on: .windows), .find("ç"))
+        XCTAssertEqual(role(azerty(kVK_ANSI_2), digit: 2, on: .music), .slot(1),
+                       "nothing to search: the key is the figure printed on it")
+        XCTAssertEqual(role(azerty(kVK_ANSI_2), digit: 2, on: .actions), .entry("2"),
+                       "and on Actions it types that figure, as the field then reads the rest of the row")
+        XCTAssertEqual(role(azerty(kVK_ANSI_3), digit: 3, on: .windows), .slot(2), "a \" is no letter")
+        // Shift and the key: the French way of typing a figure.
+        XCTAssertEqual(role(TestLayout.azertyShifted(kVK_ANSI_2), digit: 2, on: .windows), .slot(1))
+        XCTAssertEqual(role(TestLayout.azertyShifted(kVK_ANSI_2), digit: 2, on: .actions), .entry("2"))
+        // Czech: ě š č ř ž ý á í é on 2 to 0.
+        XCTAssertEqual(role("ř", digit: 5, on: .shelf), .find("ř"))
+        XCTAssertEqual(role("ř", digit: 5, on: .actions), .entry("5"))
+    }
+
+    func testALetterBesideTheAlphabetFinds() {
+        XCTAssertEqual(role(TestLayout.azerty(kVK_ANSI_Semicolon), on: .notifications), .find("m"), "the French M")
+        XCTAssertEqual(role(TestLayout.azerty(kVK_ANSI_M), on: .notifications), .nothing,
+                       "and the key an American M is on types a comma there")
+        XCTAssertEqual(role(TestLayout.german(kVK_ANSI_Semicolon), on: .clipboard), .find("ö"))
+        XCTAssertEqual(role(TestLayout.german(kVK_ANSI_Quote), on: .clipboard), .find("ä"))
+        XCTAssertEqual(role(TestLayout.german(kVK_ANSI_Minus), on: .clipboard), .find("ß"))
+        XCTAssertEqual(role(TestLayout.german(kVK_ANSI_Y), on: .clipboard), .find("z"))
+        XCTAssertEqual(role(TestLayout.dvorak(kVK_ANSI_Semicolon), on: .clipboard), .find("s"))
+        XCTAssertEqual(role(TestLayout.dvorak(kVK_ANSI_Slash), on: .clipboard), .find("z"))
+        XCTAssertEqual(role(TestLayout.dvorak(kVK_ANSI_Q), on: .clipboard), .nothing, "Dvorak's ' is no letter")
+        XCTAssertEqual(role("ж", on: .windows), .find("ж"))
+    }
+
+    func testAFigureIsWhateverTheLayoutTypesOrWhatIsPrintedOnTheKey() {
+        XCTAssertEqual(role("٢", digit: 2, on: .music), .slot(1), "an Arabic two")
+        XCTAssertEqual(role("٢", digit: 2, on: .actions), .entry("2"), "typed into the field as a Western one")
+        XCTAssertEqual(role(nil, digit: 3, on: .actions), .entry("3"), "a layout that cannot be asked")
+        XCTAssertEqual(role(nil, on: .clipboard), .nothing)
+        XCTAssertEqual(role("5", digit: 5, on: .music), .slot(4), "the keypad's 5")
+        XCTAssertEqual(HotKeyService.figure("５"), 5)
+        XCTAssertEqual(HotKeyService.figure("7"), 7)
+        XCTAssertNil(HotKeyService.figure("²"), "a superscript is not a figure anybody typed")
+        XCTAssertNil(HotKeyService.figure("Ⅻ"))
+        XCTAssertNil(HotKeyService.figure("12"))
+        XCTAssertNil(HotKeyService.figure("é"))
+        XCTAssertNil(HotKeyService.figure(nil))
+    }
+
+    // MARK: - What is claimed
+
+    /// Every typing key claimed on a layout, with the letters or without.
+    private func claimed(_ plain: (Int) -> String?, shifted: (Int) -> String?, letters: Bool) -> [HotKeyService.TypingKey] {
+        HotKeyService.typingKeys.filter { key in
+            let typed = key.kind == .shiftedNumberRow ? shifted(key.keyCode) : plain(key.keyCode)
+            return HotKeyService.claims(key.kind, letters: letters, typed: typed)
+        }
+    }
+
+    func testAnAmericanKeyboardLosesNothingMoreThanTheKeypad() {
+        // What was claimed before: nine switcher digits, zero, and the twenty-six letters. The
+        // keypad's ten figures are the one addition; ⇧2 is still an @ and ; still a ;.
+        let list = claimed(TestLayout.us, shifted: TestLayout.usShifted, letters: true)
+        XCTAssertEqual(list.filter { $0.kind != .keypad }.count, 36)
+        XCTAssertEqual(list.filter { $0.kind == .keypad }.count, 10)
+        XCTAssertFalse(list.contains { $0.kind == .shiftedNumberRow || $0.kind == .punctuation })
+        XCTAssertEqual(claimed(TestLayout.us, shifted: TestLayout.usShifted, letters: false).count, 20,
+                       "without a list, the number row and the keypad")
+    }
+
+    func testTheKeysAroundTheAlphabetAreClaimedWhereTheyTypeALetter() {
+        let french = claimed(TestLayout.azerty, shifted: TestLayout.azertyShifted, letters: true)
+        XCTAssertEqual(Set(french.filter { $0.kind == .punctuation }.map(\.keyCode)), [kVK_ANSI_Semicolon, kVK_ANSI_Quote],
+                       "the M and the ù")
+        XCTAssertEqual(french.filter { $0.kind == .shiftedNumberRow }.count, 10, "Shift types the figures there")
+        let german = claimed(TestLayout.german, shifted: TestLayout.germanShifted, letters: true)
+        XCTAssertEqual(Set(german.filter { $0.kind == .punctuation }.map(\.keyCode)),
+                       [kVK_ANSI_LeftBracket, kVK_ANSI_Semicolon, kVK_ANSI_Quote, kVK_ANSI_Minus], "Ü, Ö, Ä and ß")
+        XCTAssertTrue(german.filter { $0.kind == .shiftedNumberRow }.isEmpty, "German Shift types punctuation")
+        let dvorak = claimed(TestLayout.dvorak, shifted: TestLayout.usShifted, letters: true)
+        XCTAssertEqual(Set(dvorak.filter { $0.kind == .punctuation }.map(\.keyCode)),
+                       [kVK_ANSI_Semicolon, kVK_ANSI_Comma, kVK_ANSI_Period, kVK_ANSI_Slash], "Dvorak's S, W, V and Z")
+        XCTAssertTrue(claimed(TestLayout.german, shifted: TestLayout.germanShifted, letters: false)
+            .allSatisfy { $0.kind == .numberRow || $0.kind == .keypad }, "no list, no letters wherever they are")
+    }
+
+    func testEveryTypingKeyHasAnIdOfItsOwn() {
+        let keys = HotKeyService.typingKeys
+        XCTAssertEqual(keys.count, 10 + 10 + 10 + 26 + 12)
+        for (index, key) in keys.enumerated() {
+            XCTAssertEqual(HotKeyService.typingKey(id: HotKeyService.typingKeyIDBase + UInt32(index)), key)
+        }
+        XCTAssertNil(HotKeyService.typingKey(id: HotKeyService.typingKeyIDBase - 1), "the named slots stay theirs")
+        XCTAssertNil(HotKeyService.typingKey(id: HotKeyService.typingKeyIDBase + UInt32(keys.count)))
+        XCTAssertEqual(keys.filter { $0.kind == .numberRow }.map(\.digit), [1, 2, 3, 4, 5, 6, 7, 8, 9, 0])
+        XCTAssertEqual(keys.filter { $0.kind == .keypad }.map(\.digit), [1, 2, 3, 4, 5, 6, 7, 8, 9, 0])
+        XCTAssertTrue(keys.filter { $0.kind == .shiftedNumberRow }.allSatisfy { $0.modifiers == shift })
+        XCTAssertTrue(keys.filter { $0.kind != .shiftedNumberRow }.allSatisfy { $0.modifiers == 0 })
+        let pairs = keys.map { "\($0.keyCode)-\($0.modifiers)" }
+        XCTAssertEqual(Set(pairs).count, pairs.count, "no key and modifiers are registered twice")
+    }
+
+    // MARK: - Naming a key by what it types
+
+    func testAShortcutIsNamedByWhatItsKeyTypes() {
+        let controlOption = control | option
+        XCTAssertEqual(HotKeyService.displayString(keyCode: kVK_ANSI_Z, carbonModifiers: controlOption,
+                                                   character: TestLayout.us), "⌃⌥Z")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: kVK_ANSI_Y, carbonModifiers: controlOption,
+                                                   character: TestLayout.german), "⌃⌥Z", "the German Z is the American Y")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: kVK_ANSI_Z, carbonModifiers: controlOption,
+                                                   character: TestLayout.german), "⌃⌥Y")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: kVK_ANSI_Q, carbonModifiers: controlOption,
+                                                   character: TestLayout.azerty), "⌃⌥A", "the French A is the American Q")
+        XCTAssertEqual(HotKeyService.displayString(keyCode: kVK_ANSI_I, carbonModifiers: controlOption,
+                                                   character: TestLayout.dvorak), "⌃⌥C")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_Semicolon, character: TestLayout.german), "Ö")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_Minus, character: TestLayout.german), "ß",
+                       "a capital that would be two letters keeps its own form")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_2, character: TestLayout.azerty), "É")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ISO_Section, character: TestLayout.us), "§")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_JIS_Yen, character: TestLayout.unknown), "¥")
+    }
+
+    func testKeysThatTypeNothingKeepTheirNames() {
+        // A layout that answers "x" for every key, which none of these may believe.
+        let everything: (Int) -> String? = { _ in "x" }
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_Space, character: everything), "Space")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_Return, character: everything), "Return")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_Tab, character: everything), "Tab")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_F5, character: everything), "F5")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_LeftArrow, character: everything), "←")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_Keypad1, character: everything), "Key 0x53",
+                       "the keypad is not named by its figure, which would read as the number row's")
+        // And what types nothing printable leaves the name to the table.
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_A, character: { _ in "\u{10}" }), "A")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_A, character: { _ in " " }), "A")
+        XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_A, character: { _ in "" }), "A")
+        XCTAssertNil(HotKeyService.legend(typed: nil))
+        XCTAssertEqual(HotKeyService.legend(typed: "ж"), "Ж")
+    }
+
+    // MARK: - Input methods
+
+    /// Under Pinyin, Kotoeri or Korean 2-Set a key is the start of a composition, and the hot
+    /// key takes it before the input method sees it: the find opened with a bare Latin letter
+    /// outside the composition. There the field opens empty instead.
+    func testAnInputMethodOpensTheFindEmpty() {
+        XCTAssertTrue(KeyLayout.prefillsFind(sourceType: kTISTypeKeyboardLayout as String), "a plain layout keeps the letter")
+        XCTAssertFalse(KeyLayout.prefillsFind(sourceType: kTISTypeKeyboardInputMode as String), "Pinyin, Hiragana, 2-Set")
+        XCTAssertFalse(KeyLayout.prefillsFind(sourceType: kTISTypeKeyboardInputMethodWithoutModes as String))
+        XCTAssertFalse(KeyLayout.prefillsFind(sourceType: kTISTypeKeyboardInputMethodModeEnabled as String))
+        XCTAssertTrue(KeyLayout.prefillsFind(sourceType: nil), "a source that cannot be asked keeps what it did")
+    }
+
+    /// The Text Input Sources calls trap off the main thread on recent macOS; asked from
+    /// another, the layout says nothing and whoever asked falls back to the American legend.
+    func testTheLayoutIsOnlyAskedOnTheMainThread() {
+        let asked = expectation(description: "asked from a background queue")
+        DispatchQueue.global().async {
+            XCTAssertNil(KeyLayout.character(for: kVK_ANSI_A))
+            XCTAssertNil(KeyLayout.character(for: kVK_ANSI_2, modifiers: shiftKey))
+            XCTAssertTrue(KeyLayout.characters(for: HotKeyService.numberRowKeyCodes).isEmpty)
+            XCTAssertTrue(TimerEntry.numberRowOnThisMac.isEmpty)
+            XCTAssertEqual(HotKeyService.keyName(for: kVK_ANSI_A), "A")
+            asked.fulfill()
+        }
+        wait(for: [asked], timeout: 5)
+    }
+
+    // MARK: - The fallback shortcut is the key that types I
+
+    func testTheFallbackIsTheKeyThatTypesAnI() {
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.us), kVK_ANSI_I)
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.german), kVK_ANSI_I)
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.azerty), kVK_ANSI_I)
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.dvorak), kVK_ANSI_G,
+                       "where I sits on an American keyboard types C on a Dvorak one")
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.colemak), kVK_ANSI_L,
+                       "and U on a Colemak one")
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.turkishQ), kVK_ANSI_Quote,
+                       "the Turkish dotted i is beside the L")
+        XCTAssertEqual(HotKeyService.fallbackKey(character: { _ in "ж" }), HotKeyService.fallbackKeyCode,
+                       "no key types an I: the American place")
+        XCTAssertEqual(HotKeyService.fallbackKey(character: TestLayout.unknown), HotKeyService.fallbackKeyCode)
+
+        for layout in [TestLayout.us, TestLayout.german, TestLayout.azerty, TestLayout.dvorak, TestLayout.colemak] {
+            XCTAssertEqual(HotKeyService.fallbackDisplay(character: layout), "⌃⌥I", "named by what it types")
+        }
+        let taken = [symbolic(49, control | option, enabled: true)]
+        XCTAssertEqual(HotKeyService.shippingDefault(symbolic: taken, keyboardSources: 2, character: TestLayout.dvorak).keyCode,
+                       kVK_ANSI_G, "a Dvorak Mac starts on the key it types I with")
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_G, modifiers: HotKeyService.fallbackModifiers))
+    }
+}
+
+/// Keyboard layouts as `KeyLayout` would answer for them, for the rules that ask one: what
+/// each key types with nothing held, and for the number row with Shift. Only the keys the
+/// tests ask about need be right, and the American one is complete.
+enum TestLayout {
+    private static let american: [Int: String] = [
+        kVK_ANSI_A: "a", kVK_ANSI_S: "s", kVK_ANSI_D: "d", kVK_ANSI_F: "f", kVK_ANSI_H: "h", kVK_ANSI_G: "g",
+        kVK_ANSI_Z: "z", kVK_ANSI_X: "x", kVK_ANSI_C: "c", kVK_ANSI_V: "v", kVK_ANSI_B: "b", kVK_ANSI_Q: "q",
+        kVK_ANSI_W: "w", kVK_ANSI_E: "e", kVK_ANSI_R: "r", kVK_ANSI_Y: "y", kVK_ANSI_T: "t", kVK_ANSI_O: "o",
+        kVK_ANSI_U: "u", kVK_ANSI_I: "i", kVK_ANSI_P: "p", kVK_ANSI_L: "l", kVK_ANSI_J: "j", kVK_ANSI_K: "k",
+        kVK_ANSI_N: "n", kVK_ANSI_M: "m",
+        kVK_ANSI_1: "1", kVK_ANSI_2: "2", kVK_ANSI_3: "3", kVK_ANSI_4: "4", kVK_ANSI_5: "5",
+        kVK_ANSI_6: "6", kVK_ANSI_7: "7", kVK_ANSI_8: "8", kVK_ANSI_9: "9", kVK_ANSI_0: "0",
+        kVK_ANSI_Equal: "=", kVK_ANSI_Minus: "-", kVK_ANSI_RightBracket: "]", kVK_ANSI_LeftBracket: "[",
+        kVK_ANSI_Quote: "'", kVK_ANSI_Semicolon: ";", kVK_ANSI_Backslash: "\\", kVK_ANSI_Comma: ",",
+        kVK_ANSI_Slash: "/", kVK_ANSI_Period: ".", kVK_ANSI_Grave: "`", kVK_ISO_Section: "§",
+    ]
+
+    private static func table(_ changes: [Int: String]) -> (Int) -> String? {
+        let merged = american.merging(changes) { _, new in new }
+        return { merged[$0] }
+    }
+
+    static let us: (Int) -> String? = table([:])
+    static let usShifted: (Int) -> String? = { code in
+        [kVK_ANSI_1: "!", kVK_ANSI_2: "@", kVK_ANSI_3: "#", kVK_ANSI_4: "$", kVK_ANSI_5: "%",
+         kVK_ANSI_6: "^", kVK_ANSI_7: "&", kVK_ANSI_8: "*", kVK_ANSI_9: "(", kVK_ANSI_0: ")"][code]
+    }
+    /// A layout that cannot be asked.
+    static let unknown: (Int) -> String? = { _ in nil }
+
+    /// German QWERTZ: Y and Z change places, and Ü Ö Ä ß are beside the letters.
+    static let german: (Int) -> String? = table([
+        kVK_ANSI_Y: "z", kVK_ANSI_Z: "y", kVK_ANSI_LeftBracket: "ü", kVK_ANSI_RightBracket: "+",
+        kVK_ANSI_Semicolon: "ö", kVK_ANSI_Quote: "ä", kVK_ANSI_Minus: "ß", kVK_ANSI_Equal: "´",
+        kVK_ANSI_Backslash: "#", kVK_ANSI_Slash: "-", kVK_ANSI_Grave: "<", kVK_ISO_Section: "^",
+    ])
+    static let germanShifted: (Int) -> String? = { code in
+        [kVK_ANSI_1: "!", kVK_ANSI_2: "\"", kVK_ANSI_3: "§", kVK_ANSI_4: "$", kVK_ANSI_5: "%",
+         kVK_ANSI_6: "&", kVK_ANSI_7: "/", kVK_ANSI_8: "(", kVK_ANSI_9: ")", kVK_ANSI_0: "="][code]
+    }
+
+    /// French AZERTY: A and Q, Z and W change places, M is beside the L, and the number row
+    /// types its punctuation and é è ç à without Shift, its figures with it.
+    static let azerty: (Int) -> String? = table([
+        kVK_ANSI_Q: "a", kVK_ANSI_W: "z", kVK_ANSI_A: "q", kVK_ANSI_Z: "w", kVK_ANSI_Semicolon: "m",
+        kVK_ANSI_M: ",", kVK_ANSI_Comma: ";", kVK_ANSI_Period: ":", kVK_ANSI_Slash: "=", kVK_ANSI_Quote: "ù",
+        kVK_ANSI_LeftBracket: "^", kVK_ANSI_RightBracket: "$", kVK_ANSI_Minus: ")", kVK_ANSI_Equal: "-",
+        kVK_ANSI_Backslash: "`", kVK_ANSI_Grave: "<", kVK_ISO_Section: "@",
+        kVK_ANSI_1: "&", kVK_ANSI_2: "é", kVK_ANSI_3: "\"", kVK_ANSI_4: "'", kVK_ANSI_5: "(",
+        kVK_ANSI_6: "§", kVK_ANSI_7: "è", kVK_ANSI_8: "!", kVK_ANSI_9: "ç", kVK_ANSI_0: "à",
+    ])
+    static let azertyShifted: (Int) -> String? = { code in
+        [kVK_ANSI_1: "1", kVK_ANSI_2: "2", kVK_ANSI_3: "3", kVK_ANSI_4: "4", kVK_ANSI_5: "5",
+         kVK_ANSI_6: "6", kVK_ANSI_7: "7", kVK_ANSI_8: "8", kVK_ANSI_9: "9", kVK_ANSI_0: "0"][code]
+    }
+
+    /// Dvorak: the same number row, and every letter somewhere else.
+    static let dvorak: (Int) -> String? = table([
+        kVK_ANSI_Q: "'", kVK_ANSI_W: ",", kVK_ANSI_E: ".", kVK_ANSI_R: "p", kVK_ANSI_T: "y", kVK_ANSI_Y: "f",
+        kVK_ANSI_U: "g", kVK_ANSI_I: "c", kVK_ANSI_O: "r", kVK_ANSI_P: "l", kVK_ANSI_LeftBracket: "/",
+        kVK_ANSI_RightBracket: "=", kVK_ANSI_A: "a", kVK_ANSI_S: "o", kVK_ANSI_D: "e", kVK_ANSI_F: "u",
+        kVK_ANSI_G: "i", kVK_ANSI_H: "d", kVK_ANSI_J: "h", kVK_ANSI_K: "t", kVK_ANSI_L: "n",
+        kVK_ANSI_Semicolon: "s", kVK_ANSI_Quote: "-", kVK_ANSI_Z: ";", kVK_ANSI_X: "q", kVK_ANSI_C: "j",
+        kVK_ANSI_V: "k", kVK_ANSI_B: "x", kVK_ANSI_N: "b", kVK_ANSI_M: "m", kVK_ANSI_Comma: "w",
+        kVK_ANSI_Period: "v", kVK_ANSI_Slash: "z", kVK_ANSI_Minus: "[", kVK_ANSI_Equal: "]",
+    ])
+
+    /// Colemak, as far as the I and the U go.
+    static let colemak: (Int) -> String? = table([kVK_ANSI_I: "u", kVK_ANSI_L: "i", kVK_ANSI_U: "l"])
+
+    /// Turkish Q: the I key types a dotless ı, and the dotted i is beside the L.
+    static let turkishQ: (Int) -> String? = table([kVK_ANSI_I: "ı", kVK_ANSI_Quote: "i", kVK_ANSI_Semicolon: "ş"])
 }
