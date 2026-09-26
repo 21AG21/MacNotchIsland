@@ -171,6 +171,15 @@ final class NotificationInbox: ObservableObject {
 
     private var persistWork: DispatchWorkItem?
 
+    /// Where the history is written, and nothing else: one write at a time, in order, so the
+    /// flush at quit or sleep waits for a write already under way instead of racing it. The
+    /// clipboard history keeps its own the same way.
+    private static let io = DispatchQueue(label: "com.macnotchisland.notifications.io", qos: .utility)
+
+    /// Set when a history on disk that could not be read could not be moved aside either.
+    /// Nothing is written over it for the rest of the run. See `IslandFiles.readBack`.
+    private var heldBack = false
+
     /// Whether the history on disk has been read yet. See `loadIfNeeded`.
     private var loaded = false
 
@@ -192,7 +201,19 @@ final class NotificationInbox: ObservableObject {
     func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        let stored = NotificationInbox.loadPersisted()
+        let stored: [Entry]
+        switch Self.readHistory() {
+        case .value(let decoded):
+            stored = decoded
+        case .missing, .unreadable(.moved(_)):
+            stored = []
+        case .unreadable(.stuck):
+            stored = []
+            heldBack = true
+            // A write scheduled before the read did not know to hold back.
+            persistWork?.cancel()
+            persistWork = nil
+        }
         entries = NotificationInbox.trimmed(stored)
         // What expired while the app was not running is gone from the list, and has to go
         // from the disk as well: trimmed in memory only, it stayed in the file until something
@@ -442,28 +463,37 @@ final class NotificationInbox: ObservableObject {
 
     // MARK: - Persistence
 
-    private static func loadPersisted() -> [Entry] {
-        guard let data = IslandFiles.read(fileName),
-              let decoded = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
-        return decoded
+    /// The history on disk, read back. A file that is there and cannot be read — written by a
+    /// newer build, say, that knows a shape of it this one does not — is moved aside rather than
+    /// read as an empty history, which the next save used to write over it. Internal for the
+    /// tests.
+    static func readHistory(now: Date = Date()) -> IslandFiles.ReadBack<[Entry]> {
+        IslandFiles.readBack(fileName, now: now) { try JSONDecoder().decode([Entry].self, from: $0) }
     }
 
     /// Writes the history now rather than most of a second from now. Quitting is quicker than
     /// the debounce, and what arrived in the last minute before a quit is exactly what somebody
     /// will come back looking for. Nothing is written for a history nothing has touched.
+    ///
+    /// On `io`, and waited for: behind a write already under way, never beside it, so an older
+    /// history cannot land after this one.
     func flush() {
         guard persistWork != nil else { return }
         persistWork?.cancel()
         persistWork = nil
-        Self.persist(entries)
+        guard !heldBack else { return }
+        let snapshot = entries
+        Self.io.sync { Self.persist(snapshot) }
     }
 
     private func schedulePersist() {
         persistWork?.cancel()
+        persistWork = nil
+        guard !heldBack else { return }
         let snapshot = entries
         let work = DispatchWorkItem { NotificationInbox.persist(snapshot) }
         persistWork = work
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.8, execute: work)
+        Self.io.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     private static func persist(_ entries: [Entry]) {

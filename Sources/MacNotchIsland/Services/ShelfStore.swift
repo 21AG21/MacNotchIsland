@@ -603,34 +603,108 @@ final class ShelfStore: ObservableObject {
     /// after the folder they are in when there are several, the way Finder names its own.
     /// `ditto` rather than `zip`: it is what Finder's Compress uses, so resource forks and
     /// the extended attributes survive.
+    ///
+    /// `ditto` archives one thing and refuses more, so several files were never compressed at
+    /// all: every one of them was handed to it at once, and the island said "Could not
+    /// compress" every time. Several are gathered into a folder of their own first — cloned,
+    /// on the same disk, so nothing is copied — and that folder's contents are archived, which
+    /// is what Finder's own Archive.zip holds. The gathering is off the main thread.
     func compress(_ urls: [URL]) {
         let files = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !files.isEmpty else { return }
         let destination = Self.archiveURL(for: files)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent"]
-            + files.map(\.path) + [destination.path]
-        process.terminationHandler = { [weak self] task in
-            DispatchQueue.main.async {
-                guard task.terminationStatus == 0,
-                      FileManager.default.fileExists(atPath: destination.path) else {
-                    IslandLog.island.error("compress failed with \(task.terminationStatus, privacy: .public)")
-                    self?.announceCompressRefused()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var staging: URL?
+            if files.count > 1 {
+                do {
+                    staging = try Self.gather(files, near: destination)
+                } catch {
+                    IslandLog.island.error("could not gather the files to compress: \(error.localizedDescription, privacy: .public)")
+                    DispatchQueue.main.async { self?.announceCompressRefused() }
                     return
                 }
-                // Onto the shelf, but not as one of the island's own: an archive somebody
-                // asked for, sitting beside the files it was made from, is theirs. Clearing
-                // the shelf lets go of it and never deletes it.
-                self?.add([destination])
+            }
+            // The gathered folder goes once `ditto` is done with it, whichever way that went.
+            let gathered = staging
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            process.arguments = Self.dittoArguments(archiving: files, gatheredIn: gathered, to: destination)
+            process.terminationHandler = { task in
+                if let gathered { try? FileManager.default.removeItem(at: gathered) }
+                DispatchQueue.main.async {
+                    guard task.terminationStatus == 0,
+                          FileManager.default.fileExists(atPath: destination.path) else {
+                        IslandLog.island.error("compress failed with \(task.terminationStatus, privacy: .public)")
+                        self?.announceCompressRefused()
+                        return
+                    }
+                    // Onto the shelf, but not as one of the island's own: an archive somebody
+                    // asked for, sitting beside the files it was made from, is theirs. Clearing
+                    // the shelf lets go of it and never deletes it.
+                    self?.add([destination])
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                if let gathered { try? FileManager.default.removeItem(at: gathered) }
+                IslandLog.island.error("could not compress: \(error.localizedDescription, privacy: .public)")
+                DispatchQueue.main.async { self?.announceCompressRefused() }
             }
         }
-        do {
-            try process.run()
-        } catch {
-            IslandLog.island.error("could not compress: \(error.localizedDescription, privacy: .public)")
-            announceCompressRefused()
+    }
+
+    /// What `ditto` is asked to do: one thing to archive, and where the archive goes. One file
+    /// is archived as itself; several — which `ditto` will not take — as the contents of the
+    /// folder they were gathered into, so they unpack as themselves rather than inside a
+    /// folder nobody made. Pure.
+    static func dittoArguments(archiving files: [URL], gatheredIn staging: URL?, to destination: URL) -> [String] {
+        var arguments = ["-c", "-k", "--sequesterRsrc"]
+        if files.count > 1, let staging {
+            arguments.append(staging.path)
+        } else if let only = files.first {
+            arguments += ["--keepParent", only.path]
         }
+        return arguments + [destination.path]
+    }
+
+    /// The name each file has in the folder several are gathered into: its own, unless another
+    /// already has it — two "Notes.txt" from two folders, or "notes.txt" beside it, since the
+    /// disk does not tell the two apart — and then with a number after it, the way Finder
+    /// steps around a name. Pure.
+    static func gatheredNames(for files: [URL]) -> [String] {
+        var taken = Set<String>()
+        return files.map { file in
+            let name = file.lastPathComponent
+            let base = file.deletingPathExtension().lastPathComponent
+            let ext = file.pathExtension
+            var candidate = name
+            var n = 2
+            while taken.contains(candidate.lowercased()) {
+                candidate = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
+                n += 1
+            }
+            taken.insert(candidate.lowercased())
+            return candidate
+        }
+    }
+
+    /// A fresh folder on the same disk as the archive, holding a copy of each file under the
+    /// name `gatheredNames` gives it. The same disk makes each copy a clone, which costs no
+    /// space and next to no time. Nothing is left behind when a copy fails.
+    private static func gather(_ files: [URL], near destination: URL) throws -> URL {
+        let manager = FileManager.default
+        let staging = try manager.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                      appropriateFor: destination.deletingLastPathComponent(), create: true)
+        do {
+            for (file, name) in zip(files, gatheredNames(for: files)) {
+                try manager.copyItem(at: file, to: staging.appendingPathComponent(name))
+            }
+        } catch {
+            try? manager.removeItem(at: staging)
+            throw error
+        }
+        return staging
     }
 
     /// Where the archive goes: beside the files when they share a folder that can be written
@@ -1038,23 +1112,39 @@ final class ShelfStore: ObservableObject {
         return nil
     }
 
-    /// A unique file inside `dropFolder`, with the folder made if it is not there yet.
-    private static func destination(name: String, extension ext: String) -> URL? {
+    /// The name a drop is written under on its `attempt`th try: its own name made fit for a
+    /// file, and from the second try on a number after it — "Note.txt", then "Note 2.txt". The
+    /// second try is only ever made because the first name was taken by the time the file went
+    /// in. Pure.
+    static func dropFileName(_ name: String, extension ext: String, attempt: Int) -> String {
+        let safe = name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = safe.isEmpty ? "Dropped" : String(safe.prefix(60))
+        return attempt <= 1 ? "\(base).\(ext)" : "\(base) \(attempt).\(ext)"
+    }
+
+    /// Writes what a drop carried as a new file inside `dropFolder`, with the folder made if it
+    /// is not there yet.
+    ///
+    /// Never over another file, and never half of one. The name used to be looked for first and
+    /// written to after, while every item of a drag is read at once: two links to one site both
+    /// found "github.com.webloc" free, both wrote it, and the shelf held one file twice with the
+    /// other link gone. `IslandFiles.writeNew` takes the name and the file in one step, and puts
+    /// nothing under it until every byte is down.
+    private static func place(_ data: Data, name: String, extension ext: String, what: String) -> URL? {
         // Made through `IslandFiles`, which shuts the folder to every other account: what
         // somebody drops on the island is theirs.
         guard let folder = IslandFiles.makeFolder(shelfSubdirectory) else {
             IslandLog.store.error("could not make the drop folder")
             return nil
         }
-        let safe = name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = safe.isEmpty ? "Dropped" : String(safe.prefix(60))
-        var candidate = folder.appendingPathComponent(base).appendingPathExtension(ext)
-        var index = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(base) \(index)").appendingPathExtension(ext)
-            index += 1
+        do {
+            return try IslandFiles.writeNew(data, in: folder) { attempt in
+                dropFileName(name, extension: ext, attempt: attempt)
+            }
+        } catch {
+            IslandLog.store.error("could not write the dropped \(what, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
         }
-        return candidate
     }
 
     /// The stamp that keeps one drop apart from the next: "Image 14.32.05".
@@ -1068,44 +1158,29 @@ final class ShelfStore: ObservableObject {
         guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else { return nil }
         let name = (suggested?.isEmpty == false ? (suggested! as NSString).deletingPathExtension : stamp("Image"))
-        guard let url = destination(name: name, extension: "png") else { return nil }
-        do {
-            try png.write(to: url)
-            return url
-        } catch {
-            IslandLog.store.error("could not write the dropped image: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+        return place(png, name: name, extension: "png", what: "image")
     }
 
     static func write(text: String) -> URL? {
         // The first line names the file, the way Notes titles a note.
         let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         let name = firstLine.trimmingCharacters(in: .whitespaces).isEmpty ? stamp("Text") : firstLine
-        guard let url = destination(name: name, extension: "txt") else { return nil }
-        do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            return url
-        } catch {
-            IslandLog.store.error("could not write the dropped text: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+        return place(Data(text.utf8), name: name, extension: "txt", what: "text")
     }
 
     /// A dropped link becomes a `.webloc`, which is what Finder makes and what every browser
     /// opens with a double click.
     static func write(link: URL) -> URL? {
         let name = link.host ?? stamp("Link")
-        guard let destination = destination(name: name, extension: "webloc") else { return nil }
+        let plist: Data
         do {
-            let plist = try PropertyListSerialization.data(fromPropertyList: ["URL": link.absoluteString],
-                                                          format: .xml, options: 0)
-            try plist.write(to: destination)
-            return destination
+            plist = try PropertyListSerialization.data(fromPropertyList: ["URL": link.absoluteString],
+                                                       format: .xml, options: 0)
         } catch {
             IslandLog.store.error("could not write the dropped link: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+        return place(plist, name: name, extension: "webloc", what: "link")
     }
 
     // MARK: - Persistence

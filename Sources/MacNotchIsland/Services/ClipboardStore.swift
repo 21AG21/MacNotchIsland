@@ -177,6 +177,9 @@ final class ClipboardStore: ObservableObject {
     private var tiffPromise: TIFFPromise?
     /// Whether what is on disk has been read back yet.
     private var hasLoaded = false
+    /// Set when a history on disk that could not be read could not be moved aside either.
+    /// Nothing is written over it for the rest of the run. See `IslandFiles.readBack`.
+    private var heldBack = false
     /// Watches "Keep history across relaunches" for as long as the app runs, not only while
     /// the clipboard is recording: switching it off has to take the file with it either way.
     private var persistence: AnyCancellable?
@@ -225,7 +228,17 @@ final class ClipboardStore: ObservableObject {
             Self.erasePersisted()
             return
         }
-        items = ClipboardStore.loadPersisted()
+        switch Self.readHistory() {
+        case .value(let kept):
+            items = kept
+        case .missing, .unreadable(.moved(_)):
+            break
+        case .unreadable(.stuck):
+            heldBack = true
+            // A write scheduled before the read did not know to hold back.
+            persistWork?.cancel()
+            persistWork = nil
+        }
     }
 
     private func watchPersistence() {
@@ -857,10 +870,14 @@ final class ClipboardStore: ObservableObject {
 
     // MARK: - Persistence (text, URLs and files only)
 
-    private static func loadPersisted() -> [ClipboardItem] {
-        guard let data = IslandFiles.read(fileName),
-              let decoded = try? JSONDecoder().decode([ClipboardItem].self, from: data) else { return [] }
-        return decoded.filter { $0.kind != .image }
+    /// The history on disk, read back, pictures left out. A file that is there and cannot be
+    /// read — written by a newer build, say, with a kind of entry this one does not know — is
+    /// moved aside rather than read as an empty history, which the next save used to write over
+    /// it. Internal for the tests.
+    static func readHistory(now: Date = Date()) -> IslandFiles.ReadBack<[ClipboardItem]> {
+        IslandFiles.readBack(fileName, now: now) { data in
+            try JSONDecoder().decode([ClipboardItem].self, from: data).filter { $0.kind != .image }
+        }
     }
 
     /// Writes the history now rather than eight tenths of a second from now. Quitting is
@@ -876,6 +893,7 @@ final class ClipboardStore: ObservableObject {
         guard persistWork != nil else { return }
         persistWork?.cancel()
         persistWork = nil
+        guard !heldBack else { return }
         guard let snapshot = Self.toPersist(items, keeping: Preferences.shared.clipboardPersists) else { return }
         // Behind anything already being written, on the same queue, which does nothing else.
         Self.io.sync { Self.persist(snapshot) }
@@ -884,6 +902,7 @@ final class ClipboardStore: ObservableObject {
     private func schedulePersist() {
         persistWork?.cancel()
         persistWork = nil
+        guard !heldBack else { return }
         guard let snapshot = Self.toPersist(items, keeping: Preferences.shared.clipboardPersists) else { return }
         let work = DispatchWorkItem { ClipboardStore.persist(snapshot) }
         persistWork = work

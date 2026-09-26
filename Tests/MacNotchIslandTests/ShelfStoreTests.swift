@@ -104,6 +104,70 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: second, encoding: .utf8), "Note\ntwo")
     }
 
+    // MARK: - Two drops, one name
+
+    func testADropIsWrittenUnderItsOwnNameAndThenANumbered() {
+        XCTAssertEqual(ShelfStore.dropFileName("Note", extension: "txt", attempt: 1), "Note.txt")
+        XCTAssertEqual(ShelfStore.dropFileName("Note", extension: "txt", attempt: 2), "Note 2.txt")
+        XCTAssertEqual(ShelfStore.dropFileName("github.com", extension: "webloc", attempt: 3), "github.com 3.webloc")
+        XCTAssertEqual(ShelfStore.dropFileName("a/b", extension: "txt", attempt: 1), "a-b.txt",
+                       "a slash would be a folder")
+        XCTAssertEqual(ShelfStore.dropFileName("  \n ", extension: "png", attempt: 1), "Dropped.png")
+        XCTAssertEqual(ShelfStore.dropFileName(String(repeating: "x", count: 200), extension: "txt", attempt: 1),
+                       String(repeating: "x", count: 60) + ".txt")
+    }
+
+    /// A folder of the test's own, so nothing here touches the app's.
+    private func scratchFolder() throws -> URL {
+        let url = dir.appendingPathComponent("drops-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func testANewFileNeverGoesOverOneThatIsThere() throws {
+        let folder = try scratchFolder()
+        try Data("theirs".utf8).write(to: folder.appendingPathComponent("Note.txt"))
+        let url = try IslandFiles.writeNew(Data("mine".utf8), in: folder) {
+            ShelfStore.dropFileName("Note", extension: "txt", attempt: $0)
+        }
+        XCTAssertEqual(url.lastPathComponent, "Note 2.txt")
+        XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("Note.txt"), encoding: .utf8), "theirs")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "mine")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(),
+                       ["Note 2.txt", "Note.txt"], "and nothing half-written is left beside them")
+    }
+
+    /// Every item of a drag is read at once, so two links to one site are written at once. The
+    /// name used to be looked for first and written to after, and both found it free.
+    func testDropsWrittenAtOnceUnderOneNameAreAllKept() throws {
+        let folder = try scratchFolder()
+        let count = 16
+        var written = [URL?](repeating: nil, count: count)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: count) { index in
+            let url = try? IslandFiles.writeNew(Data("link \(index)".utf8), in: folder) {
+                ShelfStore.dropFileName("github.com", extension: "webloc", attempt: $0)
+            }
+            lock.lock(); written[index] = url; lock.unlock()
+        }
+        let urls = written.compactMap { $0 }
+        XCTAssertEqual(urls.count, count, "every one of them was written")
+        XCTAssertEqual(Set(urls).count, count, "each under a name of its own")
+        for (index, url) in written.enumerated() {
+            XCTAssertEqual(try url.map { try String(contentsOf: $0, encoding: .utf8) }, "link \(index)",
+                           "and none of them over another")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).count, count)
+    }
+
+    func testAWriteWithNowhereToGoLeavesNothingBehind() throws {
+        let folder = try scratchFolder()
+        try Data("theirs".utf8).write(to: folder.appendingPathComponent("Taken.txt"))
+        XCTAssertThrowsError(try IslandFiles.writeNew(Data("mine".utf8), in: folder, attempts: 3) { _ in "Taken.txt" })
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["Taken.txt"])
+        XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("Taken.txt"), encoding: .utf8), "theirs")
+    }
+
     func testAFileFromFinderIsNeverOurs() throws {
         XCTAssertFalse(ShelfStore.isOwned(try makeFile("theirs.txt")))
     }
@@ -701,5 +765,67 @@ final class ShelfStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = ShelfStore.archiveURL(for: [folder.appendingPathComponent("Report.pdf")])
         XCTAssertFalse(ShelfStore.isOwned(url))
+    }
+
+    // MARK: - Compressing several
+
+    func testOneFileIsHandedToDittoAsItself() {
+        let file = URL(fileURLWithPath: "/tmp/x/Report.pdf")
+        let zip = URL(fileURLWithPath: "/tmp/x/Report.zip")
+        XCTAssertEqual(ShelfStore.dittoArguments(archiving: [file], gatheredIn: nil, to: zip),
+                       ["-c", "-k", "--sequesterRsrc", "--keepParent", "/tmp/x/Report.pdf", "/tmp/x/Report.zip"])
+    }
+
+    /// `ditto -c` takes one source. Every file used to be handed to it at once, and it refused.
+    func testSeveralFilesAreHandedToDittoAsTheOneFolderTheyWereGatheredInto() {
+        let files = ["a.txt", "b.txt", "c.txt"].map { URL(fileURLWithPath: "/tmp/x/" + $0) }
+        let staging = URL(fileURLWithPath: "/tmp/gathered", isDirectory: true)
+        let zip = URL(fileURLWithPath: "/tmp/x/x.zip")
+        let arguments = ShelfStore.dittoArguments(archiving: files, gatheredIn: staging, to: zip)
+        XCTAssertEqual(arguments, ["-c", "-k", "--sequesterRsrc", "/tmp/gathered", "/tmp/x/x.zip"])
+        XCTAssertEqual(arguments.filter { !$0.hasPrefix("-") }.count, 2, "one source and the archive")
+        XCTAssertFalse(arguments.contains("--keepParent"), "they unpack as themselves, not inside the folder")
+    }
+
+    func testGatheredFilesStepAroundEachOthersNames() {
+        let files = ["/a/Notes.txt", "/b/Notes.txt", "/c/notes.txt", "/d/Folder", "/e/Folder", "/f/Plan.pdf"]
+            .map { URL(fileURLWithPath: $0) }
+        XCTAssertEqual(ShelfStore.gatheredNames(for: files),
+                       ["Notes.txt", "Notes 2.txt", "notes 3.txt", "Folder", "Folder 2", "Plan.pdf"],
+                       "the disk does not tell Notes.txt from notes.txt, so neither does this")
+    }
+
+    /// The real thing, with the real `ditto`: two files in, one archive on the shelf, and the
+    /// two files in it.
+    func testSeveralFilesAreCompressedIntoOneArchiveOnTheShelf() throws {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = try ["a.txt", "b.txt"].map { name -> URL in
+            let url = folder.appendingPathComponent(name)
+            try Data(name.utf8).write(to: url)
+            return url
+        }
+        let store = makeStore()
+        store.compress(files)
+        let landed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(block: { _, _ in store.items.contains { $0.url.pathExtension == "zip" } }),
+            object: nil)
+        wait(for: [landed], timeout: 20)
+        let archive = try XCTUnwrap(store.items.first { $0.url.pathExtension == "zip" }?.url)
+        XCTAssertEqual(archive.lastPathComponent, folder.lastPathComponent + ".zip")
+
+        let unpacked = tempFolder()
+        defer { try? FileManager.default.removeItem(at: unpacked) }
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-x", "-k", archive.path, unpacked.path]
+        try ditto.run()
+        ditto.waitUntilExit()
+        XCTAssertEqual(ditto.terminationStatus, 0)
+        // Whatever `ditto` kept of the files' attributes beside them is not one of the files.
+        let unpackedNames = try FileManager.default.contentsOfDirectory(atPath: unpacked.path)
+            .filter { $0 != "__MACOSX" }.sorted()
+        XCTAssertEqual(unpackedNames, ["a.txt", "b.txt"])
+        XCTAssertEqual(try String(contentsOf: unpacked.appendingPathComponent("b.txt"), encoding: .utf8), "b.txt")
     }
 }

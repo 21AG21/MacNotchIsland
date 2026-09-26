@@ -278,6 +278,10 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Dropping two things with the same name at once keeps both** — two links to the same site, two unnamed pictures in the same second, two snippets with the same first line — and a drop that runs out of disk no longer leaves half a file on the shelf.
+- **Compress works on several files at once**; it said "Could not compress" every time, and the archive unpacks the files as themselves, the way Finder's does.
+- **A clipboard or notification history this version cannot read**, such as one written by a newer version, is kept beside it under a new name instead of being replaced by an empty one, and quitting or sleeping while the notes or notification history was being saved can no longer leave an older copy on disk.
+- **A cancelled Firefox download is no longer announced as finished** or put on the shelf, and a Downloads folder the island cannot watch is logged with the reason.
 - **A shortcut with one modifier no longer takes ⌃Tab, the word jumps, ⌘←/→ or ⇧Tab from every app.** The recorder asks for two of Control, Option and Command; one recorded before still opens the island, its Tab and arrow steps are left to the app in front, and Settings and the tour say so instead of listing steps that do nothing.
 - **The pointer on the very top row of the screen counts as on the island**: a flick up into the notch opens the peek, an open peek stays, and a click on the top edge of the switcher no longer goes to the menu bar or closes the pinned panel.
 - **With a film full screen on one display, a panel opened from the shortcut or the menu bar gives the keyboard to the island you can see**, not to the hidden one over the film.

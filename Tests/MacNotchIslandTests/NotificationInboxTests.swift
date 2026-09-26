@@ -261,6 +261,36 @@ final class NotificationInboxTests: XCTestCase {
         XCTAssertTrue(decoded.first?.isThin == true)
     }
 
+    // MARK: - A history this build cannot read
+
+    /// A newer build that keeps the history in another shape writes a file this one cannot read.
+    /// It used to read as an empty history, and the next banner wrote that over the file.
+    func testAHistoryThisBuildCannotReadIsMovedAsideRatherThanWrittenOver() throws {
+        let previousOverride = IslandFiles.overrideFolder
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("inbox-readback-\(UUID().uuidString)", isDirectory: true)
+        IslandFiles.overrideFolder = folder
+        defer {
+            IslandFiles.overrideFolder = previousOverride
+            try? FileManager.default.removeItem(at: folder)
+        }
+        XCTAssertEqual(NotificationInbox.readHistory(), .missing)
+
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("notifications.json")
+        let kept = [entry("Two new messages", at: 10)]
+        try IslandFiles.write(try JSONEncoder().encode(kept), to: "notifications.json")
+        XCTAssertEqual(NotificationInbox.readHistory(), .value(kept), "a history that reads is read")
+
+        let newer = Data(#"{"version":2,"entries":[{"title":"Two new messages","date":0}]}"#.utf8)
+        try newer.write(to: file)
+        let when = Date(timeIntervalSince1970: 1_790_000_000)
+        let name = IslandFiles.unreadableName(for: "notifications.json", at: when)
+        XCTAssertEqual(NotificationInbox.readHistory(now: when), .unreadable(.moved(name)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent(name)), newer, "kept byte for byte")
+    }
+
     // MARK: - What the watcher makes of a banner
 
     func testABannerNobodyCanReadIsStillANotification() {

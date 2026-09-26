@@ -15,6 +15,10 @@ final class NotesStore: ObservableObject {
     }
 
     private var persistWork: DispatchWorkItem?
+    /// Where the scratchpad is written, and nothing else: one write at a time, in the order they
+    /// were asked for, so `flush` can wait for the one in flight rather than race it. The
+    /// clipboard history keeps its own the same way.
+    private static let io = DispatchQueue(label: "com.macnotchisland.notes.io", qos: .utility)
     /// True from the moment the text changes until exactly that text has been written.
     private var unsaved = false
     private static let fileName = "notes.txt"
@@ -84,38 +88,28 @@ final class NotesStore: ObservableObject {
     /// saved from another editor in another encoding is still somebody's notes. It is moved
     /// aside, never deleted and never rewritten, and the move comes first, so nothing typed
     /// after it can land on top of it.
+    ///
+    /// The moving aside is `IslandFiles.readBack`'s, which the clipboard and notification
+    /// histories go through as well.
     static func readScratchpad(now: Date = Date()) -> Loaded {
-        guard let url = IslandFiles.folder?.appendingPathComponent(fileName),
-              FileManager.default.fileExists(atPath: url.path) else { return .text("") }
-        if let data = try? Data(contentsOf: url), let saved = String(data: data, encoding: .utf8) {
-            return .text(saved)
+        let read = IslandFiles.readBack(fileName, now: now) { data throws -> String in
+            guard let saved = String(data: data, encoding: .utf8) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
+            return saved
         }
-        let folder = url.deletingLastPathComponent()
-        let stem = unreadableName(at: now)
-        var name = stem
-        var n = 2
-        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) {
-            name = "\(stem)-\(n)"
-            n += 1
-        }
-        do {
-            try FileManager.default.moveItem(at: url, to: folder.appendingPathComponent(name))
-            IslandLog.store.error("notes could not be read; moved aside as \(name, privacy: .public)")
-            return .setAside(name)
-        } catch {
-            IslandLog.store.error("notes could not be read or moved aside: \(String(describing: error), privacy: .public)")
-            return .stuck
+        switch read {
+        case .missing: return .text("")
+        case .value(let saved): return .text(saved)
+        case .unreadable(.moved(let name)): return .setAside(name)
+        case .unreadable(.stuck): return .stuck
         }
     }
 
     /// "notes.txt.unreadable-2026-09-25-143205": the day and the second, so a second one does
     /// not land on the first, and a name that still says what the file was.
     static func unreadableName(at date: Date, timeZone: TimeZone = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        return "\(fileName).unreadable-\(formatter.string(from: date))"
+        IslandFiles.unreadableName(for: fileName, at: date, timeZone: timeZone)
     }
 
     /// Said once, at launch, as the island's card; after that the empty scratchpad says it.
@@ -164,17 +158,22 @@ final class NotesStore: ObservableObject {
         clearedText = nil
     }
 
-    /// Writes anything still waiting, now, on the calling thread. The debounce below is eight
+    /// Writes anything still waiting, now, and waits for it. The debounce below is eight
     /// tenths of a second and a quit from the menu bar is faster than that, so without this
     /// the last sentence somebody typed is the one they lose. A scratchpad nobody has touched
     /// writes nothing, so no file appears for a feature that was never used. Also what the
     /// "Not saved" pill does when it is clicked: a write that failed leaves the text waiting,
     /// so this tries it again.
+    ///
+    /// On `io`, behind any write already under way: a write of older text that had started when
+    /// the quit came used to run beside this one on a shared queue, and could land after it.
     func flush() {
         guard unsaved else { return }
         persistWork?.cancel()
         persistWork = nil
-        let failure = Self.persist(text, heldBack: heldBack)
+        let snapshot = text
+        let held = heldBack
+        let failure = Self.io.sync { Self.persist(snapshot, heldBack: held) }
         unsaved = failure != nil
         saveFailed = failure
     }
@@ -195,7 +194,7 @@ final class NotesStore: ObservableObject {
             DispatchQueue.main.async { self?.markSaved(snapshot, failure: failure) }
         }
         persistWork = work
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.8, execute: work)
+        Self.io.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     /// Only what was actually written counts as written: a keystroke that landed while the

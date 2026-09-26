@@ -461,6 +461,54 @@ final class ClipboardStoreTests: XCTestCase {
                        "reading a history is not copying something, so the file is left as it was")
     }
 
+    // MARK: - A history this build cannot read
+
+    /// A folder of the test's own for the history, put back however the test ends.
+    private func withHistoryFolder(_ body: (URL) throws -> Void) throws {
+        let previousOverride = IslandFiles.overrideFolder
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clipboard-readback-\(UUID().uuidString)", isDirectory: true)
+        IslandFiles.overrideFolder = folder
+        defer {
+            IslandFiles.overrideFolder = previousOverride
+            try? FileManager.default.removeItem(at: folder)
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try body(folder)
+    }
+
+    func testAHistoryIsReadBackWithoutItsPictures() throws {
+        try withHistoryFolder { _ in
+            XCTAssertEqual(ClipboardStore.readHistory(), .missing, "no file yet is no history, and nothing moved")
+            let kept = [item("kept", at: 1), item("Image", kind: .image, at: 2)]
+            try IslandFiles.write(try JSONEncoder().encode(kept), to: "clipboard.json")
+            XCTAssertEqual(ClipboardStore.readHistory(), .value([kept[0]]))
+        }
+    }
+
+    /// A newer build that knows a kind of entry this one does not writes a file this one cannot
+    /// read. It used to read as an empty history, and the next copy wrote that over the file.
+    func testAHistoryThisBuildCannotReadIsMovedAsideRatherThanWrittenOver() throws {
+        try withHistoryFolder { folder in
+            let file = folder.appendingPathComponent("clipboard.json")
+            let newer = Data(#"[{"id":"4C5A3F0E-8D9B-4E4C-9C43-1F2A6B7D8E90","kind":"colour","text":"red","date":0,"pinned":false}]"#.utf8)
+            try newer.write(to: file)
+
+            let when = Date(timeIntervalSince1970: 1_790_000_000)
+            let name = IslandFiles.unreadableName(for: "clipboard.json", at: when)
+            XCTAssertTrue(name.hasPrefix("clipboard.json.unreadable-"), name)
+            XCTAssertEqual(ClipboardStore.readHistory(now: when), .unreadable(.moved(name)))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: file.path),
+                           "out of the way before anything can be saved over it")
+            XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent(name)), newer, "kept byte for byte")
+            XCTAssertEqual(ClipboardStore.readHistory(now: when), .missing, "and the history starts empty")
+
+            // Another in the same second does not land on the first.
+            try newer.write(to: file)
+            XCTAssertEqual(ClipboardStore.readHistory(now: when), .unreadable(.moved(name + "-2")))
+        }
+    }
+
     /// The history as it really is on disk, for the tests that keep an eye on the file itself.
     private func texts(inHistoryOf folder: URL) throws -> [String] {
         let data = try Data(contentsOf: folder.appendingPathComponent("clipboard.json"))

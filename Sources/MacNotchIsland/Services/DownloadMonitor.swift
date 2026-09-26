@@ -77,7 +77,14 @@ final class DownloadMonitor {
         active = Self.scanPartials(in: Self.downloads)
         report(Report(changed: active, ended: [], finished: [], inFlight: !active.isEmpty))
         let fd = open(Self.downloads.path, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            // Nothing would ever be heard from the folder again, and nothing said so: a Mac
+            // that has refused this app its Downloads folder, or that has none, simply never
+            // showed a download. The reason is the system's own ("Operation not permitted").
+            let reason = String(cString: strerror(errno))
+            IslandLog.island.error("could not watch Downloads: \(reason, privacy: .public)")
+            return
+        }
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: queue)
         src.setEventHandler { [weak self] in self?.scan() }
         src.setCancelHandler { close(fd) }
@@ -106,11 +113,13 @@ final class DownloadMonitor {
             let final = folder.appendingPathComponent(old.name)
             // A partial file goes away for more reasons than finishing: a cancelled download
             // takes it with it, and Chrome renames "Unconfirmed 123.crdownload" to the real
-            // name part of the way through. Only a file that is actually there is complete.
-            guard FileManager.default.fileExists(atPath: final.path) else { continue }
+            // name part of the way through. Only a file that is actually there, with something
+            // in it, is complete — see `finishedSize`.
+            let size = try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? Int64
+            guard let bytes = Self.finishedSize(size) else { continue }
             var done = old
             done.isComplete = true
-            if let size = try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? Int64 { done.bytes = size }
+            done.bytes = bytes
             finished.append((state: done, url: final))
         }
         active = current
@@ -200,6 +209,16 @@ final class DownloadMonitor {
             guard !name.hasPrefix(".") else { return false }
             return partialExtensions.contains((name as NSString).pathExtension.lowercased())
         }
+    }
+
+    /// How big a download is, if what is under its own name once its partial file has gone is
+    /// the download, finished; nil if it is not. Nothing there is not a download. Neither is an
+    /// empty file: Firefox holds the finished name with an empty placeholder for as long as it
+    /// is downloading, and a cancelled download can leave it behind for a moment after the
+    /// `.part` has gone — which was announced as finished and put on the shelf. Pure.
+    static func finishedSize(_ size: Int64?) -> Int64? {
+        guard let size, size > 0 else { return nil }
+        return size
     }
 
     private static func scanPartials(in folder: URL) -> [String: DownloadState] {

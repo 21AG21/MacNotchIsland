@@ -38,4 +38,23 @@ final class DownloadMonitorTests: XCTestCase {
     func testAnEmptyFolderHasNothingInFlight() {
         XCTAssertEqual(DownloadMonitor.partials(in: []), [])
     }
+
+    // MARK: - What counts as finished once the partial file has gone
+
+    func testAFileThatIsThereWithSomethingInItIsFinished() {
+        XCTAssertEqual(DownloadMonitor.finishedSize(1_048_576), 1_048_576, "and it is shown at its real size")
+        XCTAssertEqual(DownloadMonitor.finishedSize(1), 1)
+    }
+
+    /// A cancelled download takes its partial file with it and leaves nothing under the name.
+    func testNothingThereIsNotADownload() {
+        XCTAssertNil(DownloadMonitor.finishedSize(nil))
+    }
+
+    /// Firefox holds the finished name with an empty placeholder while it downloads, and a
+    /// cancel can leave the placeholder a moment after the `.part` has gone. It was announced
+    /// as finished and put on the shelf.
+    func testAnEmptyPlaceholderIsNotADownload() {
+        XCTAssertNil(DownloadMonitor.finishedSize(0))
+    }
 }
