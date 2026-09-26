@@ -28,6 +28,8 @@ struct MarqueeText: View {
             // music stopping.
             let scrolling = overflow && isPlaying && !energy.animationsPaused
             let distance = Double(textWidth + gap)
+            // A right-to-left title starts at its right-hand end, and scrolls the other way.
+            let rightToLeft = overflow && Self.isRightToLeft(text)
             TimelineView(.animation(minimumInterval: energy.animationInterval, paused: !scrolling)) { context in
                 let t = max(0, context.date.timeIntervalSince(epoch))
                 let cycle = distance / speed + pause
@@ -40,13 +42,18 @@ struct MarqueeText: View {
                         // mid-letter with no fade — in the pill, on the curve of its end.
                         Text(text).font(font).foregroundStyle(color).lineLimit(1).truncationMode(.tail)
                     } else {
+                        // The copy that follows comes in from the side the words go towards:
+                        // the right for a left-to-right title, the left for a right-to-left one.
+                        if scrolling && rightToLeft { label }
                         label
-                        if scrolling { label }
+                        if scrolling && !rightToLeft { label }
                     }
                 }
-                .offset(x: -CGFloat(offset))
+                .offset(x: rightToLeft ? CGFloat(offset) : -CGFloat(offset))
             }
-            .frame(width: geo.size.width, alignment: .leading)
+            // Held at the end the title starts from. Leading-aligned and moved left, a long
+            // Hebrew or Arabic title opened on its last words and its beginning scrolled in last.
+            .frame(width: geo.size.width, alignment: rightToLeft ? .trailing : .leading)
             .clipped()
             // A title that is moving dissolves at the edges rather than being cut off at
             // them: a hard edge makes the letters look like they are hitting a wall, and
@@ -97,6 +104,34 @@ struct MarqueeText: View {
             .init(color: .black.opacity(faded ? 0 : 1), location: 1),
         ], startPoint: .leading, endPoint: .trailing)
     }
+
+    /// Whether `text` reads right to left, by its first strongly directional character — the
+    /// rule the Unicode bidirectional algorithm uses for a paragraph's direction. Digits,
+    /// punctuation, spaces and symbols say nothing and are passed over; a text with no letter
+    /// at all reads left to right. Pure, so it is tested.
+    static func isRightToLeft(_ text: String) -> Bool {
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x200F, 0x061C: return true    // RIGHT-TO-LEFT MARK, ARABIC LETTER MARK
+            case 0x200E: return false           // LEFT-TO-RIGHT MARK
+            default: break
+            }
+            guard scalar.properties.isAlphabetic else { continue }
+            return rightToLeftScripts.contains { $0.contains(scalar.value) }
+        }
+        return false
+    }
+
+    /// The blocks of the scripts written right to left: Hebrew, Arabic, Syriac, Thaana, N'Ko,
+    /// Samaritan, Mandaic and their supplements and presentation forms, and the historic
+    /// right-to-left scripts past the Basic Multilingual Plane.
+    private static let rightToLeftScripts: [ClosedRange<UInt32>] = [
+        0x0590...0x08FF,
+        0xFB1D...0xFDFF,
+        0xFE70...0xFEFF,
+        0x10800...0x10FFF,
+        0x1E800...0x1EFFF,
+    ]
 
     private var label: some View {
         Text(text).font(font).foregroundStyle(color).lineLimit(1).fixedSize()

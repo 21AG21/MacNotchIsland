@@ -2,24 +2,46 @@ import AppKit
 import CoreServices
 
 /// Polls Music and Spotify with AppleScript. Used when MediaRemote yields nothing
-/// (macOS 15.4 and later). Artwork is fetched only when the track changes.
+/// (macOS 15.4 and later). Artwork is fetched only when the track changes, and again on the
+/// next poll where a cover Spotify named could not be fetched in time.
+///
+/// Every script, polls and presses alike, runs on the one `ScriptQueue`, one at a time, each
+/// inside a `with timeout`. Main-queue state: `poll`, the presses and `cancel` are called there,
+/// and every answer comes back there.
 final class AppleScriptBackend {
-    enum Command { case togglePlayPause, next, previous }
+    enum Command { case togglePlayPause, pause, next, previous }
 
-    /// Polls run one at a time on a serial queue: `query` mutates the artwork cache, so two
-    /// concurrent polls would race. Transport commands use their own queue so a slow poll
-    /// never delays a play/pause click.
-    private let queue = DispatchQueue(label: "com.macnotchisland.applescript.poll", qos: .userInitiated)
-    private let commandQueue = DispatchQueue(label: "com.macnotchisland.applescript.command", qos: .userInitiated)
-    private var inFlight = false
+    /// How long one Apple event in a poll may wait for its player. A beach-balling player used to
+    /// hold the poll for the two minutes an Apple event waits by default.
+    static let pollTimeout = 4
+    /// How long one Apple event in a press may wait.
+    static let pressTimeout = 5
+    /// How long a poll may run before the island is told "nothing" (`poll`).
+    static let pollWatchdog: TimeInterval = 6
+
+    /// A poll whose scripts have not come back yet, from when it went to the queue to when its
+    /// answer came back to the main queue. While it is set no other poll is sent: the queue is
+    /// serial, and a poll sent behind a player that is not answering only waits there, and then
+    /// runs back to back with every other that was sent. The watchdog tells the island "nothing"
+    /// after `pollWatchdog` without clearing this, which is what used to let the next tick queue
+    /// another behind it, every tick, for as long as the player was stuck.
+    private var pollRunning = false
     private var generation = 0
-    private var artworkKey = ""
-    private var artwork: NSImage?
-    private var artworkID = 0
-    private var accent: NSColor = .white
-    /// A cover Spotify named that was not fetched because "Find missing album art" was off,
-    /// so switching it on fetches this track's cover rather than waiting for the next track.
-    private var artworkWithheld = false
+
+    /// One player's cover, as the poll last worked it out for its current track.
+    private struct Cover {
+        var key = ""
+        var image: NSImage?
+        var accent: NSColor = .white
+        /// How many times this track's Spotify cover has been fetched and not arrived, see
+        /// `fetchesCover`.
+        var attempts = 0
+    }
+
+    /// Each player's cover, by bundle identifier. Queue state: only `query` reads and writes it.
+    /// One cover was kept for both players, and a poll asks both, so with a track in each every
+    /// poll was a new track twice over and fetched both covers again — Spotify's over the network.
+    private var covers: [String: Cover] = [:]
 
     static let musicID = "com.apple.Music"
     static let spotifyID = "com.spotify.client"
@@ -34,7 +56,8 @@ final class AppleScriptBackend {
     /// said "Asked when needed" for ever, and the heart beside play simply did nothing. Kept
     /// here, where the answer arrives, for everything that has to say so. Cleared the next
     /// time a script to the same player goes through, which is what a grant in System
-    /// Settings looks like from here. Both queues write it, so it is behind a lock.
+    /// Settings looks like from here. Written on the script queue and read on the main one, so
+    /// it is behind a lock.
     private static let refusalLock = NSLock()
     private static var refused: Set<String> = []
 
@@ -70,17 +93,22 @@ final class AppleScriptBackend {
         return !asked.isEmpty && asked.isSubset(of: refused)
     }
 
-    /// Drop any in-flight poll's result (its blocked NSAppleScript call can't be interrupted).
+    /// Drops any in-flight poll's result (its blocked script cannot be interrupted, and it
+    /// still holds the queue until its timeout) and every press still waiting its turn.
     func cancel() {
         generation += 1
-        inFlight = false
+        for press in presses { press.done?(false) }
+        presses.removeAll()
     }
+
+    // MARK: Polling
 
     /// `artworkLookup` is "Find missing album art", read on the main thread by the caller and
     /// carried to the poll's queue: Privacy lists the fetch of a cover Spotify names under that
     /// switch, and the poll fetched it whatever the switch said (`spotifyArtworkURL`).
-    func poll(artworkLookup: Bool, _ completion: @escaping (NowPlayingInfo?) -> Void) {
-        guard !inFlight else { return }
+    /// `preferring` is the player of the card on screen, see `choose`.
+    func poll(artworkLookup: Bool, preferring bundleID: String?, _ completion: @escaping (NowPlayingInfo?) -> Void) {
+        guard !pollRunning else { return }
         let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
         let hasSpotify = running.contains(Self.spotifyID)
         let hasMusic = running.contains(Self.musicID)
@@ -88,28 +116,41 @@ final class AppleScriptBackend {
             completion(nil)
             return
         }
-        inFlight = true
+        pollRunning = true
         generation += 1
         let myGeneration = generation
-        // Watchdog: a beach-balling player can block NSAppleScript for a long time (it times out
-        // on its own after two minutes). Report "nothing" after 6 s so the island doesn't hold a
-        // stale track; the serial queue keeps the stuck poll from racing the next one.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
-            guard let self, self.generation == myGeneration, self.inFlight else { return }
-            self.inFlight = false
+        // Watchdog: a player that is not answering holds the poll until its timeout. Report
+        // "nothing" after `pollWatchdog` so the island does not hold a stale track; the poll
+        // itself is still running, and no other is sent until it is back (`pollRunning`).
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pollWatchdog) { [weak self] in
+            guard let self, self.generation == myGeneration, self.pollRunning else { return }
             completion(nil)
         }
-        queue.async { [self] in
+        ScriptQueue.async { [self] in
             var candidates: [NowPlayingInfo] = []
             if hasSpotify, let s = query(spotify: true, artworkLookup: artworkLookup) { candidates.append(s) }
             if hasMusic, let m = query(spotify: false, artworkLookup: artworkLookup) { candidates.append(m) }
-            let chosen = candidates.first(where: { $0.isPlaying }) ?? candidates.first
+            let chosen = Self.choose(candidates, preferring: bundleID)
             DispatchQueue.main.async {
+                // Only one poll runs at a time, so this is always the one that set it.
+                self.pollRunning = false
                 guard self.generation == myGeneration else { return }
-                self.inFlight = false
                 completion(chosen)
             }
         }
+    }
+
+    /// Which player's report the island shows. Pure, so it is tested.
+    ///
+    /// One that is playing, and of two that are, the one the card is already showing. With
+    /// neither playing, the card's player again: this used to be whichever was asked first, which
+    /// is Spotify, so pausing Music from the card flipped it to Spotify's old paused track, and
+    /// play then started Spotify.
+    static func choose(_ candidates: [NowPlayingInfo], preferring bundleID: String?) -> NowPlayingInfo? {
+        let playing = candidates.filter(\.isPlaying)
+        let pool = playing.isEmpty ? candidates : playing
+        if let bundleID, let same = pool.first(where: { $0.bundleID == bundleID }) { return same }
+        return pool.first
     }
 
     private func query(spotify: Bool, artworkLookup: Bool) -> NowPlayingInfo? {
@@ -155,7 +196,11 @@ final class AppleScriptBackend {
             return ""
             """
         }
-        guard let result = run(source, app: spotify ? Self.spotifyID : Self.musicID), !result.isEmpty else { return nil }
+        let answer = run(ScriptQueue.timed(source, seconds: Self.pollTimeout), app: spotify ? Self.spotifyID : Self.musicID)
+        // The moment the player said where its playhead was: taken here, before any cover is
+        // fetched, or the clock read up to the cover's timeout behind.
+        let answeredAt = Date()
+        guard let result = answer, !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "\n")
         guard parts.count >= 7 else { return nil }
         let state = parts[0]
@@ -169,32 +214,46 @@ final class AppleScriptBackend {
         let bundle = spotify ? Self.spotifyID : Self.musicID
 
         let key = bundle + "|" + trackID + "|" + title
-        if key != artworkKey || (artworkWithheld && artworkLookup) {
-            artworkKey = key
-            if spotify {
-                if let url = Self.spotifyArtworkURL(artworkURL, lookupEnabled: artworkLookup) {
-                    artwork = fetchSpotifyArtwork(url)
-                    artworkWithheld = false
-                } else {
-                    artwork = nil
-                    artworkWithheld = Self.spotifyArtworkURL(artworkURL, lookupEnabled: true) != nil
-                }
-            } else {
+        var cover = covers[bundle] ?? Cover()
+        if key != cover.key {
+            cover = Cover(key: key)
+            if !spotify {
                 // Music hands its cover over itself, from the Mac: nothing leaves it.
-                artwork = fetchMusicArtwork()
-                artworkWithheld = false
+                cover.image = fetchMusicArtwork()
+                cover.accent = cover.image?.dominantColor() ?? .white
             }
-            artworkID = key.hashValue
-            accent = artwork?.dominantColor() ?? .white
         }
+        // Spotify names its cover by address. It is fetched only with "Find missing album art"
+        // on, and fetched again on the next poll where it did not arrive in time: a cover that
+        // came late used to be dropped with the track already marked as done, and that track
+        // never had one. Switching the setting on fetches this track's cover the same way.
+        if spotify, Self.fetchesCover(hasCover: cover.image != nil, attempts: cover.attempts),
+           let url = Self.spotifyArtworkURL(artworkURL, lookupEnabled: artworkLookup) {
+            cover.attempts += 1
+            cover.image = fetchSpotifyArtwork(url)
+            cover.accent = cover.image?.dominantColor() ?? .white
+        }
+        covers[bundle] = cover
+        // Changes when the cover arrives, so a cover that comes on a later poll is a changed
+        // report and is drawn (`NowPlayingInfo ==` compares this, not the image).
+        let artworkID = cover.image == nil ? 0 : key.hashValue
 
         var info = NowPlayingInfo(title: title, artist: artist, album: album,
-                                  duration: duration, elapsed: position, timestamp: Date(),
+                                  duration: duration, elapsed: position, timestamp: answeredAt,
                                   isPlaying: state == "playing", bundleID: bundle,
-                                  artwork: artwork, artworkID: artworkID, accent: accent)
+                                  artwork: cover.image, artworkID: artworkID, accent: cover.accent)
         info.shuffle = Self.scriptedShuffle(parts.count > 8 ? parts[8] : "")
         info.repeatMode = Self.scriptedRepeat(parts.count > 9 ? parts[9] : "", spotify: spotify)
         return info
+    }
+
+    /// How many times a track's Spotify cover is fetched before the island stops asking.
+    static let coverAttemptLimit = 3
+
+    /// Whether this poll fetches the track's Spotify cover: it has none yet, and it has not been
+    /// asked for `coverAttemptLimit` times already. Pure, so it is tested.
+    static func fetchesCover(hasCover: Bool, attempts: Int) -> Bool {
+        !hasCover && attempts < coverAttemptLimit
     }
 
     /// "true" or "false", as both players' dictionaries write a boolean; anything else is a
@@ -231,12 +290,8 @@ final class AppleScriptBackend {
             end try
         end tell
         """
-        var error: NSDictionary?
-        guard let script = NSAppleScript(source: source) else { return nil }
-        let descriptor = script.executeAndReturnError(&error)
-        if error != nil { return nil }
-        let data = descriptor.data
-        guard !data.isEmpty else { return nil }
+        let outcome = ScriptQueue.execute(ScriptQueue.timed(source, seconds: Self.pollTimeout))
+        guard outcome.succeeded, let data = outcome.descriptor?.data, !data.isEmpty else { return nil }
         return NSImage(data: data)
     }
 
@@ -248,36 +303,57 @@ final class AppleScriptBackend {
         return url
     }
 
+    /// How long the poll waits for a Spotify cover.
+    static let coverTimeout: TimeInterval = 2.5
+
+    /// Fetches a cover, waiting no longer than `coverTimeout`. The request carries the same
+    /// timeout, and one still out when the wait is over is cancelled: it used to run on for
+    /// the shared session's sixty seconds with nobody left to take its answer.
     private func fetchSpotifyArtwork(_ url: URL) -> NSImage? {
         let semaphore = DispatchSemaphore(value: 0)
-        var image: NSImage?
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data { image = NSImage(data: data) }
+        let lock = NSLock()
+        var fetched: Data?
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: Self.coverTimeout)
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? (data != nil)
+            if ok, let data {
+                lock.lock()
+                fetched = data
+                lock.unlock()
+            }
             semaphore.signal()
         }
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 2.5)
-        return image
+        if semaphore.wait(timeout: .now() + Self.coverTimeout) == .timedOut { task.cancel() }
+        lock.lock()
+        let data = fetched
+        lock.unlock()
+        return data.flatMap { NSImage(data: $0) }
     }
 
-    /// Runs a script against `bundleID`'s player. A refusal is recorded rather than dropped,
-    /// see `hasRefused`; a script that goes through clears it.
-    private func run(_ source: String, app bundleID: String) -> String? {
-        var error: NSDictionary?
-        guard let script = NSAppleScript(source: source) else { return nil }
-        let descriptor = script.executeAndReturnError(&error)
-        if let error {
+    /// Runs a script against `bundleID`'s player and says whether it went through. A refusal is
+    /// recorded rather than dropped, see `hasRefused`; a script that goes through clears it.
+    /// On the script queue.
+    @discardableResult
+    private func execute(_ source: String, app bundleID: String) -> ScriptQueue.Outcome {
+        let outcome = ScriptQueue.execute(source)
+        if outcome.succeeded {
+            Self.note(bundleID, refused: false)
+        } else if outcome.errorNumber == AutomationConsent.refusedStatus {
+            Self.note(bundleID, refused: true)
+        } else if outcome.errorNumber == ScriptQueue.timedOutStatus {
+            IslandLog.media.notice("\(bundleID, privacy: .public) did not answer in time")
+        } else if outcome.errorNumber != -600 {
             // -600 = app not running, which says nothing about permission and is not logged.
-            let code = (error[NSAppleScript.errorNumber] as? Int) ?? 0
-            if code == AutomationConsent.refusedStatus {
-                Self.note(bundleID, refused: true)
-            } else if code != -600 {
-                IslandLog.media.error("AppleScript error: \(String(describing: error), privacy: .public)")
-            }
-            return nil
+            let reason = outcome.error.map { String(describing: $0) } ?? "the script did not compile"
+            IslandLog.media.error("AppleScript error: \(reason, privacy: .public)")
         }
-        Self.note(bundleID, refused: false)
-        return descriptor.stringValue
+        return outcome
+    }
+
+    /// What a script to `bundleID`'s player returned, or nil where it did not go through.
+    private func run(_ source: String, app bundleID: String) -> String? {
+        execute(source, app: bundleID).text
     }
 
     /// The bundle identifier of the player a command goes to: Spotify's when it is the one
@@ -286,22 +362,127 @@ final class AppleScriptBackend {
         bundleID == spotifyID ? spotifyID : musicID
     }
 
-    // MARK: Commands
+    private static func appName(_ bundleID: String?) -> String {
+        bundleID == spotifyID ? "Spotify" : "Music"
+    }
+
+    // MARK: Presses
+
+    /// A button pressed on the card, on its way to a player by script.
+    struct Press {
+        enum Kind: Equatable { case toggle, pause, next, previous, seek, shuffle, repeatMode, like, unfavourite }
+        var kind: Kind
+        var player: String
+        var source: String
+        var at: Date
+        /// Told on the main queue whether the script went through, where the caller wants to
+        /// know (the heart). A press dropped without being sent is told no.
+        var done: ((Bool) -> Void)? = nil
+    }
+
+    /// Presses waiting for the one before them to come back, oldest first. Main queue.
+    private var presses: [Press] = []
+    /// A press whose script is running. Main queue.
+    private var pressRunning = false
+
+    /// How long a press may wait its turn and still be sent. One that has waited longer is
+    /// behind a player that was not answering, and would land after the user has moved on — a
+    /// play/pause that starts the music a quarter of a minute after it was pressed.
+    static let pressPatience: TimeInterval = 6
+
+    /// The presses waiting once `press` has joined them. Pure, so it is tested.
+    ///
+    /// They used to queue without limit behind a script that was not coming back, and ran back
+    /// to back when the player recovered: every play/pause pressed meanwhile, late. Now two
+    /// play/pauses in a row cancel out, so presses made while the player is stuck add up to one
+    /// toggle or none; a seek, a shuffle or a repeat replaces the one waiting before it, since
+    /// only the last is what the user wants; and a next, previous or pause pressed again while
+    /// one is still waiting is the same press.
+    static func coalesced(_ waiting: [Press], adding press: Press) -> [Press] {
+        var result = waiting
+        switch press.kind {
+        case .toggle:
+            if let last = result.last, last.kind == .toggle, last.player == press.player {
+                result.removeLast()
+                return result
+            }
+        case .seek, .shuffle, .repeatMode:
+            result.removeAll { $0.kind == press.kind && $0.player == press.player }
+        case .next, .previous, .pause:
+            if let last = result.last, last.kind == press.kind, last.player == press.player { return result }
+        case .like, .unfavourite:
+            break
+        }
+        result.append(press)
+        return result
+    }
+
+    /// Whether a press that has waited since `press.at` is still worth sending. Pure.
+    static func stillWanted(_ press: Press, now: Date) -> Bool {
+        now.timeIntervalSince(press.at) <= pressPatience
+    }
+
+    private func submit(_ kind: Press.Kind, source: String, bundleID: String?, done: ((Bool) -> Void)? = nil) {
+        let press = Press(kind: kind, player: Self.player(bundleID),
+                          source: ScriptQueue.timed(source, seconds: Self.pressTimeout), at: Date(), done: done)
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.enqueue(press) }
+            return
+        }
+        enqueue(press)
+    }
+
+    /// Only presses without a `done` are ever coalesced away (`coalesced` never drops a heart),
+    /// so nobody waits on an answer for a press that was folded into another.
+    private func enqueue(_ press: Press) {
+        presses = Self.coalesced(presses, adding: press)
+        sendNextPress()
+    }
+
+    private func sendNextPress() {
+        guard !pressRunning else { return }
+        let now = Date()
+        while let first = presses.first, !Self.stillWanted(first, now: now) {
+            presses.removeFirst()
+            IslandLog.media.notice("dropped a press that waited too long for its player")
+            first.done?(false)
+        }
+        guard !presses.isEmpty else { return }
+        let press = presses.removeFirst()
+        pressRunning = true
+        ScriptQueue.async { [self] in
+            let succeeded = execute(press.source, app: press.player).succeeded
+            DispatchQueue.main.async {
+                self.pressRunning = false
+                press.done?(succeeded)
+                self.sendNextPress()
+            }
+        }
+    }
 
     func command(_ command: Command, bundleID: String?) {
-        let app = bundleID == Self.spotifyID ? "Spotify" : "Music"
         let verb: String
+        let kind: Press.Kind
         switch command {
-        case .togglePlayPause: verb = "playpause"
-        case .next: verb = "next track"
-        case .previous: verb = "previous track"
+        case .togglePlayPause:
+            verb = "playpause"
+            kind = .toggle
+        case .pause:
+            verb = "pause"
+            kind = .pause
+        case .next:
+            verb = "next track"
+            kind = .next
+        case .previous:
+            verb = "previous track"
+            kind = .previous
         }
-        commandQueue.async { _ = self.run("tell application \"\(app)\" to \(verb)", app: Self.player(bundleID)) }
+        submit(kind, source: "tell application \"\(Self.appName(bundleID))\" to \(verb)", bundleID: bundleID)
     }
 
     func seek(to seconds: TimeInterval, bundleID: String?) {
-        let app = bundleID == Self.spotifyID ? "Spotify" : "Music"
-        commandQueue.async { _ = self.run("tell application \"\(app)\" to set player position to \(Int(seconds))", app: Self.player(bundleID)) }
+        submit(.seek, source: "tell application \"\(Self.appName(bundleID))\" to set player position to \(Int(seconds))",
+               bundleID: bundleID)
     }
 
     /// The two players name the same switch differently: Music's `shuffle enabled`, Spotify's
@@ -310,7 +491,7 @@ final class AppleScriptBackend {
         let source = bundleID == Self.spotifyID
             ? "tell application \"Spotify\" to set shuffling to \(on)"
             : "tell application \"Music\" to set shuffle enabled to \(on)"
-        commandQueue.async { _ = self.run(source, app: Self.player(bundleID)) }
+        submit(.shuffle, source: source, bundleID: bundleID)
     }
 
     /// Music takes off, one or all; Spotify only whether it repeats at all.
@@ -318,14 +499,18 @@ final class AppleScriptBackend {
         let source = bundleID == Self.spotifyID
             ? "tell application \"Spotify\" to set repeating to \(mode != .off)"
             : "tell application \"Music\" to set song repeat to \(mode.rawValue)"
-        commandQueue.async { _ = self.run(source, app: Self.player(bundleID)) }
+        submit(.repeatMode, source: source, bundleID: bundleID)
     }
 
-    /// Favourites the track in Music. The property was `loved` before Apple renamed the button
-    /// Favourite, so the older word is tried when the newer one is refused. Spotify's
-    /// dictionary has no way to save a track at all, so there is nothing to send it.
-    func like(bundleID: String?) {
-        guard bundleID != Self.spotifyID else { return }
+    /// Favourites the track in Music, and tells `done` on the main queue whether it did. The
+    /// property was `loved` before Apple renamed the button Favourite, so the older word is
+    /// tried when the newer one is refused. Spotify's dictionary has no way to save a track at
+    /// all, so there is nothing to send it, and the answer is no.
+    func like(bundleID: String?, done: @escaping (Bool) -> Void) {
+        guard bundleID != Self.spotifyID else {
+            DispatchQueue.main.async { done(false) }
+            return
+        }
         let source = """
         tell application "Music"
             try
@@ -335,7 +520,23 @@ final class AppleScriptBackend {
             end try
         end tell
         """
-        commandQueue.async { _ = self.run(source, app: Self.player(bundleID)) }
+        submit(.like, source: source, bundleID: bundleID, done: done)
+    }
+
+    /// Music's heart, emptied: the other half of `like`, said the same two ways. What Music said
+    /// comes back to `done` on the main queue. Automation refused (-1743) and Music not running
+    /// (-600) are the two everybody meets; both are a heart that stays lit.
+    func unfavourite(done: @escaping (Bool) -> Void) {
+        let source = """
+        tell application "Music"
+            try
+                set favorited of current track to false
+            on error
+                set loved of current track to false
+            end try
+        end tell
+        """
+        submit(.unfavourite, source: source, bundleID: Self.musicID, done: done)
     }
 }
 

@@ -60,6 +60,8 @@ final class NowPlayingService: ObservableObject {
     /// The paused track "Keep paused music for" last took off the island, see `staysDismissed`.
     private var dismissedPaused: NowPlayingInfo?
     private var ticks = 0
+    /// AppleScript polls in a row that found nothing playing, see `appleScriptPollEvery`.
+    private var idlePolls = 0
     private(set) var activeBackend: Backend = .inactive
     /// What the user just asked for, held against stale backend reports for a moment.
     private var optimistic: Optimistic?
@@ -81,6 +83,10 @@ final class NowPlayingService: ObservableObject {
         /// play button does, and the glyph must not flick back to the old mode meanwhile.
         var shuffle: Bool? = nil
         var repeatMode: NowPlayingInfo.RepeatMode? = nil
+        /// The track the press was for (`trackKey`). The state belongs to that track and to no
+        /// other: a seek near the end, or a pause as a track ended, was read into the next
+        /// track's second report, which landed inside the window. Nil holds for any track.
+        var track: String? = nil
 
         /// Where the playhead should be now if the backend had kept up.
         func expectedPosition(at now: Date, playing: Bool) -> TimeInterval? {
@@ -127,6 +133,8 @@ final class NowPlayingService: ObservableObject {
         mediaRemote.onUpdate = { [weak self] info in
             DispatchQueue.main.async { self?.handle(info, from: .mediaRemote) }
         }
+        // The same gate `handle` drops its reports behind, asked before it decodes a cover.
+        mediaRemote.isOutranked = { [weak self] in self?.adapter.isAnswering ?? false }
         mediaRemote.start()
         // The limit read afresh when it is changed, as the tick used to read it every second.
         // Hopped through the main queue: `@Published` announces a value before it is stored.
@@ -164,7 +172,8 @@ final class NowPlayingService: ObservableObject {
     /// for five minutes first, and somebody looking at a blank card in Settings should not have
     /// to sit that out. Starting the backend afresh wipes its count of deaths, which is what
     /// makes this the way past a rest rather than one more turn of it. The card is left as it
-    /// is: the new helper says what is playing within its first beat, and that replaces it.
+    /// is: the new helper says what is playing within its first beat, and that replaces it — a
+    /// track, or "nothing", which ends it (`nothingEndsCard`).
     func restartHelper() {
         guard running, !Self.fakesTrack else { return }
         IslandLog.media.notice("restarting the adapter helper at the user's request")
@@ -292,9 +301,21 @@ final class NowPlayingService: ObservableObject {
     private func tick() {
         ticks += 1
         // AppleScript polling spawns a real process; keep it off entirely while asleep, and
-        // back off to every 4s (instead of 2s) on battery.
+        // back off on battery, with nobody looking, and while it keeps finding nothing playing.
         let energy = EnergyPolicy.shared
-        let pollEvery = energy.isOnBattery ? 4 : 2
+        let pollEvery = Self.appleScriptPollEvery(onBattery: energy.isOnBattery, idleAnswers: idlePolls,
+                                                  nobodyLooking: energy.nobodyLooking)
+        // MediaRemote asked again once it has gone quiet, not only while it shows the track —
+        // where it answers this app at all (up to macOS 15.3). Its "nothing is playing" is an
+        // answer that keeps AppleScript shut, and it was never asked for one: fifteen seconds
+        // after the music stopped it counted as silent and Music and Spotify were scripted
+        // every two seconds with nothing playing. From 15.4 it answers nothing, and is left.
+        var askedMediaRemote = false
+        if !adapter.isAnswering,
+           activeBackend == .mediaRemote || (MediaRemoteBackend.answersThisApp && !mediaRemote.isAnswering) {
+            // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
+            askedMediaRemote = mediaRemote.refreshIfStale()
+        }
         // Answering, not playing. A helper that is alive and says nothing is playing has told
         // us the truth, and there is nothing for AppleScript to add — asking it anyway meant a
         // working Mac with the music stopped fired a round trip at Music and at Spotify every
@@ -302,14 +323,14 @@ final class NowPlayingService: ObservableObject {
         // prompt. The fallback is for a backend that has gone quiet, which is a different thing
         // — and a helper that was asleep with the Mac has not, so for its first silence window
         // after a wake it still counts as answering, see `AdapterBackend.isOverdue`.
-        if !energy.isAsleep, Self.scriptsPlayers(Preferences.shared), !adapter.isAnswering, !mediaRemote.isAnswering,
-           ticks % pollEvery == 0 {
-            appleScript.poll(artworkLookup: Preferences.shared.artworkLookupEnabled) { [weak self] info in
-                self?.handle(info, from: .appleScript)
+        // A question just put to MediaRemote is given its answer before AppleScript is asked.
+        if !askedMediaRemote, !energy.isAsleep, Self.scriptsPlayers(Preferences.shared), !adapter.isAnswering,
+           !mediaRemote.isAnswering, ticks % pollEvery == 0 {
+            appleScript.poll(artworkLookup: Preferences.shared.artworkLookupEnabled, preferring: info?.bundleID) { [weak self] report in
+                guard let self else { return }
+                self.idlePolls = Self.idleAnswers(after: report, count: self.idlePolls)
+                self.handle(report, from: .appleScript)
             }
-        } else if activeBackend == .mediaRemote {
-            // Refresh periodically so elapsed time can't drift after seeks made elsewhere.
-            mediaRemote.refreshIfStale()
         }
         // Which also stops the tick, once there is nothing left for it to do.
         updateTick()
@@ -337,6 +358,26 @@ final class NowPlayingService: ObservableObject {
     }
 
     static let pausedGrace: TimeInterval = 1
+
+    /// Every how many ticks AppleScript is asked. Pure, so it is tested.
+    ///
+    /// Every two seconds, four on battery — and three times as long once a handful of polls in a
+    /// row (`idleAnswers`) have found nothing playing, or a paused track, and five times as long
+    /// after half a minute's worth of them or with nobody at the Mac. A player open with nothing
+    /// playing was scripted every two seconds for as long as it stayed open. A track that plays,
+    /// or a press on the card, puts it back to the start.
+    static func appleScriptPollEvery(onBattery: Bool, idleAnswers: Int, nobodyLooking: Bool) -> Int {
+        let base = onBattery ? 4 : 2
+        if nobodyLooking || idleAnswers >= 30 { return base * 5 }
+        if idleAnswers >= 5 { return base * 3 }
+        return base
+    }
+
+    /// The count of idle polls after `report`: nothing, or a track that is not playing, adds one;
+    /// a track that plays starts it again.
+    static func idleAnswers(after report: NowPlayingInfo?, count: Int) -> Int {
+        report?.isPlaying == true ? 0 : count + 1
+    }
 
     /// Sets the one look at the paused track for the moment it is due, or none. Called when
     /// the track pauses or plays, when the card ends, and when the setting changes.
@@ -376,7 +417,10 @@ final class NowPlayingService: ObservableObject {
         if backend == .mediaRemote && adapter.isAnswering { return }
 
         guard var new = new.map(Self.sanitized) else {
-            if activeBackend == backend || activeBackend == .inactive { scheduleClear() }
+            if Self.nothingEndsCard(from: backend, answering: isAnswering(backend),
+                                    active: activeBackend, activeAnswering: isAnswering(activeBackend)) {
+                scheduleClear()
+            }
             return
         }
         // A mode the report carries is the player's word; one it does not is what the island
@@ -392,7 +436,7 @@ final class NowPlayingService: ObservableObject {
         activeBackend = backend
         let now = Date()
         let reconciled = Self.reconcile(incoming: new, current: info, optimistic: optimistic, now: now)
-        if let pending = optimistic, pending.until <= now || Self.agrees(new, with: pending, now: now) {
+        if let pending = optimistic, !Self.keepsOptimistic(pending, after: new, now: now) {
             optimistic = nil
         }
         if reconciled.isPlaying {
@@ -426,6 +470,48 @@ final class NowPlayingService: ObservableObject {
     /// The alert id of the sneak peek: the compact pill widened for a moment with the title
     /// and artist of a track that just started.
     static let peekAlertID = "nowplaying-peek"
+
+    /// Where a backend stands among the three: the helper, then MediaRemote, then AppleScript.
+    static func rank(_ backend: Backend) -> Int {
+        switch backend {
+        case .adapter: return 3
+        case .mediaRemote: return 2
+        case .appleScript: return 1
+        case .inactive: return 0
+        }
+    }
+
+    /// Whether `backend` is answering, for `nothingEndsCard`. AppleScript has no health of its
+    /// own: it is asked only while neither of the others answers, and always comes back.
+    private func isAnswering(_ backend: Backend) -> Bool {
+        switch backend {
+        case .adapter: return adapter.isAnswering
+        case .mediaRemote: return mediaRemote.isAnswering
+        case .appleScript: return true
+        case .inactive: return false
+        }
+    }
+
+    /// Whether "nothing is playing", from `backend`, ends the card `active` put up. Pure, so it
+    /// is tested. Asked only of a report that got past the gates in `handle`.
+    ///
+    /// The card's own backend saying so ends it, as it always did. So does a better backend that
+    /// is answering, and any backend once the card's own has stopped answering. Only the card's
+    /// own could end it, so a card put up by a helper that was then killed, restarted or brought
+    /// back by the user, or by a fallback the helper then took over from, stayed up for good,
+    /// "playing", its clock running, after the music had stopped.
+    static func nothingEndsCard(from backend: Backend, answering: Bool, active: Backend, activeAnswering: Bool) -> Bool {
+        if active == .inactive || active == backend { return true }
+        if !activeAnswering { return true }
+        return answering && rank(backend) > rank(active)
+    }
+
+    /// Where play, pause and the skips go: the backend showing the track — or, with no card up,
+    /// the helper where it is answering, rather than MediaRemote in the app, which from macOS
+    /// 15.4 is not the one that can see the player. Pure, so it is tested.
+    static func transportBackend(active: Backend, adapterAnswering: Bool) -> Backend {
+        active == .inactive && adapterAnswering ? .adapter : active
+    }
 
     /// A track worth announcing: playing, and not the one that was playing a moment ago.
     static func isNewTrack(_ new: NowPlayingInfo, after previous: NowPlayingInfo?) -> Bool {
@@ -474,8 +560,9 @@ final class NowPlayingService: ObservableObject {
     /// same track that contradicts what the user just did is corrected to the user's state; a
     /// different track, or anything after the window, is taken as is.
     static func reconcile(incoming: NowPlayingInfo, current: NowPlayingInfo?, optimistic: Optimistic?, now: Date) -> NowPlayingInfo {
-        let incoming = carryingArtwork(into: incoming, from: current)
-        guard let optimistic, now < optimistic.until, let current, sameTrack(incoming, current) else { return incoming }
+        let incoming = carryingPosition(into: carryingArtwork(into: incoming, from: current), from: current, now: now)
+        guard let optimistic, now < optimistic.until, let current, sameTrack(incoming, current),
+              concerns(optimistic, incoming) else { return incoming }
         var result = incoming
         if let isPlaying = optimistic.isPlaying, incoming.isPlaying != isPlaying {
             result.isPlaying = isPlaying
@@ -504,6 +591,36 @@ final class NowPlayingService: ObservableObject {
         result.artworkID = current.artworkID
         result.accent = current.accent
         return result
+    }
+
+    /// A report that does not say where the playhead is (`NowPlayingInfo.reportsPosition`) keeps
+    /// the clock the card has for the same track. A live stream that reports neither an elapsed
+    /// time nor a timestamp was read as starting from nothing on every report, so its clock went
+    /// back to 0:00 every five seconds. A change of play state is taken, from where the playhead
+    /// is now. Pure, so it is tested.
+    static func carryingPosition(into incoming: NowPlayingInfo, from current: NowPlayingInfo?, now: Date) -> NowPlayingInfo {
+        guard !incoming.reportsPosition, let current, sameTrack(incoming, current) else { return incoming }
+        var result = incoming
+        if incoming.isPlaying == current.isPlaying {
+            result.elapsed = current.elapsed
+            result.timestamp = current.timestamp
+        } else {
+            result.elapsed = current.position(at: now)
+            result.timestamp = now
+        }
+        return result
+    }
+
+    /// Whether what the user just asked for is about this report's track (`Optimistic.track`).
+    static func concerns(_ pending: Optimistic, _ report: NowPlayingInfo) -> Bool {
+        pending.track.map { $0 == trackKey(report) } ?? true
+    }
+
+    /// Whether the pending request outlives `report`: its window is not over, the backend has
+    /// not caught up with it, and the report is about the track it was for. The first report of
+    /// another track ends it. Pure, so it is tested.
+    static func keepsOptimistic(_ pending: Optimistic, after report: NowPlayingInfo, now: Date) -> Bool {
+        pending.until > now && concerns(pending, report) && !agrees(report, with: pending, now: now)
     }
 
     static func sameTrack(_ a: NowPlayingInfo, _ b: NowPlayingInfo) -> Bool {
@@ -551,25 +668,39 @@ final class NowPlayingService: ObservableObject {
 
     // MARK: Controls
 
+    /// Where play, pause and the skips go now, see `transportBackend`. A press is also somebody
+    /// at the Mac, so AppleScript goes back to asking at its full rate (`appleScriptPollEvery`).
+    private func transport() -> Backend {
+        idlePolls = 0
+        return Self.transportBackend(active: activeBackend, adapterAnswering: adapter.isAnswering)
+    }
+
     func togglePlayPause() {
-        switch activeBackend {
+        switch transport() {
         case .appleScript: appleScript.command(.togglePlayPause, bundleID: info?.bundleID)
         case .adapter: adapter.send("toggle")
         default: mediaRemote.send(.togglePlayPause)
         }
-        optimisticallyToggle()
+        guard let playing = info?.isPlaying else { return }
+        optimistically(playing: !playing)
     }
 
     /// Stops whatever is playing, and does nothing at all when nothing is. What a sleep timer
-    /// asks for at the end of it: `togglePlayPause` on a Mac that has already gone quiet would
-    /// start the music up again, which is the one thing it must not do.
+    /// asks for at the end of it. It sends a pause, never a toggle: a toggle on a card whose
+    /// "playing" was out of date started the music up again, which is the one thing it must not
+    /// do, and a pause sent to a player that has stopped already does nothing.
     func pauseIfPlaying() {
         guard info?.isPlaying == true else { return }
-        togglePlayPause()
+        switch transport() {
+        case .appleScript: appleScript.command(.pause, bundleID: info?.bundleID)
+        case .adapter: adapter.send("pause")
+        default: mediaRemote.send(.pause)
+        }
+        optimistically(playing: false)
     }
 
     func next() {
-        switch activeBackend {
+        switch transport() {
         case .appleScript: appleScript.command(.next, bundleID: info?.bundleID)
         case .adapter: adapter.send("next")
         default: mediaRemote.send(.nextTrack)
@@ -577,7 +708,7 @@ final class NowPlayingService: ObservableObject {
     }
 
     func previous() {
-        switch activeBackend {
+        switch transport() {
         case .appleScript: appleScript.command(.previous, bundleID: info?.bundleID)
         case .adapter: adapter.send("previous")
         default: mediaRemote.send(.previousTrack)
@@ -595,14 +726,15 @@ final class NowPlayingService: ObservableObject {
         case .adapter: adapter.send("seek \(Int(seconds))")
         default: mediaRemote.seek(to: seconds)
         }
+        idlePolls = 0
         if var i = info {
             let now = Date()
             let pending = carried(now)
             i.elapsed = seconds
             i.timestamp = now
             info = i
-            optimistic = Optimistic(isPlaying: optimistic?.isPlaying, elapsed: seconds, at: now, until: now + Self.optimisticWindow,
-                                    shuffle: pending?.shuffle, repeatMode: pending?.repeatMode)
+            optimistic = Optimistic(isPlaying: pending?.isPlaying, elapsed: seconds, at: now, until: now + Self.optimisticWindow,
+                                    shuffle: pending?.shuffle, repeatMode: pending?.repeatMode, track: Self.trackKey(i))
             publish()
         }
     }
@@ -611,16 +743,18 @@ final class NowPlayingService: ObservableObject {
         if let bundle = info?.bundleID { OpenAction.app(bundleID: bundle).perform() }
     }
 
-    private func optimisticallyToggle() {
+    /// The card shows `playing` straight away, and holds it against the reports behind the press
+    /// for a moment (`Optimistic`).
+    private func optimistically(playing: Bool) {
         guard var i = info else { return }
         let now = Date()
         let pending = carried(now)
         i.elapsed = i.position(at: now)
         i.timestamp = now
-        i.isPlaying.toggle()
+        i.isPlaying = playing
         info = i
-        optimistic = Optimistic(isPlaying: i.isPlaying, elapsed: nil, at: now, until: now + Self.optimisticWindow,
-                                shuffle: pending?.shuffle, repeatMode: pending?.repeatMode)
+        optimistic = Optimistic(isPlaying: playing, elapsed: nil, at: now, until: now + Self.optimisticWindow,
+                                shuffle: pending?.shuffle, repeatMode: pending?.repeatMode, track: Self.trackKey(i))
         publish()
         // Paused again before the player said it was playing, the pause it is still in keeps
         // its clock, and its look has to be set again.
@@ -796,21 +930,27 @@ final class NowPlayingService: ObservableObject {
 
     /// The heart: favourite the track, or, pressed again, take the favourite back. "Like" to
     /// MediaRemote or the heart in Music through AppleScript on the way in; Music's heart
-    /// through AppleScript on the way out, see `heartPress`. On the way out the heart empties
-    /// once Music has done it, see `likedKey(afterUnfavouriting:succeeded:now:)`.
+    /// through AppleScript on the way out (`AppleScriptBackend.unfavourite`), see `heartPress`.
+    /// Either way the heart changes once the press has gone through, see
+    /// `likedKey(afterFavouriting:succeeded:now:)` and `likedKey(afterUnfavouriting:succeeded:now:)`.
     func toggleFavourite() {
         guard let current = info else { return }
         switch Self.heartPress(liked: isLiked(current), active: activeBackend, info: current) {
         case .favourite(let backend):
-            switch backend {
-            case .appleScript: appleScript.like(bundleID: current.bundleID)
-            case .adapter: adapter.send("like")
-            default: mediaRemote.send(.likeTrack)
+            let pressed = Self.trackKey(current)
+            let settle: (Bool) -> Void = { [weak self] succeeded in
+                guard let self else { return }
+                let next = Self.likedKey(afterFavouriting: pressed, succeeded: succeeded, now: self.likedTrackKey)
+                if self.likedTrackKey != next { self.likedTrackKey = next }
             }
-            likedTrackKey = Self.trackKey(current)
+            switch backend {
+            case .appleScript: appleScript.like(bundleID: current.bundleID, done: settle)
+            case .adapter: settle(adapter.send("like"))
+            default: settle(mediaRemote.send(.likeTrack))
+            }
         case .unfavourite:
             let pressed = Self.trackKey(current)
-            unfavouriteInMusic { [weak self] succeeded in
+            appleScript.unfavourite { [weak self] succeeded in
                 guard let self else { return }
                 let next = Self.likedKey(afterUnfavouriting: pressed, succeeded: succeeded, now: self.likedTrackKey)
                 if self.likedTrackKey != next { self.likedTrackKey = next }
@@ -831,45 +971,16 @@ final class NowPlayingService: ObservableObject {
         succeeded && liked == pressed ? nil : liked
     }
 
-    /// Music's heart, emptied: the other half of `AppleScriptBackend.like`, said the same two
-    /// ways — `favorited`, and `loved` from before Apple renamed the button. Off the main
-    /// queue, like every script the island runs, because Music answers in its own time; what
-    /// it said comes back on the main queue, to `done`. It belongs beside `like` in the
-    /// backend, which keeps its script runner to itself.
-    private func unfavouriteInMusic(done: @escaping (Bool) -> Void) {
-        let source = """
-        tell application "Music"
-            try
-                set favorited of current track to false
-            on error
-                set loved of current track to false
-            end try
-        end tell
-        """
-        Self.favouriteQueue.async {
-            var error: NSDictionary?
-            let script = NSAppleScript(source: source)
-            _ = script?.executeAndReturnError(&error)
-            let succeeded = script != nil && error == nil
-            if !succeeded {
-                // Said once, for this press. Automation refused and Music not running are the
-                // two everybody meets, and are named; anything else is logged whole.
-                let code = (error?[NSAppleScript.errorNumber] as? Int) ?? 0
-                switch code {
-                case -1743:
-                    IslandLog.media.notice("the heart stays lit: Automation for Music is not allowed")
-                case -600:
-                    IslandLog.media.notice("the heart stays lit: Music is not running")
-                default:
-                    let reason = error.map { String(describing: $0) } ?? "the script did not compile"
-                    IslandLog.media.error("could not empty Music's heart: \(reason, privacy: .public)")
-                }
-            }
-            DispatchQueue.main.async { done(succeeded) }
-        }
+    /// The heart once a press that favourites a track has been answered: lit for that track where
+    /// the press went through, and as it was where it did not. Pure, so the rule is tested.
+    ///
+    /// It was lit before the press was sent, whatever came of it — with Automation refused, Music
+    /// not running, Spotify's dictionary having no favourite at all, or the helper not listening,
+    /// the heart filled and nothing had been favourited. "Went through" is as far as anyone can
+    /// know: the helper's and MediaRemote's players do not answer a press.
+    static func likedKey(afterFavouriting pressed: String, succeeded: Bool, now liked: String?) -> String? {
+        succeeded ? pressed : liked
     }
-
-    private static let favouriteQueue = DispatchQueue(label: "com.macnotchisland.nowplaying.favourite", qos: .userInitiated)
 
     /// Fifteen seconds back or on, as a seek from where the playhead is now — the same seek the
     /// scrubber makes, through whichever backend is showing the track. A player's own skip
@@ -898,7 +1009,8 @@ final class NowPlayingService: ObservableObject {
         info = i
         optimistic = Optimistic(isPlaying: pending?.isPlaying, elapsed: pending?.elapsed, at: pending?.at ?? now,
                                 until: now + Self.optimisticWindow,
-                                shuffle: shuffle ?? pending?.shuffle, repeatMode: repeatMode ?? pending?.repeatMode)
+                                shuffle: shuffle ?? pending?.shuffle, repeatMode: repeatMode ?? pending?.repeatMode,
+                                track: Self.trackKey(i))
         publish()
     }
 }

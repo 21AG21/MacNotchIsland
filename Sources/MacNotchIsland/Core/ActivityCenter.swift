@@ -664,7 +664,8 @@ final class ActivityCenter: ObservableObject {
         // close button, a Stop. What waited behind it gets its turn now, as it does when the
         // panel closes; it used to wait for some later alert to expire, by when its patience
         // had usually run out and it was dropped unseen.
-        if wasHeld || wasForced, alert == nil { showNextPendingAlert() }
+        if wasHeld, !wasForced, alert == nil { showNextPendingAlert() }
+        if wasForced, alert == nil { showNextPendingAlertAfterForcedCard() }
     }
 
     func end(kind: ActivityKind) {
@@ -764,7 +765,7 @@ final class ActivityCenter: ObservableObject {
             }
             self.forcedExpandedID = nil
             // What waited behind the card gets its turn now.
-            if self.alert == nil { self.showNextPendingAlert() }
+            if self.alert == nil { self.showNextPendingAlertAfterForcedCard() }
         }
         forcedWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -836,6 +837,7 @@ final class ActivityCenter: ObservableObject {
     /// How long a queued alert stays worth showing: a HUD goes stale in a moment, a finished
     /// download keeps for a while, a battery warning longer still.
     static func patience(for activity: IslandActivity) -> TimeInterval {
+        if isSneakPeek(activity) { return peekPatience }
         switch alertRank(activity) {
         case ...2: return 2
         case 3...4: return 20
@@ -854,8 +856,40 @@ final class ActivityCenter: ObservableObject {
     /// dropped unseen when its turn came. A key press's HUD goes stale behind them as anywhere
     /// else — a volume tick from a minute ago is no news when the card goes.
     static func outwaited(_ activity: IslandActivity, waited: TimeInterval, behindHold: Bool) -> Bool {
-        if behindHold, alertRank(activity) >= 3 { return false }
+        if behindHold, keepsThroughHold(activity) { return false }
         return waited > patience(for: activity)
+    }
+
+    /// Whether an alert is the next track's sneak peek (`NowPlayingService.peekAlertID`).
+    static func isSneakPeek(_ activity: IslandActivity) -> Bool {
+        activity.id == NowPlayingService.peekAlertID
+    }
+
+    /// How long a sneak peek stays worth showing once queued: about as long as it is shown for.
+    /// With a finished download's twenty seconds it came up that long after the track began,
+    /// for a track that may have stopped, or been skipped, meanwhile.
+    static let peekPatience: TimeInterval = 3
+
+    /// Whether time the queue is on hold is forgiven an alert (`outwaited`, `afterHold`): one
+    /// worth keeping, which is not a key press's feedback and not a sneak peek. Both of those
+    /// are news of a moment, as stale behind a held card as anywhere else.
+    static func keepsThroughHold(_ activity: IslandActivity) -> Bool {
+        alertRank(activity) >= 3 && !isSneakPeek(activity)
+    }
+
+    /// Whether `arriving` waits behind `shown`, the alert up now, rather than taking its place.
+    /// Pure, so it is tested.
+    ///
+    /// A quieter alert waits behind a louder one — except a key press's feedback (rank 2 and
+    /// under: volume, brightness, mute, Caps Lock) over a sneak peek. The peek ranks 3 and was
+    /// up for its 2.4 seconds, longer under a resting pointer, and a volume or mute press made
+    /// meanwhile was queued with two seconds of patience and dropped when its turn came: the
+    /// key was taken and nobody's bezel said so. It replaces the peek, which is only a glance
+    /// at a title the card below still shows.
+    static func waitsBehind(_ shown: IslandActivity?, arriving: IslandActivity) -> Bool {
+        guard let shown, shown.id != arriving.id else { return false }
+        if isSneakPeek(shown), alertRank(arriving) <= 2 { return false }
+        return alertRank(shown) > alertRank(arriving)
     }
 
     /// The queue once the hold it waited through is over — the card forced up has gone, or
@@ -865,7 +899,7 @@ final class ActivityCenter: ObservableObject {
     static func afterHold(_ queue: [PendingAlert], now: Date) -> [PendingAlert] {
         queue.map { item in
             var item = item
-            if alertRank(item.activity) >= 3 { item.queuedAt = now }
+            if keepsThroughHold(item.activity) { item.queuedAt = now }
             return item
         }
     }
@@ -930,7 +964,7 @@ final class ActivityCenter: ObservableObject {
             IslandLog.island.notice("focus holds \(activity.id, privacy: .public)")
             return
         }
-        let outranked = alert.map { $0.id != activity.id && Self.alertRank($0) > Self.alertRank(activity) } ?? false
+        let outranked = Self.waitsBehind(alert, arriving: activity)
         // Behind a card forced up — a timer that has rung, a call — as behind a louder alert,
         // while that card is what the islands show (`alertTakesIsland`).
         let behindForcedCard = forcedCardShowing && Self.alertRank(activity) < 6
@@ -1070,6 +1104,32 @@ final class ActivityCenter: ObservableObject {
                            cardUnderPointer: Bool) -> Bool {
         guard pointerOn, seconds > 1.5, heldFor < alertHoldLimit else { return false }
         return !panelShowing || cardUnderPointer
+    }
+
+    /// What waited behind a card that has just left the forced slot gets its turn — unless a
+    /// question from `notchctl ask` is up with its card still live (`questionMayTakeSlotBack`).
+    /// That question takes the slot back one main-queue turn later (`IslandAsk.reclaims`), and
+    /// an alert shown in between was taken straight down again, sent back to the queue with its
+    /// patience started over and a second tap: a finished download's banner blinked on and off.
+    /// The queue is looked at once the question has had its turn, and then waits behind its
+    /// card if it did take the slot, or goes now if it did not (too little of its time left).
+    private func showNextPendingAlertAfterForcedCard() {
+        guard Self.questionMayTakeSlotBack(asking: IslandAsk.shared.isAsking,
+                                           questionCardUp: activity(id: IslandAsk.activityID) != nil) else {
+            return showNextPendingAlert()
+        }
+        // After the question's own look, which `IslandAsk` put on the main queue when the slot
+        // came free — before this one.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.forcedExpandedID == nil, self.alert == nil else { return }
+            self.showNextPendingAlert()
+        }
+    }
+
+    /// Whether a question may take the forced slot back the moment it comes free: one is up,
+    /// and its card is still live. Pure, so it is tested.
+    static func questionMayTakeSlotBack(asking: Bool, questionCardUp: Bool) -> Bool {
+        asking && questionCardUp
     }
 
     private func showNextPendingAlert() {

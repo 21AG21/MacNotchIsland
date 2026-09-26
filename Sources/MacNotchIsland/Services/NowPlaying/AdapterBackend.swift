@@ -51,9 +51,8 @@ final class AdapterBackend {
     /// When the watchdog last looked, so a look that comes far too late can be told apart.
     private var lastCheck: Date?
     private var wakeObservers: [NSObjectProtocol] = []
-    private var artworkHash = ""
-    private var artwork: NSImage?
-    private var accent: NSColor = .white
+    /// The covers the helper has sent, by the hash it names them with. Lives on `parseQueue`.
+    private var covers = CoverCache()
     private let parseQueue = DispatchQueue(label: "com.macnotchisland.adapter", qos: .userInitiated)
 
     /// Writing to a helper that died a moment ago would otherwise take the whole app down with a
@@ -181,22 +180,28 @@ final class AdapterBackend {
     /// It deliberately does not hold the press for the helper that replaces this one: a "toggle"
     /// replayed two seconds later lands on a Mac the user may have paused by other means, and
     /// starting the music up again unbidden is the one thing a media control must never do.
-    func send(_ command: String) {
+    ///
+    /// Says whether the command reached the helper, which is as far as anybody can know: the
+    /// players do not answer a press.
+    @discardableResult
+    func send(_ command: String) -> Bool {
         guard let input, process?.isRunning == true, let data = (command + "\n").data(using: .utf8) else {
             IslandLog.media.error("dropped \(command, privacy: .public): the adapter helper is not listening")
-            return
+            return false
         }
         do {
             try input.write(contentsOf: data)
+            return true
         } catch {
             IslandLog.media.error("could not hand \(command, privacy: .public) to the adapter helper: \(String(describing: error), privacy: .public)")
             // A broken pipe means the helper is already gone whatever its exit status says yet;
             // let go of it now rather than write into it again on the next press.
             self.input = nil
+            return false
         }
     }
 
-    func refresh() { send("refresh") }
+    func refresh() { _ = send("refresh") }
 
     // MARK: Process
 
@@ -292,7 +297,10 @@ final class AdapterBackend {
         // SIGTERM is delivered by the kernel and asks nothing of the helper's own run loop, so
         // even a thoroughly wedged helper goes away.
         if p.isRunning { p.terminate() }
-        let wasDelivering = isDeliveringTrack
+        // What it last said, not whether it is answering: it is not, which is why it is being
+        // killed, and read through `isDeliveringTrack` this was always false here. The card it
+        // put up then stayed, playing, with its clock running, for as long as nobody else spoke.
+        let wasDelivering = lastMessageWasTrack
         releaseHelper()
         helperDied(wasDeliveringTrack: wasDelivering)
     }
@@ -302,7 +310,8 @@ final class AdapterBackend {
         // drop the reference to its *successor* and then start a third one behind it, leaving the
         // second alive, unreferenced, still feeding us reports and never terminated.
         guard Self.isTheHelperWeHold(ended, held: process) else { return }
-        let wasDelivering = isDeliveringTrack
+        // As in `checkForSilence`: what it last said, however long ago.
+        let wasDelivering = lastMessageWasTrack
         releaseHelper()
         helperDied(wasDeliveringTrack: wasDelivering)
     }
@@ -360,44 +369,47 @@ final class AdapterBackend {
         // alive in the sense that matters to `ps` and in no other: better it be treated as silent,
         // restarted, and the fallbacks let through while that happens.
         guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+        // Bytes are taken in whatever else the report says. The helper sends a cover's bytes once,
+        // when its hash changes, and a report with no title can be the one that carries them.
+        let hash = obj["artworkHash"] as? String ?? ""
+        if !hash.isEmpty, covers.cover(for: hash) == nil,
+           let b64 = obj["artworkBase64"] as? String, let data = Data(base64Encoded: b64), let image = NSImage(data: data) {
+            covers.remember(image, accent: image.dominantColor(), for: hash)
+        }
         let title = obj["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
         let artist = obj["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? ""
         if title.isEmpty && artist.isEmpty {
-            artworkHash = ""
-            artwork = nil
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.process != nil else { return }
-                let wasDelivering = self.isDeliveringTrack
                 self.noteMessage(carryingTrack: false)
-                // "Nothing is playing" is still an answer, and it only ends a card that this
-                // backend put there.
-                if wasDelivering { self.onUpdate?(nil) }
+                // "Nothing is playing" is an answer, and it is always passed on; the service
+                // decides whose card it ends (`NowPlayingService.nothingEndsCard`). Passed on
+                // only after a track, a helper started afresh — by a restart, or by the user —
+                // could never end the card the one before it left.
+                self.onUpdate?(nil)
             }
             return
         }
 
         let album = obj["kMRMediaRemoteNowPlayingInfoAlbum"] as? String ?? ""
         let duration = (obj["kMRMediaRemoteNowPlayingInfoDuration"] as? NSNumber)?.doubleValue ?? 0
-        let elapsed = (obj["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? NSNumber)?.doubleValue ?? 0
-        let rate = (obj["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? NSNumber)?.doubleValue ?? 0
-        let timestamp = (obj["kMRMediaRemoteNowPlayingInfoTimestamp"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } ?? Date()
-        let hash = obj["artworkHash"] as? String ?? ""
+        let reportedElapsed = obj["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? NSNumber
+        let rate = (obj["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? NSNumber)?.doubleValue
+        let reportedTimestamp = obj["kMRMediaRemoteNowPlayingInfoTimestamp"] as? NSNumber
+        let timestamp = reportedTimestamp.map { Date(timeIntervalSince1970: $0.doubleValue) } ?? Date()
         let pid = (obj["pid"] as? NSNumber)?.int32Value ?? 0
+        // An older helper does not send it; the rate decides then.
+        let flag = obj["isPlaying"] as? Bool
 
-        // Artwork cache lives on parseQueue; only the finished value crosses to the main thread.
-        if !hash.isEmpty, hash != artworkHash, let b64 = obj["artworkBase64"] as? String, let data = Data(base64Encoded: b64) {
-            artworkHash = hash
-            artwork = NSImage(data: data)
-            accent = artwork?.dominantColor() ?? .white
-        } else if hash.isEmpty {
-            artworkHash = ""
-            artwork = nil
-            accent = .white
-        }
+        // The cache lives on parseQueue; only the finished value crosses to the main thread. A
+        // report that names no cover is a track without one, and leaves the cache as it is.
+        let cover = hash.isEmpty ? nil : covers.cover(for: hash)
         var info = NowPlayingInfo(title: title, artist: artist, album: album,
-                                  duration: duration, elapsed: elapsed, timestamp: timestamp,
-                                  isPlaying: rate > 0, bundleID: nil,
-                                  artwork: artwork, artworkID: artworkHash.hashValue, accent: accent)
+                                  duration: duration, elapsed: reportedElapsed?.doubleValue ?? 0, timestamp: timestamp,
+                                  isPlaying: NowPlayingInfo.isPlaying(rate: rate, flag: flag), bundleID: nil,
+                                  artwork: cover?.image, artworkID: cover == nil ? 0 : hash.hashValue,
+                                  accent: cover?.accent ?? .white)
+        info.reportsPosition = reportedElapsed != nil || reportedTimestamp != nil
         Self.readModes(from: obj, into: &info)
 
         DispatchQueue.main.async { [weak self] in
@@ -406,6 +418,34 @@ final class AdapterBackend {
             if pid > 0, let app = NSRunningApplication(processIdentifier: pid) { delivered.bundleID = app.bundleIdentifier }
             self.noteMessage(carryingTrack: true)
             self.onUpdate?(delivered)
+        }
+    }
+
+    /// The covers the helper has sent, by the hash it names each with.
+    ///
+    /// The helper sends a cover's bytes only when its hash differs from the one it sent last,
+    /// so a report naming a hash with no bytes means "the cover you already have". This used to
+    /// be one cover, thrown away by any report without artwork — usual between tracks, or over
+    /// an advert — and the next track with the same cover then came as a hash with nothing to
+    /// match it, and had no cover at all. A handful are kept, and a report with no cover keeps
+    /// them. Pure, so it is tested.
+    struct CoverCache {
+        static let limit = 8
+        private var entries: [String: (image: NSImage, accent: NSColor)] = [:]
+        /// Oldest first.
+        private(set) var order: [String] = []
+
+        init() {}
+
+        func cover(for hash: String) -> (image: NSImage, accent: NSColor)? { entries[hash] }
+
+        mutating func remember(_ image: NSImage, accent: NSColor, for hash: String) {
+            entries[hash] = (image, accent)
+            order.removeAll { $0 == hash }
+            order.append(hash)
+            while order.count > Self.limit {
+                entries[order.removeFirst()] = nil
+            }
         }
     }
 

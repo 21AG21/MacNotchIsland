@@ -98,4 +98,22 @@ final class LyricsParserTests: XCTestCase {
         XCTAssertNil(LyricsService.timestamp(from: "00:12.3456"[...]))
         XCTAssertEqual(LyricsService.timestamp(from: "00:12"[...]) ?? -1, 12, accuracy: 0.0001)
     }
+
+    // MARK: - Asked only for somebody reading
+
+    private func key(_ title: String) -> LyricsService.TrackKey? {
+        LyricsService.TrackKey(NowPlayingInfo(title: title, artist: "Band", album: "", duration: 200, elapsed: 0,
+                                              timestamp: Date(), isPlaying: true, bundleID: nil, artwork: nil,
+                                              artworkID: 0, accent: .white))
+    }
+
+    /// Every track change went to lrclib.net while Lyrics was on, with the Now Playing section
+    /// open or not.
+    func testLyricsAreLookedUpOnlyWithAViewOnScreen() {
+        XCTAssertFalse(LyricsService.looksUp(current: key("Song"), lookedUp: nil, viewers: 0), "nobody reading")
+        XCTAssertTrue(LyricsService.looksUp(current: key("Song"), lookedUp: nil, viewers: 1), "the first view to open")
+        XCTAssertFalse(LyricsService.looksUp(current: key("Song"), lookedUp: key("Song"), viewers: 2), "already asked")
+        XCTAssertTrue(LyricsService.looksUp(current: key("Next"), lookedUp: key("Song"), viewers: 1), "a new track under the view")
+        XCTAssertFalse(LyricsService.looksUp(current: nil, lookedUp: nil, viewers: 1), "no track")
+    }
 }

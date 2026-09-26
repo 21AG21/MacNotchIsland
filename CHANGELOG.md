@@ -278,6 +278,22 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- Live radio and streams no longer make the Now Playing helper restart over and over, which dropped every player but Music and Spotify.
+- The Now Playing card goes away when the music stops, even after the helper was restarted or had gone quiet.
+- A track whose cover matches the previous one keeps its cover after an advert or a gap between tracks.
+- Seeking or pausing just before a track ends no longer carries over into the next track.
+- The sleep timer sends a pause and can never start the music.
+- With Music and Spotify both open and paused, pausing one no longer switches the card to the other.
+- A player that stops responding no longer makes play/pause presses land late or pile up: every script has a timeout, and presses made meanwhile are folded together.
+- Volume, brightness and mute keys show their bezel during a new track's preview, and a queued preview is dropped rather than shown long after its track began.
+- Long Hebrew and Arabic titles scroll from their beginning.
+- The heart lights only when the favourite actually went through.
+- Music and Spotify are no longer asked every two seconds for as long as nothing plays, and MediaRemote's "nothing is playing" is heard on macOS 15.3 and earlier.
+- Spotify covers that come in slowly still appear, and the playhead no longer runs behind by the time the cover took.
+- Lyrics are looked up only while the lyrics line is on screen.
+- A live stream's clock no longer jumps back to 0:00 on every report.
+- A finished-download banner no longer blinks on and off when a question from notchctl comes back onto the island.
+- Play, pause and the skips with no card up go to the helper when it is answering, and MediaRemote's own word on whether a player is playing is used where it gives one.
 - Locking the screen or sleeping the display from the rail now closes the panel, so nothing keeps polling behind the lock.
 - The rail's brightness, the Wi-Fi network list and the paired-device list now slow down on battery, in Low Power Mode and while nobody is looking, and Wi-Fi is no longer scanned while it is off.
 - The paired Bluetooth list is read in the background, and not at all while Bluetooth is off.

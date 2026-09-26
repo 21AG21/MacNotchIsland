@@ -343,4 +343,213 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertFalse(AppDelegate.wakeNeedsRebuild(screensNow: [], screensBefore: builtIn, panelsOnScreen: 0))
         XCTAssertFalse(AppDelegate.wakeNeedsRebuild(screensNow: [], screensBefore: [], panelsOnScreen: 0))
     }
+
+    // MARK: - "Nothing is playing", from whoever says it
+
+    /// A card put up by a helper that was then killed or restarted, or by a fallback the helper
+    /// then took over from, used to stay for good, "playing", after the music had stopped.
+    func testNothingFromTheCardsOwnBackendOrABetterOneEndsIt() {
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .adapter, answering: true, active: .adapter, activeAnswering: true))
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .adapter, answering: true, active: .inactive, activeAnswering: false))
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .adapter, answering: true, active: .appleScript, activeAnswering: true),
+                      "a helper back from a restart, over the fallback's card")
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .adapter, answering: true, active: .mediaRemote, activeAnswering: true))
+    }
+
+    func testNothingEndsACardWhoseOwnBackendHasGoneQuiet() {
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .appleScript, answering: true, active: .adapter, activeAnswering: false),
+                      "the helper was killed with its track up: the fallback's word is the one there is")
+        XCTAssertTrue(NowPlayingService.nothingEndsCard(from: .mediaRemote, answering: true, active: .adapter, activeAnswering: false))
+    }
+
+    func testNothingFromBelowDoesNotEndALiveCardAbove() {
+        XCTAssertFalse(NowPlayingService.nothingEndsCard(from: .mediaRemote, answering: true, active: .adapter, activeAnswering: true))
+        XCTAssertFalse(NowPlayingService.nothingEndsCard(from: .appleScript, answering: true, active: .mediaRemote, activeAnswering: true))
+        XCTAssertFalse(NowPlayingService.nothingEndsCard(from: .adapter, answering: false, active: .mediaRemote, activeAnswering: true),
+                       "a helper that has died says nothing about MediaRemote's card")
+    }
+
+    // MARK: - Covers the helper has sent
+
+    func testACoverSeenOnceIsStillThereAfterAReportWithout() {
+        var covers = AdapterBackend.CoverCache()
+        let cover = NSImage(size: NSSize(width: 10, height: 10))
+        covers.remember(cover, accent: .systemPink, for: "x")
+        // A report with no cover (an advert, the gap between tracks) remembers nothing and forgets
+        // nothing; the next track with the same cover comes as its hash alone.
+        XCTAssertTrue(covers.cover(for: "x")?.image === cover)
+        XCTAssertEqual(covers.cover(for: "x")?.accent, .systemPink)
+        XCTAssertNil(covers.cover(for: "y"))
+    }
+
+    func testTheCoverCacheKeepsOnlyTheLatestFew() {
+        var covers = AdapterBackend.CoverCache()
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        for n in 0...AdapterBackend.CoverCache.limit { covers.remember(image, accent: .white, for: "\(n)") }
+        XCTAssertNil(covers.cover(for: "0"), "the oldest goes")
+        XCTAssertNotNil(covers.cover(for: "1"))
+        XCTAssertEqual(covers.order.count, AdapterBackend.CoverCache.limit)
+        covers.remember(image, accent: .white, for: "1")
+        XCTAssertEqual(covers.order.last, "1", "seen again, it is the newest")
+        XCTAssertEqual(covers.order.count, AdapterBackend.CoverCache.limit)
+    }
+
+    // MARK: - A press belongs to its track
+
+    /// A seek near the end, or a pause as the track ended, was read into the next track's
+    /// second report, which came inside the window.
+    func testAPressIsHeldAgainstItsOwnTrackOnly() {
+        let ending = info("Song", playing: true, elapsed: 199, at: t0)
+        let pending = NowPlayingService.Optimistic(isPlaying: nil, elapsed: 199, at: t0, until: t0 + 1.2,
+                                                   track: NowPlayingService.trackKey(ending))
+        let first = info("Next", playing: true, elapsed: 0, at: t0 + 0.4)
+        XCTAssertFalse(NowPlayingService.keepsOptimistic(pending, after: first, now: t0 + 0.4),
+                       "the first report of another track ends it")
+        let second = info("Next", playing: true, elapsed: 0.4, at: t0 + 0.8)
+        let result = NowPlayingService.reconcile(incoming: second, current: first, optimistic: pending, now: t0 + 0.8)
+        XCTAssertEqual(result.position(at: t0 + 0.8), 0.4, accuracy: 0.05, "the next track keeps its own clock")
+
+        let stale = info("Song", playing: true, elapsed: 30, at: t0)
+        XCTAssertTrue(NowPlayingService.keepsOptimistic(pending, after: stale, now: t0 + 0.2), "its own track, still behind")
+        XCTAssertEqual(NowPlayingService.reconcile(incoming: stale, current: ending, optimistic: pending, now: t0 + 0.2)
+                        .position(at: t0 + 0.2), 199.2, accuracy: 0.05)
+        XCTAssertFalse(NowPlayingService.keepsOptimistic(pending, after: stale, now: t0 + 2), "and not past its window")
+    }
+
+    // MARK: - A report that does not say where the playhead is
+
+    func testAStreamThatSaysNothingOfItsPlayheadKeepsItsClock() {
+        let current = info("Radio", playing: true, elapsed: 90, at: t0)
+        var bare = info("Radio", playing: true, elapsed: 0, at: t0 + 5)
+        bare.reportsPosition = false
+        let kept = NowPlayingService.reconcile(incoming: bare, current: current, optimistic: nil, now: t0 + 5)
+        XCTAssertEqual(kept.position(at: t0 + 5), 95, accuracy: 0.01, "on from where it was, not 0:00 again")
+
+        var paused = bare
+        paused.isPlaying = false
+        let stopped = NowPlayingService.carryingPosition(into: paused, from: current, now: t0 + 5)
+        XCTAssertEqual(stopped.position(at: t0 + 60), 95, accuracy: 0.01, "paused where the playhead was")
+
+        var other = bare
+        other.title = "Another station"
+        XCTAssertEqual(NowPlayingService.carryingPosition(into: other, from: current, now: t0 + 5).elapsed, 0,
+                       "another track starts from its own nothing")
+        let reported = info("Radio", playing: true, elapsed: 12, at: t0 + 5)
+        XCTAssertEqual(NowPlayingService.carryingPosition(into: reported, from: current, now: t0 + 5).elapsed, 12,
+                       "a report that says where it is, is believed")
+    }
+
+    // MARK: - Where a press goes, and whether it went
+
+    func testWithNoCardAPressGoesToTheHelperThatIsAnswering() {
+        XCTAssertEqual(NowPlayingService.transportBackend(active: .inactive, adapterAnswering: true), .adapter)
+        XCTAssertEqual(NowPlayingService.transportBackend(active: .inactive, adapterAnswering: false), .inactive,
+                       "MediaRemote in the app, as before, with nobody else to ask")
+        XCTAssertEqual(NowPlayingService.transportBackend(active: .appleScript, adapterAnswering: true), .appleScript,
+                       "the backend showing the track keeps its presses")
+        XCTAssertEqual(NowPlayingService.transportBackend(active: .mediaRemote, adapterAnswering: false), .mediaRemote)
+    }
+
+    /// The heart was lit before the press was sent, whatever came of it.
+    func testTheHeartLightsOnlyForAPressThatWentThrough() {
+        let pressed = NowPlayingService.trackKey(info(playing: true))
+        XCTAssertEqual(NowPlayingService.likedKey(afterFavouriting: pressed, succeeded: true, now: nil), pressed)
+        XCTAssertNil(NowPlayingService.likedKey(afterFavouriting: pressed, succeeded: false, now: nil))
+        XCTAssertEqual(NowPlayingService.likedKey(afterFavouriting: pressed, succeeded: false, now: "another|track"), "another|track",
+                       "a failed press leaves the heart as it was")
+    }
+
+    func testMediaRemotesOwnWordOnPlayingDecides() {
+        XCTAssertTrue(NowPlayingInfo.isPlaying(rate: 1, flag: nil), "without it, the rate")
+        XCTAssertFalse(NowPlayingInfo.isPlaying(rate: 0, flag: nil))
+        XCTAssertFalse(NowPlayingInfo.isPlaying(rate: nil, flag: nil))
+        XCTAssertFalse(NowPlayingInfo.isPlaying(rate: .nan, flag: nil))
+        XCTAssertFalse(NowPlayingInfo.isPlaying(rate: 1, flag: false), "a rate left standing across a pause")
+        XCTAssertTrue(NowPlayingInfo.isPlaying(rate: 0, flag: true))
+    }
+
+    // MARK: - AppleScript
+
+    private func scripted(_ bundle: String, playing: Bool) -> NowPlayingInfo {
+        NowPlayingInfo(title: bundle, artist: "Band", album: "", duration: 200, elapsed: 0, timestamp: t0,
+                       isPlaying: playing, bundleID: bundle, artwork: nil, artworkID: 0, accent: .white)
+    }
+
+    /// With both players open and neither playing, Spotify was always the one shown, so pausing
+    /// Music from the card flipped it to Spotify's old track.
+    func testWithNothingPlayingTheCardKeepsItsPlayer() {
+        let spotify = scripted(AppleScriptBackend.spotifyID, playing: false)
+        let music = scripted(AppleScriptBackend.musicID, playing: false)
+        XCTAssertEqual(AppleScriptBackend.choose([spotify, music], preferring: AppleScriptBackend.musicID)?.bundleID,
+                       AppleScriptBackend.musicID)
+        XCTAssertEqual(AppleScriptBackend.choose([spotify, music], preferring: nil)?.bundleID, AppleScriptBackend.spotifyID)
+        let playing = scripted(AppleScriptBackend.spotifyID, playing: true)
+        XCTAssertEqual(AppleScriptBackend.choose([playing, music], preferring: AppleScriptBackend.musicID)?.bundleID,
+                       AppleScriptBackend.spotifyID, "one that plays wins")
+        let both = scripted(AppleScriptBackend.musicID, playing: true)
+        XCTAssertEqual(AppleScriptBackend.choose([playing, both], preferring: AppleScriptBackend.musicID)?.bundleID,
+                       AppleScriptBackend.musicID, "of two that play, the card's")
+        XCTAssertNil(AppleScriptBackend.choose([], preferring: AppleScriptBackend.musicID))
+    }
+
+    private func press(_ kind: AppleScriptBackend.Press.Kind, _ source: String = "", at seconds: TimeInterval = 0,
+                       player: String = AppleScriptBackend.musicID) -> AppleScriptBackend.Press {
+        AppleScriptBackend.Press(kind: kind, player: player, source: source, at: t0 + seconds)
+    }
+
+    /// Presses queued without limit behind a player that was not answering, and ran back to
+    /// back when it recovered: every play/pause pressed meanwhile, late.
+    func testPressesMadeWhileAPlayerIsStuckAreFolded() {
+        var waiting: [AppleScriptBackend.Press] = []
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.toggle))
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.toggle))
+        XCTAssertTrue(waiting.isEmpty, "two play/pauses are none")
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.toggle))
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.next))
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.next))
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.toggle))
+        XCTAssertEqual(waiting.map(\.kind), [.toggle, .next, .toggle], "a second next is the same press; a toggle after it is not undone")
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.seek, "30"))
+        waiting = AppleScriptBackend.coalesced(waiting, adding: press(.seek, "90"))
+        XCTAssertEqual(waiting.filter { $0.kind == .seek }.map(\.source), ["90"], "only the last seek")
+        let hearts = AppleScriptBackend.coalesced(AppleScriptBackend.coalesced([], adding: press(.like)), adding: press(.like))
+        XCTAssertEqual(hearts.count, 2, "a press someone waits on an answer for is never folded away")
+        let twoPlayers = AppleScriptBackend.coalesced([press(.toggle, player: AppleScriptBackend.spotifyID)], adding: press(.toggle))
+        XCTAssertEqual(twoPlayers.count, 2, "a toggle in each player is two toggles")
+    }
+
+    func testAPressThatWaitedTooLongIsNotSent() {
+        XCTAssertTrue(AppleScriptBackend.stillWanted(press(.toggle), now: t0 + AppleScriptBackend.pressPatience))
+        XCTAssertFalse(AppleScriptBackend.stillWanted(press(.toggle), now: t0 + AppleScriptBackend.pressPatience + 1))
+    }
+
+    func testEveryScriptHasATimeout() {
+        let timed = ScriptQueue.timed("tell application \"Music\" to pause", seconds: 5)
+        XCTAssertTrue(timed.hasPrefix("with timeout of 5 seconds\n"))
+        XCTAssertTrue(timed.hasSuffix("\nend timeout"))
+        XCTAssertTrue(ScriptQueue.timed("x", seconds: 0).hasPrefix("with timeout of 1 seconds"), "never none at all")
+    }
+
+    /// A cover that came in late was dropped with the track marked done, and that track never
+    /// had one.
+    func testASpotifyCoverThatDidNotArriveIsAskedForAgain() {
+        XCTAssertTrue(AppleScriptBackend.fetchesCover(hasCover: false, attempts: 0))
+        XCTAssertTrue(AppleScriptBackend.fetchesCover(hasCover: false, attempts: 1), "the next poll tries again")
+        XCTAssertFalse(AppleScriptBackend.fetchesCover(hasCover: false, attempts: AppleScriptBackend.coverAttemptLimit))
+        XCTAssertFalse(AppleScriptBackend.fetchesCover(hasCover: true, attempts: 0))
+    }
+
+    /// A player open with nothing playing was scripted every two seconds for as long as it
+    /// stayed open.
+    func testAppleScriptAsksLessOftenWhileItKeepsFindingNothing() {
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 0, nobodyLooking: false), 2)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: false), 4)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 5, nobodyLooking: false), 6)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: false, idleAnswers: 30, nobodyLooking: false), 10)
+        XCTAssertEqual(NowPlayingService.appleScriptPollEvery(onBattery: true, idleAnswers: 0, nobodyLooking: true), 20,
+                       "nobody at the Mac")
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: nil, count: 3), 4)
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: info(playing: false), count: 3), 4, "a paused track is nothing new")
+        XCTAssertEqual(NowPlayingService.idleAnswers(after: info(playing: true), count: 30), 0, "one that plays starts again")
+    }
 }

@@ -24,6 +24,11 @@ struct NowPlayingInfo: Equatable {
     /// Nil when it gave no list, which is most of the time on some versions of macOS: a
     /// missing list says nothing either way, and the other evidence is weighed instead.
     var remoteSupports: Set<Command>? = nil
+    /// Whether the report said where the playhead is: an elapsed time, or the moment one was
+    /// measured. A live stream can say neither, and was read as starting again from nothing on
+    /// every report; the service keeps the clock it had instead (`NowPlayingService.carryingPosition`).
+    /// Not part of `==`: it says how a report was made, not what the card shows.
+    var reportsPosition = true
 
     /// The optional buttons of the transport row. Play, pause and the two skips are not here:
     /// every player takes those.
@@ -50,6 +55,16 @@ struct NowPlayingInfo: Equatable {
     }
 
     // MARK: - MediaRemote's numbers
+
+    /// Whether a player is playing, from what MediaRemote said. Its own word on the playing
+    /// application (`MRMediaRemoteGetNowPlayingApplicationIsPlaying`), where it gave one, decides:
+    /// it is what the system's own controls show, and some players leave a playback rate standing
+    /// across a pause. Without it the rate does, as it always did. Pure, so it is tested.
+    static func isPlaying(rate: Double?, flag: Bool?) -> Bool {
+        if let flag { return flag }
+        guard let rate, rate.isFinite else { return false }
+        return rate > 0
+    }
 
     /// MediaRemote's own figures for the two modes, as its Now Playing dictionary reports them
     /// under `kMRMediaRemoteNowPlayingInfoShuffleMode` and `…RepeatMode`, and as

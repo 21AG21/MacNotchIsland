@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 @testable import MacNotchIsland
 
@@ -1361,5 +1362,89 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertEqual(ActivityCenter.nextWake(activities: [late, soon], pausedUntil: 0, now: now), soon.expiresAt)
         XCTAssertEqual(ActivityCenter.nextWake(activities: [late, soon], pausedUntil: 0, now: now.addingTimeInterval(3600)),
                        now.addingTimeInterval(3600), "an end the clock has passed is due now")
+    }
+
+    // MARK: - A key press over the sneak peek
+
+    private func volumeHUD() -> IslandActivity {
+        IslandActivity(id: "hud", kind: .hud, content: .hud(LevelHUD(kind: .volume, level: 0.5, isMuted: false)), priority: 85)
+    }
+
+    private func sneakPeek() -> IslandActivity {
+        IslandActivity(id: NowPlayingService.peekAlertID, kind: .nowPlaying,
+                       content: .nowPlaying(NowPlayingService.fakeTrack()), priority: 60)
+    }
+
+    /// A volume, brightness or mute press during the peek's 2.4 seconds was queued behind it with
+    /// two seconds of patience, and dropped when its turn came: the key was taken, and no bezel
+    /// from anybody said so.
+    func testAKeyPressDuringTheSneakPeekIsShownAtOnce() {
+        center.showAlert(sneakPeek(), duration: 2.4, haptic: false)
+        center.showAlert(volumeHUD(), duration: 1.5, haptic: false)
+        XCTAssertEqual(center.alert?.id, "hud")
+        XCTAssertTrue(center.pendingAlerts.isEmpty, "and the peek is not kept for afterwards")
+    }
+
+    func testOnlyAKeyPressTakesThePeeksPlace() {
+        XCTAssertFalse(ActivityCenter.waitsBehind(sneakPeek(), arriving: volumeHUD()))
+        XCTAssertFalse(ActivityCenter.waitsBehind(sneakPeek(), arriving: custom("capslock")), "Caps Lock is a key too")
+        XCTAssertTrue(ActivityCenter.waitsBehind(finishedDownload(), arriving: volumeHUD()), "behind anything else it waits, as before")
+        XCTAssertTrue(ActivityCenter.waitsBehind(finishedDownload(), arriving: sneakPeek()))
+        XCTAssertFalse(ActivityCenter.waitsBehind(nil, arriving: volumeHUD()))
+        XCTAssertFalse(ActivityCenter.waitsBehind(volumeHUD(), arriving: volumeHUD()), "the same alert again is an update")
+        XCTAssertFalse(ActivityCenter.waitsBehind(volumeHUD(), arriving: sneakPeek()), "a louder one replaces a key press")
+    }
+
+    /// A peek queued behind a finished download came up to twenty seconds after its track began,
+    /// for a track that may have stopped meanwhile.
+    func testAQueuedSneakPeekGoesStaleInAMoment() {
+        XCTAssertEqual(ActivityCenter.patience(for: sneakPeek()), ActivityCenter.peekPatience)
+        XCTAssertFalse(ActivityCenter.outwaited(sneakPeek(), waited: 2.5, behindHold: false))
+        XCTAssertTrue(ActivityCenter.outwaited(sneakPeek(), waited: 3.5, behindHold: false))
+        XCTAssertTrue(ActivityCenter.outwaited(sneakPeek(), waited: 3.5, behindHold: true), "a hold is no reason to keep it")
+        XCTAssertFalse(ActivityCenter.keepsThroughHold(sneakPeek()))
+        XCTAssertTrue(ActivityCenter.keepsThroughHold(finishedDownload()))
+        XCTAssertFalse(ActivityCenter.keepsThroughHold(volumeHUD()))
+        let queued = Date(timeIntervalSince1970: 1_790_000_000)
+        let after = ActivityCenter.afterHold([ActivityCenter.PendingAlert(activity: sneakPeek(), queuedAt: queued, duration: 2.4, exact: false)],
+                                             now: queued.addingTimeInterval(30))
+        XCTAssertEqual(after.first?.queuedAt, queued, "its patience is not started again when the hold ends")
+    }
+
+    // MARK: - A question taking the island back
+
+    func testTheQueueWaitsForAQuestionOnlyWhileOneIsUpWithItsCard() {
+        XCTAssertTrue(ActivityCenter.questionMayTakeSlotBack(asking: true, questionCardUp: true))
+        XCTAssertFalse(ActivityCenter.questionMayTakeSlotBack(asking: true, questionCardUp: false))
+        XCTAssertFalse(ActivityCenter.questionMayTakeSlotBack(asking: false, questionCardUp: true))
+    }
+
+    /// Another card leaving the forced slot while a question was up let what had queued behind it
+    /// up at once; a main-queue turn later the question took the slot back, and the alert went
+    /// down again, back into the queue with a second tap — a banner that blinked on and off.
+    func testAnAlertBehindAnotherCardDoesNotBlinkUpBeforeTheQuestionTakesTheIslandBack() throws {
+        let folder = "/tmp/notchctl-ask-test.\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder)
+        defer {
+            IslandAsk.shared.resetForTesting()
+            center.resetForTesting()
+            try? FileManager.default.removeItem(atPath: folder)
+        }
+        let reply = (folder + "/answer").addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        LiveActivityAPI.shared.handle(URL(string: "notchisland://ask?title=Deploy%3F&yes=Deploy&no=Wait&timeout=30&reply=\(reply)")!)
+        XCTAssertTrue(IslandAsk.shared.isAsking)
+        center.upsert(custom("api-x"))
+        center.forceExpanded(id: "api-x", for: 0.2)
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"], "waiting behind the other card")
+        var shown: [String] = []
+        let watch = center.$alert.sink { if let id = $0?.id { shown.append(id) } }
+        settle(0.6)
+        watch.cancel()
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID, "the question has the island again")
+        XCTAssertFalse(shown.contains("download-done"), "never put up only to be taken straight down")
+        XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"], "still waiting, now behind the question")
     }
 }

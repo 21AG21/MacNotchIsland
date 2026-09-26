@@ -52,4 +52,21 @@ final class NowPlayingSanitizeTests: XCTestCase {
         XCTAssertTrue(broken.timestamp.timeIntervalSinceReferenceDate.isFinite)
         XCTAssertTrue(broken.position(at: Date()).isFinite)
     }
+
+    // MARK: - A title that reads right to left
+
+    /// A long Hebrew or Arabic title opened on its last words, and its beginning scrolled in
+    /// last: the marquee held every title at its left end and moved it left.
+    func testATitleReadsTheWayItsFirstLetterDoes() {
+        XCTAssertTrue(MarqueeText.isRightToLeft("שיר השירים"))
+        XCTAssertTrue(MarqueeText.isRightToLeft("أغنية طويلة جدا"))
+        XCTAssertTrue(MarqueeText.isRightToLeft("1984 — שיר"), "digits and dashes say nothing")
+        XCTAssertTrue(MarqueeText.isRightToLeft("(«ليلى»)"))
+        XCTAssertFalse(MarqueeText.isRightToLeft("Hello, שלום"), "the first letter decides")
+        XCTAssertFalse(MarqueeText.isRightToLeft("Café del Mar"))
+        XCTAssertFalse(MarqueeText.isRightToLeft("東京"), "Japanese reads left to right")
+        XCTAssertFalse(MarqueeText.isRightToLeft(""))
+        XCTAssertFalse(MarqueeText.isRightToLeft("2024 — 12"), "no letter at all")
+        XCTAssertTrue(MarqueeText.isRightToLeft("\u{200F}1, 2, 3"), "a right-to-left mark")
+    }
 }

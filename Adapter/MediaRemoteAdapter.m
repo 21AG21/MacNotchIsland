@@ -20,13 +20,22 @@
 // which is how the shuffle and repeat modes arrive, as kMRMediaRemoteNowPlayingInfoShuffleMode
 // and kMRMediaRemoteNowPlayingInfoRepeatMode, wherever the player reports them. One key is the
 // helper's own: "supportedCommands", the MRMediaRemoteCommand numbers the player says it
-// takes, present only where MediaRemote will list them. Readers ignore keys they do not know.
+// takes, present only where MediaRemote will list them; and "isPlaying", MediaRemote's own word
+// on whether the player is playing, present only where the framework exports it. Readers ignore
+// keys they do not know.
+//
+// A number that is not finite is left out. Players hand out an infinite duration for a live
+// stream and a NaN position before they have measured one, and NSJSONSerialization does not
+// return an error for those: it throws, which ended this process on every payload for as long
+// as the stream played, and the app restarted it over and over. Left out, the reader treats the
+// value as not given.
 //
 // Built by Scripts/build.sh into Contents/Resources/MediaRemoteAdapter.dylib and loaded
 // through perl's DynaLoader (see AdapterBackend.swift).
 
 #import <Foundation/Foundation.h>
 #import <dlfcn.h>
+#import <math.h>
 #import <stdio.h>
 #import <stdlib.h>
 
@@ -40,6 +49,7 @@ typedef void *(*MRGetLocalOriginFn)(void);
 typedef void (*MRGetSupportedCommandsFn)(void *, dispatch_queue_t, void (^)(NSArray *));
 typedef int (*MRCommandInfoGetCommandFn)(id);
 typedef Boolean (*MRCommandInfoGetEnabledFn)(id);
+typedef void (*MRGetIsPlayingFn)(dispatch_queue_t, void (^)(Boolean));
 
 static MRGetInfoFn sGetInfo;
 static MRGetPIDFn sGetPID;
@@ -51,6 +61,11 @@ static MRGetLocalOriginFn sGetLocalOrigin;
 static MRGetSupportedCommandsFn sGetSupported;
 static MRCommandInfoGetCommandFn sInfoCommand;
 static MRCommandInfoGetEnabledFn sInfoEnabled;
+static MRGetIsPlayingFn sGetIsPlaying;
+/// The hash of the cover whose bytes went out last, or 0 when the last payload carried none.
+/// Bytes go out only when this changes, so it is reset by every payload that goes out without a
+/// cover: the app lets go of a cover a report does not name, and the next track with the same
+/// cover must bring the bytes again rather than a hash the app can no longer match.
 static unsigned long long sLastArtworkHash = 0;
 /// The last list of supported commands MediaRemote gave, sorted; nil until it has given one.
 static NSArray<NSNumber *> *sSupported = nil;
@@ -76,9 +91,43 @@ static unsigned long long fnv1a(NSData *data) {
     return h ^ n;
 }
 
+/// A value as JSON can carry it — a string, a finite number, or a list of those — or nil for one
+/// it cannot, which is left out rather than handed to NSJSONSerialization to throw on.
+static id jsonSafeValue(id value) {
+    if ([value isKindOfClass:[NSString class]]) return value;
+    if ([value isKindOfClass:[NSNumber class]]) return isfinite([(NSNumber *)value doubleValue]) ? value : nil;
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSMutableArray *kept = [NSMutableArray array];
+        for (id item in (NSArray *)value) {
+            id safe = jsonSafeValue(item);
+            if (safe) [kept addObject:safe];
+        }
+        return kept;
+    }
+    return nil;
+}
+
+static NSDictionary *jsonSafe(NSDictionary *dict) {
+    NSMutableDictionary *kept = [NSMutableDictionary dictionary];
+    for (id key in dict) {
+        if (![key isKindOfClass:[NSString class]]) continue;
+        id safe = jsonSafeValue(dict[key]);
+        if (safe) kept[key] = safe;
+    }
+    return kept;
+}
+
 static void writeLine(NSDictionary *dict) {
-    NSError *error = nil;
-    NSData *json = [NSJSONSerialization dataWithJSONObject:dict options:0 error:&error];
+    // Checked, and cleaned where it has to be, before it is written: the serializer throws on
+    // what it cannot write, and an exception here is the end of the helper.
+    if (![NSJSONSerialization isValidJSONObject:dict]) dict = jsonSafe(dict);
+    if (![NSJSONSerialization isValidJSONObject:dict]) return;
+    NSData *json = nil;
+    @try {
+        json = [NSJSONSerialization dataWithJSONObject:dict options:0 error:NULL];
+    } @catch (NSException *exception) {
+        json = nil;
+    }
     if (!json) return;
     fwrite(json.bytes, 1, json.length, stdout);
     fputc('\n', stdout);
@@ -139,10 +188,12 @@ static void emit(void) {
     refreshSupported();
     sGetInfo(dispatch_get_main_queue(), ^(NSDictionary *info) {
         NSMutableDictionary *out = [NSMutableDictionary dictionary];
+        BOOL carriesArtwork = NO;
         for (NSString *key in info) {
             id value = info[key];
             if ([value isKindOfClass:[NSData class]]) {
-                if ([key isEqualToString:@"kMRMediaRemoteNowPlayingInfoArtworkData"]) {
+                if ([key isEqualToString:@"kMRMediaRemoteNowPlayingInfoArtworkData"] && [(NSData *)value length] > 0) {
+                    carriesArtwork = YES;
                     unsigned long long h = fnv1a((NSData *)value);
                     out[@"artworkHash"] = [NSString stringWithFormat:@"%llx", h];
                     if (h != sLastArtworkHash) {
@@ -151,20 +202,35 @@ static void emit(void) {
                     }
                 }
             } else if ([value isKindOfClass:[NSDate class]]) {
-                out[key] = @([(NSDate *)value timeIntervalSince1970]);
+                NSTimeInterval seconds = [(NSDate *)value timeIntervalSince1970];
+                if (isfinite(seconds)) out[key] = @(seconds);
             } else if ([value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]]) {
-                out[key] = value;
+                // NaN and infinity are left out, see the top of this file.
+                id safe = jsonSafeValue(value);
+                if (safe) out[key] = safe;
             }
         }
-        if (info.count == 0) sLastArtworkHash = 0;
+        if (!carriesArtwork) sLastArtworkHash = 0;
         if (info.count > 0 && sSupported) out[@"supportedCommands"] = sSupported;
-        if (sGetPID) {
-            sGetPID(dispatch_get_main_queue(), ^(int pid) {
-                out[@"pid"] = @(pid);
+        void (^finish)(void) = ^{
+            if (sGetPID) {
+                sGetPID(dispatch_get_main_queue(), ^(int pid) {
+                    out[@"pid"] = @(pid);
+                    writeLine(out);
+                });
+            } else {
                 writeLine(out);
+            }
+        };
+        // MediaRemote's own word on whether the player is playing, beside the playback rate the
+        // payload carries: some players leave a rate standing across a pause.
+        if (info.count > 0 && sGetIsPlaying) {
+            sGetIsPlaying(dispatch_get_main_queue(), ^(Boolean playing) {
+                out[@"isPlaying"] = playing ? @YES : @NO;
+                finish();
             });
         } else {
-            writeLine(out);
+            finish();
         }
     });
 }
@@ -217,6 +283,7 @@ void MRAdapterMain(void) {
         sGetSupported = (MRGetSupportedCommandsFn)dlsym(handle, "MRMediaRemoteGetSupportedCommandsForOrigin");
         sInfoCommand = (MRCommandInfoGetCommandFn)dlsym(handle, "MRMediaRemoteCommandInfoGetCommand");
         sInfoEnabled = (MRCommandInfoGetEnabledFn)dlsym(handle, "MRMediaRemoteCommandInfoGetEnabled");
+        sGetIsPlaying = (MRGetIsPlayingFn)dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationIsPlaying");
         if (!registerFn || !sGetInfo) {
             fprintf(stderr, "MediaRemoteAdapter: missing symbols\n");
             exit(3);

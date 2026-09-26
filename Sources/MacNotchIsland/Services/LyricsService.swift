@@ -10,9 +10,10 @@ struct LyricLine: Equatable, Codable {
 /// Time-synced lyrics for the current track, from LRCLIB (free, no API key).
 ///
 /// Work only happens when it has to: one fetch per track (memory + disk cached, misses
-/// included, so a track without lyrics is never asked for twice), and a 0.25 s ticker that
-/// runs only while a *synced* track is actually playing, a `LyricsView` is on screen to show
-/// it, and somebody is at the Mac to see it (`ticks`).
+/// included, so a track without lyrics is never asked for twice), made only while a
+/// `LyricsView` is on screen to show it (`looksUp`), and a 0.25 s ticker that runs only while a
+/// *synced* track is actually playing, a view is there, and somebody is at the Mac to see it
+/// (`ticks`).
 final class LyricsService: ObservableObject {
     static let shared = LyricsService()
 
@@ -37,6 +38,9 @@ final class LyricsService: ObservableObject {
 
     private var latest: NowPlayingInfo?
     private var currentKey: TrackKey?
+    /// The track whose lyrics have been looked up, or are being: the memory cache, the disk,
+    /// then LRCLIB. See `looksUp`.
+    private var lookedUp: TrackKey?
     private var lines: [LyricLine] = []
 
     private var memory: [TrackKey: CachedLyrics] = [:]
@@ -74,6 +78,7 @@ final class LyricsService: ObservableObject {
         task = nil
         latest = nil
         currentKey = nil
+        lookedUp = nil
         lines = []
         hasPlainLyrics = false
         publish(nil, nil)
@@ -94,10 +99,28 @@ final class LyricsService: ObservableObject {
         task?.cancel()
         task = nil
         currentKey = key
+        lookedUp = nil
         lines = []
         hasPlainLyrics = false
         publish(nil, nil)
-        guard let key else { return }
+        lookUpIfWanted()
+    }
+
+    /// Whether the current track's lyrics are to be looked up now. Pure, so it is tested.
+    ///
+    /// Only while a `LyricsView` is on screen: nothing else shows a line. Every track change went
+    /// to lrclib.net while Lyrics was on, the Now Playing section open or not — a request about
+    /// what somebody is listening to, for every song, that nobody read the answer to. The first
+    /// view to come on screen looks the track up; a track that changes under it is looked up
+    /// then; one that changed with nobody looking waits for somebody to.
+    static func looksUp(current: TrackKey?, lookedUp: TrackKey?, viewers: Int) -> Bool {
+        guard let current, viewers > 0 else { return false }
+        return current != lookedUp
+    }
+
+    private func lookUpIfWanted() {
+        guard running, Self.looksUp(current: currentKey, lookedUp: lookedUp, viewers: viewers), let key = currentKey else { return }
+        lookedUp = key
         if let cached = memory[key] {
             remember(cached, for: key)
             apply(cached, for: key)
@@ -128,6 +151,7 @@ final class LyricsService: ObservableObject {
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
+        lookUpIfWanted()
         updateTimer()
     }
 
@@ -341,8 +365,11 @@ final class LyricsService: ObservableObject {
             // a server error, or the cancel a track change sends the one still in flight — says
             // nothing about the track, and filing it as a miss kept that track without lyrics
             // for good, on disk, across launches. Nothing is kept for it, so the next time the
-            // track comes round it is asked about again.
-            guard let data, let records = try? JSONDecoder().decode([Record].self, from: data) else { return }
+            // track comes round it is asked about again — or the next time a view opens on it.
+            guard let data, let records = try? JSONDecoder().decode([Record].self, from: data) else {
+                if key == self.currentKey, self.lookedUp == key { self.lookedUp = nil }
+                return
+            }
             self.finish(key, record: Self.bestMatch(in: records, duration: key.duration))
         }
     }

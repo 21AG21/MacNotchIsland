@@ -19,6 +19,17 @@ final class MediaRemoteBackend {
     private typealias SetModeFn = @convention(c) (Int32) -> Void
 
     var onUpdate: ((NowPlayingInfo?) -> Void)?
+    /// Whether a better backend is answering, so that a report from here would be dropped
+    /// (`NowPlayingService.handle`). Asked before a cover is decoded: that runs on the main
+    /// thread, and used to run for every track while the helper answered and the report went
+    /// nowhere. Main queue.
+    var isOutranked: () -> Bool = { false }
+
+    /// Whether MediaRemote, asked from inside this app, can say what is playing at all: up to
+    /// macOS 15.3. From 15.4 it hands an app without Apple's entitlement nothing, and that
+    /// nothing is not an answer — it is what the helper exists for.
+    static let answersThisApp: Bool = !ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0))
 
     /// MediaRemote answers questions, it does not report in, so a payload that arrived a minute
     /// ago says nothing about whether the framework is still talking to us. Health lapses this
@@ -130,8 +141,12 @@ final class MediaRemoteBackend {
         return unsafeBitCast(sym, to: type)
     }
 
-    func refreshIfStale() {
-        if Date().timeIntervalSince(lastRefresh) > 10 { refresh() }
+    /// Asks again if the last question is more than ten seconds old, and says whether it did.
+    @discardableResult
+    func refreshIfStale() -> Bool {
+        guard started, Date().timeIntervalSince(lastRefresh) > 10 else { return false }
+        refresh()
+        return true
     }
 
     func refresh() {
@@ -145,18 +160,32 @@ final class MediaRemoteBackend {
     private func parse(_ d: [String: Any]) {
         // An answer to a question we asked before we were switched off is no longer ours to act on.
         guard started else { return }
-        guard !d.isEmpty else {
-            if isHealthy { onUpdate?(nil) }
-            return
-        }
-
         let title = d["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
         let artist = d["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? ""
+
+        // Heard from, whatever it said. An empty payload is not a track and must not rank this
+        // above AppleScript, but it is still MediaRemote answering — where it answers this app
+        // at all. Up to 15.3 an empty dictionary is how it says nothing is playing, and that
+        // answer used to be dropped before it was counted: fifteen seconds after the music
+        // stopped MediaRemote counted as silent, and AppleScript was sent to Music and Spotify
+        // every two seconds for as long as nothing played. From 15.4 an empty dictionary is all
+        // it ever says, and counting it would shut the fallback out for good.
+        if !d.isEmpty || Self.answersThisApp { lastHeard = Date() }
+        if title.isEmpty && artist.isEmpty {
+            // macOS 15.4+ hands unentitled apps a payload with no usable fields; don't count that
+            // as healthy. Where MediaRemote answers this app, "nothing is playing" is its word.
+            if isHealthy || Self.answersThisApp { onUpdate?(nil) }
+            return
+        }
+        lastPayload = Date()
+        // The service would drop this report (`isOutranked`); nothing more is worked out for it.
+        if isOutranked() { return }
+
         let album = d["kMRMediaRemoteNowPlayingInfoAlbum"] as? String ?? ""
-        let duration = d["kMRMediaRemoteNowPlayingInfoDuration"] as? Double ?? 0
-        let elapsed = d["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? Double ?? 0
-        let rate = d["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double ?? 0
-        let timestamp = d["kMRMediaRemoteNowPlayingInfoTimestamp"] as? Date ?? Date()
+        let reportedDuration = d["kMRMediaRemoteNowPlayingInfoDuration"] as? Double
+        let reportedElapsed = (d["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? Double).flatMap { $0.isFinite ? $0 : nil }
+        let rate = d["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double
+        let reportedTimestamp = d["kMRMediaRemoteNowPlayingInfoTimestamp"] as? Date
 
         if let data = d["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data {
             let hash = data.hashValue
@@ -172,33 +201,40 @@ final class MediaRemoteBackend {
         }
 
         var info = NowPlayingInfo(title: title, artist: artist, album: album,
-                                  duration: duration, elapsed: elapsed, timestamp: timestamp,
-                                  isPlaying: rate > 0, bundleID: nil,
+                                  duration: reportedDuration ?? 0, elapsed: reportedElapsed ?? 0,
+                                  timestamp: reportedTimestamp ?? Date(),
+                                  isPlaying: NowPlayingInfo.isPlaying(rate: rate, flag: nil), bundleID: nil,
                                   artwork: lastArtwork, artworkID: lastArtworkHash, accent: lastAccent)
+        info.reportsPosition = reportedElapsed != nil || reportedTimestamp != nil
         // The same keys the helper passes through, read the same way. No list of supported
         // commands here: that is asked for inside the helper only.
         info.shuffle = NowPlayingInfo.shuffle(fromRemote: (d["kMRMediaRemoteNowPlayingInfoShuffleMode"] as? NSNumber)?.intValue)
         info.repeatMode = NowPlayingInfo.repeatMode(fromRemote: (d["kMRMediaRemoteNowPlayingInfoRepeatMode"] as? NSNumber)?.intValue)
 
-        // Heard from, whatever it said. An empty payload is not a track and must not rank this
-        // above AppleScript, but it is still MediaRemote answering.
-        lastHeard = Date()
-        if title.isEmpty && artist.isEmpty {
-            // macOS 15.4+ hands unentitled apps a payload with no usable fields; don't count that as healthy.
-            if isHealthy { onUpdate?(nil) }
-            return
-        }
-        lastPayload = Date()
-
-        if let getPIDFn {
+        // The player's own word on whether it is playing, where the framework gives one, then the
+        // application that is playing it; each is a question answered on the main queue.
+        let deliver: (NowPlayingInfo) -> Void = { [weak self] info in
+            guard let self else { return }
+            guard let getPIDFn = self.getPIDFn else {
+                self.onUpdate?(info)
+                return
+            }
             getPIDFn(DispatchQueue.main) { [weak self] pid in
+                var info = info
                 if pid > 0, let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
                     info.bundleID = app.bundleIdentifier
                 }
                 self?.onUpdate?(info)
             }
+        }
+        if let isPlayingFn {
+            isPlayingFn(DispatchQueue.main) { playing in
+                var info = info
+                info.isPlaying = NowPlayingInfo.isPlaying(rate: rate, flag: playing)
+                deliver(info)
+            }
         } else {
-            onUpdate?(info)
+            deliver(info)
         }
     }
 
