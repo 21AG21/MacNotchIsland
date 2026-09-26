@@ -350,7 +350,7 @@ struct TodaySectionView: View {
         if Self.calendarOff(agenda) {
             SectionEmptyState(symbol: "calendar.badge.exclamationmark", title: "Calendar access is off",
                               subtitle: "Allow Calendars for Notch Island to see your day here.") {
-                PillButton(title: "Open Settings", symbol: "gearshape.fill") {
+                PillButton(title: "Open System Settings", symbol: "gearshape.fill") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
                         NSWorkspace.shared.open(url)
                     }

@@ -70,7 +70,7 @@ struct NotificationsSectionView: View {
             // back from System Settings would look.
             SectionEmptyState(symbol: "bell.slash", title: "Accessibility is off",
                               subtitle: "Allow it for Notch Island to keep the banners that come past.") {
-                PillButton(title: "Open Settings", symbol: "gearshape.fill") {
+                PillButton(title: "Open System Settings", symbol: "gearshape.fill") {
                     SystemSettingsPane.accessibility.open()
                 }
             }

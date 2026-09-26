@@ -51,7 +51,7 @@ struct MirrorView: View {
                 Text("Camera access is off")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.8))
-                PillButton(title: "Open Settings", symbol: "gearshape.fill") {
+                PillButton(title: "Open System Settings", symbol: "gearshape.fill") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
                         NSWorkspace.shared.open(url)
                     }
