@@ -75,6 +75,15 @@ final class SystemHUDTests: XCTestCase {
         XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift], setting: false))
     }
 
+    /// A Mac where nobody has touched the checkbox has it off, and its volume keys make no sound;
+    /// the island clicks only where macOS would.
+    func testASettingNeverChangedIsReadAsOffTheWayMacOSReadsIt() {
+        XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [], setting: nil))
+        XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift], setting: nil), "Shift still asks for one")
+        XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: nil),
+                       "the quarter step is not a request for a click")
+    }
+
     /// A tap that is momentarily down is not a Mac that has lost its volume control.
     ///
     /// macOS disables a tap that timed out and the island turns it straight back on. Throwing
@@ -99,6 +108,20 @@ final class SystemHUDTests: XCTestCase {
         hud.forgetCapabilities()
         XCTAssertFalse(hud.can(\.volume), "a real teardown takes the answers with it")
         XCTAssertFalse(hud.isActive)
+    }
+
+    /// `isActive` is the watch timer's last look. Accessibility taken away, or a tap switched off
+    /// since, leaves it saying yes while macOS has the keys and draws its own bezel, so a change
+    /// heard from CoreAudio is announced only when the tap itself says it carries them now.
+    func testAChangeIsAnnouncedOnlyWhileATapReallyCarriesTheKeys() {
+        // What this leaves behind is put back by `tearDown`, which does it for every test here.
+        let hud = SystemHUDReplacement.shared
+        hud.set(true)
+        hud.setCapabilities(SystemHUDReplacement.Capabilities(volume: true, mute: true, brightness: true))
+        XCTAssertTrue(hud.answersVolume)
+        XCTAssertFalse(hud.keysReachIsland(), "no tap behind the flag: the keys are macOS's")
+        hud.set(false)
+        XCTAssertFalse(hud.keysReachIsland())
     }
 
     /// The backlight keys are the island's only while the tap is up and the keyboard answers,
@@ -164,10 +187,6 @@ final class SystemHUDTests: XCTestCase {
     func testShiftWithOptionIsAQuarterStepRatherThanAskingForSilence() {
         XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: true))
         XCTAssertFalse(VolumeFeedbackSound.shouldPlay(flags: [.maskShift, .maskAlternate], setting: false))
-    }
-
-    func testAMacThatHasNeverBeenAskedStillClicks() {
-        XCTAssertTrue(VolumeFeedbackSound.shouldPlay(flags: [], setting: nil))
     }
 
     /// A key that cannot do anything says so, rather than being swallowed into silence.

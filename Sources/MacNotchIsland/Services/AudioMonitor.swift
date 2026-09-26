@@ -152,9 +152,11 @@ final class AudioMonitor {
         guard moved else { return }
         // Only once the island has taken the media keys over *and* can answer this one. A
         // key it hands back is answered by the system's bezel, and a display beside that is
-        // the two-for-one-press this whole arrangement exists to stop.
+        // the two-for-one-press this whole arrangement exists to stop. Asked of the tap and of
+        // Accessibility now, last and only when there is something to say, rather than taken
+        // from the watch timer's last look: a key pressed after either went is macOS's too.
         guard Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.answersVolume,
-              !AudioOutputs.wroteRecently() else { return }
+              !AudioOutputs.wroteRecently(), SystemHUDReplacement.shared.keysReachIsland() else { return }
         let muted = readMute() ?? false
         let hud = LevelHUD.volume(level: Double(v), isMuted: muted, output: AudioOutputs.currentOutput())
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)
@@ -164,8 +166,9 @@ final class AudioMonitor {
         guard let muted = readMute() else { return }
         let moved = muted != lastMute
         lastMute = muted
+        // Asked the way `volumeChanged` asks, for the same reason.
         guard moved, Preferences.shared.volumeHUDEnabled, SystemHUDReplacement.shared.answersMute,
-              !AudioOutputs.wroteRecently() else { return }
+              !AudioOutputs.wroteRecently(), SystemHUDReplacement.shared.keysReachIsland() else { return }
         let activity = IslandActivity(id: "silent", kind: .silent, content: .silent(SilentState(isSilent: muted)), priority: 85)
         ActivityCenter.shared.showAlert(activity, duration: 2, haptic: false)
     }

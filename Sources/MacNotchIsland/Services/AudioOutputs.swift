@@ -166,12 +166,16 @@ final class AudioOutputs: ObservableObject {
         reader.async { [weak self] in self?.unwatchAll() }
     }
 
-    /// On `reader`.
+    /// On `reader`. The default input is heard as well as the default output: an input picked
+    /// in System Settings otherwise left the old one ticked in the Sound column and the rail's
+    /// menu until the panel was opened again.
     private func watchSystem() {
         guard systemRegistrations.isEmpty else { return }
         systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDevices,
                                           scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
         systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDefaultOutputDevice,
+                                          scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
+        systemRegistrations.append(listen(AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyDefaultInputDevice,
                                           scope: kAudioObjectPropertyScopeGlobal) { [weak self] in self?.reloadDevices() })
     }
 
@@ -230,9 +234,9 @@ final class AudioOutputs: ObservableObject {
     ///
     /// The AirPlay device's receivers are read as its data sources — the way the Sound pane
     /// listed AirPlay speakers when it listed them at all — on every reading, which is every
-    /// change to the device list and to the default output, and whenever the AirPlay device
-    /// says its list or its choice has changed. The level is not read here: it is read after the
-    /// listeners are in place (`reloadDevices`).
+    /// change to the device list, the default output and the default input, and whenever the
+    /// AirPlay device says its list or its choice has changed. The level is not read here: it is
+    /// read after the listeners are in place (`reloadDevices`).
     private static func read() -> Reading {
         let ids = allDeviceIDs()
         let outputs = ids.filter { outputStreamCount($0) > 0 }.map(device(for:)).sorted(by: listedBefore)
@@ -372,7 +376,11 @@ final class AudioOutputs: ObservableObject {
     /// is some other device's, and from then on the new device's listeners report every change
     /// (`reloadLevel`), exactly and on the main thread. A reading that went round by `reader`
     /// took longer, and applied afterwards it could put back a level one of those listeners had
-    /// already moved past.
+    /// already moved past. That holds even when the island wrote the level a moment ago: the
+    /// write was to the output before, so the new one's level is never the one just written,
+    /// and a write to the new one after the reading read it is reported by the listener `bind`
+    /// put on before that read. Held back for the write, the rail kept the old output's level
+    /// and mute, and the slider's next write stepped from them.
     ///
     /// Otherwise only what is shown as missing and the reading has: a level where none is shown,
     /// a mute where the output is shown as having none. AirPods or an AirPlay receiver picked as
@@ -380,13 +388,13 @@ final class AudioOutputs: ObservableObject {
     /// the slider stayed disabled until the level moved some other way. Nothing a listener
     /// reported is put back that way: there was nothing there for it to report.
     ///
-    /// Nothing at all when the island wrote the level a moment ago: a level read before the
-    /// slider moved lands after it, and must not pull the slider back for a frame; the device's
-    /// own listener reports where it really settled.
+    /// And for the same output, not even that when the island wrote the level a moment ago: a
+    /// level read before the slider moved lands after it, and must not pull the slider back for
+    /// a frame; the device's own listener reports where it really settled.
     static func showsLevel(rebound: Bool, wroteRecently: Bool, shownVolume: Float?, shownHasMute: Bool,
                            readVolume: Float?, readMute: Bool?) -> LevelParts {
-        guard !wroteRecently else { return [] }
         if rebound { return .all }
+        guard !wroteRecently else { return [] }
         var parts: LevelParts = []
         if shownVolume == nil, readVolume != nil { parts.insert(.volume) }
         if !shownHasMute, readMute != nil { parts.insert(.mute) }

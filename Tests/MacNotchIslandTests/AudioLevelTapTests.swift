@@ -118,6 +118,42 @@ final class AudioLevelTapTests: XCTestCase {
         XCTAssertEqual(AudioLevelTap.rms(of: list.unsafeMutablePointer), 0)
     }
 
+    // MARK: retrying
+
+    /// A failure that lasts a moment — no default output while AirPods connect — used to spend
+    /// every attempt inside that moment, and the visualizer was lost for the session.
+    func testAFailedSetUpIsTriedAgainAfterLongerAndLongerWaits() {
+        XCTAssertEqual(AudioLevelTap.retryDelay(afterFailures: 0), 0, "nothing has failed: try now")
+        XCTAssertEqual(AudioLevelTap.retryDelay(afterFailures: 1), 1)
+        XCTAssertEqual(AudioLevelTap.retryDelay(afterFailures: 2), 3)
+        XCTAssertEqual(AudioLevelTap.retryDelay(afterFailures: 3), 10)
+        XCTAssertNil(AudioLevelTap.retryDelay(afterFailures: 4),
+                     "then no more until the output changes or playback starts")
+        XCTAssertEqual(AudioLevelTap.retryDelay(afterFailures: -1), 0)
+        var previous = 0.0
+        for failures in 1...AudioLevelTap.retryDelays.count {
+            let delay = AudioLevelTap.retryDelay(afterFailures: failures) ?? 0
+            XCTAssertGreaterThan(delay, previous, "no two attempts back to back")
+            previous = delay
+        }
+    }
+
+    func testAFailureWaitsItsTurnAndTheLastOneGivesUp() {
+        XCTAssertEqual(AudioLevelTap.landing(built: false, overtaken: false, failures: 1), .retry(after: 1))
+        XCTAssertEqual(AudioLevelTap.landing(built: false, overtaken: false, failures: 3), .retry(after: 10))
+        XCTAssertEqual(AudioLevelTap.landing(built: false, overtaken: true, failures: 2), .retry(after: 3),
+                       "a failure is a failure whatever happened meanwhile")
+        XCTAssertEqual(AudioLevelTap.landing(built: false, overtaken: false,
+                                             failures: AudioLevelTap.retryDelays.count + 1), .giveUp)
+    }
+
+    /// Paused and resumed while the first consent sheet was up: the pause's teardown is queued
+    /// behind the build and destroys what it hands back, so that tap is never called running.
+    func testATapTornDownWhileItWasBeingBuiltIsBuiltAgainRatherThanCalledRunning() {
+        XCTAssertEqual(AudioLevelTap.landing(built: true, overtaken: false, failures: 0), .running)
+        XCTAssertEqual(AudioLevelTap.landing(built: true, overtaken: true, failures: 0), .rebuild)
+    }
+
     // MARK: end to end
 
     func testLoudSignalDrivesTheBarsHigherThanAQuietOne() {

@@ -135,10 +135,22 @@ final class MainThreadRulesTests: XCTestCase {
                        nothing, "an output with no level of its own is left showing none")
     }
 
-    func testTheSlidersOwnWriteIsNeverPulledBackByAReading() {
-        XCTAssertEqual(AudioOutputs.showsLevel(rebound: true, wroteRecently: true, shownVolume: 0.4, shownHasMute: true,
+    func testTheSlidersOwnWriteIsNeverPulledBackByAReadingOfTheSameOutput() {
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: true, shownVolume: 0.4, shownHasMute: true,
                                                readVolume: 0.7, readMute: false), nothing)
         XCTAssertEqual(AudioOutputs.showsLevel(rebound: false, wroteRecently: true, shownVolume: nil, shownHasMute: false,
                                                readVolume: 0.7, readMute: false), nothing)
+    }
+
+    /// The output switched within a moment of a write from the island: the level and mute shown
+    /// are the old output's, and the slider's next write would step from them. A new output's
+    /// level is never the one just written, so the reading that brings it is shown whole.
+    func testANewOutputIsShownWholeEvenRightAfterTheIslandWroteTheLevel() {
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: true, wroteRecently: true, shownVolume: 0.4, shownHasMute: true,
+                                               readVolume: 0.7, readMute: true),
+                       AudioOutputs.LevelParts.all)
+        XCTAssertEqual(AudioOutputs.showsLevel(rebound: true, wroteRecently: true, shownVolume: 0.4, shownHasMute: true,
+                                               readVolume: nil, readMute: nil),
+                       AudioOutputs.LevelParts.all, "an output with no level shows none, not the last one's")
     }
 }

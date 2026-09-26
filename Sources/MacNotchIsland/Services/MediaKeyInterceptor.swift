@@ -84,6 +84,26 @@ final class SystemHUDReplacement: ObservableObject {
         isActive = active
     }
 
+    /// Asks the installed tap whether it is carrying the keys this moment. Put in place by a
+    /// running `MediaKeyInterceptor` and taken away when it stops. Main thread.
+    private var tapCheck: (() -> Bool)?
+
+    func setTapCheck(_ check: (() -> Bool)?) { tapCheck = check }
+
+    /// Whether the keys reach the island at this moment, for a change heard from CoreAudio that
+    /// is about to be announced (`AudioMonitor`).
+    ///
+    /// `isActive` is the watch timer's last look, five seconds or more old, and in between it
+    /// can say yes about keys the island no longer sees: Accessibility taken away, or a tap the
+    /// system has switched off and the island has not yet switched back on. A key pressed then
+    /// goes to macOS, which draws its own bezel, and announcing the change it made would be the
+    /// second display for one press. Both questions are cheap and asked only when something is
+    /// about to be said, so nothing more is polled. Main thread.
+    func keysReachIsland() -> Bool {
+        guard isActive, MediaKeyInterceptor.isTrusted, let tapCheck else { return false }
+        return tapCheck()
+    }
+
     /// The tap is gone for good — not merely disabled — so the answers go with it.
     ///
     /// Only on a real teardown. Clearing them whenever the tap read as off cost more than it
@@ -144,18 +164,19 @@ final class VolumeFeedbackSound {
 
     private init() {}
 
-    /// The checkbox as the system has it, or nil on a Mac that has never been asked.
+    /// The checkbox as the system has it, or nil where it has never been changed.
     static var systemSetting: Bool? {
         (UserDefaults.standard.object(forKey: feedbackKey) as? NSNumber)?.boolValue
     }
 
-    /// Whether a press with these modifiers should click. Never having been asked means yes:
-    /// that is how a Mac with speakers ships, and it is why the volume keys click out of the
-    /// box. Shift on its own flips the answer for that one press, the way the system's does;
-    /// Shift with Option is the quarter-step gesture and is left alone.
+    /// Whether a press with these modifiers should click. A setting never changed means no, as
+    /// it does to macOS: the checkbox ships off, a Mac where nobody has ticked it presses its
+    /// volume keys in silence, and a click from the island there would be one macOS never made.
+    /// Shift on its own flips the answer for that one press, the way the system's does; Shift
+    /// with Option is the quarter-step gesture and is left alone.
     static func shouldPlay(flags: CGEventFlags, setting: Bool?) -> Bool {
         let inverting = flags.contains(.maskShift) && !flags.contains(.maskAlternate)
-        return (setting ?? true) != inverting
+        return (setting ?? false) != inverting
     }
 
     func play(flags: CGEventFlags) {
@@ -361,6 +382,7 @@ final class MediaKeyInterceptor {
         }
         running = true
         askedAt = Date()
+        SystemHUDReplacement.shared.setTapCheck { [weak self] in self?.tapCarriesKeys() ?? false }
         // Switching the feature off and on again is the user's way of saying "try again", and
         // it has to actually try: without this a run of failures would be permanent for the
         // life of the process, with nothing but a relaunch to clear it.
@@ -394,6 +416,7 @@ final class MediaKeyInterceptor {
         guard running else { return }
         running = false
         SystemHUDReplacement.shared.forgetCapabilities()
+        SystemHUDReplacement.shared.setTapCheck(nil)
         trustTimer?.invalidate()
         trustTimer = nil
         energyCancellable = nil
@@ -600,6 +623,17 @@ final class MediaKeyInterceptor {
                           budget: Int = MediaKeyInterceptor.maxTapRevivals) -> TapHealth {
         if isEnabled { return .carrying }
         return revivalsSoFar < budget ? .revivable : .lost
+    }
+
+    /// Whether the installed tap is armed and switched on this moment: `verifyTap`'s question
+    /// without its remedies, for `SystemHUDReplacement.keysReachIsland`. Main thread, where
+    /// `tapArmed` lives.
+    private func tapCarriesKeys() -> Bool {
+        lock.lock()
+        let port = tapPort
+        lock.unlock()
+        guard let port, tapArmed else { return false }
+        return CGEvent.tapIsEnabled(tap: port)
     }
 
     /// The tap can be turned off under us; put it back, and say so when it will not go back.

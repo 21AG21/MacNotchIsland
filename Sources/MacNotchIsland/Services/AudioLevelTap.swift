@@ -45,9 +45,14 @@ final class AudioLevelTap: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var loggedFailure = false
     private var settingUp = false
+    /// Something happened to the tap while `startTap` was still building it: a teardown, whose
+    /// `destroyHandles` is queued behind the build and so destroys what it hands back, or a new
+    /// output, which the handles being built were not made for. See `landing`.
     private var rebuildRequested = false
-    private var attempts = 0
-    private static let maxAttempts = 3
+    /// Consecutive set-ups that failed, see `retryDelay(afterFailures:)`.
+    private var failures = 0
+    /// The next attempt, waiting out its delay after a failure.
+    private var retry: DispatchWorkItem?
     private var deviceListener: AudioObjectPropertyListenerBlock?
     private var deviceAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
                                                            mScope: kAudioObjectPropertyScopeGlobal,
@@ -76,14 +81,19 @@ final class AudioLevelTap: ObservableObject {
     func start() {
         guard !wanted else { return }
         wanted = true
-        attempts = 0
+        resetRetries()
         // Both publishers fire *before* their value lands (Combine's willChange), so hop
         // through the main queue and re-read the state instead of trusting the payload.
         NowPlayingService.shared.$info
             .map { $0?.isPlaying == true }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.evaluate() }
+            .sink { [weak self] playing in
+                // The payload is the new value, so `true` here is playback starting: a new
+                // chance for a tap that gave up after failing, as a new output is.
+                if playing { self?.resetRetries() }
+                self?.evaluate()
+            }
             .store(in: &cancellables)
         EnergyPolicy.shared.objectWillChange
             .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
@@ -100,7 +110,7 @@ final class AudioLevelTap: ObservableObject {
         lingering = nil
         cancellables.removeAll()
         stopListeningForOutputDeviceChanges()
-        attempts = 0
+        resetRetries()
         teardown()
     }
 
@@ -154,32 +164,94 @@ final class AudioLevelTap: ObservableObject {
         }
     }
 
-    /// Builds the tap on `audioQueue`. After a few consecutive failures (a declined consent
-    /// sheet, no output device) it stops retrying until the feature is switched off and on.
+    /// Builds the tap on `audioQueue`. A failure (a declined consent sheet, no output device
+    /// for a moment while AirPods connect) is tried again after `retryDelays`, and once those
+    /// are spent not until the output changes, playback starts, or the feature is switched off
+    /// and on (`resetRetries`).
     private func setUp() {
-        guard !isRunning, !settingUp, attempts < Self.maxAttempts else { return }
+        guard !isRunning, !settingUp, retry == nil,
+              Self.retryDelay(afterFailures: failures) != nil else { return }
         // Process taps are macOS 14.2; on 14.0/14.1 the visualizer keeps its synthetic bars.
         guard #available(macOS 14.2, *) else { return }
         settingUp = true
-        attempts += 1
         audioQueue.async { [weak self] in
             guard let self else { return }
-            let ok = self.startTap()
+            let built = self.startTap()
             DispatchQueue.main.async {
                 self.settingUp = false
-                if ok {
-                    self.attempts = 0
-                    self.isRunning = true
-                }
                 // Playback may have stopped, the output may have changed, or the feature may
                 // have been turned off while the consent sheet was up: settle it now.
-                if self.rebuildRequested {
-                    self.rebuildRequested = false
+                let overtaken = self.rebuildRequested
+                self.rebuildRequested = false
+                self.failures = built ? 0 : self.failures + 1
+                switch Self.landing(built: built, overtaken: overtaken, failures: self.failures) {
+                case .running:
+                    self.isRunning = true
+                case .rebuild:
                     self.teardown()
+                case .retry(let delay):
+                    self.scheduleRetry(after: delay)
+                case .giveUp:
+                    break
                 }
                 self.evaluate()
             }
         }
+    }
+
+    /// How long to wait after each consecutive failure before trying again. Spread out, so a
+    /// failure that is only a moment long — no default output while AirPods connect — is not
+    /// spent in three attempts made back to back inside it.
+    static let retryDelays: [TimeInterval] = [1, 3, 10]
+
+    /// How long to wait before the next attempt after `failures` consecutive failures: nothing
+    /// before the first, then `retryDelays` in turn, and nil — no more attempts — once they are
+    /// spent. Pure, so it is tested.
+    static func retryDelay(afterFailures failures: Int) -> TimeInterval? {
+        guard failures > 0 else { return 0 }
+        return failures <= retryDelays.count ? retryDelays[failures - 1] : nil
+    }
+
+    /// What a finished set-up leaves behind.
+    enum Landing: Equatable {
+        /// Built, and nothing happened to it on the way: the tap runs.
+        case running
+        /// Built, but torn down or overtaken by a new output while it was being built: its
+        /// handles are destroyed, or were made for the old output, so it is taken down and
+        /// built again if it is still wanted.
+        case rebuild
+        /// It failed; the next attempt waits this long.
+        case retry(after: TimeInterval)
+        /// It failed once more than `retryDelays` allows for.
+        case giveUp
+    }
+
+    /// Where a set-up lands, from whether it built the tap, whether anything overtook it while
+    /// it did (`rebuildRequested`), and how many set-ups in a row have now failed, this one
+    /// included. Pure, so it is tested.
+    static func landing(built: Bool, overtaken: Bool, failures: Int) -> Landing {
+        if built { return overtaken ? .rebuild : .running }
+        guard let delay = retryDelay(afterFailures: failures) else { return .giveUp }
+        return .retry(after: delay)
+    }
+
+    /// Main thread: the next attempt after a failure, once `delay` has passed.
+    private func scheduleRetry(after delay: TimeInterval) {
+        retry?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.retry = nil
+            self?.evaluate()
+        }
+        retry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// Main thread: a new output, new playback, or the feature switched on is a new chance, so
+    /// the failures so far are forgotten and a waiting attempt gives way to one made now.
+    private func resetRetries() {
+        failures = 0
+        retry?.cancel()
+        retry = nil
     }
 
     // MARK: Output device changes
@@ -198,14 +270,16 @@ final class AudioLevelTap: ObservableObject {
     }
 
     /// The aggregate device clocks against the output that was current when the tap was
-    /// built; after a switch (AirPods on, a display with speakers) it must be rebuilt.
+    /// built; after a switch (AirPods on, a display with speakers) it must be rebuilt. A tap
+    /// that is not running is tried again too: the set-up that failed may have failed for want
+    /// of this very output.
     private func outputDeviceChanged() {
+        resetRetries()
         if settingUp {
             rebuildRequested = true
             return
         }
-        guard isRunning else { return }
-        teardown()
+        if isRunning { teardown() }
         evaluate()
     }
 
@@ -272,7 +346,12 @@ final class AudioLevelTap: ObservableObject {
     }
 
     /// Main thread: publish the resting state, then release the Core Audio handles.
+    ///
+    /// During a set-up the release is queued behind `startTap`, so it destroys what that is
+    /// about to hand back; `rebuildRequested` says so, or the completion would call the
+    /// destroyed handles a running tap and the bars would stay flat until the next pause.
     private func teardown() {
+        if settingUp { rebuildRequested = true }
         if isRunning { isRunning = false }
         if level != 0 { level = 0 }
         audioQueue.async { [weak self] in self?.destroyHandles() }
