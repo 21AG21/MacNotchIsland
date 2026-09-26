@@ -179,8 +179,11 @@ final class SystemStatsTests: XCTestCase {
         for spoken in [StatsView.batterySpoken(laptop()), StatsView.batterySpoken(laptop(charging: true))] {
             XCTAssertFalse(spoken.contains("·"), spoken)
             XCTAssertFalse(spoken.contains("%"), spoken)
-            XCTAssertFalse(spoken.contains(" h "), spoken)
-            XCTAssertFalse(spoken.contains(" min"), spoken)
+            // The abbreviations as words of their own: "minutes" begins with "min" and is what
+            // is wanted.
+            let words = spoken.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init)
+            XCTAssertFalse(words.contains("h"), spoken)
+            XCTAssertFalse(words.contains("min"), spoken)
         }
     }
 
