@@ -278,6 +278,24 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- Locking the screen or sleeping the display from the rail now closes the panel, so nothing keeps polling behind the lock.
+- The rail's brightness, the Wi-Fi network list and the paired-device list now slow down on battery, in Low Power Mode and while nobody is looking, and Wi-Fi is no longer scanned while it is off.
+- The paired Bluetooth list is read in the background, and not at all while Bluetooth is off.
+- The rail's mute button is dimmed on outputs that cannot be muted, and a plain speaker is shown, rather than a muted one, when the output has no volume level.
+- On a second display's island, the brightness slider now drives that display when it can, and otherwise says which display it drives.
+- The Bluetooth card no longer shows "Case 0%" for a sleeping case, and the pill shows the same battery figure as the Controls list.
+- The Automation permission prompt now also explains the Dark Mode switch, rather than mentioning only Music and Spotify.
+- The keyboard-light disc now shows the right automatic setting after a change in System Settings, appears when the backlight becomes available after login or when the lid opens, and its automatic checkbox no longer snaps back.
+- The battery card no longer shows a charging bolt while plugged in but not charging.
+- Stats no longer shows battery health above 100%.
+- The mirror button appears and disappears as cameras are plugged in or unplugged, and a MacBook camera with the lid shut is no longer used.
+- After switching Wi-Fi on from the island, the network list fills in without waiting, and the list follows the radio when it is switched elsewhere.
+- Clicking the Wi-Fi network you are already on no longer rejoins it.
+- With Bluetooth access turned off for the app, Controls now says so and offers the Privacy settings, instead of "Not on this Mac".
+- Night Shift, True Tone and warmth settings that macOS refuses now go back straight away.
+- A slow Bluetooth radio no longer makes the switch flick back and forth while it powers on.
+- The sound output picker can no longer push the rail past the panel's edge.
+- The island no longer shows its brightness bezel next to the macOS one after Accessibility access has been removed.
 - **The Now Playing visualizer no longer goes flat for the rest of the session after one failed start** (while AirPods connect, say): it tries again after 1, 3 and 10 seconds and whenever the output changes or playback starts, and pausing and resuming while the audio-capture permission sheet is up no longer leaves the bars flat.
 - **Right after Accessibility is turned off, or while the key tap is briefly disabled, a volume key no longer shows the island's display beside the macOS one**; switching output right after moving the volume no longer leaves the rail on the old device's level; an input picked in System Settings is ticked in the Sound column and the rail menu at once; and the volume keys click only when "Play feedback when volume is changed" is on, as macOS does.
 - **A timer started from a script with an absurd length no longer crashes the app** when its card is read aloud; a script's timer, or one addition to it, is limited to a day, as in Actions.

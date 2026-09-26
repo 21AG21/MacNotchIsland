@@ -36,4 +36,15 @@ final class CameraPreviewTests: XCTestCase {
         let only = device("Desk View Camera")
         XCTAssertEqual(CameraPreview.pickDevice(from: [only]), only)
     }
+
+    /// With a MacBook's lid shut its camera is still listed, and opens, and shows black.
+    func testASuspendedCameraIsNeverTheChoice() {
+        let lidShut = CameraPreview.DeviceInfo(uniqueID: "id-builtin", isBuiltIn: true, name: "FaceTime HD Camera",
+                                               isSuspended: true)
+        let webcam = device("Logitech BRIO")
+        XCTAssertEqual(CameraPreview.pickDevice(from: [lidShut, webcam]), webcam,
+                       "the webcam that works, over the built-in camera that cannot see")
+        XCTAssertNil(CameraPreview.pickDevice(from: [lidShut]), "and nothing, rather than a black picture")
+        XCTAssertFalse(device("Anything").isSuspended, "a device is awake unless the system says otherwise")
+    }
 }

@@ -73,4 +73,45 @@ final class DisplayControlTests: XCTestCase {
         XCTAssertNil(DisplayControl.nightShiftIsOn(status: [1]), "a buffer too short to hold it says nothing")
         XCTAssertGreaterThanOrEqual(DisplayControl.statusSize, 40, "room for the whole structure and then some")
     }
+
+    // MARK: - The rail's slider, on a second display's island
+
+    func testTheRailOnAMonitorThatAnswersDrivesThatMonitor() {
+        XCTAssertEqual(BrightnessControl.railTarget(panelDisplay: studio, driven: builtIn, answering: [studio]), studio)
+    }
+
+    func testTheRailOnAMonitorThatDoesNotAnswerDrivesTheBuiltInPanel() {
+        XCTAssertNil(BrightnessControl.railTarget(panelDisplay: projector, driven: builtIn, answering: [studio]),
+                     "a display DisplayServices cannot set leaves the slider on the built-in panel")
+        XCTAssertNil(BrightnessControl.railTarget(panelDisplay: builtIn, driven: builtIn, answering: [builtIn, studio]),
+                     "the built-in panel's own island drives it, as it always did")
+        XCTAssertNil(BrightnessControl.railTarget(panelDisplay: nil, driven: builtIn, answering: [studio]),
+                     "a panel whose display is not known keeps the built-in panel")
+        XCTAssertNil(BrightnessControl.railTarget(panelDisplay: studio, driven: nil, answering: []),
+                     "and nothing is driven elsewhere before the first reading has landed")
+    }
+
+    func testTheSliderSaysWhichDisplayItDrivesWhenItIsNotTheOneUnderIt() {
+        XCTAssertEqual(BrightnessControl.sliderLabel(drivenName: "Built-in Retina Display", drivesPanelsOwn: false,
+                                                     displaysOnline: 2),
+                       "Brightness of Built-in Retina Display")
+        XCTAssertEqual(BrightnessControl.sliderLabel(drivenName: "Built-in Retina Display", drivesPanelsOwn: true,
+                                                     displaysOnline: 2),
+                       "Brightness", "the display under the slider needs no name")
+        XCTAssertEqual(BrightnessControl.sliderLabel(drivenName: "Built-in Retina Display", drivesPanelsOwn: false,
+                                                     displaysOnline: 1),
+                       "Brightness", "nor does the only one there is")
+        XCTAssertEqual(BrightnessControl.sliderLabel(drivenName: nil, drivesPanelsOwn: false, displaysOnline: 2), "Brightness")
+    }
+
+    /// Twice a second, on battery and under a lock alike, while every other poller on the rail
+    /// backed off.
+    func testTheRailsBrightnessPollBacksOffWithTheEnergyPolicy() {
+        XCTAssertEqual(BrightnessControl.scaledPollInterval(multiplier: 1), BrightnessControl.pollInterval)
+        XCTAssertEqual(BrightnessControl.scaledPollInterval(multiplier: 8), BrightnessControl.pollInterval * 8)
+        XCTAssertEqual(BrightnessControl.scaledPollInterval(multiplier: 0), BrightnessControl.pollInterval,
+                       "never faster than the daytime rate")
+        let locked = EnergyPolicy.pollingMultiplier(asleep: false, lowPower: false, onBattery: false, unattended: true)
+        XCTAssertGreaterThanOrEqual(BrightnessControl.scaledPollInterval(multiplier: locked), 4)
+    }
 }

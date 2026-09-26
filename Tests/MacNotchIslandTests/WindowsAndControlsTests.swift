@@ -1096,4 +1096,97 @@ final class WindowsAndControlsTests: XCTestCase {
         XCTAssertTrue(SystemToggles.accepts(false, waitingFor: asked,
                                             at: tapped.addingTimeInterval(SystemToggles.writeSettle + 1)))
     }
+
+    // MARK: - The pollers under a lock
+
+    func testTheNetworkSweepAndThePairedListBackOffWithTheEnergyPolicy() {
+        XCTAssertEqual(WiFiScanner.scaledRefreshInterval(multiplier: 1), WiFiScanner.refreshInterval)
+        XCTAssertEqual(WiFiScanner.scaledRefreshInterval(multiplier: 8), WiFiScanner.refreshInterval * 8)
+        XCTAssertEqual(WiFiScanner.scaledRefreshInterval(multiplier: 0.5), WiFiScanner.refreshInterval,
+                       "never faster than the daytime rate")
+        XCTAssertEqual(PairedDevices.scaledPollInterval(multiplier: 1), PairedDevices.pollInterval)
+        XCTAssertEqual(PairedDevices.scaledPollInterval(multiplier: 4), PairedDevices.pollInterval * 4)
+        XCTAssertEqual(PairedDevices.scaledPollInterval(multiplier: 0), PairedDevices.pollInterval)
+    }
+
+    /// The paired list was read on the main thread every four seconds with the radio off, or
+    /// with no radio at all.
+    func testThePairedListIsOnlyReadWithTheRadioOnAndTheTourDone() {
+        XCTAssertTrue(PairedDevices.reads(hasSeenWelcome: true, bluetoothOn: true))
+        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: true, bluetoothOn: false), "the column says Off then")
+        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: false, bluetoothOn: true), "nothing Bluetooth before the tour")
+    }
+
+    // MARK: - The network you are on
+
+    /// Clicking the ticked network joined it again, which could drop it or send the user to
+    /// Wi-Fi Settings for a password nobody needed.
+    func testTheNetworkYouAreOnIsNotJoinedAgain() {
+        XCTAssertFalse(WiFiScanner.joins(network("Home", -45, current: true, known: true)))
+        XCTAssertTrue(WiFiScanner.joins(network("Café", -70, known: true)))
+        XCTAssertTrue(WiFiScanner.joins(network("Guest", -60, secure: false)))
+    }
+
+    // MARK: - Bluetooth refused, and a cold radio
+
+    func testBluetoothRefusedIsSaidAsSuchAndNotAsNoRadio() {
+        XCTAssertTrue(SystemToggles.bluetoothAccessOff(reading: nil, asked: true, denied: true))
+        XCTAssertFalse(SystemToggles.bluetoothAccessOff(reading: true, asked: true, denied: true),
+                       "a radio that answers is not refused, whatever CoreBluetooth says")
+        XCTAssertFalse(SystemToggles.bluetoothAccessOff(reading: nil, asked: false, denied: true),
+                       "before the tour nothing was asked")
+        XCTAssertFalse(SystemToggles.bluetoothAccessOff(reading: nil, asked: true, denied: false),
+                       "no reading and no refusal is a Mac without Bluetooth")
+
+        XCTAssertNil(ControlsSectionView.bluetoothNote(hasBluetooth: false, isOn: false, accessRefused: true),
+                     "refused, the column offers the Privacy pane instead of a note")
+        XCTAssertEqual(ControlsSectionView.bluetoothNote(hasBluetooth: false, isOn: false, accessRefused: false),
+                       "Not on this Mac")
+        XCTAssertEqual(ControlsSectionView.bluetoothNote(hasBluetooth: true, isOn: false, accessRefused: false), "Off")
+        XCTAssertNil(ControlsSectionView.bluetoothNote(hasBluetooth: true, isOn: true, accessRefused: false))
+    }
+
+    /// A cold radio took longer than the settle window to come on, and the switch went back to
+    /// off and then forward again when it did.
+    func testABluetoothPowerOnIsHeldLongerThanAnyOtherSwitch() {
+        XCTAssertGreaterThan(SystemToggles.settle(for: .bluetooth, wanted: true), SystemToggles.writeSettle)
+        XCTAssertEqual(SystemToggles.settle(for: .bluetooth, wanted: false), SystemToggles.writeSettle)
+        XCTAssertEqual(SystemToggles.settle(for: .wifi, wanted: true), SystemToggles.writeSettle)
+        let tapped = Date()
+        let asked = SystemToggles.Pending(value: true,
+                                          until: tapped.addingTimeInterval(SystemToggles.settle(for: .bluetooth, wanted: true)))
+        XCTAssertFalse(SystemToggles.accepts(false, waitingFor: asked,
+                                             at: tapped.addingTimeInterval(SystemToggles.writeSettle + 0.5)),
+                       "still coming up past the old window: the switch stays on")
+        XCTAssertTrue(SystemToggles.accepts(true, waitingFor: asked, at: tapped.addingTimeInterval(1)),
+                      "and the radio saying it is on ends the wait there and then")
+    }
+
+    // MARK: - A device's levels, on the card as in the list
+
+    /// An asleep or unasked bud or case leaves 0, or something past full, in the registry; the
+    /// list dropped it and the card drew "Case 0%" in red.
+    func testTheCardIsBuiltOnlyFromLevelsThatAreACharge() {
+        let raw = BluetoothBattery.Levels(left: 0, right: 80, caseLevel: 0, single: 120)
+        let kept = BluetoothBattery.usable(raw)
+        XCTAssertNil(kept.left)
+        XCTAssertEqual(kept.right, 80)
+        XCTAssertNil(kept.caseLevel, "no \"Case 0%\"")
+        XCTAssertNil(kept.single)
+        XCTAssertEqual(BluetoothBattery.usable(BluetoothBattery.Levels(left: 1, right: 100)).left, 1)
+        XCTAssertEqual(BluetoothBattery.usable(BluetoothBattery.Levels(left: 1, right: 100)).right, 100)
+    }
+
+    /// The pill put a single reading ahead of the buds, so a pair that reported both said one
+    /// number on the pill and another on its row.
+    func testThePillAndTheRowSummariseADeviceTheSameWay() {
+        let both = BluetoothState(name: "", address: "", symbol: "", batteryLeft: 55, batterySingle: 90)
+        XCTAssertEqual(both.summaryPercent, 55, "the bud, as the list shows it")
+        XCTAssertEqual(both.summaryPercent,
+                       BluetoothBattery.summary(BluetoothBattery.Levels(left: 55, single: 90)))
+        XCTAssertNil(BluetoothState(name: "", address: "", symbol: "", batteryLeft: 0, batteryRight: 0).summaryPercent,
+                     "a 0 left in the registry is not a charge")
+        XCTAssertNil(BluetoothState(name: "", address: "", symbol: "", batteryCase: 70).summaryPercent,
+                     "nor is the case the thing in your ears")
+    }
 }

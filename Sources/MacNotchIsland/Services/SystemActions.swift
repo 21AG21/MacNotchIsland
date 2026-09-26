@@ -20,7 +20,13 @@ enum SystemActions {
     /// posting it counted as success, nothing else was tried. Whatever the call answers, the
     /// screen is given a couple of seconds to lock before the lock goes another way
     /// (`lockFallback`, `LockWatch`).
+    ///
+    /// The panel is closed first, as it is for a screenshot. A press on the rail pins the peek
+    /// it was made from, and a panel left open under a lock kept the rail's pollers — the
+    /// radios, the brightness, the network list — asking for as long as the Mac stayed locked,
+    /// for an island nobody could see.
     static func lockScreen() {
+        ActivityCenter.shared.collapse(reason: "lock screen")
         guard let lock = loginLockScreen else { return lockAnotherWay() }
         let status = lock()
         LockWatch.start { locked in
@@ -104,12 +110,17 @@ enum SystemActions {
         // password" is set to immediately, which is how most Macs ship; where it is not, the
         // display still goes dark, which is the half of a lock that can be seen.
         IslandLog.island.notice("no way to lock the screen; putting the display to sleep instead")
-        sleepDisplay()
+        displaySleepNow()
     }
 
     /// Turns the display off now. The Mac itself stays awake: music keeps playing, a download
-    /// keeps going.
+    /// keeps going. The panel is closed first, for the reason `lockScreen` gives.
     static func sleepDisplay() {
+        ActivityCenter.shared.collapse(reason: "sleep display")
+        displaySleepNow()
+    }
+
+    private static func displaySleepNow() {
         run("/usr/bin/pmset", ["displaysleepnow"])
     }
 

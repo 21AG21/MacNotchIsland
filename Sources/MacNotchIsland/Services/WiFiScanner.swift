@@ -18,8 +18,9 @@ import CoreWLAN
 /// asking is the one being animated open at that moment. So none of it happens on the main
 /// thread: a pass runs on the queue below and hands its answer back to be shown.
 ///
-/// An NSObject for one reason: it is Location's delegate, see `needsLocation`.
-final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
+/// An NSObject because it is a delegate twice over: Location's, see `needsLocation`, and
+/// CoreWLAN's, which says when the radio is switched or the network changes (`startEvents`).
+final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate, CWEventDelegate {
     static let shared = WiFiScanner()
 
     /// One network, as the list shows it.
@@ -62,6 +63,26 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// How often the list is refreshed while somebody is looking at it.
     static let refreshInterval: TimeInterval = 12
 
+    /// The refresh's interval at a given energy multiplier. Pure, so it is tested.
+    ///
+    /// Each refresh is an active sweep of the band. It ran every twelve seconds whatever the
+    /// policy said — on battery, in Low Power Mode, and under a lock with the panel left open —
+    /// and it slows now the way the rail's radios do (`SystemToggles.scaledPollInterval`).
+    static func scaledRefreshInterval(multiplier: Double) -> TimeInterval {
+        refreshInterval * max(1, multiplier)
+    }
+
+    /// How long after the island switches the radio on the list is asked again: a radio that
+    /// has just come up has swept nothing and joined nothing, and the first answer is empty.
+    static let powerOnSettle: TimeInterval = 4
+
+    /// Whether a click on a row joins it. Not the network the Mac is on: joining it again went
+    /// through `associate(to:password:)` and could drop the connection it already had, or send
+    /// the user to Wi-Fi Settings for a password nobody needed. Pure, so it is tested.
+    static func joins(_ network: Network) -> Bool {
+        !network.isCurrent
+    }
+
     /// Where the waiting happens. Serial, so a sweep and the read that follows it cannot
     /// overtake each other.
     private let queue = DispatchQueue(label: "com.macnotchisland.wifi", qos: .utility)
@@ -71,6 +92,7 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     private var viewers = 0
     private var timer: Timer?
+    private var energyCancellable: AnyCancellable?
     /// Held for as long as the app runs: a manager let go before macOS has answered takes its
     /// question with it. Made the first time the list is looked at, which asks nothing — only
     /// the pill does. Main queue only, where its delegate calls arrive.
@@ -94,9 +116,11 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard viewers == 1 else { return }
         noteLocation(locationManager().authorizationStatus)
         refresh(scan: true)
-        timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
-            self?.refresh(scan: true)
-        }
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
+        startEvents()
     }
 
     func viewerDisappeared() {
@@ -104,6 +128,88 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard viewers == 0 else { return }
         timer?.invalidate()
         timer = nil
+        energyCancellable = nil
+        stopEvents()
+    }
+
+    /// The refresh at the policy's current interval, rebuilt only when that has changed: a
+    /// rebuild pushes the next sweep back by a whole interval.
+    private func scheduleTimer() {
+        guard viewers > 0 else { return }
+        let interval = Self.scaledRefreshInterval(multiplier: EnergyPolicy.shared.pollingMultiplier)
+        if let timer, abs(timer.timeInterval - interval) < 0.01 { return }
+        timer?.invalidate()
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.refresh(scan: true) }
+        t.tolerance = interval / 4
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// The island's own switch has just been thrown (`SystemToggles.toggleWiFi`). Switched on,
+    /// the list said "Nothing in range" and kept its tick on the old network until the timer
+    /// came round, twelve seconds later; it is asked now, and again once the radio has had time
+    /// to sweep and join. Main thread.
+    func radioSwitched(on: Bool) {
+        guard viewers > 0 else { return }
+        refresh(scan: on)
+        guard on else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.powerOnSettle) { [weak self] in
+            guard let self, self.viewers > 0 else { return }
+            self.refresh(scan: true)
+        }
+    }
+
+    // MARK: - CoreWLAN's own word
+
+    /// Asks CoreWLAN to say when the radio is switched, the network changes or the link comes
+    /// and goes, for as long as the list is on screen — whoever did the switching: the menu
+    /// bar, System Settings, the island. Monitoring asks nothing of the user; the names in what
+    /// is read afterwards are still Location's to give. Each call is a round trip to the Wi-Fi
+    /// daemon, so they are made on the queue. A refusal leaves the timer to catch the change.
+    private func startEvents() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let client = CWWiFiClient.shared()
+            client.delegate = self
+            for event in [CWEventType.powerDidChange, .ssidDidChange, .linkDidChange] {
+                do {
+                    try client.startMonitoringEvent(with: event)
+                } catch {
+                    IslandLog.network.notice("wi-fi events not available: \(error.localizedDescription, privacy: .public)")
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopEvents() {
+        queue.async {
+            do {
+                try CWWiFiClient.shared().stopMonitoringAllEvents()
+            } catch {
+                IslandLog.network.notice("could not stop wi-fi events: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// CoreWLAN calls these on a queue of its own; the list is refreshed from the main thread.
+    func powerStateDidChangeForWiFiInterface(withName interfaceName: String) {
+        DispatchQueue.main.async { [weak self] in self?.heardFromTheRadio(scan: true) }
+    }
+
+    func ssidDidChangeForWiFiInterface(withName interfaceName: String) {
+        DispatchQueue.main.async { [weak self] in self?.heardFromTheRadio(scan: false) }
+    }
+
+    func linkDidChangeForWiFiInterface(withName interfaceName: String) {
+        DispatchQueue.main.async { [weak self] in self?.heardFromTheRadio(scan: false) }
+    }
+
+    /// Main thread. Only while somebody is looking: a late event after the list has gone asks
+    /// nothing of the radio.
+    private func heardFromTheRadio(scan: Bool) {
+        guard viewers > 0 else { return }
+        refresh(scan: scan)
     }
 
     // MARK: - Location, for the names
@@ -190,6 +296,9 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// The blocking half, and the only part that runs on the queue.
     private static func take(scan: Bool) -> Reading? {
         guard let interface = CWWiFiClient.shared().interface() else { return nil }
+        // Off, there is nothing to sweep and nothing in range: the column says "Off" rather than
+        // showing a list, and the sweep used to be asked for anyway, every twelve seconds.
+        guard interface.powerOn() else { return Reading(networks: [], current: nil) }
         if scan {
             // A scan that fails — no permission, the radio busy, Wi-Fi off — is not an error
             // worth a word on screen: the cached list is what everybody sees anyway.
@@ -226,6 +335,7 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// like any other, so the whole of this happens on the queue: the tap that starts it is on
     /// a panel that is still animating.
     func join(_ network: Network) {
+        guard Self.joins(network) else { return }
         queue.async { [weak self] in
             guard let interface = CWWiFiClient.shared().interface() else { return }
             let target = (interface.cachedScanResults() ?? []).first { $0.ssid == network.ssid }

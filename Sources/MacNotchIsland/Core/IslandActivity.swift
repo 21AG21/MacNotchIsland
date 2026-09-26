@@ -181,10 +181,13 @@ struct BluetoothState: Equatable {
     /// is tall enough for their pills under the readings. See `AirPodsControl.offers`.
     var offersListeningModes: Bool = false
 
+    /// The one number the pill and the spoken line have room for, by the rule the Controls
+    /// list uses (`BluetoothBattery.summary`): the emptier bud, else the single battery, never
+    /// the case, and only a charge of 1 to 100. It put a single reading ahead of the buds, so a
+    /// pair that reported both showed a different number here than on its row in the list.
     var summaryPercent: Int? {
-        if let s = batterySingle { return s }
-        let buds = [batteryLeft, batteryRight].compactMap { $0 }
-        return buds.min()
+        BluetoothBattery.summary(BluetoothBattery.Levels(left: batteryLeft, right: batteryRight,
+                                                         caseLevel: batteryCase, single: batterySingle))
     }
 }
 

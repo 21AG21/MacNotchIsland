@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreBluetooth
 import CoreWLAN
 import IOBluetooth
 
@@ -20,6 +21,11 @@ final class SystemToggles: ObservableObject {
     /// Wi-Fi and Bluetooth are hidden entirely on a Mac that has neither.
     @Published private(set) var hasWiFi = false
     @Published private(set) var hasBluetooth = false
+    /// No switch to read, and the reason is this app's Bluetooth access, which has been turned
+    /// off. The controller does not answer an app refused it, and the column said "Not on this
+    /// Mac" on a Mac with a radio, where the way back is the Privacy pane. See
+    /// `bluetoothAccessOff`.
+    @Published private(set) var bluetoothAccessRefused = false
 
     private var viewers = 0
     private var timer: Timer?
@@ -34,6 +40,24 @@ final class SystemToggles: ObservableObject {
 
     static let pollInterval: TimeInterval = 1.5
     static let writeSettle: TimeInterval = 2.5
+    /// The most a Bluetooth power-on is held for while the radio comes up. A cold controller
+    /// can take longer than `writeSettle` to say it is on, and the switch flipped back to off
+    /// and then forward again when it did. A reading that agrees ends the wait at once
+    /// (`accepts`), so this is only ever the whole of it for a radio that never comes on.
+    static let bluetoothPowerOnSettle: TimeInterval = 8
+
+    /// How long a switch the user threw is held against readings that disagree. Pure, so it
+    /// is tested.
+    static func settle(for key: Switch, wanted: Bool) -> TimeInterval {
+        key == .bluetooth && wanted ? bluetoothPowerOnSettle : writeSettle
+    }
+
+    /// Whether the missing switch is this app's Bluetooth access rather than the Mac's radio:
+    /// no reading, after the tour (before it nothing is asked, see `refresh`), and
+    /// CoreBluetooth saying the answer was no. Pure, so it is tested.
+    static func bluetoothAccessOff(reading: Bool?, asked: Bool, denied: Bool) -> Bool {
+        reading == nil && asked && denied
+    }
 
     /// The poll's interval at a given energy multiplier. Pure, so it is tested.
     ///
@@ -123,6 +147,10 @@ final class SystemToggles: ObservableObject {
                 self.read(.wifi, as: wifi ?? false)
                 if self.hasBluetooth != (bluetooth != nil) { self.hasBluetooth = bluetooth != nil }
                 if let bluetooth { self.read(.bluetooth, as: bluetooth) }
+                // A class property that asks nothing of anybody, read where it is shown.
+                let refused = Self.bluetoothAccessOff(reading: bluetooth, asked: ask,
+                                                      denied: CBManager.authorization == .denied)
+                if self.bluetoothAccessRefused != refused { self.bluetoothAccessRefused = refused }
                 // A switch was thrown while this reading was in the air; the answer it is
                 // waiting for is the next one, not the one after the poll comes round again.
                 if asked { self.refresh() }
@@ -150,7 +178,7 @@ final class SystemToggles: ObservableObject {
 
     /// What the user just asked for, shown at once and held until the system agrees.
     private func expect(_ key: Switch, _ value: Bool) {
-        pending[key.rawValue] = Pending(value: value, until: Date().addingTimeInterval(Self.writeSettle))
+        pending[key.rawValue] = Pending(value: value, until: Date().addingTimeInterval(Self.settle(for: key, wanted: value)))
         show(key, value)
     }
 
@@ -202,6 +230,9 @@ final class SystemToggles: ObservableObject {
             DispatchQueue.main.async {
                 if refused { self?.pending[Switch.wifi.rawValue] = nil }
                 self?.refresh()
+                // The network list has no word from the radio of its own for this, and said
+                // "Nothing in range" with its tick on the old network until its timer came round.
+                if !refused { WiFiScanner.shared.radioSwitched(on: wanted) }
             }
         }
     }

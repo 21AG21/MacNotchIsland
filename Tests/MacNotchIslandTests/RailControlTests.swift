@@ -214,4 +214,31 @@ final class RailControlTests: XCTestCase {
         XCTAssertEqual(ControlRail.volumeWrite(0, muted: false), 0, "unmuted, the bottom is a level like any other")
         XCTAssertEqual(ControlRail.volumeWrite(0.3, muted: true), 0.3, "and anything above it is written")
     }
+
+    // MARK: - The volume's glyph
+
+    /// An output with no mute of its own took the click, said "Mute", and did nothing.
+    func testTheMuteButtonIsOnlyOfferedWhereTheOutputHasAMute() {
+        let speakers = ControlRail.muteButton(volume: 0.5, muted: false, hasMute: true)
+        XCTAssertTrue(speakers.isEnabled)
+        XCTAssertEqual(speakers.label, "Mute")
+        XCTAssertEqual(speakers.symbol, "speaker.wave.2.fill")
+        XCTAssertEqual(ControlRail.muteButton(volume: 0.5, muted: true, hasMute: true).label, "Unmute")
+
+        let dac = ControlRail.muteButton(volume: 0.5, muted: false, hasMute: false)
+        XCTAssertFalse(dac.isEnabled, "a level and no mute: the button is dimmed and takes no click")
+        XCTAssertEqual(dac.symbol, "speaker.wave.2.fill", "the glyph still says what the level is")
+        XCTAssertNotEqual(dac.help, dac.label, "and the tooltip says why")
+    }
+
+    /// With no level to read — HDMI, some AirPlay — the glyph was the struck-out speaker over
+    /// music that was playing.
+    func testNoLevelIsAPlainSpeakerNotAMutedOne() {
+        XCTAssertEqual(ControlRail.muteButton(volume: nil, muted: false, hasMute: false).symbol, "speaker.fill")
+        XCTAssertEqual(ControlRail.muteButton(volume: nil, muted: false, hasMute: true).symbol, "speaker.fill")
+        XCTAssertEqual(ControlRail.muteButton(volume: nil, muted: true, hasMute: true).symbol, "speaker.slash.fill",
+                       "muted is still muted")
+        XCTAssertEqual(ControlRail.muteButton(volume: 0, muted: false, hasMute: true).symbol, "speaker.slash.fill",
+                       "a level of nothing is drawn as it always was")
+    }
 }

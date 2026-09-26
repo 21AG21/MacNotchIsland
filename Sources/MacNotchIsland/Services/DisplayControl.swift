@@ -363,6 +363,19 @@ final class DisplayControl: ObservableObject {
         holds[key] = (value, LocalWrite.now() + Self.writeSettle)
     }
 
+    /// A write CoreBrightness answered no to. Its BOOL was thrown away, so the switch showed
+    /// what was asked for until the hold ran out and then slid back with nothing said. Now it
+    /// is logged, the hold goes at once, and the popover reads the truth again. Called on the
+    /// queue; the rest happens on the main thread.
+    private func refused(_ key: String, _ what: String) {
+        IslandLog.display.error("\(what, privacy: .public) refused a write")
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.holds[key] = nil
+            if self.viewers > 0 { self.refresh() }
+        }
+    }
+
     // MARK: - Writing
 
     /// Sets one display's brightness. The rail's display goes through `BrightnessControl`, which
@@ -390,8 +403,10 @@ final class DisplayControl: ObservableObject {
         hold("nightShift", on ? 1 : 0)
         if nightShiftOn != on { nightShiftOn = on }
         queue.async { [weak self] in
-            guard let night = self?.nightShift else { return }
-            _ = night.setEnabled.function(night.client, night.setEnabled.selector, on)
+            guard let self, let night = self.nightShift else { return }
+            if !night.setEnabled.function(night.client, night.setEnabled.selector, on) {
+                self.refused("nightShift", "Night Shift")
+            }
         }
     }
 
@@ -409,8 +424,10 @@ final class DisplayControl: ObservableObject {
         hold("warmth", strength)
         nightShiftStrength = strength
         queue.async { [weak self] in
-            guard let night = self?.nightShift, let write = night.setStrength else { return }
-            _ = write.function(night.client, write.selector, Float(strength), true)
+            guard let self, let night = self.nightShift, let write = night.setStrength else { return }
+            if !write.function(night.client, write.selector, Float(strength), true) {
+                self.refused("warmth", "Night Shift's warmth")
+            }
         }
     }
 
@@ -419,8 +436,10 @@ final class DisplayControl: ObservableObject {
         hold("trueTone", on ? 1 : 0)
         if trueToneOn != on { trueToneOn = on }
         queue.async { [weak self] in
-            guard let tone = self?.trueTone else { return }
-            _ = tone.setEnabled.function(tone.client, tone.setEnabled.selector, on)
+            guard let self, let tone = self.trueTone else { return }
+            if !tone.setEnabled.function(tone.client, tone.setEnabled.selector, on) {
+                self.refused("trueTone", "True Tone")
+            }
         }
     }
 

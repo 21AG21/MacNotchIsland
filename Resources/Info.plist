@@ -46,7 +46,7 @@
 		</dict>
 	</array>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Notch Island reads what Music and Spotify are playing so it can show it in the island and control playback.</string>
+	<string>Notch Island asks Music and Spotify what is playing so it can show it in the island and control playback, and asks System Events to switch between Light and Dark Mode when you use the Dark Mode switch.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Notch Island shows your next calendar event as a Live Activity in the island, and today's agenda in the Home panel.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>

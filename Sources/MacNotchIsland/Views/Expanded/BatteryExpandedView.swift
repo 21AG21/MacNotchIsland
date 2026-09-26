@@ -14,7 +14,10 @@ struct BatteryExpandedView: View {
         VStack(spacing: 0) {
             NotchClearance(geometry: geometry, extra: 12)
             HStack(spacing: 14) {
-                BatteryGlyph(percent: state.percent, charging: state.isCharging || state.isPluggedIn, tint: state.tint)
+                // The bolt is for charging, not for a cable: plugged in and held at 80% by
+                // Optimized Charging, the card says "Plugged In" and the glyph must not
+                // contradict it.
+                BatteryGlyph(percent: state.percent, charging: state.isCharging, tint: state.tint)
                     .frame(width: 44, height: 21)
                     .frame(width: 44, height: 44)
                     .accessibilityHidden(true)

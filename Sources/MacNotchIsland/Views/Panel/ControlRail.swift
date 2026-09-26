@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The strip under every section: the Mac's two most-reached-for controls, then the buttons the
@@ -24,7 +25,14 @@ struct ControlRail: View {
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var keyboard = KeyboardLight.shared
+    // A webcam plugged in or pulled out adds or takes away the mirror's disc
+    // (`RailControl.Presence`); unwatched, the rail kept its shape until something else redrew it.
+    @ObservedObject private var camera = CameraPresence.shared
     @EnvironmentObject private var prefs: Preferences
+    /// Which display's island this rail is on, for the brightness slider (`BrightnessControl`).
+    @Environment(\.islandPanelID) private var panelID
+    /// The display this rail told the brightness service it is on, to be given back when it goes.
+    @State private var watchedDisplay: CGDirectDisplayID?
     /// When the rail went on screen, and nothing until it has. Everything the rail shows is read
     /// just after that moment, over the top of the panel's opening spring. See `RailAssembly`.
     @State private var mountedAt: TimeInterval?
@@ -80,6 +88,12 @@ struct ControlRail: View {
                 guard onScreen, !counted else { return }
                 counted = true
                 outputs.viewerAppeared()
+                // The display under this rail is read with the driven one from the first pass,
+                // so it is told before the pass that `viewerAppeared` starts.
+                if let display = BrightnessControl.display(forPanel: panelID) {
+                    watchedDisplay = display
+                    brightness.watch(display)
+                }
                 brightness.viewerAppeared()
                 toggles.viewerAppeared()
             }
@@ -90,6 +104,10 @@ struct ControlRail: View {
             counted = false
             outputs.viewerDisappeared()
             brightness.viewerDisappeared()
+            if let display = watchedDisplay {
+                brightness.unwatch(display)
+                watchedDisplay = nil
+            }
             toggles.viewerDisappeared()
         }
     }
@@ -99,9 +117,10 @@ struct ControlRail: View {
     private static let leadingGlyph: CGFloat = RailMetrics.glyph
 
     private var volume: some View {
-        HStack(spacing: RailMetrics.groupGap) {
+        let mute = Self.muteButton(volume: outputs.volume, muted: outputs.isMuted, hasMute: outputs.hasMute)
+        return HStack(spacing: RailMetrics.groupGap) {
             Button(action: { outputs.setMuted(!outputs.isMuted) }) {
-                Image(systemName: outputs.isMuted || (outputs.volume ?? 0) <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                Image(systemName: mute.symbol)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
                     .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
@@ -112,8 +131,13 @@ struct ControlRail: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(IslandButtonStyle())
-            .help(outputs.isMuted ? "Unmute" : "Mute")
-            .accessibilityLabel(outputs.isMuted ? "Unmute" : "Mute")
+            // An output with no mute of its own — a USB DAC with only a level, HDMI, some AirPlay
+            // receivers — took the click and did nothing (`AudioMonitor.writeOutputMute` refuses
+            // what it cannot set). Dimmed and deaf to it, as the microphone's disc is.
+            .disabled(!mute.isEnabled)
+            .opacity(mute.isEnabled ? 1 : 0.4)
+            .help(mute.help)
+            .accessibilityLabel(mute.label)
             // Muted, the bar is drawn empty, and everything about it starts from there: a drag
             // or a press of VoiceOver's increment sets a level up from nothing, and setting a
             // level above nothing unmutes, the way it does in Control Centre (`setVolume` does
@@ -147,6 +171,34 @@ struct ControlRail: View {
     static func volumeValue(volume: Float?, muted: Bool) -> String {
         if muted { return "Muted" }
         return "\(Int(((volume ?? 0) * 100).rounded())) percent"
+    }
+
+    /// The glyph at the head of the volume, what it is called, and whether it takes a click.
+    struct MuteButton: Equatable {
+        var symbol: String
+        var label: String
+        var help: String
+        var isEnabled: Bool
+    }
+
+    /// Pure, so the rule is tested. Muted, or at nothing, the struck-out speaker. With no level
+    /// to read — an output that has no volume of its own, sound playing through it — a plain
+    /// speaker: it used to be the struck-out one, which said "muted" over music that was
+    /// playing. And only an output with a mute of its own offers one.
+    static func muteButton(volume: Float?, muted: Bool, hasMute: Bool) -> MuteButton {
+        let symbol: String
+        if muted {
+            symbol = "speaker.slash.fill"
+        } else if let volume {
+            symbol = volume <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill"
+        } else {
+            symbol = "speaker.fill"
+        }
+        let label = muted ? "Unmute" : "Mute"
+        guard hasMute else {
+            return MuteButton(symbol: symbol, label: label, help: "This output has no mute", isEnabled: false)
+        }
+        return MuteButton(symbol: symbol, label: label, help: label, isEnabled: true)
     }
 
     /// Where the sound goes. It used to live in the Now Playing header, which meant it was
@@ -215,23 +267,48 @@ struct ControlRail: View {
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
                 .fixedSize()
+                // Laid out at a disc's width whatever AppKit's menu button asks for: the rail's
+                // budget counts the picker as one disc (`RailMetrics.leading`), and with every
+                // control on and no brightness slider it is spent to the point, so a menu drawn a
+                // few points wider pushed the row past the panel's edge. Anything AppKit adds
+                // around the disc lands in the gaps either side of it.
+                .frame(width: RailMetrics.button, height: RailMetrics.button)
             }
         }
         .help(outputs.destinationName.map { "Sound is going to \($0)" } ?? "Choose where the sound goes")
         .accessibilityLabel("Sound: \(outputs.destinationName ?? "unknown")")
     }
 
+    /// The brightness of the display this panel is on, where that display answers; otherwise
+    /// the driven one — the built-in panel — named when there is more than one display to
+    /// mistake it for. See `BrightnessControl.railTarget`.
     private var brightnessControl: some View {
-        HStack(spacing: RailMetrics.groupGap) {
-            Image(systemName: brightness.level < 0.5 ? "sun.min.fill" : "sun.max.fill")
+        let panelDisplay = BrightnessControl.display(forPanel: panelID)
+        let driven = brightness.drivenDisplay
+        let target = BrightnessControl.railTarget(panelDisplay: panelDisplay, driven: driven,
+                                                  answering: Set(brightness.panelLevels.keys))
+        let level = target.flatMap { brightness.panelLevels[$0] } ?? brightness.level
+        let drivesPanelsOwn = panelDisplay == nil || target != nil || panelDisplay == driven
+        let label = BrightnessControl.sliderLabel(drivenName: drivesPanelsOwn ? nil : driven.flatMap { BrightnessControl.name(of: $0) },
+                                                  drivesPanelsOwn: drivesPanelsOwn,
+                                                  displaysOnline: NSScreen.screens.count)
+        return HStack(spacing: RailMetrics.groupGap) {
+            Image(systemName: level < 0.5 ? "sun.min.fill" : "sun.max.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
                 .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
                 .accessibilityHidden(true)
-            IslandSlider(value: brightness.level, onChange: { brightness.set($0) })
+            IslandSlider(value: level, onChange: { value in
+                if let target {
+                    brightness.set(value, display: target)
+                } else {
+                    brightness.set(value)
+                }
+            })
                 .frame(width: RailMetrics.brightnessSlider)
-                .accessibilityLabel("Brightness")
-                .accessibilityValue("\(Int((brightness.level * 100).rounded())) percent")
+                .help(label)
+                .accessibilityLabel(label)
+                .accessibilityValue("\(Int((level * 100).rounded())) percent")
         }
     }
 
@@ -295,13 +372,25 @@ struct RailControlView: View {
                 toggles.toggleWiFi()
             }
         case .bluetooth:
-            // The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
-            RailDisc(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
-                     active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
-                BluetoothRune()
-                    .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                    .frame(width: 9, height: 14)
-                    .opacity(toggles.bluetoothOn ? 1 : 0.5)
+            if !toggles.hasBluetooth, toggles.bluetoothAccessRefused {
+                // A radio this app has been refused, rather than none: the disc stays, and
+                // takes the user to the pane that can give it back.
+                RailDisc(label: "Bluetooth access is off. Open Privacy settings",
+                         action: { SystemSettingsPane.bluetooth.open() }) {
+                    BluetoothRune()
+                        .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                        .frame(width: 9, height: 14)
+                        .opacity(0.5)
+                }
+            } else {
+                // The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
+                RailDisc(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
+                         active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
+                    BluetoothRune()
+                        .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                        .frame(width: 9, height: 14)
+                        .opacity(toggles.bluetoothOn ? 1 : 0.5)
+                }
             }
         case .display:
             DisplayRailButton()
@@ -501,7 +590,19 @@ private struct KeyboardLightRailButton: View {
             }
             .accessibilityAction(named: "Adjust automatically") {
                 guard light.canSetAutomatic else { return }
+                light.refresh()
                 light.setAutomatic(!light.isAutomatic)
+            }
+            // `isAutomatic` is polled only while the popover is open, so after a change in System
+            // Settings the menu's tick and the spoken label were stale, and a click could set
+            // what was already set. Read again as the pointer arrives — before a right-click can
+            // open the menu — and once the rail has finished arriving (`RailAssembly.window`),
+            // off the pass that mounts it.
+            .onHover { inside in
+                if inside { light.refresh() }
+            }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + RailAssembly.window) { light.refresh() }
             }
             // Under the rail, the way the Display disc's popover opens.
             .popover(isPresented: $open, arrowEdge: .bottom) {
@@ -633,13 +734,22 @@ enum RailMetrics {
 ///
 /// The level is published so the rail's slider follows the brightness keys and anything else
 /// that dims the screen, rather than showing whatever it read the one time it appeared. There
-/// is no notification for brightness, so it is polled — but only while the rail is on screen.
+/// is no notification for brightness, so it is polled — but only while the rail is on screen,
+/// and slower whenever the energy policy says so.
 ///
 /// Every read is made on `queue`. One is cheap, but it is a walk of the display list and a call
 /// into a private framework — the first of them opens that framework — and they were made on
 /// the main thread twice a second for as long as the rail was up, and once more at the moment
 /// the rail was mounted, inside the spring that opens the panel. Only what is shown is decided
-/// here. Writes stay where the slider is: the slider must not wait on a queue to move.
+/// here. Writes to the driven display stay where the slider is: the slider must not wait on a
+/// queue to move.
+///
+/// `level` is the driven display's: the built-in panel, or with the lid shut the main display
+/// (`BrightnessMonitor.drivenDisplay`) — the one the brightness keys, the Display popover's first
+/// slider and the Option-scroll all mean. A rail on a second display's island drove that same
+/// panel, so the slider under a monitor dimmed the MacBook beside it. Each rail says which
+/// display its panel is on (`watch`), and a display that answers DisplayServices is read here as
+/// well (`panelLevels`) and driven by the slider on its own island (`railTarget`).
 final class BrightnessControl: ObservableObject {
     static let shared = BrightnessControl()
     private let monitor = BrightnessMonitor()
@@ -649,6 +759,7 @@ final class BrightnessControl: ObservableObject {
     private var pass = RadioPass()
     private var timer: Timer?
     private var viewers = 0
+    private var energyCancellable: AnyCancellable?
     /// Held for as long as the app runs, because a display can be plugged in at any point in it.
     private var screenObserver: NSObjectProtocol?
     /// A write the display has not reported back yet. Until it does, the slider keeps showing
@@ -656,6 +767,10 @@ final class BrightnessControl: ObservableObject {
     /// counts forwards: on the wall clock a backwards step would freeze the slider for as long
     /// as the offset lasted, and a forwards one would clear it at once.
     private var pending: (value: Double, until: TimeInterval)?
+    /// The displays the rails are on, each with how many rails are on it (`watch`).
+    private var watched: [CGDirectDisplayID: Int] = [:]
+    /// Writes to those displays not reported back yet, as `pending` is for the driven one.
+    private var panelPending: [CGDirectDisplayID: (value: Double, until: TimeInterval)] = [:]
 
     @Published private(set) var level: Double = 0.5
     /// Whether there is a brightness to set at all: a Mac driving nothing but an external display
@@ -665,9 +780,22 @@ final class BrightnessControl: ObservableObject {
     /// and a DisplayServices call. A display cannot arrive without the screen arrangement
     /// changing, and the screen arrangement changing is announced.
     @Published private(set) var isAvailable = false
+    /// The display `level` belongs to, as the last reading found it; nil until one has landed.
+    @Published private(set) var drivenDisplay: CGDirectDisplayID?
+    /// The level of every other display a rail is on that answers DisplayServices. A display
+    /// that does not answer is not here, and its rail's slider drives the driven display.
+    @Published private(set) var panelLevels: [CGDirectDisplayID: Double] = [:]
 
     static let pollInterval: TimeInterval = 0.5
     static let writeSettle: TimeInterval = 1.0
+
+    /// The poll's interval at a given energy multiplier. Pure, so it is tested.
+    ///
+    /// It ran twice a second whatever the policy said — on battery, in Low Power Mode, and
+    /// under a lock with the panel left open — while every other poller in the rail backed off.
+    static func scaledPollInterval(multiplier: Double) -> TimeInterval {
+        pollInterval * max(1, multiplier)
+    }
 
     /// The first reading is asked for here and lands a moment later. The app makes this at
     /// launch, well before any rail is drawn, so the answer is in by the time one is.
@@ -695,6 +823,7 @@ final class BrightnessControl: ObservableObject {
     /// See `AudioOutputs.markLocalWriteForTesting`.
     static func markLocalWriteForTesting(_ stamp: TimeInterval) { lastLocalWrite = stamp }
 
+    /// Sets the driven display: the built-in panel, or with the lid shut the main display.
     func set(_ value: Double) {
         let clamped = min(1, max(0, value))
         Self.lastLocalWrite = LocalWrite.now()
@@ -703,14 +832,24 @@ final class BrightnessControl: ObservableObject {
         _ = monitor.setBrightness(Float(clamped))
     }
 
+    /// Sets another display a rail is on (`railTarget`). Written on the queue, as the Display
+    /// popover writes the displays it owns (`DisplayControl.setBrightness`): a display on the far
+    /// end of a cable answers in its own time, and the slider must not wait for it. Main thread.
+    func set(_ value: Double, display: CGDirectDisplayID) {
+        let clamped = min(1, max(0, value))
+        panelPending[display] = (clamped, LocalWrite.now() + Self.writeSettle)
+        if panelLevels[display] != clamped { panelLevels[display] = clamped }
+        queue.async { _ = BrightnessMonitor.setBrightness(Float(clamped), of: display) }
+    }
+
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
         refresh()
-        let t = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in self?.refresh() }
-        t.tolerance = Self.pollInterval / 2
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
     }
 
     func viewerDisappeared() {
@@ -718,31 +857,119 @@ final class BrightnessControl: ObservableObject {
         guard viewers == 0 else { return }
         timer?.invalidate()
         timer = nil
+        energyCancellable = nil
     }
 
-    /// Asks the display, on `queue`. Main thread; returns at once.
+    /// The poll at the policy's current interval, rebuilt only when that has changed: a rebuild
+    /// pushes the next reading back by a whole interval.
+    private func scheduleTimer() {
+        guard viewers > 0 else { return }
+        let interval = Self.scaledPollInterval(multiplier: EnergyPolicy.shared.pollingMultiplier)
+        if let timer, abs(timer.timeInterval - interval) < 0.01 { return }
+        timer?.invalidate()
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.refresh() }
+        t.tolerance = interval / 2
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    // MARK: - The display a rail is on
+
+    /// A rail on `display`'s island is on screen: that display is read on every pass until the
+    /// last rail on it has gone (`unwatch`). Balanced one for one. Main thread.
+    func watch(_ display: CGDirectDisplayID) {
+        watched[display, default: 0] += 1
+        if watched[display] == 1, viewers > 0 { refresh() }
+    }
+
+    func unwatch(_ display: CGDirectDisplayID) {
+        guard let count = watched[display] else { return }
+        guard count <= 1 else {
+            watched[display] = count - 1
+            return
+        }
+        watched[display] = nil
+        panelPending[display] = nil
+        if panelLevels[display] != nil { panelLevels[display] = nil }
+    }
+
+    /// The display a panel is on: the screen whose island answers to `panelID`
+    /// (`NotchPanel.panelID(for:)`), by the number the window server knows it by — the way
+    /// `DisplayControl` puts a name to a display. Nil for a panel on no screen the Mac still
+    /// has. Main thread.
+    static func display(forPanel panelID: String) -> CGDirectDisplayID? {
+        for screen in NSScreen.screens where NotchPanel.panelID(for: screen) == panelID {
+            return (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        }
+        return nil
+    }
+
+    /// A display's own name, the one System Settings shows. Main thread.
+    static func name(of display: CGDirectDisplayID) -> String? {
+        NSScreen.screens.first { screen in
+            (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == display
+        }?.localizedName
+    }
+
+    /// Which display the slider on a panel drives, when it is not the driven one: the panel's
+    /// own display, when that answers DisplayServices (`answering`). Nil means the driven
+    /// display — for a panel on it, for a display that does not answer, and for a panel whose
+    /// display is not known. Pure, so it is tested.
+    static func railTarget(panelDisplay: CGDirectDisplayID?, driven: CGDirectDisplayID?,
+                           answering: Set<CGDirectDisplayID>) -> CGDirectDisplayID? {
+        guard let panelDisplay, panelDisplay != driven, answering.contains(panelDisplay) else { return nil }
+        return panelDisplay
+    }
+
+    /// What the rail's slider is called, and says in its tooltip. "Brightness" wherever it
+    /// drives the display the panel is on; where it cannot — a monitor that does not answer —
+    /// it drives the built-in panel, and with more than one display online it says which,
+    /// rather than dimming a screen the user is not looking at without a word. Pure.
+    static func sliderLabel(drivenName: String?, drivesPanelsOwn: Bool, displaysOnline: Int) -> String {
+        guard !drivesPanelsOwn, displaysOnline > 1, let drivenName, !drivenName.isEmpty else { return "Brightness" }
+        return "Brightness of \(drivenName)"
+    }
+
+    // MARK: - Reading
+
+    /// One pass: the driven display, and every other display a rail is on.
+    private struct Reading {
+        var driven: CGDirectDisplayID
+        var level: Double?
+        var others: [CGDirectDisplayID: Double]
+    }
+
+    /// Asks the displays, on `queue`. Main thread; returns at once.
     private func refresh() {
         guard pass.start() else { return }
-        queue.async { [weak self] in
-            guard let self else { return }
-            let reading = self.current()
+        let others = Array(watched.keys)
+        queue.async {
+            let driven = BrightnessMonitor.currentDrivenDisplay()
+            let level = BrightnessMonitor.brightness(of: driven).map { Double($0) }
+            var levels: [CGDirectDisplayID: Double] = [:]
+            for id in others where id != driven {
+                if let value = BrightnessMonitor.brightness(of: id) { levels[id] = min(1, max(0, Double(value))) }
+            }
+            let reading = Reading(driven: driven, level: level, others: levels)
             DispatchQueue.main.async { [weak self] in self?.show(reading) }
         }
     }
 
     /// Where every reading lands, on the main thread.
-    private func show(_ reading: Double?) {
+    private func show(_ reading: Reading) {
         let again = pass.finish()
         take(reading)
         // The screens changed while this reading was out; the answer that counts is the next.
         if again { refresh() }
     }
 
-    private func take(_ reading: Double?) {
+    private func take(_ reading: Reading) {
+        if drivenDisplay != reading.driven { drivenDisplay = reading.driven }
+        takeOthers(reading.others)
         // Every reading is also an answer about whether there is anything to read, which is the
         // only thing that keeps `isAvailable` honest between one screen arrangement and the next.
-        if isAvailable != (reading != nil) { isAvailable = reading != nil }
-        guard let value = reading else { return }
+        if isAvailable != (reading.level != nil) { isAvailable = reading.level != nil }
+        guard let value = reading.level else { return }
         // A reading that left before the slider moved lands after it: `pending` is what keeps
         // the slider from being pulled back to it.
         if let pending {
@@ -750,5 +977,23 @@ final class BrightnessControl: ObservableObject {
             self.pending = nil
         }
         if abs(level - value) > 0.001 { level = value }
+    }
+
+    /// The other displays, under the same holds as the driven one. Only displays still watched
+    /// are kept: a pass that left before a rail went away can land after it.
+    private func takeOthers(_ readings: [CGDirectDisplayID: Double]) {
+        var next: [CGDirectDisplayID: Double] = [:]
+        for (id, value) in readings where watched[id] != nil {
+            let shown = panelLevels[id]
+            if let hold = panelPending[id] {
+                guard LocalWrite.now() >= hold.until || abs(hold.value - value) < 0.02 else {
+                    next[id] = shown ?? hold.value
+                    continue
+                }
+                panelPending[id] = nil
+            }
+            next[id] = shown.map { abs($0 - value) > 0.001 ? value : $0 } ?? value
+        }
+        if next != panelLevels { panelLevels = next }
     }
 }

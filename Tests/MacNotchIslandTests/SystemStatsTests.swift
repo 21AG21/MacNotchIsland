@@ -68,8 +68,12 @@ final class SystemStatsTests: XCTestCase {
         XCTAssertEqual(SystemStats.healthPercent(max: 4510, design: 4510) ?? -1, 100, accuracy: 0.0001)
     }
 
-    func testHealthPercentCanExceedOneHundredOnAFreshBattery() {
-        XCTAssertEqual(SystemStats.healthPercent(max: 5100, design: 5000) ?? -1, 102, accuracy: 0.0001)
+    func testHealthPercentIsHeldToOneHundredOnAFreshBattery() {
+        // A new battery can hold a little more than its design figure; the Stats cell says 100,
+        // as the battery card does (`BatteryMonitor.healthPercent`), not 102.
+        XCTAssertEqual(SystemStats.healthPercent(max: 5100, design: 5000) ?? -1, 100, accuracy: 0.0001)
+        XCTAssertEqual(SystemStats.healthPercent(max: 5100, design: 5000).map { Int($0.rounded()) },
+                       BatteryMonitor.healthPercent(maxCapacity: 5100, designCapacity: 5000))
     }
 
     func testHealthPercentIsNilWithoutBothCapacities() {

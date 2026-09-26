@@ -86,4 +86,17 @@ final class KeyboardLightTests: XCTestCase {
         XCTAssertEqual(GestureRouter.decide(dx: 0, dy: -40, context: list, wantsKeyboard: true), .none,
                        "a section that scrolls keeps its scroll")
     }
+
+    /// The automatic switch is held the way the level is: a read straight after the write can
+    /// come back before CoreBrightness has taken it, and the checkbox snapped back.
+    func testTheAutomaticSwitchIsHeldUntilTheKeyboardAgreesOrTheHoldRunsOut() {
+        let now: TimeInterval = 100
+        let held = (value: true, until: now + KeyboardLight.writeSettle)
+        XCTAssertFalse(KeyboardLight.acceptsAutomatic(false, holding: held, now: now),
+                       "a reading older than the click does not undo it")
+        XCTAssertTrue(KeyboardLight.acceptsAutomatic(true, holding: held, now: now), "agreeing settles it at once")
+        XCTAssertTrue(KeyboardLight.acceptsAutomatic(false, holding: held, now: now + KeyboardLight.writeSettle),
+                      "past the hold, the keyboard's answer is the answer")
+        XCTAssertTrue(KeyboardLight.acceptsAutomatic(false, holding: nil, now: now), "with nothing held, any reading")
+    }
 }

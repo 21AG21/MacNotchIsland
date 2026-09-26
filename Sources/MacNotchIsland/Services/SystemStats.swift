@@ -408,9 +408,13 @@ final class SystemStats: ObservableObject {
 
     /// Full-charge capacity as a percentage of the design capacity, nil when either
     /// number is missing or zero (desktops, or a battery that will not answer).
+    ///
+    /// Held to 100, as `BatteryMonitor.healthPercent` holds the battery card's figure: a new
+    /// battery can hold a little more than it was designed to, and the Stats cell said "103%
+    /// health" where the card beside it said 100.
     static func healthPercent(max: Double, design: Double) -> Double? {
         guard max > 0, design > 0, max.isFinite, design.isFinite else { return nil }
-        return max / design * 100
+        return Swift.min(100, max / design * 100)
     }
 
     /// AppleSmartBattery reports "Temperature" in hundredths of a degree: Celsius on Apple

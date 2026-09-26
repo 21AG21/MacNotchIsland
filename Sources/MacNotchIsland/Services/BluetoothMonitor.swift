@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import IOBluetooth
 import IOKit
 
@@ -41,9 +42,11 @@ final class BluetoothMonitor: NSObject {
             ActivityCenter.shared.showAlert(activity, duration: 2.2)
         }
 
-        // Battery levels appear in the IORegistry shortly after connection.
+        // Battery levels appear in the IORegistry shortly after connection. Only what is a
+        // charge is kept: an asleep or unasked bud or case leaves a 0 or a figure past full
+        // behind, and the card drew it — "Case 0%", in red. See `BluetoothBattery.usable`.
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.2) {
-            let levels = BluetoothBattery.levels(forAddress: address)
+            let levels = BluetoothBattery.usable(BluetoothBattery.levels(forAddress: address))
             state.batteryLeft = levels.left
             state.batteryRight = levels.right
             state.batteryCase = levels.caseLevel
@@ -91,7 +94,14 @@ final class BluetoothMonitor: NSObject {
 
     static func paired() -> [Paired] {
         if let galleryDevices { return galleryDevices }
-        let all = BluetoothBattery.cachedLevels()
+        return paired(levels: BluetoothBattery.cachedLevels())
+    }
+
+    /// The list itself, from battery levels already in hand. Every line of it is a synchronous
+    /// question to the Bluetooth daemon — the paired list, and each device's name, connection
+    /// and class — so it belongs on a queue (`PairedDevices`). The levels are the registry
+    /// cache's, which is the main thread's, and are handed in rather than read here.
+    static func paired(levels all: [String: BluetoothBattery.Levels]) -> [Paired] {
         let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
         return devices.compactMap { device -> Paired? in
             guard let address = device.addressString, !address.isEmpty else { return nil }
@@ -188,6 +198,14 @@ enum BluetoothBattery {
         return value
     }
 
+    /// Every reading of a device held to what is a charge, the rest dropped. What the connect
+    /// card is built from, so it draws what the list would: the list only ever showed 1 to 100,
+    /// and the card drew a sleeping case's 0 as "Case 0%" in red. Pure.
+    static func usable(_ levels: Levels) -> Levels {
+        Levels(left: usable(levels.left), right: usable(levels.right),
+               caseLevel: usable(levels.caseLevel), single: usable(levels.single))
+    }
+
     /// Everything the registry has a battery for, keyed by address. The Controls list wants a
     /// level for every row it draws, and one walk answers for all of them; asking device by
     /// device would walk the whole registry once per row.
@@ -260,5 +278,102 @@ enum BluetoothBattery {
             }
         }
         return cache
+    }
+}
+
+// MARK: - The Controls section's paired list
+
+/// The devices this Mac is paired with, for the Controls section's Bluetooth column, read off
+/// the main thread.
+///
+/// Reading the list is `IOBluetoothDevice.pairedDevices()` and then, device by device, its name,
+/// whether it is connected and its class — each a synchronous question to the Bluetooth daemon.
+/// They were asked on the main thread every four seconds for as long as Controls was on screen,
+/// with the radio off, or with no radio at all. Now a pass runs on `queue`, one at a time
+/// (`RadioPass`), only after the tour and while the radio is on, at an interval the energy
+/// policy stretches; the list is shown from the main thread.
+final class PairedDevices: ObservableObject {
+    static let shared = PairedDevices()
+
+    /// Connected first, then by name. Kept between visits, so the column opens on the last
+    /// list rather than on nothing while the first pass is out.
+    @Published private(set) var devices: [BluetoothMonitor.Paired] = []
+
+    static let pollInterval: TimeInterval = 4
+
+    /// The poll's interval at a given energy multiplier. Pure, so it is tested. On battery, in
+    /// Low Power Mode and with nobody looking — a panel left open under a lock — it slows the
+    /// way the rail's radios do (`SystemToggles.scaledPollInterval`).
+    static func scaledPollInterval(multiplier: Double) -> TimeInterval {
+        pollInterval * max(1, multiplier)
+    }
+
+    /// Whether a pass is worth making: not before the tour, whose wait holds every Bluetooth
+    /// question back (`ServiceHub.wantsBluetooth`), and not while the radio is off — the column
+    /// says "Off" then, and there is no list on screen to fill. Pure.
+    static func reads(hasSeenWelcome: Bool, bluetoothOn: Bool) -> Bool {
+        hasSeenWelcome && bluetoothOn
+    }
+
+    /// Serial: one pass at a time, the next after it.
+    private let queue = DispatchQueue(label: "com.macnotchisland.paired", qos: .utility)
+    /// Main thread only, with the viewer count and the timer.
+    private var pass = RadioPass()
+    private var viewers = 0
+    private var timer: Timer?
+    private var energyCancellable: AnyCancellable?
+
+    private init() {}
+
+    func viewerAppeared() {
+        viewers += 1
+        guard viewers == 1 else { return }
+        refresh()
+        scheduleTimer()
+        energyCancellable = EnergyPolicy.shared.objectWillChange
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.scheduleTimer() }
+    }
+
+    func viewerDisappeared() {
+        viewers = max(0, viewers - 1)
+        guard viewers == 0 else { return }
+        timer?.invalidate()
+        timer = nil
+        energyCancellable = nil
+    }
+
+    /// The poll at the policy's current interval, rebuilt only when that has changed: a rebuild
+    /// pushes the next reading back by a whole interval.
+    private func scheduleTimer() {
+        guard viewers > 0 else { return }
+        let interval = Self.scaledPollInterval(multiplier: EnergyPolicy.shared.pollingMultiplier)
+        if let timer, abs(timer.timeInterval - interval) < 0.01 { return }
+        timer?.invalidate()
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.refresh() }
+        t.tolerance = interval / 2
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// Asks for the list on `queue` and shows it when it comes. Main thread; returns at once.
+    func refresh() {
+        guard Self.reads(hasSeenWelcome: Preferences.shared.hasSeenWelcome,
+                         bluetoothOn: SystemToggles.shared.bluetoothOn) else { return }
+        guard pass.start() else { return }
+        // The registry's levels come from its cache, which is read and written on the main
+        // thread; the walk behind it is already off it (`BluetoothBattery.cachedLevels`).
+        let levels = BluetoothBattery.cachedLevels()
+        queue.async { [weak self] in
+            let list = BluetoothMonitor.paired(levels: levels)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let again = self.pass.finish()
+                if self.devices != list { self.devices = list }
+                // A connection was made or dropped while this pass was out; the answer that
+                // counts is the next one.
+                if again { self.refresh() }
+            }
+        }
     }
 }

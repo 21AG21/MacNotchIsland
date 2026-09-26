@@ -168,8 +168,10 @@ enum RailControl: String, CaseIterable, Codable {
 
     /// The same, from the live preferences and hardware.
     static func available(_ prefs: Preferences) -> [RailControl] {
+        // A radio this app has been refused keeps its disc, which opens the Privacy pane
+        // (`RailControlView`), rather than vanishing as if the Mac had none.
         let presence = Presence(hasWiFi: SystemToggles.shared.hasWiFi,
-                                hasBluetooth: SystemToggles.shared.hasBluetooth,
+                                hasBluetooth: SystemToggles.shared.hasBluetooth || SystemToggles.shared.bluetoothAccessRefused,
                                 hasKeyboardLight: KeyboardLight.shared.isAvailable,
                                 shelfHasFiles: prefs.shelfEnabled && !ShelfStore.shared.items.isEmpty,
                                 // The gallery is drawn on a machine with no camera, and shows

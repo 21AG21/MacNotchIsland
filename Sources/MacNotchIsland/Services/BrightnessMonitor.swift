@@ -154,6 +154,36 @@ final class BrightnessMonitor {
         post(v)
     }
 
+    // MARK: One display, by number
+
+    /// The display `currentBrightness` and `setBrightness` act on at this moment, by the rule
+    /// `drivenDisplay` sets out, from the window server's list. Any thread.
+    static func currentDrivenDisplay() -> CGDirectDisplayID {
+        drivenDisplay(in: onlineDisplays(), isBuiltIn: { CGDisplayIsBuiltin($0) != 0 }, main: CGMainDisplayID())
+    }
+
+    /// One display's brightness, 0...1, or nil when it does not answer DisplayServices — most
+    /// monitors on the far end of a cable. For the rail on a second display's island, which
+    /// drives that display when it can (`BrightnessControl`). Any thread; a display on a cable
+    /// answers in its own time, so the rail asks from a queue.
+    static func brightness(of display: CGDirectDisplayID) -> Float? {
+        guard let fn = symbols.get else { return nil }
+        var value: Float = 0
+        return fn(display, &value) == 0 ? value : nil
+    }
+
+    /// Sets one display's brightness. Returns false when the write failed. Any thread.
+    @discardableResult
+    static func setBrightness(_ value: Float, of display: CGDirectDisplayID) -> Bool {
+        guard let fn = symbols.set else { return false }
+        let status = fn(display, max(0, min(1, value)))
+        if status != 0 {
+            IslandLog.display.error("display \(display, privacy: .public) refused a brightness (status \(status, privacy: .public))")
+            return false
+        }
+        return true
+    }
+
     // MARK: Internals
 
     private var builtInDisplay: CGDirectDisplayID {
@@ -229,7 +259,12 @@ final class BrightnessMonitor {
         // As with volume: silent unless the island is the one answering the keys.
         // And not for a change the island's own slider just made: a banner covering the
         // control you are holding is the same duplicated feedback in miniature.
+        // `answersBrightness` is the watch timer's last look and stays yes for a while after
+        // Accessibility is taken away or the tap is switched off; a key pressed then goes to
+        // macOS, which draws its own bezel, and announcing it drew a second one beside it. So
+        // the keys are asked whether they reach the island now, as the volume's are.
         guard Preferences.shared.brightnessHUDEnabled, SystemHUDReplacement.shared.answersBrightness,
+              SystemHUDReplacement.shared.keysReachIsland(),
               !BrightnessControl.wroteRecently() else { return }
         let hud = LevelHUD(kind: .brightness, level: Double(value))
         ActivityCenter.shared.showAlert(IslandActivity(id: "hud", kind: .hud, content: .hud(hud), priority: 85), duration: 1.5, haptic: false)

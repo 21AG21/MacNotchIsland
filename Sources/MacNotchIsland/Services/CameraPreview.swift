@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Combine
 import Foundation
@@ -131,9 +132,9 @@ final class CameraPreview: ObservableObject {
     }
 
     /// Whether there is any camera to look through. Listing them asks nothing of anybody; only
-    /// opening one does.
+    /// opening one does. A suspended camera is not one: see `DeviceInfo.isSuspended`.
     static func anyCamera() -> Bool {
-        !discoveredDevices().isEmpty
+        discoveredDevices().contains { !$0.isSuspended }
     }
 
     private func endSession() {
@@ -219,19 +220,26 @@ final class CameraPreview: ObservableObject {
         let uniqueID: String
         let isBuiltIn: Bool
         let name: String
+        /// The system has the camera switched off where it sits — a MacBook's, with the lid
+        /// shut. It is still listed, and still opens, and shows nothing but black.
+        var isSuspended = false
     }
 
     /// Prefer the built-in camera (the one above the notch, which is what you want when
     /// checking your face before a call); otherwise take the first thing offered — an
-    /// external webcam, a Continuity Camera — in the order the system listed it.
+    /// external webcam, a Continuity Camera — in the order the system listed it. Never a
+    /// suspended one: with the lid shut on a MacBook the built-in camera was still first, and
+    /// the mirror a black picture beside a webcam that would have worked.
     static func pickDevice(from devices: [DeviceInfo]) -> DeviceInfo? {
-        devices.first(where: { $0.isBuiltIn }) ?? devices.first
+        let awake = devices.filter { !$0.isSuspended }
+        return awake.first(where: { $0.isBuiltIn }) ?? awake.first
     }
 
     static func info(for device: AVCaptureDevice) -> DeviceInfo {
         DeviceInfo(uniqueID: device.uniqueID,
                    isBuiltIn: device.deviceType == .builtInWideAngleCamera,
-                   name: device.localizedName)
+                   name: device.localizedName,
+                   isSuspended: device.isSuspended)
     }
 
     private static func discoveredDevices() -> [AVCaptureDevice] {
@@ -255,24 +263,42 @@ final class CameraPreview: ObservableObject {
 /// The mirror was on the rail by default on every Mac, cameras or none, and a click on it
 /// asked for the camera before looking for one. Read once, then kept current by the system's
 /// own notices of cameras coming and going — a Continuity Camera or a webcam plugged in brings
-/// the disc back. Listing devices needs no permission. Main thread.
+/// the disc back. Listing devices needs no permission. Published on the main thread.
+///
+/// The list is taken on a queue of its own. The first look was made on the main thread by the
+/// rail's body, the first time a panel opened — a discovery session inside the opening spring —
+/// and every later one on the notice that brought it. Until the first answer lands the disc is
+/// left off; it arrives inside the rail's assembly window (`RailAssembly`), without a slide.
+/// A MacBook's camera goes to sleep with its lid, and the screens changing is when that is
+/// looked at again.
 final class CameraPresence: ObservableObject {
     static let shared = CameraPresence()
 
-    @Published private(set) var hasCamera: Bool
+    @Published private(set) var hasCamera = false
     private var observers: [NSObjectProtocol] = []
+    /// Serial, so the last notice's answer is the last one shown.
+    private let queue = DispatchQueue(label: "com.macnotchisland.camera-presence", qos: .utility)
 
     private init() {
-        hasCamera = CameraPreview.anyCamera()
-        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+        let names: [Notification.Name] = [AVCaptureDevice.wasConnectedNotification,
+                                          AVCaptureDevice.wasDisconnectedNotification,
+                                          NSApplication.didChangeScreenParametersNotification]
+        for name in names {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.reread()
             })
         }
+        reread()
     }
 
+    /// Lists the cameras on `queue`; the answer is shown on the main thread.
     private func reread() {
-        let has = CameraPreview.anyCamera()
-        if hasCamera != has { hasCamera = has }
+        queue.async { [weak self] in
+            let has = CameraPreview.anyCamera()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if self.hasCamera != has { self.hasCamera = has }
+            }
+        }
     }
 }

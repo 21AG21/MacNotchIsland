@@ -112,6 +112,12 @@ final class KeyboardLight: ObservableObject {
                           writeAuto: CoreBrightness.method(client, "enableAutoBrightness:forKeyboard:", as: WriteAuto.self))
         }
 
+        /// Whether this client still names a backlit keyboard — asked again on wake and when
+        /// the displays change (`KeyboardLight.reprobe`).
+        func namesKeyboard() -> Bool {
+            KeyboardLight.keyboard(from: Self.backlightIDs(client)) != nil
+        }
+
         /// What the client says the backlit keyboards are, or nil when it cannot be asked — the
         /// method has gone. A client that has the method is asked, and whatever it answers is
         /// taken as its answer, nothing included: see `KeyboardLight.backlightIDs(answer:)`.
@@ -122,17 +128,61 @@ final class KeyboardLight: ObservableObject {
         }
     }
 
-    private let bridge: Bridge?
+    /// Found at launch, and looked for again on wake and whenever the displays change
+    /// (`reprobe`): a client asked at login, or with the lid shut, can name no keyboard, and a
+    /// bridge found once and never again left the disc off for the whole run.
+    private var bridge: Bridge?
     private var viewers = 0
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
     /// A write the keyboard has not reported back yet; see `BrightnessControl.pending`.
     private var pending: (value: Double, until: TimeInterval)?
+    /// The same for the automatic switch: CoreBrightness can take the switch a moment after it
+    /// says yes, and the checkbox snapped back to what the read straight after it found.
+    private var pendingAutomatic: (value: Bool, until: TimeInterval)?
+    /// Held for as long as the app runs, like the service itself.
+    private var observers: [NSObjectProtocol] = []
 
     private init() {
         bridge = Bridge.load()
         isAvailable = bridge != nil
         refresh()
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
+                                                                           object: nil, queue: .main) { [weak self] _ in
+            // The daemon behind the client is not always answering the instant the Mac wakes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + KeyboardLight.wakeSettle) { self?.reprobe() }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            self?.reprobe()
+        })
+    }
+
+    static let wakeSettle: TimeInterval = 2
+
+    /// Looks for the backlight again: a lid opened, a keyboard's client that was not answering
+    /// at login. Two calls into CoreBrightness, and only on the events that can change the
+    /// answer. `isAvailable` is published only when it changes, which is what the service hub's
+    /// subscription and the rail are waiting to hear. Main thread.
+    private func reprobe() {
+        let fresh: Bridge?
+        if let bridge {
+            fresh = bridge.namesKeyboard() ? bridge : nil
+        } else {
+            fresh = Bridge.load()
+        }
+        let available = fresh != nil
+        bridge = fresh
+        guard isAvailable != available else { return }
+        IslandLog.display.notice("keyboard backlight \(available ? "found" : "gone", privacy: .public)")
+        isAvailable = available
+        if available {
+            refresh()
+            if viewers > 0 { schedule() }
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 
     // MARK: - Pure rules
@@ -152,6 +202,14 @@ final class KeyboardLight: ObservableObject {
     /// with no backlight a slider and a display for a light it does not have.
     static func backlightIDs(answer: Any?) -> [UInt64] {
         (answer as? [NSNumber])?.map(\.uint64Value) ?? []
+    }
+
+    /// Whether a reading of the automatic switch may replace what is shown, or is older than
+    /// what the user just set: the same hold the level has. Pure, so it is tested.
+    static func acceptsAutomatic(_ reading: Bool, holding: (value: Bool, until: TimeInterval)?,
+                                 now: TimeInterval) -> Bool {
+        guard let holding else { return true }
+        return now >= holding.until || holding.value == reading
     }
 
     /// Held to 0...1, with anything that is not a number read as off.
@@ -198,8 +256,13 @@ final class KeyboardLight: ObservableObject {
 
     func setAutomatic(_ on: Bool) {
         guard let bridge, let writeAuto = bridge.writeAuto else { return }
+        pendingAutomatic = (on, LocalWrite.now() + Self.writeSettle)
         if isAutomatic != on { isAutomatic = on }
-        _ = writeAuto.function(bridge.client, writeAuto.selector, on, bridge.keyboard)
+        if !writeAuto.function(bridge.client, writeAuto.selector, on, bridge.keyboard) {
+            // Refused: say so, and show the truth again at once rather than after the hold.
+            IslandLog.display.error("the keyboard backlight refused automatic adjustment \(on ? "on" : "off", privacy: .public)")
+            pendingAutomatic = nil
+        }
         refresh()
     }
 
@@ -210,7 +273,10 @@ final class KeyboardLight: ObservableObject {
         guard let bridge, let value = read() else { return }
         if let readAuto = bridge.readAuto {
             let automatic = readAuto.function(bridge.client, readAuto.selector, bridge.keyboard)
-            if isAutomatic != automatic { isAutomatic = automatic }
+            if Self.acceptsAutomatic(automatic, holding: pendingAutomatic, now: LocalWrite.now()) {
+                pendingAutomatic = nil
+                if isAutomatic != automatic { isAutomatic = automatic }
+            }
         }
         if let pending {
             guard LocalWrite.now() >= pending.until || abs(pending.value - value) < 0.02 else { return }

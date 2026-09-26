@@ -25,18 +25,16 @@ struct ControlsSectionView: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var keyboard = KeyboardLight.shared
+    // A webcam plugged in or pulled out adds or takes away the mirror's disc, which can be
+    // one of the overflow; it did nothing until something else redrew the section.
+    @ObservedObject private var camera = CameraPresence.shared
     @ObservedObject private var airPods = AirPodsControl.shared
-    @State private var devices: [BluetoothMonitor.Paired] = []
+    /// The paired list, read off the main thread at the energy policy's pace. See `PairedDevices`.
+    @ObservedObject private var paired = PairedDevices.shared
     /// The address of the AirPods row that is open on its listening modes, if one is.
     @State private var expandedAirPods: String?
     /// The route picker on the Sound column's last row, so the whole row can open it.
     @State private var routePicker = AirPlayRouteHandle()
-    /// The paired list's four-second look, made once for the life of the view. It was built in
-    /// `onReceive` in the body — the mistake `HomePanelPane` warns against — so every pass of a
-    /// body that redraws for Wi-Fi, sound, the rail and the AirPods alike was a new timer, and
-    /// the four seconds started over each time; on a busy panel the list hardly refreshed.
-    /// Held in `@State` rather than a `let`, which the panel's own redraws would build anew.
-    @State private var devicesTicker = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
 
     /// Three columns with a gutter between them, filling the section's width.
     static let gutter: CGFloat = 18
@@ -103,13 +101,18 @@ struct ControlsSectionView: View {
             column(title: "Bluetooth",
                    symbol: "dot.radiowaves.left.and.right",
                    lit: toggles.bluetoothOn,
-                   note: toggles.hasBluetooth ? (toggles.bluetoothOn ? nil : "Off") : "Not on this Mac",
+                   note: Self.bluetoothNote(hasBluetooth: toggles.hasBluetooth, isOn: toggles.bluetoothOn,
+                                            accessRefused: toggles.bluetoothAccessRefused),
                    trailing: {
                        if toggles.hasBluetooth {
                            HeaderSwitch(subject: "Bluetooth", isOn: toggles.bluetoothOn) { toggles.toggleBluetooth() }
                        }
                    }) {
-                bluetoothList
+                if !toggles.hasBluetooth, toggles.bluetoothAccessRefused {
+                    bluetoothRefused
+                } else {
+                    bluetoothList
+                }
             }
             column(title: "Sound",
                    symbol: sound.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
@@ -133,25 +136,44 @@ struct ControlsSectionView: View {
             wifi.viewerAppeared()
             sound.viewerAppeared()
             airPods.viewerAppeared()
-            devices = pairedDevices
+            // Read only once the tour is done and while the radio is on, on a queue of its own;
+            // see `PairedDevices`.
+            paired.viewerAppeared()
         }
         .onDisappear {
             toggles.viewerDisappeared()
             wifi.viewerDisappeared()
             sound.viewerDisappeared()
             airPods.viewerDisappeared()
+            paired.viewerDisappeared()
         }
-        // The radio answers in its own time; the list catches up when it does.
-        .onReceive(devicesTicker) { _ in
-            devices = pairedDevices
+        // The radio's first reading lands after the section does, and a radio switched on has
+        // a list to show at once rather than at the next tick.
+        .onChange(of: toggles.bluetoothOn) { _, on in
+            if on { paired.refresh() }
         }
     }
 
-    /// The paired list, read only once the tour is done. Reading it is a Bluetooth question,
-    /// and before the tour that question is held back with the monitor's
-    /// (`ServiceHub.wantsBluetooth`), so arriving here early does not put it on screen.
-    private var pairedDevices: [BluetoothMonitor.Paired] {
-        prefs.hasSeenWelcome ? BluetoothMonitor.paired() : []
+    /// What the Bluetooth column says in place of its list, if anything. Pure, so it is tested.
+    static func bluetoothNote(hasBluetooth: Bool, isOn: Bool, accessRefused: Bool) -> String? {
+        if hasBluetooth { return isOn ? nil : "Off" }
+        // Refused, the column says so and offers the pane that can undo it (`bluetoothRefused`).
+        return accessRefused ? nil : "Not on this Mac"
+    }
+
+    /// The Bluetooth column on a Mac whose radio this app has been refused: what is wrong and
+    /// the pane that puts it right, the way the Wi-Fi column offers Location.
+    private var bluetoothRefused: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Bluetooth access is off")
+                .font(.system(size: 11.5))
+                .foregroundStyle(.white.opacity(0.35))
+            PillButton(title: "Allow Bluetooth", tint: .white.opacity(0.85)) {
+                SystemSettingsPane.bluetooth.open()
+            }
+            .environment(\.islandCompactControls, true)
+            .accessibilityLabel(Text("Bluetooth access is off for Notch Island. Open Bluetooth privacy settings."))
+        }
     }
 
     // MARK: - A column
@@ -232,7 +254,9 @@ struct ControlsSectionView: View {
                             trailing: { WiFiBars(bars: network.bars) },
                             lock: network.isSecure && !network.isKnown,
                             isOn: network.isCurrent) {
-                            wifi.join(network)
+                            // The ticked row is the network the Mac is on; joining it again
+                            // could drop it. See `WiFiScanner.joins`.
+                            if WiFiScanner.joins(network) { wifi.join(network) }
                         }
                     }
                 }
@@ -245,7 +269,7 @@ struct ControlsSectionView: View {
     /// The list, or what the gallery was handed: `onAppear` never runs when the view is being
     /// drawn into an image rather than onto a screen, so the state it fills stays empty.
     private var shownDevices: [BluetoothMonitor.Paired] {
-        devices.isEmpty && RenderMode.isGallery ? BluetoothMonitor.paired() : devices
+        paired.devices.isEmpty && RenderMode.isGallery ? BluetoothMonitor.paired() : paired.devices
     }
 
     @ViewBuilder
@@ -309,7 +333,7 @@ struct ControlsSectionView: View {
         BluetoothMonitor.setConnected(!device.isConnected, address: device.address)
         // The radio takes a moment; ask again once it has had one.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            self.devices = BluetoothMonitor.paired()
+            PairedDevices.shared.refresh()
         }
     }
 
