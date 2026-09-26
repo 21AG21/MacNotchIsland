@@ -782,8 +782,9 @@ final class BrightnessControl: ObservableObject {
     @Published private(set) var isAvailable = false
     /// The display `level` belongs to, as the last reading found it; nil until one has landed.
     @Published private(set) var drivenDisplay: CGDirectDisplayID?
-    /// The level of every other display a rail is on that answers DisplayServices. A display
-    /// that does not answer is not here, and its rail's slider drives the driven display.
+    /// The level of every other display a rail is on that answers DisplayServices, and the last
+    /// level known of one a rail was on while it stays online (`takeOthers`). A display that
+    /// does not answer is not here, and its rail's slider drives the driven display.
     @Published private(set) var panelLevels: [CGDirectDisplayID: Double] = [:]
 
     static let pollInterval: TimeInterval = 0.5
@@ -890,7 +891,9 @@ final class BrightnessControl: ObservableObject {
         }
         watched[display] = nil
         panelPending[display] = nil
-        if panelLevels[display] != nil { panelLevels[display] = nil }
+        // The level stays, as the last one known: cleared here, the next rail on that display
+        // began every time on the driven display's level and the built-in's name, drove the
+        // MacBook for the first pass, and jumped when its own reading landed (`takeOthers`).
     }
 
     /// The display a panel is on: the screen whose island answers to `panelID`
@@ -981,8 +984,20 @@ final class BrightnessControl: ObservableObject {
 
     /// The other displays, under the same holds as the driven one. Only displays still watched
     /// are kept: a pass that left before a rail went away can land after it.
+    ///
+    /// A display nobody watches keeps its last level while it is online, so a rail mounted on
+    /// it again starts from that rather than from the driven display's; and a watched display
+    /// under a hold that gave no reading this pass keeps what it showed, rather than handing
+    /// its slider to the driven display in the middle of a drag.
     private func takeOthers(_ readings: [CGDirectDisplayID: Double]) {
+        let online = Set(NSScreen.screens.compactMap {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        })
         var next: [CGDirectDisplayID: Double] = [:]
+        for (id, shown) in panelLevels where watched[id] == nil && online.contains(id) { next[id] = shown }
+        for (id, hold) in panelPending where watched[id] != nil && readings[id] == nil {
+            next[id] = panelLevels[id] ?? hold.value
+        }
         for (id, value) in readings where watched[id] != nil {
             let shown = panelLevels[id]
             if let hold = panelPending[id] {

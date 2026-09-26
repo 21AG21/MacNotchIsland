@@ -175,8 +175,10 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate, 
                 do {
                     try client.startMonitoringEvent(with: event)
                 } catch {
-                    IslandLog.network.notice("wi-fi events not available: \(error.localizedDescription, privacy: .public)")
-                    return
+                    // The others are still asked for: one event the daemon will not give is
+                    // no reason to go without the rest.
+                    IslandLog.network.notice("wi-fi \(String(describing: event), privacy: .public) events not available: \(error.localizedDescription, privacy: .public)")
+                    continue
                 }
             }
         }

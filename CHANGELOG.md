@@ -278,6 +278,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The brightness slider on a second display's island starts on that display's own level rather than the MacBook's, and a display that misses one reading mid-drag keeps its slider.
+- Wi-Fi event monitoring asks for every event even when the daemon refuses one.
 - The README's rule for where `ask` may write its answer was backwards: it is a folder of your own that only you can open, in /tmp or $TMPDIR, never your home folder.
 - `notchctl ask --timeout` takes a length the way every other flag does (90s, 2m), held to 5 to 600 seconds, as the island already did.
 - The menu bar says "Hidden in full screen" when a full-screen app hides the island, instead of blaming an app on the hide list.
