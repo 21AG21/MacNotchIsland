@@ -8,6 +8,9 @@
 #                          [--action2 Deploy --action2-shortcut "Ship it" --action2-symbol play.fill]
 #                          (--action-shortcut and --action2-shortcut run only while "Let pushed
 #                           cards run Shortcuts" is on under Settings > Media, off out of the box)
+#   notchctl update <id> [--progress 0.9] [--subtitle "…"] [any activity flag]
+#                          (changes only what is given, on a card that is up; a card that has
+#                           ended, or was never started, is left alone)
 #   notchctl end <id>
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
 #                          (--duration is up to 60 s; longer is cut to 60)
@@ -242,6 +245,12 @@ case "$cmd" in
   activity)
     if [ -z "${1:-}" ]; then usage "notchctl activity: an id is required" "usage: notchctl activity <id> --title TEXT [flags]"; fi
     add id "$1"; shift; parse_flags "$@"; open_url "activity" ;;
+  # Changes what it is given on the card and nothing else, and only while the card is up: a
+  # late progress figure after `notchctl end` does not put the card back, which a second
+  # `activity` with the same id would, as a card started again.
+  update)
+    if [ -z "${1:-}" ]; then usage "notchctl update: an id is required" "usage: notchctl update <id> [flags]"; fi
+    add id "$1"; shift; parse_flags "$@"; open_url "activity/update" ;;
   end)
     if [ -z "${1:-}" ]; then usage "usage: notchctl end <id>"; fi
     add id "$1"; open_url "activity/end" ;;

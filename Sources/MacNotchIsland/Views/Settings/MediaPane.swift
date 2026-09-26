@@ -60,6 +60,11 @@ struct MediaPane: View {
                     .textSelection(.enabled)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(Self.updateExample)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(Self.endExample)
                     .font(.system(.footnote, design: .monospaced))
                     .textSelection(.enabled)
@@ -82,6 +87,8 @@ struct MediaPane: View {
 
     private static let startExample =
         "open \"notchisland://activity?id=build&title=Building&symbol=hammer.fill&tint=blue&progress=0.4\""
+    /// Changes only what it carries, on a card that is up (`LiveActivityAPI.arrival`).
+    private static let updateExample = "open \"notchisland://activity/update?id=build&progress=0.9\""
     private static let endExample = "open \"notchisland://activity/end?id=build\""
 
     /// The six things a place beside play can hold.

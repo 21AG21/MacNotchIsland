@@ -191,7 +191,8 @@ Any script or Shortcut (via "Open URLs") can push a Live Activity:
 
 ```sh
 Scripts/notchctl activity build --title "Building" --subtitle "xcodebuild" --symbol hammer.fill --tint blue --progress 0.4 --ring
-Scripts/notchctl activity build --title "Building" --progress 0.9           # update in place
+Scripts/notchctl update build --progress 0.9                                # change only what is given, while the card is up
+Scripts/notchctl activity build --title "Built" --progress 1                 # or start it again in place, every field from the flags
 Scripts/notchctl end build
 Scripts/notchctl alert "Deployed" --symbol checkmark.circle.fill --tint green
 Scripts/notchctl timer 25 --label Focus
@@ -211,6 +212,7 @@ The underlying URLs:
 ```
 notchisland://activity?id=…&title=…&subtitle=…&symbol=…&tint=…&progress=0–1&trailing=…&body=…&url=…&ttl=seconds&expanded=1&ring=1&priority=70
   …&action=Retry&action_url=https://…&action_symbol=arrow.clockwise&action2=Ship&action2_shortcut=Deploy   (buttons, see below)
+notchisland://activity/update?id=…&progress=…   (changes only what it carries, on a card that is up; refused for one that is not)
 notchisland://activity/end?id=…
 notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1   (duration in seconds, up to 60 s; longer is cut to 60)
 notchisland://timer?minutes=5&label=Tea    notchisland://timer/cancel | pause | resume
