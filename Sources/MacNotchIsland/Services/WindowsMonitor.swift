@@ -148,6 +148,11 @@ final class WindowsMonitor: ObservableObject {
     /// Where the windows are raised, moved, put away and closed: serial, so two clicks act in
     /// the order they were made, and never the main thread.
     private let axQueue = DispatchQueue(label: "com.macnotchisland.windows.ax", qos: .userInitiated)
+    /// Where the list is walked: serial, so one walk follows another, and apart from `axQueue`,
+    /// so a click on a tile is never waiting behind a walk. A walk asks every app with a window
+    /// out of sight, half a second each at most, and one that has stopped answering costs that
+    /// on every beat; put on `axQueue` for a while, a click on any other app's tile paid it.
+    private let walkQueue = DispatchQueue(label: "com.macnotchisland.windows.walk", qos: .utility)
     /// One walk of the list at a time, and one more after it at most when it is asked for while
     /// the first is out. Main thread.
     private var pass = RadioPass()
@@ -250,12 +255,14 @@ final class WindowsMonitor: ObservableObject {
         // which answers at the speed of the slowest app it is asked about; what they say is
         // turned into tiles (and their app icons, which is AppKit's business) back on it.
         //
-        // One walk at a time, on `axQueue`, behind whatever was done to a window before it was
-        // asked for. Each walk used to start on a concurrent queue of its own and be shown
-        // whenever it landed: the two walks after a Tile or a Snap could land the wrong way
-        // round and put the old frames back until the next beat, and with an app that had
-        // stopped answering every beat started one more walk to wait on it.
-        axQueue.async { [weak self] in
+        // One walk at a time, on a serial queue of its own (`walkQueue`). Each walk used to
+        // start on a concurrent queue and be shown whenever it landed: the two walks after a
+        // Tile or a Snap could land the wrong way round and put the old frames back until the
+        // next beat, and with an app that had stopped answering every beat started one more
+        // walk to wait on it. A walk asked for after something was done to a window starts once
+        // that is done: the actions hand back to the main thread first (`act(on:)`), and ask
+        // for their walks from there.
+        walkQueue.async { [weak self] in
             let info = Self.windowServerList()
             let away = trusted ? Self.putAwayWindows(of: Self.appsWithWindowsOutOfSight(in: info)) : []
             let listed = Self.list(now: info, putAway: away)

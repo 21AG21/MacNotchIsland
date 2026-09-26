@@ -345,6 +345,8 @@ final class PairedDevices: ObservableObject {
     private var viewers = 0
     /// When the last list landed, on the clock that only counts forwards. Main thread.
     private var readAt = LocalWrite.never
+    /// Whether any list has landed yet. Main thread.
+    var hasRead: Bool { readAt != LocalWrite.never }
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
 

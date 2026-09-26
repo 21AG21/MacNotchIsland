@@ -221,6 +221,10 @@ struct IslandMenu: View {
         guard prefs.hasSeenWelcome else { return [] }
         if RenderMode.isGallery { return paired.devices.isEmpty ? BluetoothMonitor.paired() : paired.devices }
         PairedDevices.shared.refreshIfStale()
+        // Before any list has landed — Bluetooth alerts off, and Controls never opened — the menu
+        // asks the radio itself this once, as it always did, rather than offer no Bluetooth item
+        // at all; from the next opening the list read off the main thread is there.
+        if paired.devices.isEmpty, !paired.hasRead { return BluetoothMonitor.paired() }
         return paired.devices
     }
 

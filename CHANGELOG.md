@@ -278,6 +278,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- A click on a window tile no longer waits behind a walk of the window list held up by an app that has stopped answering.
+- The island's menu still lists paired Bluetooth devices on its first opening when Bluetooth alerts are off and Controls has never been opened.
 - VoiceOver says each alert as it comes up, a finished download, a device connecting, "Copied", and each card that takes the island, and alerts stay up three times as long, up to a minute, while VoiceOver is running.
 - The rail's Wi-Fi, Bluetooth, Keep Awake, microphone and mirror buttons read as switches with their state ("Wi-Fi, On"), and the output menu's tick on the current device is one VoiceOver can read.
 - Moving through a find with the arrow keys says the file reached and where it is in the matches, and the number of matches is spoken as you type.
