@@ -12,6 +12,9 @@ struct MusicSectionView: View {
     /// hundred and twenty a second — drew the whole section again.
     private let outputs = AudioOutputs.shared
     @ObservedObject private var energy = EnergyPolicy.shared
+    /// Followed for Increase Contrast, which raises the artist's line (`IslandContrast`), and
+    /// for Reduce Motion, which chooses the pop a new cover arrives with.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     @EnvironmentObject private var prefs: Preferences
 
     /// What the service reports, or what the island's Now Playing activity carries when the
@@ -75,7 +78,8 @@ struct MusicSectionView: View {
                     MarqueeText(text: info.title.isEmpty ? "Unknown track" : info.title,
                                 font: .system(size: 15, weight: .semibold), color: .white, isPlaying: info.isPlaying)
                     MarqueeText(text: info.artist.isEmpty ? info.appName : info.artist,
-                                font: .system(size: 13, weight: .regular), color: .white.opacity(0.55),
+                                font: .system(size: 13, weight: .regular),
+                                color: .white.opacity(IslandContrast.alpha(0.55, increased: display.increaseContrast)),
                                 isPlaying: info.isPlaying)
                 }
                 .padding(.top, 9)
@@ -105,6 +109,12 @@ struct MusicSectionView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Playback position")
                     .accessibilityValue(IslandAccessibility.playbackValue(position: position, duration: duration))
+                    // What a drag does, for VoiceOver: a step either way is fifteen seconds, the
+                    // skip the transport's own buttons make, and a stream is not moved at all.
+                    .accessibilityAdjustableAction { direction in
+                        guard let step = IslandAccessibility.seekStep(direction, canSeek: info.canSeek) else { return }
+                        service.skip(by: step)
+                    }
                     TimesOrLyric(position: position, duration: duration, showsLyrics: prefs.lyricsEnabled)
                 }
             }
@@ -229,6 +239,7 @@ private struct TimesOrLyric: View {
     let duration: TimeInterval
     let showsLyrics: Bool
     @ObservedObject private var lyrics = LyricsService.shared
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     private var hasLine: Bool {
         guard showsLyrics, let line = lyrics.currentLine?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
@@ -243,8 +254,12 @@ private struct TimesOrLyric: View {
                 Text(duration > 0 ? "-" + max(0, duration - position).mmss : "")
             }
             .font(.system(size: 11, weight: .medium).monospacedDigit())
-            .foregroundStyle(.white.opacity(0.45))
+            .foregroundStyle(.white.opacity(IslandContrast.alpha(0.45, increased: display.increaseContrast)))
             .opacity(hasLine ? 0 : 1)
+            // The scrubber above says the same two times, as a value VoiceOver can read and
+            // step; drawn here they were read again as "1:05" and "-2:15", clock times, and
+            // stayed in the tree under a line of lyrics that had covered them.
+            .accessibilityHidden(true)
             if showsLyrics {
                 LyricsView(font: .system(size: 12, weight: .semibold), color: .white.opacity(0.85), lineHeight: 14)
                     .frame(maxWidth: .infinity)

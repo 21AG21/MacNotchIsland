@@ -156,6 +156,49 @@ final class MotionTests: XCTestCase {
         XCTAssertFalse(IslandMotion.marksTravel(reduceMotion: true), "and with less movement asked for, it fades across")
     }
 
+    // MARK: - What Reduce Motion stills beyond the springs
+
+    /// The cover, the digits and the call's glyph fly from the pill to the card, except for
+    /// the user who asked for less movement, for whom they cross-fade where they stand.
+    func testHeroesFlyOnlyWithoutReduceMotion() {
+        XCTAssertTrue(IslandMotion.heroesTravel(reduceMotion: false))
+        XCTAssertFalse(IslandMotion.heroesTravel(reduceMotion: true))
+    }
+
+    /// Rolling digits and a glyph that bounces, pulses or shrinks into the next are movement;
+    /// under Reduce Motion a figure or a glyph that changes fades instead.
+    func testDigitsAndGlyphsHoldStillUnderReduceMotion() {
+        XCTAssertTrue(IslandMotion.rollsDigits(reduceMotion: false))
+        XCTAssertFalse(IslandMotion.rollsDigits(reduceMotion: true))
+        XCTAssertTrue(IslandMotion.symbolsMove(reduceMotion: false))
+        XCTAssertFalse(IslandMotion.symbolsMove(reduceMotion: true))
+        // The transitions themselves take the same setting, so a view can be handed either one.
+        _ = IslandMotion.numeric(countsDown: true, reduceMotion: true)
+        _ = IslandMotion.numeric(reduceMotion: false)
+        _ = IslandMotion.symbolReplace(reduceMotion: true)
+        _ = IslandMotion.symbolReplace(reduceMotion: false)
+    }
+
+    /// A one-off effect fires when its value changes; under Reduce Motion it is handed a value
+    /// that never does.
+    func testAOneOffGlyphEffectIsNeverTriggeredUnderReduceMotion() {
+        XCTAssertEqual(IslandMotion.trigger(true, reduceMotion: false), true)
+        XCTAssertEqual(IslandMotion.trigger(false, reduceMotion: false), false)
+        XCTAssertNil(IslandMotion.trigger(true, reduceMotion: true))
+        XCTAssertEqual(IslandMotion.trigger(true, reduceMotion: true), IslandMotion.trigger(false, reduceMotion: true),
+                       "the same value whatever the state, so nothing changes to fire it")
+    }
+
+    /// A press shrinks the control and a slot a drag rests on grows — except under Reduce
+    /// Motion, where the control stays its size and only the dimming or the light says so.
+    func testPressFeedbackKeepsItsSizeUnderReduceMotion() {
+        XCTAssertEqual(IslandMotion.feedbackScale(0.92, active: true, reduceMotion: false), 0.92)
+        XCTAssertEqual(IslandMotion.feedbackScale(1.12, active: true, reduceMotion: false), 1.12)
+        XCTAssertEqual(IslandMotion.feedbackScale(0.92, active: false, reduceMotion: false), 1)
+        XCTAssertEqual(IslandMotion.feedbackScale(0.92, active: true, reduceMotion: true), 1)
+        XCTAssertEqual(IslandMotion.feedbackScale(1.12, active: true, reduceMotion: true), 1)
+    }
+
     func testTheSpringsAreAllDifferentFromEachOther() throws {
         try XCTSkipIf(IslandMotion.reduceMotion, "this machine is already asking for less motion")
         XCTAssertNotEqual(IslandMotion.open, IslandMotion.navigate)

@@ -27,23 +27,32 @@ struct CalendarExpandedView: View {
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text("\(Self.time.string(from: state.start)) – \(Self.time.string(from: state.end))")
-                        .font(.system(size: 12.5).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.55))
-                        .lineLimit(1)
+                    // The title and the times are the row's own sentence already (its label,
+                    // below); read again one by one they came out twice, the second time as
+                    // "10:00 – 11:00".
+                    Group {
+                        Text(state.title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text("\(Self.time.string(from: state.start)) – \(Self.time.string(from: state.end))")
+                            .font(.system(size: 12.5).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    .accessibilityHidden(true)
                     // The countdown sits under the time rather than shouting in the tint. Counted
                     // from the start, so "Now" comes at the start and not up to half a minute
-                    // after it (`AgendaStore.countdownPhase`).
+                    // after it (`AgendaStore.countdownPhase`). Not in the sentence, which is
+                    // written when the card's body runs and would say a countdown that has moved
+                    // on; said here, in words, from the timeline that keeps it current.
                     TimelineView(.periodic(from: AgendaStore.countdownPhase(for: state.start, now: Date()),
                                            by: AgendaStore.countdownStep)) { ctx in
                         Text(state.countdown(at: ctx.date))
                             .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .quietWhite(0.45)
                             .lineLimit(1)
+                            .accessibilityLabel(state.spokenStart(at: ctx.date))
                     }
                 }
                 Spacer(minLength: 12)

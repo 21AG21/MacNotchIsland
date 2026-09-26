@@ -163,6 +163,8 @@ struct ShelfDropDestinations: ShelfDropSending {
 /// that well split, not as something new that arrived with the drag.
 struct ShelfDropSplitView: View {
     let lit: ShelfDropTarget
+    /// Followed for Increase Contrast, which raises the unlit names (`IslandContrast`).
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     static let gap: CGFloat = 8
     static let cornerRadius: CGFloat = 14
@@ -182,15 +184,17 @@ struct ShelfDropSplitView: View {
         return VStack(spacing: 6) {
             Image(systemName: target.symbol)
                 .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(.white.opacity(isLit ? 0.95 : 0.35))
+                .foregroundStyle(.white.opacity(isLit ? 0.95 : IslandContrast.alpha(0.35, increased: display.increaseContrast)))
             Text(target.title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(isLit ? 0.9 : 0.4))
+                .foregroundStyle(.white.opacity(isLit ? 0.9 : IslandContrast.alpha(0.4, increased: display.increaseContrast)))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { shape.fill(Color.accentColor.opacity(isLit ? 0.22 : 0.06)) }
         .overlay { shape.strokeBorder(Color.accentColor.opacity(isLit ? 0.9 : 0.25), lineWidth: 2) }
-        .scaleEffect(isLit ? 1 : 0.97)
+        // The unlit two sit back a little, except under Reduce Motion, where that shrink as
+        // the pointer crosses between them is movement (`IslandMotion.feedbackScale`).
+        .islandFeedbackScale(0.97, active: !isLit)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(target.title)
         .accessibilityAddTraits(isLit ? .isSelected : [])

@@ -4,7 +4,9 @@ import SwiftUI
 struct IslandButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            // The shrink is left out under Reduce Motion (`IslandMotion.feedbackScale`); the
+            // dimming beside it still says the press was taken.
+            .islandFeedbackScale(0.92, active: configuration.isPressed)
             .opacity(configuration.isPressed ? 0.8 : 1)
             // Down at once, back on a spring: a press that eases in as slowly as it eases
             // out feels like the button answered a moment late.
@@ -31,7 +33,7 @@ struct GlyphButton: View {
                 .foregroundStyle(tint)
                 .frame(width: hit ?? size + 18, height: hit ?? size + 18)
                 .contentShape(Rectangle())
-                .contentTransition(.symbolEffect(.replace))
+                .islandSymbolReplace()
         }
         .buttonStyle(IslandButtonStyle())
         .accessibilityLabel(label ?? Self.describe(symbol))
@@ -162,13 +164,17 @@ struct PillButton: View {
         let m = metrics
         let reach = compact ? IslandHit.outset(drawn: SectionMetrics.headerHeight) : 0
         return Button(action: action) {
+            // The glyph is decoration beside the words, and kept from VoiceOver: left in, the
+            // button's name was the words with the symbol's own name read out beside them.
             HStack(spacing: m.gap) {
                 if let symbol, !symbolTrailing {
                     Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold))
+                        .accessibilityHidden(true)
                 }
                 Text(title).font(.system(size: m.text, weight: .semibold))
                 if let symbol, symbolTrailing {
                     Image(systemName: symbol).font(.system(size: m.glyph, weight: .bold))
+                        .accessibilityHidden(true)
                 }
             }
             .foregroundStyle(prominent ? Self.ink(on: tint) : tint)

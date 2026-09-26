@@ -6,6 +6,8 @@ struct BubbleView: View {
     let activity: IslandActivity
     let diameter: CGFloat
     @EnvironmentObject private var center: ActivityCenter
+    /// Followed for the pause glyph a stopped stopwatch carries under Differentiate Without Color.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     var body: some View {
         ZStack {
@@ -59,7 +61,14 @@ struct BubbleView: View {
                     .overlay(Image(systemName: "timer").font(.system(size: 8, weight: .bold)).foregroundStyle(.orange))
             }
         case .stopwatch(let s):
-            Image(systemName: "stopwatch.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+            // Orange running, grey stopped — and a pause glyph beside it when stopped, for anyone
+            // who has asked not to be told by colour alone.
+            HStack(spacing: 1) {
+                Image(systemName: "stopwatch.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+                if IslandMarks.pause(running: s.isRunning, differentiate: display.differentiateWithoutColor) {
+                    Image(systemName: "pause.fill").font(.system(size: 6, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+                }
+            }
         case .download(let d):
             if let p = d.progress, !d.isComplete {
                 ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named("blue"))

@@ -36,7 +36,7 @@ struct StatsView: View {
                 Text(Self.percentText(stats.sample.cpuPercent))
                     .font(Self.valueFont)
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: stats.sample.cpuPercent)
             } footer: {
                 Sparkline(values: stats.cpuHistory, ceiling: 20)
@@ -55,14 +55,14 @@ struct StatsView: View {
                 Text(memoryValue)
                     .font(Self.valueFont)
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: memoryValue)
             } footer: {
                 MeterBar(fraction: fraction(stats.sample.memoryUsedBytes, of: stats.sample.memoryTotalBytes))
                     .accessibilityHidden(true)
                 Text(memoryDetail)
                     .font(Self.detailFont)
-                    .foregroundStyle(.white.opacity(0.4))
+                    .quietWhite(0.4)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -75,7 +75,7 @@ struct StatsView: View {
                 Text(diskValue)
                     .font(Self.valueFont)
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: diskValue)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -87,7 +87,7 @@ struct StatsView: View {
                         .accessibilityHidden(true)
                     Text(detail)
                         .font(Self.detailFont)
-                        .foregroundStyle(.white.opacity(0.4))
+                        .quietWhite(0.4)
                         .lineLimit(1)
                 }
             }
@@ -107,7 +107,7 @@ struct StatsView: View {
                 }
                 .lineLimit(1)
                 .padding(.top, 1)
-                .contentTransition(.numericText())
+                .islandNumeric()
                 .animation(IslandMotion.digits, value: stats.sample.networkDownBytesPerSec)
             } footer: {
                 Sparkline(values: stats.networkHistory, ceiling: 64 * 1024)
@@ -117,9 +117,37 @@ struct StatsView: View {
         }
     }
 
-    /// "Download 1.2 MB/s, upload 96 KB/s".
     private var networkAccessibilityValue: String {
-        "Download \(SystemStats.rateText(stats.sample.networkDownBytesPerSec)), upload \(SystemStats.rateText(stats.sample.networkUpBytesPerSec))"
+        Self.networkSpoken(down: stats.sample.networkDownBytesPerSec, up: stats.sample.networkUpBytesPerSec)
+    }
+
+    /// "Download 1.2 megabytes per second, upload 96 kilobytes per second": the two figures the
+    /// cell draws, in words. Read as drawn, "1.2 MB/s" was "1.2 M B slash s".
+    static func networkSpoken(down: Double, up: Double, locale: Locale = .current) -> String {
+        "Download \(spokenRate(down, locale: locale)), upload \(spokenRate(up, locale: locale))"
+    }
+
+    /// "1.2 megabytes per second", "96 kilobytes per second", "1 kilobyte per second": a rate
+    /// in the thousands `rateText` counts it in, written with the region's decimal mark the way
+    /// `memorySpoken` writes its gigabytes (`SystemStats.shortNumber`). The unit is the largest
+    /// the figure comes to at least one of, once rounded, so a reading just under a megabyte
+    /// is not said as a thousand kilobytes. Anything negative or not a number is none at all.
+    static func spokenRate(_ bytesPerSecond: Double, locale: Locale = .current) -> String {
+        let units = ["kilobyte", "megabyte", "gigabyte"]
+        var value = (bytesPerSecond.isFinite ? max(0, bytesPerSecond) : 0) / 1000
+        var unit = 0
+        while unit < units.count - 1, shortRounded(value) >= 1000 {
+            value /= 1000
+            unit += 1
+        }
+        let name = shortRounded(value) == 1 ? units[unit] : units[unit] + "s"
+        return "\(SystemStats.shortNumber(value, locale: locale)) \(name) per second"
+    }
+
+    /// The figure `SystemStats.shortNumber` writes, as a number: whole from 100, one decimal
+    /// below it.
+    private static func shortRounded(_ value: Double) -> Double {
+        value >= 100 ? value.rounded() : (value * 10).rounded() / 10
     }
 
     /// The laptop question, in the order it is asked: how much is left, then for how long,
@@ -130,7 +158,7 @@ struct StatsView: View {
                 Text(batteryValue)
                     .font(Self.valueFont)
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: batteryValue)
             } footer: {
                 if let percent = stats.sample.batteryPercent {
@@ -139,14 +167,14 @@ struct StatsView: View {
                     if let time = batteryTime {
                         Text(time)
                             .font(Self.detailFont)
-                            .foregroundStyle(.white.opacity(0.4))
+                            .quietWhite(0.4)
                             .lineLimit(1)
                     }
                 }
                 if let detail = batteryDetail {
                     Text(detail)
                         .font(Self.detailFont)
-                        .foregroundStyle(.white.opacity(0.4))
+                        .quietWhite(0.4)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
@@ -296,7 +324,7 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.4))
+                .quietWhite(0.4)
             value()
             Spacer(minLength: 8)
             VStack(alignment: .leading, spacing: 4) { footer() }

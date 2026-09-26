@@ -45,7 +45,7 @@ struct CallExpandedView: View {
                         Text(ctx.date.timeIntervalSince(state.startedAt).mmss)
                             .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                             .foregroundStyle(.white)
-                            .contentTransition(.numericText(countsDown: false))
+                            .islandNumeric()
                             .lineLimit(1)
                             .minimumScaleFactor(0.4)
                             .islandMatched(IslandMatchedID.callTime)

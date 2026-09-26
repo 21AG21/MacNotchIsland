@@ -28,6 +28,8 @@ final class EnergyPolicy: ObservableObject {
     private var started = false
     /// "Pause animations on battery", heard as a change of this object's, see `start`.
     private var pauseOnBatteryObserver: AnyCancellable?
+    /// Reduce Motion, heard the same way, see `start`.
+    private var reduceMotionObserver: AnyCancellable?
 
     private init() {}
 
@@ -88,6 +90,19 @@ final class EnergyPolicy: ObservableObject {
                               unattended: unattended)
         }
         return paused(true) != paused(false) || interval(true) != interval(false)
+    }
+
+    /// Whether Reduce Motion being switched changes anything this object says, which is when
+    /// the switch is announced (`start`): only `animationsPaused` reads it, and with something
+    /// else already holding everything still, turning it on or off stops nothing more. Pure, so
+    /// the rule is tested.
+    static func reduceMotionSwitchMatters(asleep: Bool, lowPower: Bool, onBattery: Bool, pauseOnBattery: Bool,
+                                          unattended: Bool = false) -> Bool {
+        func paused(_ reduced: Bool) -> Bool {
+            animationsPaused(asleep: asleep, lowPower: lowPower, onBattery: onBattery, pauseOnBattery: pauseOnBattery,
+                             reduceMotion: reduced, unattended: unattended)
+        }
+        return paused(true) != paused(false)
     }
 
     /// Pure form of `pollingMultiplier`.
@@ -180,6 +195,24 @@ final class EnergyPolicy: ObservableObject {
                                                       onBattery: self.isOnBattery,
                                                       reduceMotion: IslandMotion.reduceMotion,
                                                       unattended: self.isUnattended) else { return }
+                self.objectWillChange.send()
+            }
+        // Reduce Motion is read inside `animationsPaused` too, and was held in a variable that
+        // announced nothing: switched on with a long title in the Now Playing section, the title
+        // went on scrolling and the bars went on moving until some unrelated change redrew them.
+        // `AccessibilityDisplay` publishes it; this passes it on to everything that follows this
+        // object, by the same rule and for the same reasons as the switch above — after the
+        // value has landed, and only when it changes what this object says.
+        reduceMotionObserver = AccessibilityDisplay.shared.$reduceMotion
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self,
+                      EnergyPolicy.reduceMotionSwitchMatters(asleep: self.isAsleep, lowPower: self.isLowPower,
+                                                             onBattery: self.isOnBattery,
+                                                             pauseOnBattery: Preferences.shared.pauseAnimationsOnBattery,
+                                                             unattended: self.isUnattended) else { return }
                 self.objectWillChange.send()
             }
         refreshLowPower()

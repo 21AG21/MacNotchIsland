@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Durations spelled out for VoiceOver.
 ///
@@ -29,5 +29,34 @@ extension IslandAccessibility {
 
     private static func unit(_ count: Int, _ name: String) -> String {
         count == 1 ? "1 \(name)" : "\(count) \(name)s"
+    }
+
+    // MARK: - Said out loud
+
+    /// Has VoiceOver say `text` now, wherever the user is: for something the island shows for a
+    /// moment and takes away again — "Text copied" in place of a file name — which a screen
+    /// reader never lands on in time, or at all.
+    ///
+    /// Only while VoiceOver is running, and on the main thread whichever thread asks. `high` is
+    /// said over whatever VoiceOver is in the middle of; medium waits its turn.
+    static func announce(_ text: String, high: Bool = true) {
+        let post: () -> Void = {
+            guard NSWorkspace.shared.isVoiceOverEnabled, let app = NSApp else { return }
+            NSAccessibility.post(element: app, notification: .announcementRequested,
+                                 userInfo: [.announcement: text,
+                                            .priority: Self.announcementPriority(high: high).rawValue])
+        }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
+    }
+
+    /// How urgently an announcement is made. Pure, so the choice is tested.
+    static func announcementPriority(high: Bool) -> NSAccessibilityPriorityLevel {
+        high ? .high : .medium
+    }
+
+    /// A line drawn with "·" between its facts, as it should be said: VoiceOver reads the
+    /// separator out as a symbol of its own, so each one becomes the pause a comma makes.
+    static func spokenLine(_ line: String) -> String {
+        line.replacingOccurrences(of: " · ", with: ", ")
     }
 }

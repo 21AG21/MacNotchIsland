@@ -7,13 +7,19 @@ import SwiftUI
 /// morphs if both sides sit in the *same* `Namespace.ID` under the *same* id. `IslandBodyView`
 /// publishes that namespace through `\.islandNamespace`; anything rendered outside the island
 /// (previews, the settings window, a stray unit test host) gets `nil` and simply renders plainly.
+///
+/// Under Reduce Motion it renders plainly too (`IslandMotion.heroesTravel`): the two copies
+/// cross-fade where they stand with everything else, rather than the matched frame flying across
+/// the island inside what was meant to be a still fade. Watched, so a change to the setting
+/// reaches a hero already on screen.
 private struct IslandMatchedModifier: ViewModifier {
     let id: String
     @Environment(\.islandNamespace) private var namespace
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if let namespace {
+        if let namespace, IslandMotion.heroesTravel(reduceMotion: display.reduceMotion) {
             // `isSource` stays default on both sides: whichever copy SwiftUI keeps as the source
             // during the swap, the other one animates from the group's previous frame, which is
             // what makes the small artwork grow into the large one (and shrink back).

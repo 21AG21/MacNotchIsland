@@ -22,7 +22,7 @@ struct DriveExpandedView: View {
                     Image(systemName: state.symbol)
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(tint)
-                        .contentTransition(.symbolEffect(.replace))
+                        .islandSymbolReplace()
                 }
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
@@ -36,12 +36,14 @@ struct DriveExpandedView: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                 }
+                // Said once, in the row's sentence below, rather than again line by line.
+                .accessibilityHidden(true)
                 Spacer(minLength: 12)
                 controls
             }
             .islandContentColumn()
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(state.name), \(state.subtitle)")
+            .accessibilityLabel("\(state.name), \(IslandAccessibility.spokenLine(state.subtitle))")
             if state.showsFill, let fill = state.fill {
                 LevelBar(level: fill, tint: .white)
                     .frame(height: 4)

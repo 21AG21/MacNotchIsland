@@ -5,6 +5,8 @@ struct BluetoothExpandedView: View {
     let geometry: NotchGeometry
     @Environment(\.insidePanel) private var insidePanel
     @ObservedObject private var airPods = AirPodsControl.shared
+    /// Followed for the mark a low reading carries under Differentiate Without Color.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     /// The device's disc and the gap after it, which the pills are indented by so that they
     /// start under the name.
@@ -51,11 +53,18 @@ struct BluetoothExpandedView: View {
                             if !reading.label.isEmpty {
                                 Text(reading.label)
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.45))
+                                    .quietWhite(0.45)
                             }
                             Text("\(reading.percent)%")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
                                 .foregroundStyle(valueTint(reading.percent))
+                            // Red is the whole of the warning; under Differentiate Without Color
+                            // a "!" follows the figure as well.
+                            if IslandMarks.warning(low: isWarned(reading.percent), differentiate: display.differentiateWithoutColor) {
+                                Image(systemName: "exclamationmark")
+                                    .font(.system(size: 11, weight: .heavy))
+                                    .foregroundStyle(Color.named("red"))
+                            }
                         }
                     }
                 }
@@ -125,8 +134,13 @@ struct BluetoothExpandedView: View {
 
     /// Only the emptiest battery goes red, and only once it is genuinely low.
     private func valueTint(_ percent: Int) -> Color {
+        isWarned(percent) ? Color.named("red") : Color.white
+    }
+
+    /// Whether a reading is the one drawn in red: the emptiest, and genuinely low.
+    private func isWarned(_ percent: Int) -> Bool {
         let lowest = readings.map({ $0.percent }).min()
-        return (BluetoothState.isLow(percent) && percent == lowest) ? Color.named("red") : Color.white
+        return BluetoothState.isLow(percent) && percent == lowest
     }
 
     /// Whether the card can connect or disconnect the device: wherever the radio told us its

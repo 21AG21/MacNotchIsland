@@ -298,4 +298,122 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertEqual(meetingStart.timeIntervalSince(standup.start).truncatingRemainder(dividingBy: 30), -30 + PillClock.lead,
                        accuracy: 0.0001, "on the half-minute grid through the start")
     }
+
+    // MARK: - Buttons VoiceOver could not press
+
+    /// The pill is a button wherever a click on it opens something, and says so; a key press's
+    /// HUD and the alerts with no card are not, since a click on them does nothing.
+    func testThePillIsAButtonWhereAClickOpensSomething() {
+        XCTAssertTrue(IslandAccessibility.pillOpens(.nowPlaying(info(title: "Alright", artist: "Kendrick Lamar"))))
+        XCTAssertTrue(IslandAccessibility.pillOpens(.timer(TimerState(label: "Pasta", total: 300,
+                                                                      endDate: now.addingTimeInterval(299)))))
+        XCTAssertFalse(IslandAccessibility.pillOpens(.hud(LevelHUD(kind: .volume, level: 0.4))))
+        XCTAssertFalse(IslandAccessibility.pillOpens(.unlock))
+        XCTAssertFalse(IslandAccessibility.pillOpens(.silent(SilentState(isSilent: true))))
+    }
+
+    /// The island at rest has a name, and carries the dots' words when they show.
+    func testTheIslandAtRestIsNamedWithItsDots() {
+        XCTAssertEqual(IslandAccessibility.idleLabel(micInUse: false, cameraInUse: false), "Notch Island")
+        XCTAssertEqual(IslandAccessibility.idleLabel(micInUse: true, cameraInUse: false), "Notch Island, Microphone in use")
+        XCTAssertEqual(IslandAccessibility.idleLabel(micInUse: true, cameraInUse: true),
+                       "Notch Island, Microphone in use, Camera in use")
+        XCTAssertEqual(IslandAccessibility.privacyLabels(micInUse: false, cameraInUse: true), ["Camera in use"])
+        XCTAssertEqual(IslandAccessibility.privacyLabels(micInUse: false, cameraInUse: false), [])
+        XCTAssertEqual(PrivacyDots.Kind.microphone.label, "Microphone in use")
+        XCTAssertEqual(PrivacyDots.Kind.camera.label, "Camera in use")
+    }
+
+    /// A VoiceOver step on the scrubber is the transport's fifteen seconds either way, and a
+    /// stream, which cannot be moved along, takes none.
+    func testAStepOnTheScrubberIsFifteenSeconds() {
+        XCTAssertEqual(IslandAccessibility.seekStep(.increment, canSeek: true), 15)
+        XCTAssertEqual(IslandAccessibility.seekStep(.decrement, canSeek: true), -15)
+        XCTAssertNil(IslandAccessibility.seekStep(.increment, canSeek: false))
+        XCTAssertNil(IslandAccessibility.seekStep(.decrement, canSeek: false))
+    }
+
+    /// The Open buttons say what they open.
+    func testACustomCardsOpenButtonNamesWhatItOpens() {
+        XCTAssertEqual(CustomExpandedView.openLabel(title: "Build 42", url: URL(string: "https://ci.example.com/runs/42")),
+                       "Open ci.example.com")
+        XCTAssertEqual(CustomExpandedView.openLabel(title: "Build 42", url: nil), "Open Build 42")
+    }
+
+    // MARK: - Said once, and in words
+
+    /// Another timer's row is one sentence, in words, with the time the row draws.
+    func testAnotherTimersRowIsOneSentence() {
+        var pasta = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
+        XCTAssertEqual(TimerExpandedView.otherRowLabel(label: "Pasta", state: pasta, at: now, hidden: 0),
+                       "Pasta, 4 minutes 59 seconds remaining")
+        pasta.pausedRemaining = 299
+        XCTAssertEqual(TimerExpandedView.otherRowLabel(label: "Pasta", state: pasta, at: now, hidden: 0),
+                       "Pasta, 4 minutes 59 seconds remaining, paused")
+        XCTAssertEqual(TimerExpandedView.otherRowLabel(label: "Pasta", state: pasta, at: now, hidden: 2),
+                       "Pasta, 4 minutes 59 seconds remaining, paused, and 2 more timers")
+        var tea = TimerState(label: " ", total: 180, endDate: now)
+        tea.isFinished = true
+        XCTAssertEqual(TimerExpandedView.otherRowLabel(label: " ", state: tea, at: now, hidden: 1),
+                       "Timer, done, and 1 more timer")
+    }
+
+    /// A line drawn with "·" between its facts is said with a comma there instead.
+    func testTheSeparatorIsSaidAsAPause() {
+        XCTAssertEqual(IslandAccessibility.spokenLine("2880 × 1800 · On the shelf"), "2880 × 1800, On the shelf")
+        XCTAssertEqual(IslandAccessibility.spokenLine("Clear"), "Clear")
+        XCTAssertEqual(TodaySectionView.weatherSpoken("18° · Clear · 3 hrs ago"), "18°, Clear, 3 hours ago")
+        XCTAssertEqual(TodaySectionView.weatherSpoken("18° · Clear · 1 hr ago"), "18°, Clear, 1 hour ago")
+        XCTAssertEqual(TodaySectionView.weatherSpoken("18° · Clear"), "18°, Clear")
+        let drawn = TodaySectionView.weatherText(celsius: 18, condition: "Clear", age: .old("3 hrs ago"), fahrenheit: false)
+        XCTAssertEqual(drawn.map(TodaySectionView.weatherSpoken), "18°, Clear, 3 hours ago",
+                       "the line the header draws, said without its separators")
+    }
+
+    /// The network cell's figures in words, with the region's decimal mark and the unit said
+    /// in full; the unit is the one the rounded figure comes to at least one of.
+    func testTheNetworkCellSaysItsRatesInWords() {
+        let english = Locale(identifier: "en_US")
+        XCTAssertEqual(StatsView.spokenRate(1_234_567, locale: english), "1.2 megabytes per second")
+        XCTAssertEqual(StatsView.spokenRate(96_000, locale: english), "96 kilobytes per second")
+        XCTAssertEqual(StatsView.spokenRate(1_000, locale: english), "1 kilobyte per second")
+        XCTAssertEqual(StatsView.spokenRate(999_960, locale: english), "1 megabyte per second",
+                       "not a thousand kilobytes")
+        XCTAssertEqual(StatsView.spokenRate(2_500_000_000, locale: english), "2.5 gigabytes per second")
+        XCTAssertEqual(StatsView.spokenRate(-5, locale: english), "0 kilobytes per second")
+        XCTAssertEqual(StatsView.spokenRate(.nan, locale: english), "0 kilobytes per second")
+        XCTAssertEqual(StatsView.spokenRate(1_234_567, locale: Locale(identifier: "de_DE")), "1,2 megabytes per second")
+        XCTAssertEqual(StatsView.networkSpoken(down: 1_234_567, up: 96_000, locale: english),
+                       "Download 1.2 megabytes per second, upload 96 kilobytes per second")
+    }
+
+    /// A Display slider's level as a percentage, held to the slider's range.
+    func testADisplaySliderSaysItsLevelAsAPercentage() {
+        XCTAssertEqual(DisplayModuleView.percentValue(0.62), "62 percent")
+        XCTAssertEqual(DisplayModuleView.percentValue(0), "0 percent")
+        XCTAssertEqual(DisplayModuleView.percentValue(1.4), "100 percent")
+        XCTAssertEqual(DisplayModuleView.percentValue(-0.2), "0 percent")
+        XCTAssertEqual(DisplayModuleView.percentValue(.nan), "0 percent")
+    }
+
+    // MARK: - Moving a row without dragging it
+
+    private func stepped(_ list: [String], from index: Int, up: Bool) -> [String]? {
+        guard let move = HomePanelPane.step(from: index, up: up, count: list.count) else { return nil }
+        var moved = list
+        moved.move(fromOffsets: move.source, toOffset: move.destination)
+        return moved
+    }
+
+    /// Move Up and Move Down go one place, through the list's own move, and nowhere at either end.
+    func testMoveUpAndMoveDownGoOnePlace() {
+        let list = ["Home", "Music", "Today", "Shelf"]
+        XCTAssertEqual(stepped(list, from: 2, up: true), ["Home", "Today", "Music", "Shelf"])
+        XCTAssertEqual(stepped(list, from: 1, up: false), ["Home", "Today", "Music", "Shelf"])
+        XCTAssertEqual(stepped(list, from: 2, up: false), ["Home", "Music", "Shelf", "Today"])
+        XCTAssertNil(stepped(list, from: 0, up: true), "nothing above the top")
+        XCTAssertNil(stepped(list, from: 3, up: false), "nothing below the bottom")
+        XCTAssertNil(stepped(list, from: 4, up: true), "a row the list does not have")
+        XCTAssertNil(stepped([], from: 0, up: false))
+    }
 }

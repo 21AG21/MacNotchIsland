@@ -65,10 +65,13 @@ struct CustomExpandedView: View {
                     if let body = state.body, !body.isEmpty {
                         Text(body)
                             .font(.system(size: 12.5))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .quietWhite(0.45)
                             .lineLimit(2)
                     }
                 }
+                // Said once, in the row's sentence (`accessibilitySummary`), rather than again
+                // line by line after it.
+                .accessibilityHidden(true)
                 Spacer(minLength: 12)
                 if let since = state.countsUpFrom {
                     // The call card's clock: the same face, the same one-second beat.
@@ -76,7 +79,7 @@ struct CustomExpandedView: View {
                         Text(ctx.date.timeIntervalSince(since).mmss)
                             .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                             .foregroundStyle(.white)
-                            .contentTransition(.numericText(countsDown: false))
+                            .islandNumeric()
                             .lineLimit(1)
                             // Said from inside the timeline, the way the call's card says its
                             // time, so it is the time now. It was said in the card's summary,
@@ -89,6 +92,8 @@ struct CustomExpandedView: View {
                         .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(.white)
                         .lineLimit(1)
+                        // In the sentence already.
+                        .accessibilityHidden(true)
                 }
                 // The buttons a script asked for, named rather than glyphed: a script's action
                 // is "Retry" or "Open the logs", and a disc with an arrow on it says neither.
@@ -108,7 +113,10 @@ struct CustomExpandedView: View {
                     .opacity(live ? 1 : 0.4)
                 }
                 if state.url != nil, state.actions.isEmpty {
-                    CircleActionButton(symbol: "arrow.up.forward", tint: .white) { activity.openAction?.perform() }
+                    CircleActionButton(symbol: "arrow.up.forward", tint: .white,
+                                       label: Self.openLabel(title: state.title, url: state.url)) {
+                        activity.openAction?.perform()
+                    }
                 }
             }
             .islandContentColumn()
@@ -149,6 +157,14 @@ struct CustomExpandedView: View {
             .frame(width: 44, height: 44)
             .accessibilityHidden(true)
         }
+    }
+
+    /// What the Open button is called: "Open ci.example.com" for a link, where the host is what
+    /// the press goes to, and "Open" and the card's title for anything else. It was "Open",
+    /// which says nothing about what. Pure, so it is tested.
+    static func openLabel(title: String, url: URL?) -> String {
+        if let host = url?.host(), !host.isEmpty { return "Open \(host)" }
+        return "Open \(title)"
     }
 
     /// The title plus whatever of subtitle / body / trailing text this activity set, as one

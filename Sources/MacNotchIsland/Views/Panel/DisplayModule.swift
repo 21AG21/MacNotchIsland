@@ -95,9 +95,11 @@ struct DisplayModuleView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .accessibilityHidden(true)
-                        Slider(value: level(of: screen), in: 0...1)
+                        let brightness = level(of: screen)
+                        Slider(value: brightness, in: 0...1)
                             .controlSize(.small)
                             .accessibilityLabel(sliderLabel(screen))
+                            .accessibilityValue(Self.percentValue(brightness.wrappedValue))
                         Image(systemName: "sun.max.fill")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
@@ -106,6 +108,14 @@ struct DisplayModuleView: View {
                 }
             }
         }
+    }
+
+    /// "62 percent": a slider's level as the rail's keyboard light says its own. Left to the
+    /// slider, VoiceOver read the bare fraction, "0.62". Held to 0…100, and a level that is not
+    /// a number is none. Pure, so it is tested.
+    static func percentValue(_ level: Double) -> String {
+        let fraction = level.isFinite ? min(1, max(0, level)) : 0
+        return "\(Int((fraction * 100).rounded())) percent"
     }
 
     /// "Brightness", and which display's when there is more than one to tell apart.
@@ -139,6 +149,7 @@ struct DisplayModuleView: View {
                     Slider(value: Binding(get: { strength }, set: { display.setNightShiftStrength($0) }), in: 0...1)
                         .controlSize(.small)
                         .accessibilityLabel("Night Shift warmth")
+                        .accessibilityValue(Self.percentValue(strength))
                     Text("More")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)

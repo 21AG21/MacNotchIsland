@@ -17,10 +17,12 @@ struct DownloadExpandedView: View {
                     Image(systemName: state.isComplete ? "checkmark" : "arrow.down")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(tint)
-                        .contentTransition(.symbolEffect(.replace))
+                        .islandSymbolReplace()
                 }
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
+                // Said once, in the row's sentence (`accessibilitySummary`): read again one by
+                // one, the name came twice and "12.4 MB · Safari" was read with its "·".
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.name)
                         .font(.system(size: 15, weight: .semibold))
@@ -31,14 +33,18 @@ struct DownloadExpandedView: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                 }
+                .accessibilityHidden(true)
                 Spacer(minLength: 12)
                 if let p = state.progress, !state.isComplete {
                     Text("\(Int((p * 100).rounded()))%")
                         .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(.white)
+                        .accessibilityHidden(true)
                 }
                 if state.isComplete {
-                    CircleActionButton(symbol: "arrow.up.forward", tint: .white) { activity.openAction?.perform() }
+                    CircleActionButton(symbol: "arrow.up.forward", tint: .white, label: "Open \(state.name)") {
+                        activity.openAction?.perform()
+                    }
                 }
             }
             .islandContentColumn()

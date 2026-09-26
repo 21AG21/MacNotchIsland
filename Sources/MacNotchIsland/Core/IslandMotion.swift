@@ -27,8 +27,11 @@ enum IslandMotion {
     /// Whether the user has asked the system for less movement.
     ///
     /// Read from a cached answer rather than from `NSWorkspace` each time: a curve is asked
-    /// for many times in a frame, and this only changes when the user changes it.
-    static var reduceMotion: Bool { ReduceMotionWatcher.shared.isOn }
+    /// for many times in a frame, and this only changes when the user changes it. The answer is
+    /// `AccessibilityDisplay`'s, which publishes the change, so a view that follows that object
+    /// (or `EnergyPolicy`, which passes it on) is drawn again when the switch moves rather than
+    /// at whatever redraw happens to come along next.
+    static var reduceMotion: Bool { AccessibilityDisplay.shared.reduceMotion }
 
     /// Reduce Motion asks for a change of state, not a journey to it, so every spring becomes
     /// a short fade of its own length. The setting is handed in so both halves of the choice
@@ -320,10 +323,61 @@ enum IslandMotion {
         !reduceMotion
     }
 
+    /// Whether a hero — the cover, a timer's digits, the call's glyph — flies from where it
+    /// was in the pill to where it is on the card (`islandMatched`). Under Reduce Motion it
+    /// does not: the two copies cross-fade where they stand, with the rest of the content. The
+    /// matched frame went on flying across the island inside the reduced fade, which was the
+    /// one journey left on an open.
+    static func heroesTravel(reduceMotion: Bool = IslandMotion.reduceMotion) -> Bool {
+        !reduceMotion
+    }
+
     /// A scale-and-fade pop for things that appear inside the island (a bubble, artwork, a
     /// shelf item); a plain fade under Reduce Motion.
     static func pop(scale: CGFloat) -> AnyTransition {
         reduceMotion ? .opacity : .scale(scale: scale).combined(with: .opacity)
+    }
+
+    // MARK: - Figures and glyphs
+
+    /// Whether a number changing where it stands rolls its digits. Rolling is movement, so
+    /// under Reduce Motion the old figure fades into the new one instead.
+    static func rollsDigits(reduceMotion: Bool = IslandMotion.reduceMotion) -> Bool {
+        !reduceMotion
+    }
+
+    /// The content transition for a number changing where it stands (see `rollsDigits`). The
+    /// setting is handed in so both halves can be chosen from a test; left out, it is the
+    /// system's. A view drawing with it should follow `AccessibilityDisplay`, or use
+    /// `islandNumeric`, which does.
+    static func numeric(countsDown: Bool = false, reduceMotion: Bool = IslandMotion.reduceMotion) -> ContentTransition {
+        rollsDigits(reduceMotion: reduceMotion) ? ContentTransition.numericText(countsDown: countsDown) : ContentTransition.opacity
+    }
+
+    /// Whether a glyph moves when it changes or draws attention to itself: the replace that
+    /// shrinks one symbol away as the next grows in, a pulse, a bounce. Under Reduce Motion a
+    /// symbol that changes fades, and one asking to be noticed is left to its colour.
+    static func symbolsMove(reduceMotion: Bool = IslandMotion.reduceMotion) -> Bool {
+        !reduceMotion
+    }
+
+    /// The content transition for one glyph taking another's place (see `symbolsMove`).
+    static func symbolReplace(reduceMotion: Bool = IslandMotion.reduceMotion) -> ContentTransition {
+        symbolsMove(reduceMotion: reduceMotion) ? ContentTransition.symbolEffect(.replace) : ContentTransition.opacity
+    }
+
+    /// What a one-off symbol effect is keyed on. It fires when its value changes, so under
+    /// Reduce Motion it is handed nil, which never does.
+    static func trigger<Value: Equatable>(_ value: Value, reduceMotion: Bool = IslandMotion.reduceMotion) -> Value? {
+        symbolsMove(reduceMotion: reduceMotion) ? value : nil
+    }
+
+    /// The scale a control is drawn at while it is pressed, lit or held over: `scale` while
+    /// `active`, and 1 otherwise — and 1 either way under Reduce Motion, where a button that
+    /// shrinks under the pointer is a movement the user did not ask for. The rest of the
+    /// feedback, the dimming, still says the press was taken.
+    static func feedbackScale(_ scale: CGFloat, active: Bool, reduceMotion: Bool = IslandMotion.reduceMotion) -> CGFloat {
+        active && !reduceMotion ? scale : 1
     }
 
     // MARK: - The outline
@@ -342,20 +396,88 @@ enum IslandMotion {
     }
 }
 
-/// Holds the Reduce Motion answer and keeps it current, so asking for a curve never costs a
-/// trip to the workspace.
-private final class ReduceMotionWatcher {
-    static let shared = ReduceMotionWatcher()
+// MARK: - Modifiers that follow the setting
 
-    private(set) var isOn: Bool
+// Each of these reads Reduce Motion at the moment it is drawn, and watches it: a digit's roll
+// or a glyph's bounce is decided where it is drawn, and a view that did not follow the setting
+// kept its old answer until something else redrew it. Drawn through one of these, a change
+// reaches the figure without the view around it having to watch for it.
 
-    private init() {
-        isOn = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.isOn = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        }
+/// `.contentTransition(IslandMotion.numeric(countsDown:))`, kept current.
+private struct IslandNumericTransition: ViewModifier {
+    let countsDown: Bool
+    @ObservedObject private var display = AccessibilityDisplay.shared
+
+    func body(content: Content) -> some View {
+        content.contentTransition(IslandMotion.numeric(countsDown: countsDown, reduceMotion: display.reduceMotion))
+    }
+}
+
+/// `.contentTransition(IslandMotion.symbolReplace())`, kept current.
+private struct IslandSymbolReplace: ViewModifier {
+    @ObservedObject private var display = AccessibilityDisplay.shared
+
+    func body(content: Content) -> some View {
+        content.contentTransition(IslandMotion.symbolReplace(reduceMotion: display.reduceMotion))
+    }
+}
+
+/// A glyph pulsing for as long as `isActive`, and not at all under Reduce Motion.
+private struct IslandSymbolPulse: ViewModifier {
+    let isActive: Bool
+    @ObservedObject private var display = AccessibilityDisplay.shared
+
+    func body(content: Content) -> some View {
+        content.symbolEffect(.pulse, isActive: isActive && IslandMotion.symbolsMove(reduceMotion: display.reduceMotion))
+    }
+}
+
+/// A glyph bouncing once when `value` changes, and not at all under Reduce Motion.
+private struct IslandSymbolBounce<Value: Equatable>: ViewModifier {
+    let value: Value
+    @ObservedObject private var display = AccessibilityDisplay.shared
+
+    func body(content: Content) -> some View {
+        content.symbolEffect(.bounce, value: IslandMotion.trigger(value, reduceMotion: display.reduceMotion))
+    }
+}
+
+/// A control drawn at `scale` while `active` (see `IslandMotion.feedbackScale`).
+private struct IslandFeedbackScale: ViewModifier {
+    let scale: CGFloat
+    let active: Bool
+    let anchor: UnitPoint
+    @ObservedObject private var display = AccessibilityDisplay.shared
+
+    func body(content: Content) -> some View {
+        content.scaleEffect(IslandMotion.feedbackScale(scale, active: active, reduceMotion: display.reduceMotion),
+                            anchor: anchor)
+    }
+}
+
+extension View {
+    /// A number changing where it stands: rolled, or faded under Reduce Motion.
+    func islandNumeric(countsDown: Bool = false) -> some View {
+        modifier(IslandNumericTransition(countsDown: countsDown))
+    }
+
+    /// One glyph taking another's place: replaced, or faded under Reduce Motion.
+    func islandSymbolReplace() -> some View {
+        modifier(IslandSymbolReplace())
+    }
+
+    /// A glyph that pulses while `isActive`, except under Reduce Motion.
+    func islandSymbolPulse(isActive: Bool) -> some View {
+        modifier(IslandSymbolPulse(isActive: isActive))
+    }
+
+    /// A glyph that bounces once when `value` changes, except under Reduce Motion.
+    func islandSymbolBounce<Value: Equatable>(value: Value) -> some View {
+        modifier(IslandSymbolBounce(value: value))
+    }
+
+    /// Press, hold or drop feedback drawn as a change of size, which Reduce Motion leaves out.
+    func islandFeedbackScale(_ scale: CGFloat, active: Bool, anchor: UnitPoint = .center) -> some View {
+        modifier(IslandFeedbackScale(scale: scale, active: active, anchor: anchor))
     }
 }

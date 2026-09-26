@@ -41,7 +41,7 @@ struct TimerExpandedView: View {
                                 // A timeline's tick carries no animation of its own, so the
                                 // numeric transition declared here never actually ran: the
                                 // digits were swapped, not rolled. This is what rolls them.
-                                .contentTransition(.numericText(countsDown: true))
+                                .islandNumeric(countsDown: true)
                                 .animation(IslandMotion.digits, value: remaining)
                                 // While the matched frame is still pill-sized the 40 pt digits scale
                                 // down to fit instead of truncating, so they read as growing.
@@ -109,8 +109,8 @@ struct TimerExpandedView: View {
                     // beside it was quietly doing nothing, because a symbol effect needs a
                     // symbol. A timer's phases swap here too, so they cross over rather than
                     // cutting: timer to cup at the break, cup to bell when it rings.
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.pulse, isActive: state.isFinished)
+                    .islandSymbolReplace()
+                    .islandSymbolPulse(isActive: state.isFinished)
             )
             .accessibilityHidden(true)
     }
@@ -231,6 +231,11 @@ struct TimerExpandedView: View {
         .islandContentColumn()
     }
 
+    /// One of the other timers: its ring, its name, its time and a cancel button. The name, the
+    /// time, the pause glyph and "+2 more" are one sentence to VoiceOver, the row's label
+    /// (`otherRowLabel`), written here inside the timeline so it is the time now; the cancel
+    /// button stays reachable inside the row. They used to be read one by one as well, the
+    /// time as the clock time "4:59" and the glyph as nothing at all.
     private func otherRow(_ entry: TimerEntry, at date: Date, hidden: Int) -> some View {
         HStack(spacing: 8) {
             TimerRing(state: entry.state, date: date, diameter: 13, lineWidth: 2)
@@ -239,30 +244,34 @@ struct TimerExpandedView: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
+                .accessibilityHidden(true)
             let remaining = entry.state.alarmAt.map(IslandAlarm.clock)
                 ?? (entry.state.isFinished ? "0:00" : entry.state.remaining(at: date).timerString)
             Text(remaining)
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.white)
-                .contentTransition(.numericText(countsDown: true))
+                .islandNumeric(countsDown: true)
                 .animation(IslandMotion.digits, value: remaining)
                 .lineLimit(1)
+                .accessibilityHidden(true)
             if entry.state.isPaused {
                 Image(systemName: "pause.fill")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .quietWhite(0.45)
+                    .accessibilityHidden(true)
             }
             Spacer(minLength: 0)
             if hidden > 0 {
                 Text("+\(hidden) more")
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .quietWhite(0.45)
+                    .accessibilityHidden(true)
             }
             Button(action: { IslandTimer.shared.cancel(id: entry.id) }) {
                 // Laid out at 18, taking its click in the row's full 24.
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .quietWhite(0.45)
                     .frame(width: 18, height: 18)
                     .hitOutset(drawn: 18)
             }
@@ -271,5 +280,27 @@ struct TimerExpandedView: View {
         }
         .frame(height: IslandTimer.rowHeight)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(Self.otherRowLabel(label: entry.label, state: entry.state, at: date, hidden: hidden))
+    }
+
+    /// "Pasta, 4 minutes 59 seconds remaining, paused", "Tea, done", "Wake up, 7:30 AM" — and
+    /// on the last row, when there are more timers than rows, ", and 2 more timers". The time
+    /// is the one the row draws, rounded up the way `timerString` rounds it. Pure, so the
+    /// sentence is tested.
+    static func otherRowLabel(label: String, state: TimerState, at date: Date, hidden: Int) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        let name = trimmed.isEmpty ? "Timer" : trimmed
+        var sentence: String
+        if let alarmAt = state.alarmAt {
+            sentence = "\(name), \(IslandAlarm.clock(alarmAt))"
+        } else if state.isFinished {
+            sentence = "\(name), done"
+        } else {
+            let remaining = IslandAccessibility.spokenDuration(state.remaining(at: date).rounded(.up))
+            sentence = "\(name), \(remaining) remaining"
+            if state.isPaused { sentence += ", paused" }
+        }
+        if hidden > 0 { sentence += hidden == 1 ? ", and 1 more timer" : ", and \(hidden) more timers" }
+        return sentence
     }
 }

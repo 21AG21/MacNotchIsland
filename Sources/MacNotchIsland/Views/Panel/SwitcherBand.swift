@@ -13,6 +13,8 @@ struct SwitcherBand: View {
     @EnvironmentObject private var center: ActivityCenter
     /// Which island this band is on: the open panel may be pinned on another display's.
     @Environment(\.islandPanelID) private var panelID
+    /// Followed for Reduce Motion, which decides as the band is drawn whether the disc travels.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     /// The slot the pointer is on, so the band can name it. Nothing else depends on it.
     @State private var hovered: IslandView?
     /// The slot a drag is resting on, and the switch it will make if it stays.
@@ -356,7 +358,7 @@ struct SwitcherBand: View {
                 // user who asked for less movement, who gets the two cross-fades
                 // (`IslandMotion.marksTravel`).
                 if selected {
-                    if IslandMotion.marksTravel() {
+                    if IslandMotion.marksTravel(reduceMotion: display.reduceMotion) {
                         Circle()
                             .fill(Color.white.opacity(0.14))
                             .matchedGeometryEffect(id: Self.selectionID, in: selection)
@@ -374,7 +376,9 @@ struct SwitcherBand: View {
                     .foregroundStyle(selected || springing ? Color.white : entry.tint.opacity(0.55))
             }
             .frame(width: size, height: size)
-            .scaleEffect(springing ? 1.12 : 1)
+            // Grown while a drag rests on it, except under Reduce Motion, where the light alone
+            // says so (`IslandMotion.feedbackScale`).
+            .islandFeedbackScale(1.12, active: springing)
             // The circle is what you see, this is what you hit, and the difference between
             // them costs the row nothing: the rectangle only claims the air the slot was
             // already keeping beside itself. A drag looking for somewhere to rest finds the

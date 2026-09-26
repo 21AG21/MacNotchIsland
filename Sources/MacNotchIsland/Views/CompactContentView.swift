@@ -6,6 +6,8 @@ struct CompactContentView: View {
     let activity: IslandActivity
     let layout: IslandLayout
     @EnvironmentObject private var center: ActivityCenter
+    /// Which island the pill is on, so VoiceOver's press goes where a click on it would.
+    @Environment(\.islandPanelID) private var panelID
 
     /// The live activity a key-press HUD is drawn over, whose glyph keeps the leading slot.
     private var under: IslandActivity? { IslandLayout.activityUnder(activity, center: center) }
@@ -44,8 +46,28 @@ struct CompactContentView: View {
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)
         .accessibilityElement(children: .combine)
+        // The dots are inside the one element, whose sentence is its own, so what they say is
+        // carried as its value.
+        .accessibilityValue(IslandAccessibility.privacyLabels(micInUse: showsDots && center.micInUse,
+                                                              cameraInUse: showsDots && center.cameraInUse)
+                                .joined(separator: ", "))
+        // A click on the pill opens it, and the click is taken by the island around it
+        // (`IslandBodyView`), which VoiceOver cannot see: the pill read as a label with nothing
+        // to be done with it. Now it is a button that does what the click does.
+        .accessibilityAddTraits(opens ? .isButton : [])
+        .accessibilityHint(opens ? Self.opensHint : "")
+        .accessibilityAction { center.tap(panel: panelID) }
         .modifier(CompactSpeech(shown: activity.content))
     }
+
+    /// Whether the privacy dots are drawn on the pill.
+    private var showsDots: Bool { layout.privacyWidth > 0 }
+
+    /// Whether a click on the pill opens anything, see `IslandAccessibility.pillOpens`.
+    private var opens: Bool { IslandAccessibility.pillOpens(activity.content) }
+
+    /// What VoiceOver says a press of the pill, or of the island at rest, does.
+    static let opensHint = "Opens the panel"
 
     /// Whether a side of the pill has any room to draw in. Pure, so the rule is tested.
     static func drawsSlot(width: CGFloat) -> Bool { width > 0 }
@@ -103,7 +125,7 @@ private struct CallGlyph: View {
         Image(systemName: mic.isMuted ? "mic.slash.fill" : "phone.fill")
             .font(.system(size: size, weight: .semibold))
             .foregroundStyle(mic.isMuted ? Color.named("red") : Color.green)
-            .contentTransition(.symbolEffect(.replace))
+            .islandSymbolReplace()
     }
 }
 
@@ -116,6 +138,9 @@ struct CompactLeadingView: View {
     /// sits from its own. Off the notch the glyph hangs from the leading edge of its slot, the
     /// banner's padding in from the end, the way the figure hangs from the trailing one.
     var besideNotch: Bool = true
+    /// Followed for the pop a cover or a picture arrives with, which is chosen as it is drawn,
+    /// and for the mark a stopped stopwatch carries under Differentiate Without Color.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     /// One size for every leading glyph: a 16 pt symbol in a 34 pt slot.
     private var iconSize: CGFloat { max(12, height * 0.48) }
@@ -137,12 +162,21 @@ struct CompactLeadingView: View {
                 Image(systemName: t.isAlarm ? "alarm.fill" : (t.isFinished ? "bell.fill" : "timer"))
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.orange)
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.pulse, isActive: t.isFinished)
+                    .islandSymbolReplace()
+                    .islandSymbolPulse(isActive: t.isFinished)
             case .stopwatch(let s):
-                Image(systemName: "stopwatch.fill")
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+                // Orange running and grey stopped, and a pause glyph beside it when stopped for
+                // anyone who has asked not to be told by colour alone.
+                HStack(spacing: 2) {
+                    Image(systemName: "stopwatch.fill")
+                        .font(.system(size: iconSize, weight: .semibold))
+                        .foregroundStyle(s.isRunning ? .orange : .white.opacity(0.7))
+                    if IslandMarks.pause(running: s.isRunning, differentiate: display.differentiateWithoutColor) {
+                        Image(systemName: "pause.fill")
+                            .font(.system(size: iconSize * 0.5, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                }
             case .call:
                 CallGlyph(size: iconSize)
                     .islandMatched(IslandMatchedID.callGlyph)
@@ -161,17 +195,17 @@ struct CompactLeadingView: View {
                 Image(systemName: h.symbolName)
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.white)
-                    .contentTransition(.symbolEffect(.replace))
+                    .islandSymbolReplace()
             case .silent(let s):
                 Image(systemName: s.isSilent ? "bell.slash.fill" : "bell.fill")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(s.isSilent ? Color.named("red") : .white)
-                    .symbolEffect(.bounce, value: s.isSilent)
+                    .islandSymbolBounce(value: s.isSilent)
             case .unlock:
                 Image(systemName: "lock.open.fill")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.white)
-                    .symbolEffect(.bounce, value: true)
+                    .islandSymbolBounce(value: true)
             case .calendar:
                 Image(systemName: "calendar")
                     .font(.system(size: iconSize, weight: .semibold))
@@ -180,12 +214,12 @@ struct CompactLeadingView: View {
                 Image(systemName: d.isComplete ? "checkmark" : "arrow.down")
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(d.isComplete ? Color.named("green") : Color.named("blue"))
-                    .contentTransition(.symbolEffect(.replace))
+                    .islandSymbolReplace()
             case .drive(let d):
                 Image(systemName: d.symbol)
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(Color.named(d.tint))
-                    .contentTransition(.symbolEffect(.replace))
+                    .islandSymbolReplace()
             case .capture(let c):
                 // The picture itself where the glyph would be, the way Now Playing puts the
                 // cover there: it is the one thing that says which capture this is.
@@ -224,6 +258,8 @@ struct CompactTrailingView: View {
     /// The menu bar left less room than the full trailing width: show only what still reads
     /// at a glance (bars, a ring, a count) and skip the words.
     var minimal: Bool = false
+    /// Followed for the mark a low battery carries under Differentiate Without Color.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     /// Words ("Connected", "On", "Unlocked", "in 5m") sit in the system face like every other
     /// label in the island; only numerals get the rounded face and tabular digits, the way
@@ -267,7 +303,7 @@ struct CompactTrailingView: View {
                         Text(remaining)
                             .font(numeralFont)
                             .foregroundStyle(.white)
-                            .contentTransition(.numericText(countsDown: true))
+                            .islandNumeric(countsDown: true)
                             .animation(IslandMotion.digits, value: remaining)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
@@ -280,7 +316,7 @@ struct CompactTrailingView: View {
                     Text(elapsed)
                         .font(numeralFont)
                         .foregroundStyle(s.isRunning ? .white : .white.opacity(0.55))
-                        .contentTransition(.numericText(countsDown: false))
+                        .islandNumeric()
                         .animation(IslandMotion.digits, value: elapsed)
                         .lineLimit(1)
                 }
@@ -291,7 +327,7 @@ struct CompactTrailingView: View {
                     Text(running)
                         .font(numeralFont)
                         .foregroundStyle(.white)
-                        .contentTransition(.numericText(countsDown: false))
+                        .islandNumeric()
                         .animation(IslandMotion.digits, value: running)
                         .lineLimit(1)
                 }
@@ -302,12 +338,24 @@ struct CompactTrailingView: View {
                     .font(numeralFont)
                     .foregroundStyle(b.event == .low || b.event == .critical ? Color.named("red") : .white)
                     .lineLimit(1)
-                    .contentTransition(.numericText())
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: b.percent)
+                    // Red is the whole of the warning, on the figure or on the glyph beside it;
+                    // under Differentiate Without Color a "!" follows the figure as well. Hung
+                    // off its end rather than laid out beside it, so the figure does not move.
+                    .overlay(alignment: .trailing) {
+                        if IslandMarks.warning(low: b.isLow, differentiate: display.differentiateWithoutColor) {
+                            Image(systemName: "exclamationmark")
+                                .font(.system(size: max(9, height * 0.32), weight: .heavy))
+                                .foregroundStyle(Color.named("red"))
+                                .fixedSize()
+                                .alignmentGuide(.trailing) { $0[.leading] - 2 }
+                        }
+                    }
             case .bluetooth(let d):
                 if let p = d.summaryPercent {
                     Text("\(p)%").font(numeralFont).foregroundStyle(.white).lineLimit(1)
-                        .contentTransition(.numericText())
+                        .islandNumeric()
                         .animation(IslandMotion.digits, value: p)
                 } else {
                     Text("Connected").font(wordFont).foregroundStyle(.white).lineLimit(1)
@@ -371,7 +419,7 @@ struct CompactTrailingView: View {
                         Text(running)
                             .font(numeralFont)
                             .foregroundStyle(.white)
-                            .contentTransition(.numericText(countsDown: false))
+                            .islandNumeric()
                             .animation(IslandMotion.digits, value: running)
                             .lineLimit(1)
                     }
@@ -384,7 +432,7 @@ struct CompactTrailingView: View {
                 Text("\(s.count)")
                     .font(numeralFont)
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: s.count)
             }
         }
@@ -567,14 +615,63 @@ enum IslandAccessibility {
         return "\(spokenDuration(position)) of \(spokenDuration(duration))"
     }
 
+    /// Whether a click on the pill showing `content` opens anything, and so whether VoiceOver
+    /// is told it is a button that opens the panel. A key press's HUD is feedback and does
+    /// nothing when clicked (`ActivityCenter.tap`), and the alerts with no card of their own,
+    /// Silent and Unlocked, have nothing to open. Pure, so the rule is tested.
+    static func pillOpens(_ content: ActivityContent) -> Bool {
+        if case .hud = content { return false }
+        return content.hasExpandedView
+    }
+
+    /// What the orange dot says.
+    static let microphoneLabel = "Microphone in use"
+    /// What the green dot says.
+    static let cameraLabel = "Camera in use"
+
+    /// The privacy dots in words, in the order they are drawn: the microphone's, then the
+    /// camera's. Pure, so the rule is tested.
+    static func privacyLabels(micInUse: Bool, cameraInUse: Bool) -> [String] {
+        (micInUse ? [microphoneLabel] : []) + (cameraInUse ? [cameraLabel] : [])
+    }
+
+    /// The island at rest, which is a button that opens the panel with nothing else to say —
+    /// except the dots, when they are showing. It used to be nothing at all to VoiceOver, so
+    /// the one way into the panel by click had no way in without one.
+    static func idleLabel(micInUse: Bool, cameraInUse: Bool) -> String {
+        (["Notch Island"] + privacyLabels(micInUse: micInUse, cameraInUse: cameraInUse)).joined(separator: ", ")
+    }
+
+    /// How far one VoiceOver step on the scrubber moves the playhead: the fifteen seconds the
+    /// transport's own skip buttons move it.
+    static let seekStepSeconds: TimeInterval = 15
+
+    /// A step on the scrubber, forward or back (`seekStepSeconds`) — or none at all for a
+    /// stream, which has no length to move along and whose bar is switched off for a pointer
+    /// too (`NowPlayingInfo.canSeek`). Pure, so the rule is tested.
+    static func seekStep(_ direction: AccessibilityAdjustmentDirection, canSeek: Bool) -> TimeInterval? {
+        guard canSeek else { return nil }
+        switch direction {
+        case .increment: return seekStepSeconds
+        case .decrement: return -seekStepSeconds
+        @unknown default: return nil
+        }
+    }
+
     private static func percent(_ fraction: Double) -> Int {
         Int((max(0, min(1, fraction)) * 100).rounded())
     }
 }
 
 extension BatteryState {
+    /// Low enough to be drawn in red: a low or critical warning, or a fifth or less left with
+    /// nothing plugged in.
+    var isLow: Bool {
+        event == .low || event == .critical || (percent <= 20 && !isPluggedIn)
+    }
+
     var tint: Color {
-        if event == .low || event == .critical || (percent <= 20 && !isPluggedIn) { return Color.named("red") }
+        if isLow { return Color.named("red") }
         if isCharging || isPluggedIn || event == .full || event == .charged { return Color.named("green") }
         return .white
     }

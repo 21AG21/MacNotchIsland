@@ -12,6 +12,9 @@ struct IslandBodyView: View {
 
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
+    /// Followed for Reduce Motion, which chooses the swap the content crosses over with as it
+    /// is drawn: without it, the swap chosen before the switch moved went on being used.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     @State private var dropTargeted = false
     @Namespace private var islandNamespace
 
@@ -62,8 +65,9 @@ struct IslandBodyView: View {
         .animation(shapeAnimation, value: layout)
         // Press-in feedback while the whole island is the button (compact and idle); the
         // expanded panels have controls of their own that give their own feedback. Applied
-        // outside the line above, so it governs the scale and nothing else.
-        .scaleEffect(pressed ? 0.97 : 1, anchor: .top)
+        // outside the line above, so it governs the scale and nothing else. Left out under
+        // Reduce Motion (`IslandMotion.feedbackScale`).
+        .islandFeedbackScale(0.97, active: pressed, anchor: .top)
         .animation(IslandMotion.press(down: pressed), value: pressed)
         // A floating pill hangs below the top edge instead of fusing into it; zero otherwise.
         .offset(y: layout.topInset)
@@ -193,7 +197,7 @@ struct IslandBodyView: View {
         // transition it was last drawn with, and a panel drawn after a sideways step was
         // drawn with the push, whose removal is a plain fade. So closing after a step faded
         // flat while closing without one blurred and scaled out: two closes for one panel.
-        .transition(IslandMotion.contentTransition(direction: 0))
+        .transition(IslandMotion.contentTransition(direction: 0, reduceMotion: display.reduceMotion))
         // The content crosses over on its own, shorter curve rather than riding the outline's.
         // The shape is what bounces; the thing inside it settles first and holds still while
         // the outline finishes arriving, which is the layering the phone's island has.
@@ -206,6 +210,10 @@ struct IslandBodyView: View {
 struct IdleContentView: View {
     let layout: IslandLayout
     @EnvironmentObject private var center: ActivityCenter
+    /// Which island this is, so VoiceOver's press goes where a click would.
+    @Environment(\.islandPanelID) private var panelID
+    /// Followed for the pop the dots arrive with, which is chosen as it is drawn.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -218,6 +226,15 @@ struct IdleContentView: View {
             }
         }
         .frame(width: layout.bodyWidth, height: layout.bodyHeight)
+        // The island at rest is a button — a click on it opens the panel — and it was nothing
+        // to VoiceOver at all. One element, named, with the dots' words in it when they show,
+        // and the click's action.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(IslandAccessibility.idleLabel(micInUse: center.privacyIndicatorsVisible && center.micInUse,
+                                                          cameraInUse: center.privacyIndicatorsVisible && center.cameraInUse))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(CompactContentView.opensHint)
+        .accessibilityAction { center.tap(panel: panelID) }
         // No curve of its own: the dots always change `layout.privacyWidth`, and their pop
         // rides the layout's spring, the same one the outline is widening on. An inner curve
         // here governed this frame as well, so the frame grew on the shorter content spring

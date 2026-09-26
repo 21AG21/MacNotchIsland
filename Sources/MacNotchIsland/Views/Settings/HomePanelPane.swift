@@ -63,6 +63,26 @@ struct HomePanelPane: View {
         prefs.sectionOrder = order.map(\.rawValue)
     }
 
+    /// One place up or down the list, for the ways of moving a row that are not a drag: the
+    /// row's context menu, and VoiceOver's Move up and Move down. Dragging was the only way,
+    /// and a drag is the one thing a keyboard and a screen reader cannot do.
+    private func step(_ section: HomeSection, up: Bool) {
+        let order = HomeSection.ordered(prefs)
+        guard let index = order.firstIndex(of: section),
+              let move = Self.step(from: index, up: up, count: order.count) else { return }
+        self.move(from: move.source, to: move.destination)
+    }
+
+    /// The `onMove` that takes the row at `index` one place up or down a list of `count`, or nil
+    /// where there is no place to go: up from the top, down from the bottom. In `onMove`'s
+    /// terms, where the destination is counted before the row is taken out — so one place down
+    /// is two on. Pure, so it is tested.
+    static func step(from index: Int, up: Bool, count: Int) -> (source: IndexSet, destination: Int)? {
+        guard index >= 0, index < count else { return nil }
+        if up { return index > 0 ? (source: IndexSet(integer: index), destination: index - 1) : nil }
+        return index < count - 1 ? (source: IndexSet(integer: index), destination: index + 2) : nil
+    }
+
     // MARK: - The control rail's list
 
     /// Every rail control but Settings, which has no switch and is always last — a row that
@@ -106,6 +126,14 @@ struct HomePanelPane: View {
         var order = railControls
         order.move(fromOffsets: source, toOffset: destination)
         prefs.railOrder = order.map(\.rawValue)
+    }
+
+    /// One place up or down the rail's list, see `step(_:up:)`.
+    private func stepRail(_ control: RailControl, up: Bool) {
+        let order = railControls
+        guard let index = order.firstIndex(of: control),
+              let move = Self.step(from: index, up: up, count: order.count) else { return }
+        moveRail(from: move.source, to: move.destination)
     }
 
     /// Whether the rail is anything but the way it ships.
@@ -168,6 +196,8 @@ struct HomePanelPane: View {
                 List {
                     ForEach(HomeSection.ordered(prefs), id: \.self) { section in
                         sectionRow(section)
+                            .modifier(StepMoves(up: { step(section, up: true) },
+                                                down: { step(section, up: false) }))
                             // The insets are stated rather than left to the list, so the room
                             // the rows need is arithmetic rather than a guess — a guess left
                             // the last two off the bottom, where nothing could reach them.
@@ -316,6 +346,8 @@ struct HomePanelPane: View {
                 List {
                     ForEach(railControls, id: \.self) { control in
                         railRow(control)
+                            .modifier(StepMoves(up: { stepRail(control, up: true) },
+                                                down: { stepRail(control, up: false) }))
                             .listRowInsets(EdgeInsets(top: Self.rowPadding, leading: 10,
                                                       bottom: Self.rowPadding, trailing: 10))
                     }
@@ -372,5 +404,23 @@ struct HomePanelPane: View {
             get: { SettingsFormat.nearest(prefs.shelfExpiryHours, in: Self.expiryOptions) },
             set: { prefs.shelfExpiryHours = $0 }
         )
+    }
+}
+
+/// Move Up and Move Down on a row of a list that is otherwise reordered by dragging: in the
+/// row's context menu, and as named actions VoiceOver offers on it. Each does what a one-place
+/// drag would, through the list's own move, and nothing at either end.
+private struct StepMoves: ViewModifier {
+    let up: () -> Void
+    let down: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button("Move Up", action: up)
+                Button("Move Down", action: down)
+            }
+            .accessibilityAction(named: "Move up", up)
+            .accessibilityAction(named: "Move down", down)
     }
 }

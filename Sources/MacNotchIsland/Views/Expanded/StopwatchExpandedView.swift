@@ -34,7 +34,7 @@ struct StopwatchExpandedView: View {
                         Text(elapsed)
                             .font(.system(size: 40, weight: .medium, design: .rounded).monospacedDigit())
                             .foregroundStyle(.white)
-                            .contentTransition(.numericText(countsDown: false))
+                            .islandNumeric()
                             // Tenths arrive ten times a second, and a roll that long would
                             // still be running when the next one started; at that rate the
                             // digits just change.
@@ -55,7 +55,7 @@ struct StopwatchExpandedView: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Last lap")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .quietWhite(0.45)
                         Text(Self.format(lap))
                             .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
                             .foregroundStyle(.white)

@@ -70,7 +70,7 @@ struct QuickActionsRowView: View {
                             .foregroundStyle(.white.opacity(0.7))
                         Text("Your apps and Shortcuts, one click away.")
                             .font(.system(size: 11.5))
-                            .foregroundStyle(.white.opacity(0.4))
+                            .quietWhite(0.4)
                     }
                     Spacer(minLength: 8)
                     PillButton(title: "Choose Actions…") { Self.openSettings() }

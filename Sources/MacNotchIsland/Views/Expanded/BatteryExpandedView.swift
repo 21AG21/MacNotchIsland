@@ -61,7 +61,7 @@ struct BatteryExpandedView: View {
                     if let detail = BatteryFormatting.detailLine(for: state) {
                         Text(detail)
                             .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .quietWhite(0.45)
                             .lineLimit(1)
                     }
                 }

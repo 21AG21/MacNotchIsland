@@ -50,12 +50,16 @@ struct CaptureExpandedView: View {
                         .lineLimit(1)
                         .contentTransition(.opacity)
                 }
+                // Said once, in the row's sentence below; read again line by line it came out
+                // twice, "2880 × 1800 · On the shelf" with its "·". "Text copied" is said out
+                // loud as it happens instead (`say`).
+                .accessibilityHidden(true)
                 Spacer(minLength: 12)
                 controls
             }
             .islandContentColumn()
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(state.title), \(linkLine ?? state.subtitle)")
+            .accessibilityLabel("\(state.title), \(IslandAccessibility.spokenLine(linkLine ?? state.subtitle))")
         }
         .padding(.bottom, insidePanel ? 0 : 16)
         .frame(maxHeight: .infinity, alignment: insidePanel ? .center : .top)
@@ -150,8 +154,11 @@ struct CaptureExpandedView: View {
     }
 
     /// Says what just happened where the file name is, and puts the name back after a moment.
+    /// VoiceOver hears it as well: the line is hidden from it, and would be gone again before
+    /// anybody could move to it.
     private func say(_ message: String) {
         copied = message
+        IslandAccessibility.announce(message)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             if copied == message { copied = nil }
         }

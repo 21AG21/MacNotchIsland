@@ -210,12 +210,16 @@ struct HiddenAppsList: View {
                 }
             }
 
-            HStack(spacing: 4) {
+            // Each glyph is drawn at its own size in a 24 pt square that takes the click, the
+            // least a control is given anywhere in the app (`IslandHit.minimum`); they took it in
+            // 18 by 16. Set edge to edge, so the two glyphs stand about as far apart as before.
+            HStack(spacing: 0) {
                 Button {
                     addApps()
                 } label: {
                     Image(systemName: "plus")
-                        .frame(width: 18, height: 16)
+                        .frame(width: IslandHit.minimum, height: IslandHit.minimum)
+                        .contentShape(Rectangle())
                 }
                 .help("Add an app.")
                 .accessibilityLabel(Text("Add an app"))
@@ -224,7 +228,8 @@ struct HiddenAppsList: View {
                     removeSelection()
                 } label: {
                     Image(systemName: "minus")
-                        .frame(width: 18, height: 16)
+                        .frame(width: IslandHit.minimum, height: IslandHit.minimum)
+                        .contentShape(Rectangle())
                 }
                 .disabled(selection == nil)
                 .help("Remove the selected app.")

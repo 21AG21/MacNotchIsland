@@ -278,6 +278,13 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- Switching Reduce Motion on stops a scrolling title and the moving bars at once rather than at the next redraw, and the cover, a timer's digits and the call glyph fade into the card instead of flying across the island.
+- Under Reduce Motion, numbers change with a fade instead of rolling, glyphs no longer bounce, pulse or shrink into one another, and buttons no longer shrink when pressed.
+- With Increase Contrast on, the island's grey captions, times and secondary lines are drawn no fainter than 60% white.
+- With Differentiate Without Color on, a paused stopwatch shows a pause glyph, a low battery shows a "!", and the privacy dots become a microphone and a camera.
+- VoiceOver can open the panel from the pill or the resting island, move the playhead in 15-second steps, and hears "Text copied" and "Picture copied" when a capture is copied.
+- VoiceOver reads each card once: a meeting, download, drive, capture or other timer is one sentence in words, without "·", clock-style times or a symbol's name.
+- Home Panel sections and rail controls can be moved without dragging, with Move Up and Move Down in the row's menu or as VoiceOver actions, and the add and remove buttons under the hidden-apps list are easier to hit.
 - Turning notification capture off no longer files the banner that was being read at that moment, and turning it off and on again no longer files the same banner twice.
 - Taking Location away from the island takes the weather with it at once: a forecast or town name already on its way no longer comes back and gets cached.
 - After Tile or Snap, the Windows strip no longer briefly puts the old frames back, and a hung app no longer piles up window walks.

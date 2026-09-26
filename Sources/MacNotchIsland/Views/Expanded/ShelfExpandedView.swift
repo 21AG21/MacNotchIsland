@@ -46,6 +46,8 @@ struct ShelfStripView: View {
     @ObservedObject private var shelf = ShelfStore.shared
     /// Watched for the find, which lives on the panel rather than on this view.
     @ObservedObject private var center = ActivityCenter.shared
+    /// Followed for Reduce Motion, which chooses the pop a dropped file arrives with.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     @State private var selection: Set<URL> = []
     @State private var selectionAnchor: URL? = nil
     @State private var shareAnchor = ShelfShareAnchor()
@@ -269,7 +271,7 @@ struct ShelfStripView: View {
                 // The notch is the hole in the screen; the island is the thing you drop on.
                 Text("Drag anything onto the island and it waits here.")
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .quietWhite(0.4)
             }
         }
         .padding(.bottom, 8)

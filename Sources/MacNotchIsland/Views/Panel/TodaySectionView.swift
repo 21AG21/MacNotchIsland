@@ -6,6 +6,8 @@ import SwiftUI
 struct TodaySectionView: View {
     @ObservedObject private var agenda = AgendaStore.shared
     @ObservedObject private var weather = WeatherService.shared
+    /// Followed for Increase Contrast, which raises the section's quiet lines (`IslandContrast`).
+    @ObservedObject private var display = AccessibilityDisplay.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
     /// Which island this section is drawn on, so that a panel pinned open on another display
@@ -255,7 +257,7 @@ struct TodaySectionView: View {
                 VStack(spacing: 1) {
                     Text(Self.hourLabel(hour.date, timeZone: zone))
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.45))
+                        .foregroundStyle(.white.opacity(quiet(0.45)))
                     Image(systemName: WeatherService.condition(code: hour.weatherCode, isDay: hour.isDay).symbol)
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.8))
@@ -336,13 +338,31 @@ struct TodaySectionView: View {
             HStack(spacing: 5) {
                 Image(systemName: weather.conditionSymbol)
                     .font(.system(size: 11, weight: .semibold))
+                    .accessibilityHidden(true)
                 Text(line)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(.white.opacity(0.45))
-            .accessibilityElement(children: .combine)
+            .foregroundStyle(.white.opacity(quiet(0.45)))
+            // One sentence, said without the "·" the line is drawn with (`weatherSpoken`), and
+            // without the glyph beside it, which was read out by its symbol's name.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.weatherSpoken(line))
         }
+    }
+
+    /// The weather line as VoiceOver should say it: "18°, Clear, 3 hours ago" for "18° · Clear
+    /// · 3 hrs ago". Pure, so it is tested.
+    static func weatherSpoken(_ line: String) -> String {
+        IslandAccessibility.spokenLine(line)
+            .split(separator: " ", omittingEmptySubsequences: false)
+            .map { word in word == "hr" ? "hour" : (word == "hrs" ? "hours" : String(word)) }
+            .joined(separator: " ")
+    }
+
+    /// A quiet line's strength, raised under Increase Contrast.
+    private func quiet(_ alpha: Double) -> Double {
+        IslandContrast.alpha(alpha, increased: display.increaseContrast)
     }
 
     /// "18° · Clear", with how long ago it was true once that is worth saying — "18° · Clear
@@ -441,12 +461,12 @@ struct TodaySectionView: View {
         HStack(spacing: Self.rowGap) {
             Image(systemName: "checklist")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.white.opacity(quiet(0.45)))
                 .frame(width: Self.rail, alignment: .leading)
                 .accessibilityHidden(true)
             Text("Reminders access is off")
                 .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(.white.opacity(quiet(0.55)))
                 .lineLimit(1)
             Spacer(minLength: 8)
             remindersPill
@@ -575,7 +595,7 @@ struct TodaySectionView: View {
                             .lineLimit(1)
                         Text(Self.timeRange(event))
                             .font(.system(size: 11, weight: .medium).monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(.white.opacity(quiet(0.55)))
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
@@ -635,7 +655,7 @@ struct TodaySectionView: View {
             if let due = AgendaStore.dueLabel(for: reminder) {
                 Text(due)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(due == "Overdue" ? Color.named("red") : .white.opacity(0.45))
+                    .foregroundStyle(due == "Overdue" ? Color.named("red") : .white.opacity(quiet(0.45)))
                     .lineLimit(1)
                     .frame(minWidth: Self.countdown, alignment: .trailing)
             }
