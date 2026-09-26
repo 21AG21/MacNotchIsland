@@ -18,7 +18,9 @@ struct HUDExpandedView: View {
                     Image(systemName: state.symbolName)
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(.white)
-                        .contentTransition(.symbolEffect(.replace))
+                        // Replaced, or faded under Reduce Motion, and kept current as that
+                        // setting moves.
+                        .islandSymbolReplace()
                 }
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
@@ -47,7 +49,8 @@ struct HUDExpandedView: View {
                 Text(LevelHUD.readout(state))
                     .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText())
+                    // Rolled, or faded under Reduce Motion.
+                    .islandNumeric()
                     .animation(IslandMotion.digits, value: state.level)
                     .lineLimit(1)
                     .frame(width: 62, alignment: .trailing)

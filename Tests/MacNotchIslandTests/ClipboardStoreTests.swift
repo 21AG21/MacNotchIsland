@@ -752,4 +752,10 @@ final class ClipboardStoreTests: XCTestCase {
         taken += arrivals.takeAll().map(\.text)
         XCTAssertEqual(taken, (0..<200).map { "copy \($0)" })
     }
+
+    /// A sweep stuck on a slow volume landed after a newer one, and put its older answer back.
+    func testOnlyTheLastSweepSentIsBelieved() {
+        XCTAssertTrue(ClipboardStore.sweepLands(ticket: 3, latest: 3))
+        XCTAssertFalse(ClipboardStore.sweepLands(ticket: 2, latest: 3), "an older sweep landing late is dropped")
+    }
 }

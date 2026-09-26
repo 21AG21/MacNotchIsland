@@ -1516,4 +1516,53 @@ final class ActivityCenterTests: XCTestCase {
         center.resetForTesting()
         XCTAssertNil(center.hudLevel.state)
     }
+
+    // MARK: - Said out loud
+
+    private func plugged(_ percent: Int) -> IslandActivity {
+        IslandActivity(id: "battery", kind: .battery,
+                       content: .battery(BatteryState(percent: percent, isCharging: true, isPluggedIn: true,
+                                                      event: .pluggedIn)),
+                       priority: 60)
+    }
+
+    func testAnAlertIsSaidAsItGoesUpInThePillsOwnWords() {
+        XCTAssertEqual(ActivityCenter.alertAnnouncement(from: nil, to: plugged(80)), "Battery charging, 80 percent")
+        XCTAssertEqual(ActivityCenter.alertAnnouncement(from: custom("copied"), to: custom("screenshot", title: "Screenshot")),
+                       "Screenshot", "one alert replacing another is said")
+    }
+
+    func testTheSameReportAgainIsNotSaidAgain() {
+        let first = plugged(80)
+        var again = plugged(80)
+        again.startedAt = first.startedAt.addingTimeInterval(3)
+        XCTAssertNil(ActivityCenter.alertAnnouncement(from: first, to: again), "made at another moment, but the same")
+        XCTAssertEqual(ActivityCenter.alertAnnouncement(from: first, to: plugged(81)), "Battery charging, 81 percent",
+                       "the same alert with something new in it is said")
+    }
+
+    func testAKeyPressIsFeedbackAndIsNotSaid() {
+        XCTAssertNil(ActivityCenter.alertAnnouncement(from: nil, to: volumeHUD(0.5)))
+        XCTAssertNil(ActivityCenter.alertAnnouncement(from: plugged(80), to: volumeHUD(0.5)))
+        XCTAssertNil(ActivityCenter.alertAnnouncement(from: nil, to: custom("capslock", title: "Caps Lock")))
+        XCTAssertFalse(ActivityCenter.speaksAlert(volumeHUD(0.5)))
+        XCTAssertTrue(ActivityCenter.speaksAlert(custom("copied")))
+    }
+
+    func testVoiceOverKeepsAnAlertUpThreeTimesAsLongUpToAMinute() {
+        XCTAssertEqual(ActivityCenter.alertLifetime(requested: 1.8, voiceOver: false), 1.8, "exactly as it was without it")
+        XCTAssertEqual(ActivityCenter.alertLifetime(requested: 2, voiceOver: true), 6)
+        XCTAssertEqual(ActivityCenter.alertLifetime(requested: 30, voiceOver: true), ActivityCenter.alertHoldLimit)
+        XCTAssertEqual(ActivityCenter.alertLifetime(requested: 90, voiceOver: true), 90,
+                       "an alert that asked for longer than the cap is never cut short")
+    }
+
+    func testAForcedCardIsSaidOnceAsItComesUp() {
+        let card = plugged(80)
+        XCTAssertEqual(ActivityCenter.forcedCardAnnouncement(card, alreadyForced: nil), "Battery charging, 80 percent")
+        XCTAssertEqual(ActivityCenter.forcedCardAnnouncement(card, alreadyForced: "call"), "Battery charging, 80 percent",
+                       "taking the slot from another card is news")
+        XCTAssertNil(ActivityCenter.forcedCardAnnouncement(card, alreadyForced: card.id), "forced again, it is not")
+        XCTAssertNil(ActivityCenter.forcedCardAnnouncement(nil, alreadyForced: nil), "no card, nothing to say")
+    }
 }

@@ -316,6 +316,9 @@ private struct HomeTile<Content: View>: View {
     let action: () -> Void
     let content: Content
     @State private var hovering = false
+    /// Whether the keyboard focus is on this tile, with Full Keyboard Access on. Qualified: the
+    /// island has a `FocusState` of its own, the payload of a Focus activity.
+    @SwiftUI.FocusState private var focused: Bool
 
     init(width: CGFloat, alignment: Alignment = .center, action: @escaping () -> Void,
          @ViewBuilder content: () -> Content) {
@@ -333,9 +336,30 @@ private struct HomeTile<Content: View>: View {
                     RoundedRectangle(cornerRadius: HomeGridView.radius, style: .continuous)
                         .fill(Color.white.opacity(hovering ? 0.14 : 0.07))
                 )
+                .overlay {
+                    // Where the keyboard is, inside the tile's own edge.
+                    RoundedRectangle(cornerRadius: HomeGridView.radius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                        .opacity(focused ? 1 : 0)
+                        .accessibilityHidden(true)
+                }
                 .contentShape(RoundedRectangle(cornerRadius: HomeGridView.radius, style: .continuous))
         }
         .buttonStyle(IslandButtonStyle())
+        // A button, which Tab already stops on with Full Keyboard Access on: not made focusable
+        // a second time, which would be two stops for one tile. The ring above says which tile
+        // it is on, in the island's own white and the tile's own shape, in place of the system's.
+        // Return opens the section as well as Space. Nothing about the pointer changes.
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.space) {
+            action()
+            return .handled
+        }
+        .onKeyPress(.return) {
+            action()
+            return .handled
+        }
         .onHover { hovering = $0 }
         .animation(IslandMotion.hover, value: hovering)
     }

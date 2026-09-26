@@ -686,6 +686,7 @@ final class ActivityCenter: ObservableObject {
         forcedWork?.cancel()
         // What each island showed, so the ones the card takes count as grown under a click.
         let before = shownOnIslands()
+        let wasForced = forcedExpandedID
         if forcedExpandedID != id { forcedExpandedID = id }
         // A forced activity must be the primary one, or nothing visible happens.
         if activities.contains(where: { $0.id == id }), pinnedID != id { pinnedID = id }
@@ -701,7 +702,25 @@ final class ActivityCenter: ObservableObject {
         }
         noteCardArrival(since: before)
         Haptics.tap()
+        // Said as well as shown: a card taking the island is nothing to somebody who cannot
+        // see it, and VoiceOver reads it only if its cursor happens to be there. At medium, so
+        // that a caller with a sentence of its own for the moment — a timer ringing, a question
+        // from a script — says it over this one straight after, rather than the two queueing.
+        if NSWorkspace.shared.isVoiceOverEnabled, !isSuppressed,
+           let words = Self.forcedCardAnnouncement(activity(id: id), alreadyForced: wasForced) {
+            IslandAccessibility.announce(words, high: false)
+        }
         scheduleForcedExpiry(id: id, after: seconds, heldFor: 0)
+    }
+
+    /// What VoiceOver is told when a card is forced up: the card's own spoken sentence, the one
+    /// its pill carries (`IslandAccessibility.compactLabel`). Nothing for a card that was already
+    /// the one forced up, and forced again with a new length — a call's card as the call moves
+    /// on — which is no news, or for an id with no card behind it. Pure, so it is tested.
+    static func forcedCardAnnouncement(_ card: IslandActivity?, alreadyForced: String?,
+                                       at now: Date = Date()) -> String? {
+        guard let card, card.id != alreadyForced else { return nil }
+        return IslandAccessibility.compactLabel(for: card.content, at: now)
     }
 
     /// What each island shows right now: every island there is, or no island in particular
@@ -1002,6 +1021,10 @@ final class ActivityCenter: ObservableObject {
         if alert?.id != activity.id { alertShownAt = Date() }
         // The level first, for the views that draw it from there (`HUDLevel`).
         hudLevel.take(activity)
+        // Worked out against the alert up before this one replaces it: the same report again
+        // is not said twice.
+        let voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+        let spoken = voiceOver && !isSuppressed ? Self.alertAnnouncement(from: alert, to: activity) : nil
         // Written only when it says something new. A report the same as the one up — the
         // volume key pressed again at the top, "Copied" for a second row picked while the first
         // is still up — drew every view that watches the centre again, the whole island, for
@@ -1010,9 +1033,50 @@ final class ActivityCenter: ObservableObject {
         alertRequest = (duration, exact)
         if !before.isEmpty { noteCardArrival(since: before) }
         if haptic { Haptics.tap() }
+        // An alert is up for a second or two and gone, which is over before VoiceOver's cursor
+        // could ever reach it: it is said out loud as it goes up instead.
+        if let spoken { IslandAccessibility.announce(spoken) }
         let seconds = exact ? (duration ?? Self.standardAlertDuration)
                             : Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration)
-        scheduleAlertDismiss(id: activity.id, after: seconds, requested: seconds)
+        // Longer while VoiceOver is running (`alertLifetime`). The hold under a resting pointer
+        // is still asked about the alert's own length, so a short confirmation still goes on
+        // its own time once that is up.
+        let lifetime = Self.alertLifetime(requested: seconds, voiceOver: voiceOver && Self.speaksAlert(activity))
+        scheduleAlertDismiss(id: activity.id, after: lifetime, requested: seconds)
+    }
+
+    /// Whether an alert is said out loud as it goes up (`alertAnnouncement`). Not a key press's
+    /// own feedback — the volume, the brightness, Caps Lock — which follows the hand on the key:
+    /// VoiceOver says Caps Lock itself, and a level said at every step of a held key would talk
+    /// over everything else. Pure, so it is tested.
+    static func speaksAlert(_ activity: IslandActivity) -> Bool {
+        if case .hud = activity.content { return false }
+        return activity.id != "capslock"
+    }
+
+    /// What VoiceOver is told as an alert goes up in place of `shown`: the alert's spoken
+    /// sentence, the one its pill carries (`IslandAccessibility.compactLabel`). Nothing for a
+    /// key press's feedback (`speaksAlert`), and nothing for a report that changes nothing on
+    /// screen (`alertChanges`) — the same "Copied" again is not news. Pure, so it is tested.
+    static func alertAnnouncement(from shown: IslandActivity?, to next: IslandActivity,
+                                  at now: Date = Date()) -> String? {
+        guard speaksAlert(next), alertChanges(from: shown, to: next) else { return nil }
+        return IslandAccessibility.compactLabel(for: next.content, at: now)
+    }
+
+    /// How many times its own length an alert stays up while VoiceOver is running.
+    static let voiceOverAlertFactor: Double = 3
+
+    /// How long an alert stays up before it goes on its own: `requested`, or while VoiceOver is
+    /// running three times that, but never past the minute a pointer can hold one
+    /// (`alertHoldLimit`) unless it asked for longer itself. A copied line was up for a second,
+    /// less than it takes to hear it said, let alone to reach it and read it again; and an
+    /// alert that stayed until it was dismissed would stand in front of the rest of the queue
+    /// with no way for somebody who cannot see it to know it was still there. Pure, so it is
+    /// tested.
+    static func alertLifetime(requested: TimeInterval, voiceOver: Bool) -> TimeInterval {
+        guard voiceOver else { return requested }
+        return max(requested, min(requested * voiceOverAlertFactor, alertHoldLimit))
     }
 
     /// Whether putting `next` up in place of `shown` changes the alert on screen. The moment it

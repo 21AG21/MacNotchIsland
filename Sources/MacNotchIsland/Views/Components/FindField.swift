@@ -12,6 +12,10 @@ struct FindField: View {
     var matches: Int?
     /// Return, on whatever the section thinks is first.
     var onSubmit: () -> Void = {}
+    /// What the row at an index of the matches is called, for VoiceOver to say as the arrows
+    /// reach it. The centre knows only the index; the section knows what is there. Nil says
+    /// only where in the matches the mark is.
+    var spokenRow: (Int) -> String? = { _ in nil }
 
     @ObservedObject private var center = ActivityCenter.shared
     // Qualified: the island has a `FocusState` of its own, the payload of a Focus activity.
@@ -60,7 +64,7 @@ struct FindField: View {
                 Text("\(matches)")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(.white.opacity(matches == 0 ? 0.3 : 0.45))
-                    .accessibilityLabel(matches == 1 ? "1 match" : "\(matches) matches")
+                    .accessibilityLabel(Self.matchCount(matches))
             }
             Button(action: { ActivityCenter.shared.endFind() }) {
                 // An 11 pt glyph was the whole of what took the click, the smallest target in
@@ -79,6 +83,51 @@ struct FindField: View {
         .frame(width: Self.width, height: Self.height)
         .background(Capsule().fill(Color.white.opacity(0.08)))
         .transition(IslandMotion.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+        // The count beside the field changes with every letter, and a screen reader is in the
+        // field, not on the count: what it comes to is said as the field opens and as it
+        // changes. At medium, after the letter VoiceOver echoes as it is typed. Said rather than
+        // made the field's value, which is the text in it — the value VoiceOver reads back, and
+        // moves through letter by letter.
+        .onChange(of: matches, initial: true) { _, now in
+            if let words = Self.countAnnouncement(matches: now, query: ActivityCenter.shared.findQuery) {
+                IslandAccessibility.announce(words, high: false)
+            }
+        }
+    }
+
+    /// "No matches", "1 match", "12 matches". Pure, so it is tested.
+    static func matchCount(_ count: Int) -> String {
+        switch count {
+        case ...0: return "No matches"
+        case 1: return "1 match"
+        default: return "\(count) matches"
+        }
+    }
+
+    /// What is said when the count changes: the count, while something has been typed for it
+    /// to be a count of. Nothing with the field empty, where the count is not drawn either.
+    /// Pure, so it is tested.
+    static func countAnnouncement(matches: Int?, query: String?) -> String? {
+        guard let matches, let query, !query.isEmpty else { return nil }
+        return matchCount(matches)
+    }
+
+    /// What is said as the arrows move the mark: the row's name where the section gave one, and
+    /// where it is in the matches — "Report.pdf, 2 of 5". The mark is a ring on a row, which
+    /// said nothing at all to somebody who cannot see it. Pure, so it is tested.
+    static func moveAnnouncement(row: String?, index: Int, count: Int) -> String {
+        let place = "\(index + 1) of \(count)"
+        guard let row, !row.isEmpty else { return place }
+        return "\(row), \(place)"
+    }
+
+    /// Moves the mark, and says where it went.
+    private func move(by delta: Int) {
+        let count = matches ?? 0
+        let centre = ActivityCenter.shared
+        centre.moveFind(by: delta, count: count)
+        guard let index = centre.findTarget(of: count) else { return }
+        IslandAccessibility.announce(Self.moveAnnouncement(row: spokenRow(index), index: index, count: count))
     }
 
     /// Puts the caret after the text in whichever field editor has the keyboard. A hop
@@ -114,11 +163,11 @@ struct FindField: View {
             // field has the keyboard while a find is up, so these belong to it rather than to
             // the panel's own arrow keys, which are handed back the moment a find begins.
             .onKeyPress(.upArrow) {
-                ActivityCenter.shared.moveFind(by: -1, count: matches ?? 0)
+                move(by: -1)
                 return .handled
             }
             .onKeyPress(.downArrow) {
-                ActivityCenter.shared.moveFind(by: 1, count: matches ?? 0)
+                move(by: 1)
                 return .handled
             }
             // The letters that opened this were claimed from the system, not typed into a

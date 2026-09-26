@@ -6,8 +6,9 @@ import CoreServices
 /// next poll where a cover Spotify named could not be fetched in time.
 ///
 /// Every script, polls and presses alike, runs on the one `ScriptQueue`, one at a time, each
-/// inside a `with timeout`. Main-queue state: `poll`, the presses and `cancel` are called there,
-/// and every answer comes back there.
+/// inside a `with timeout`. Nothing else waits there: the cover Spotify names is fetched over
+/// the network beside the queue and handed to the next poll (`arrivals`). Main-queue state:
+/// `poll`, the presses and `cancel` are called there, and every answer comes back there.
 final class AppleScriptBackend {
     enum Command { case togglePlayPause, pause, next, previous }
 
@@ -36,7 +37,21 @@ final class AppleScriptBackend {
         /// How many times this track's Spotify cover has been fetched and not arrived, see
         /// `fetchesCover`.
         var attempts = 0
+        /// A fetch of this track's Spotify cover is out and has not been taken back yet.
+        var fetching = false
     }
+
+    /// A Spotify cover back from the network, or a fetch that came back with none.
+    private struct Arrival {
+        var image: NSImage?
+        var accent: NSColor
+    }
+
+    /// Spotify covers that have come back since the poll that asked for them, by the key of the
+    /// track they were asked for, for the next poll to take (`takeArrival`). Written wherever a
+    /// fetch lands and read on the script queue, so behind a lock.
+    private let arrivalLock = NSLock()
+    private var arrivals: [String: Arrival] = [:]
 
     /// Each player's cover, by bundle identifier. Queue state: only `query` reads and writes it.
     /// One cover was kept for both players, and a poll asks both, so with a track in each every
@@ -288,12 +303,27 @@ final class AppleScriptBackend {
         // on, and fetched again on the next poll where it did not arrive in time: a cover that
         // came late used to be dropped with the track already marked as done, and that track
         // never had one. Switching the setting on fetches this track's cover the same way.
-        if spotify, Self.fetchesCover(hasCover: cover.image != nil, attempts: cover.attempts),
-           let url = Self.spotifyArtworkURL(artworkURL, lookupEnabled: artworkLookup) {
-            cover.attempts += 1
-            let decoded = fetchSpotifyArtwork(url).flatMap { NSImage.cover(from: $0) }
-            cover.image = decoded?.image
-            cover.accent = decoded?.accent ?? .white
+        //
+        // Fetched beside the script queue rather than on it, and taken by the poll after it
+        // lands. The poll waited here for up to `coverTimeout` with the queue held, on top of
+        // the players' own scripts, and a press or the appearance switch made meanwhile waited
+        // behind all of it. The cover goes out in a later report for the same track, which
+        // `artworkID` changing makes a report that is drawn; one that lands after the track has
+        // moved on is let go by the next poll (`takeArrival`).
+        if spotify {
+            if let arrived = takeArrival(for: key) {
+                cover.fetching = false
+                if let image = arrived.image {
+                    cover.image = image
+                    cover.accent = arrived.accent
+                }
+            }
+            if Self.startsCoverFetch(hasCover: cover.image != nil, attempts: cover.attempts, inFlight: cover.fetching),
+               let url = Self.spotifyArtworkURL(artworkURL, lookupEnabled: artworkLookup) {
+                cover.attempts += 1
+                cover.fetching = true
+                fetchSpotifyArtwork(url, key: key)
+            }
         }
         covers[bundle] = cover
         // Changes when the cover arrives, so a cover that comes on a later poll is a changed
@@ -337,6 +367,13 @@ final class AppleScriptBackend {
         !hasCover && attempts < coverAttemptLimit
     }
 
+    /// The same, for a fetch that no longer holds the poll: and none for this track is out
+    /// already. The poll comes round every second and a fetch can take `coverTimeout`, so
+    /// without it each poll in between sent another. Pure, so it is tested.
+    static func startsCoverFetch(hasCover: Bool, attempts: Int, inFlight: Bool) -> Bool {
+        !inFlight && fetchesCover(hasCover: hasCover, attempts: attempts)
+    }
+
     /// "true" or "false", as both players' dictionaries write a boolean; anything else is a
     /// player that would not say.
     static func scriptedShuffle(_ text: String) -> Bool? {
@@ -373,6 +410,7 @@ final class AppleScriptBackend {
         end tell
         """
         let outcome = ScriptQueue.execute(ScriptQueue.timed(source, seconds: Self.pollTimeout))
+        if outcome.errorNumber == ScriptQueue.timedOutStatus { noteStall() }
         guard outcome.succeeded, let data = outcome.descriptor?.data, !data.isEmpty else { return nil }
         return data
     }
@@ -385,32 +423,41 @@ final class AppleScriptBackend {
         return url
     }
 
-    /// How long the poll waits for a Spotify cover.
+    /// How long a Spotify cover has to arrive.
     static let coverTimeout: TimeInterval = 2.5
 
-    /// Fetches a cover's bytes, waiting no longer than `coverTimeout`. The request carries the
-    /// same timeout, and one still out when the wait is over is cancelled: it used to run on for
-    /// the shared session's sixty seconds with nobody left to take its answer.
-    private func fetchSpotifyArtwork(_ url: URL) -> Data? {
-        let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var fetched: Data?
+    /// Fetches a cover for the track `key` names, and leaves it, decoded, for the next poll
+    /// (`arrivals`) — or leaves word that none came, so the poll can ask again. Returns at once.
+    /// The request carries `coverTimeout`, which is how long it may go quiet rather than how
+    /// long it may take, so one still out when that is over is cancelled too: it used to run on
+    /// for the shared session's sixty seconds with nobody left to take its answer.
+    private func fetchSpotifyArtwork(_ url: URL, key: String) {
         let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: Self.coverTimeout)
-        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? (data != nil)
-            if ok, let data {
-                lock.lock()
-                fetched = data
-                lock.unlock()
-            }
-            semaphore.signal()
+            // Decoded here, off the main thread and off the script queue alike.
+            let decoded = ok ? data.flatMap { NSImage.cover(from: $0) } : nil
+            self?.leave(Arrival(image: decoded?.image, accent: decoded?.accent ?? .white), for: key)
         }
         task.resume()
-        if semaphore.wait(timeout: .now() + Self.coverTimeout) == .timedOut { task.cancel() }
-        lock.lock()
-        let data = fetched
-        lock.unlock()
-        return data
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.coverTimeout) { task.cancel() }
+    }
+
+    /// Any thread.
+    private func leave(_ arrival: Arrival, for key: String) {
+        arrivalLock.lock()
+        arrivals[key] = arrival
+        arrivalLock.unlock()
+    }
+
+    /// The cover that came back for the track `key` names, if one has; the rest, for tracks
+    /// the players have moved on from, are let go. On the script queue.
+    private func takeArrival(for key: String) -> Arrival? {
+        arrivalLock.lock()
+        defer { arrivalLock.unlock() }
+        let arrival = arrivals[key]
+        arrivals.removeAll()
+        return arrival
     }
 
     /// Runs a script against `bundleID`'s player and says whether it went through. A refusal is
@@ -425,6 +472,7 @@ final class AppleScriptBackend {
             Self.note(bundleID, refused: true)
         } else if outcome.errorNumber == ScriptQueue.timedOutStatus {
             IslandLog.media.notice("\(bundleID, privacy: .public) did not answer in time")
+            noteStall()
         } else if outcome.errorNumber != -600 {
             // -600 = app not running, which says nothing about permission and is not logged.
             let reason = outcome.error.map { String(describing: $0) } ?? "the script did not compile"
@@ -467,11 +515,31 @@ final class AppleScriptBackend {
     /// A press sent to the script queue and not back yet: running, or waiting there behind a
     /// poll that was already running. No poll is sent meanwhile (`poll`). Main queue.
     private var pressRunning = false
+    /// When the last press sent began to run on the script queue, which is when the queue came
+    /// free for the presses (`patienceStart`). Main queue.
+    private var pressStartedAt: Date?
+    /// When a player last failed to answer a script in time. Written on the script queue and
+    /// read on both, so behind a lock.
+    private let stallLock = NSLock()
+    private var stalledAt: Date?
+
+    /// On the script queue.
+    private func noteStall() {
+        stallLock.lock()
+        stalledAt = Date()
+        stallLock.unlock()
+    }
+
+    private var lastStall: Date? {
+        stallLock.lock()
+        defer { stallLock.unlock() }
+        return stalledAt
+    }
 
     /// How long a press may wait its turn and still be sent. One that has waited longer is
     /// behind a player that was not answering, and would land after the user has moved on — a
     /// play/pause that starts the music a quarter of a minute after it was pressed. A pause is
-    /// the exception, see `stillWanted`.
+    /// the exception, see `stillWanted`; and what counts as waiting is `patienceStart`'s.
     static let pressPatience: TimeInterval = 6
 
     /// The presses waiting once `press` has joined them. Pure, so it is tested.
@@ -501,15 +569,34 @@ final class AppleScriptBackend {
         return result
     }
 
-    /// Whether a press that has waited since `press.at` is still worth sending. Pure, so it is
-    /// tested.
+    /// Whether a press that has waited this long is still worth sending. Pure, so it is tested.
     ///
     /// A pause always is. Sent late it stops music that is still playing, or finds it stopped
     /// already and does nothing; it cannot start anything, which is what patience is there to
     /// prevent. The sleep timer's pause, queued behind a press that was slow to come back, was
     /// dropped after six seconds with the card already showing paused and the music playing on.
-    static func stillWanted(_ press: Press, now: Date) -> Bool {
-        press.kind == .pause || now.timeIntervalSince(press.at) <= pressPatience
+    ///
+    /// `queueFreeAt` and `stalledAt` say what the wait was (`patienceStart`); left out, it is
+    /// counted from the moment the press was made.
+    static func stillWanted(_ press: Press, now: Date, queueFreeAt: Date? = nil, stalledAt: Date? = nil) -> Bool {
+        guard press.kind != .pause else { return true }
+        let start = patienceStart(madeAt: press.at, queueFreeAt: queueFreeAt, stalledAt: stalledAt)
+        return now.timeIntervalSince(start) <= pressPatience
+    }
+
+    /// Where a press's patience is counted from. Pure, so it is tested.
+    ///
+    /// From when the script queue came free for the presses, if that was after the press was
+    /// made: the time before it went on a poll that was already running when the press was
+    /// sent, which is the island's own wait and not a player's. It was counted from the press,
+    /// and a poll that held the queue for a cover off the network and both players' scripts —
+    /// answering all the while — let a play/pause made at its start go unsent. Unless a player
+    /// failed to answer while the press waited (`stalledAt`): that is the wait patience is for,
+    /// and then the whole of it counts, as it always did.
+    static func patienceStart(madeAt: Date, queueFreeAt: Date?, stalledAt: Date?) -> Date {
+        if let stalledAt, stalledAt >= madeAt { return madeAt }
+        guard let queueFreeAt, queueFreeAt > madeAt else { return madeAt }
+        return queueFreeAt
     }
 
     private func submit(_ kind: Press.Kind, source: String, bundleID: String?, done: ((Bool) -> Void)? = nil) {
@@ -533,10 +620,15 @@ final class AppleScriptBackend {
     /// queue, the moment the press would start. Asked here only, a press that passed went to
     /// the queue behind a poll already running there, and a poll held back by a player that
     /// was not answering ran it seconds later with nobody having asked whether it still should.
+    ///
+    /// Both count from the moment the queue came free for the presses rather than from the
+    /// press, unless a player stalled meanwhile (`patienceStart`): on the queue, that is the
+    /// moment the press starts to run; here, the moment the press before it did.
     private func sendNextPress() {
         guard !pressRunning else { return }
         let now = Date()
-        while let first = presses.first, !Self.stillWanted(first, now: now) {
+        while let first = presses.first,
+              !Self.stillWanted(first, now: now, queueFreeAt: pressStartedAt, stalledAt: lastStall) {
             presses.removeFirst()
             IslandLog.media.notice("dropped a press that waited too long for its player")
             first.done?(false)
@@ -545,7 +637,9 @@ final class AppleScriptBackend {
         let press = presses.removeFirst()
         pressRunning = true
         ScriptQueue.async { [self] in
-            let wanted = Self.stillWanted(press, now: Date())
+            let started = Date()
+            DispatchQueue.main.async { self.pressStartedAt = started }
+            let wanted = Self.stillWanted(press, now: started, queueFreeAt: started, stalledAt: lastStall)
             let succeeded = wanted ? execute(press.source, app: press.player).succeeded : false
             DispatchQueue.main.async {
                 if !wanted { IslandLog.media.notice("dropped a press that waited too long for its player") }

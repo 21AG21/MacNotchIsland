@@ -38,6 +38,8 @@ struct ControlsSectionView: View {
     @ObservedObject private var airPods = AirPodsControl.shared
     /// The paired list, read off the main thread at the energy policy's pace. See `PairedDevices`.
     @ObservedObject private var paired = PairedDevices.shared
+    /// Followed for Differentiate Without Color, which puts a mark beside a battery that is low.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     /// The address of the AirPods row that is open on its listening modes, if one is.
     @State private var expandedAirPods: String?
 
@@ -158,7 +160,7 @@ struct ControlsSectionView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Bluetooth access is off")
                 .font(.system(size: 11.5))
-                .foregroundStyle(.white.opacity(0.35))
+                .quietWhite(0.35)
             PillButton(title: "Allow Bluetooth", tint: .white.opacity(0.85)) {
                 SystemSettingsPane.bluetooth.open()
             }
@@ -187,14 +189,16 @@ struct ControlsSectionView: View {
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.55))
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 trailing()
             }
             .frame(height: SectionMetrics.headerHeight)
             if let note {
+                // Raised under Increase Contrast, as every quiet line in the section is.
                 Text(note)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.35))
+                    .quietWhite(0.35)
             } else {
                 content()
             }
@@ -214,7 +218,7 @@ struct ControlsSectionView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Network names need Location")
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.35))
+                    .quietWhite(0.35)
                 PillButton(title: "Allow Location", tint: .white.opacity(0.85)) {
                     SystemSettingsPane.location.open()
                 }
@@ -227,7 +231,7 @@ struct ControlsSectionView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Network names need Location")
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.35))
+                    .quietWhite(0.35)
                 // The same words as the pill a refusal puts here: one row, one name for it.
                 PillButton(title: "Allow Location", tint: .white.opacity(0.85)) {
                     wifi.askForLocation()
@@ -238,7 +242,7 @@ struct ControlsSectionView: View {
         } else if wifi.networks.isEmpty {
             Text(wifi.isScanning ? "Looking…" : "Nothing in range")
                 .font(.system(size: 11.5))
-                .foregroundStyle(.white.opacity(0.35))
+                .quietWhite(0.35)
         } else {
             IslandScrollStrip(axis: .vertical) {
                 VStack(spacing: 0) {
@@ -246,7 +250,10 @@ struct ControlsSectionView: View {
                         Self.row(title: network.ssid,
                                  trailing: { WiFiBars(bars: network.bars) },
                                  lock: network.isSecure && !network.isKnown,
-                                 isOn: network.isCurrent) {
+                                 isOn: network.isCurrent,
+                                 // The bars are drawn and kept from VoiceOver; their strength
+                                 // is said in words instead.
+                                 detail: WiFiBars.spoken(network.bars)) {
                             // The ticked row is the network the Mac is on; joining it again
                             // could drop it. See `WiFiScanner.joins`.
                             if WiFiScanner.joins(network) { wifi.join(network) }
@@ -271,7 +278,7 @@ struct ControlsSectionView: View {
         if devices.isEmpty {
             Text("Nothing paired")
                 .font(.system(size: 11.5))
-                .foregroundStyle(.white.opacity(0.35))
+                .quietWhite(0.35)
         } else {
             IslandScrollStrip(axis: .vertical) {
                 VStack(spacing: 0) {
@@ -289,6 +296,15 @@ struct ControlsSectionView: View {
                                                  Text("\(battery)%")
                                                      .font(.system(size: 10).monospacedDigit())
                                                      .foregroundStyle(Self.batteryTint(battery))
+                                                 // Red is the whole of the warning; under
+                                                 // Differentiate Without Color a "!" follows
+                                                 // the figure as well.
+                                                 if IslandMarks.warning(low: BluetoothState.isLow(battery),
+                                                                        differentiate: display.differentiateWithoutColor) {
+                                                     Image(systemName: "exclamationmark")
+                                                         .font(.system(size: 9, weight: .heavy))
+                                                         .foregroundStyle(Self.batteryTint(battery))
+                                                 }
                                              }
                                              Image(systemName: device.symbol)
                                                  .font(.system(size: 11, weight: .medium))
@@ -368,13 +384,12 @@ struct ControlsSectionView: View {
 
     // MARK: - One row of any list
 
-    /// `detail` is what a row has to say beyond its name and its tick — a battery level, so
-    /// far. Wi-Fi and Sound rows have nothing of the sort and leave it out.
+    /// `detail` is what a row has to say beyond its name and its tick — a battery level, a
+    /// network's signal. Sound rows have nothing of the sort and leave it out.
     fileprivate static func row<Trailing: View>(title: String, @ViewBuilder trailing: () -> Trailing,
                                                 lock: Bool, isOn: Bool, detail: String? = nil,
                                                 action: @escaping () -> Void) -> some View {
-        var label = isOn ? "\(title), on" : title
-        if let detail { label += ", \(detail)" }
+        let label = rowLabel(title: title, isOn: isOn, lock: lock, detail: detail)
         return Button(action: action) {
             HStack(spacing: Self.rowSpacing) {
                 // A tick where the joined network and the connected device are, which is how
@@ -401,6 +416,19 @@ struct ControlsSectionView: View {
         }
         .buttonStyle(IslandButtonStyle())
         .accessibilityLabel(label)
+    }
+
+    /// What a row says to VoiceOver: its name, whether it is the one that is on, "secured" where
+    /// the lock is drawn — a network that will ask for a password — and its detail. The lock
+    /// and the bars were drawn and never said, so a list read out loud gave no way to tell the
+    /// open café network from the one that wants a password, or a strong one from a weak one.
+    /// Pure, so it is tested.
+    static func rowLabel(title: String, isOn: Bool, lock: Bool, detail: String?) -> String {
+        var parts = [title]
+        if isOn { parts.append("on") }
+        if lock { parts.append("secured") }
+        if let detail, !detail.isEmpty { parts.append(detail) }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -448,7 +476,7 @@ private struct SoundColumn: View {
                 if entries.isEmpty {
                     Text("No devices")
                         .font(.system(size: 11.5))
-                        .foregroundStyle(.white.opacity(0.35))
+                        .quietWhite(0.35)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: ControlsSectionView.rowHeight)
                 }
@@ -458,7 +486,8 @@ private struct SoundColumn: View {
                         Text(title)
                             .font(.system(size: 9.5, weight: .semibold))
                             .kerning(0.4)
-                            .foregroundStyle(.white.opacity(0.3))
+                            .quietWhite(0.3)
+                            .accessibilityAddTraits(.isHeader)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .frame(height: 15)
                             // Air above every heading but the first.
@@ -573,5 +602,15 @@ struct WiFiBars: View {
         }
         .frame(height: 11, alignment: .bottom)
         .accessibilityHidden(true)
+    }
+
+    /// The bars in words: three or four are a strong signal, two a fair one, and one a weak
+    /// one. Pure, so it is tested.
+    static func spoken(_ bars: Int) -> String {
+        switch bars {
+        case 3...: return "strong signal"
+        case 2: return "fair signal"
+        default: return "weak signal"
+        }
     }
 }

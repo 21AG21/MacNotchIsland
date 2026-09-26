@@ -833,6 +833,9 @@ final class ClipboardStore: ObservableObject {
     /// scroll of a fifty-row list, so the answer is a lookup and nothing else.
     func filesAreGone(_ item: ClipboardItem) -> Bool { missingFileIDs.contains(item.id) }
 
+    /// Which sweep was sent last. Main thread.
+    private var sweep = 0
+
     /// Works the answers out again, away from the thread that draws.
     ///
     /// Nothing tells us when somebody moves or deletes a copied file behind our back, so the
@@ -843,7 +846,14 @@ final class ClipboardStore: ObservableObject {
     /// and picking a dead one still hands over its paths as text rather than nothing.
     ///
     /// Call this from the main thread; the sweep itself is not done there.
+    ///
+    /// Sweeps run side by side, and each carries a ticket: only the last one sent is believed.
+    /// One stuck in `fileExists` on a volume that was slow to answer — a network share, a disk
+    /// spinning up — used to land after a newer sweep had, and put its older answer back over
+    /// the newer: a file put back on the disk was marked gone again until the next sweep.
     func refreshMissingFiles() {
+        sweep += 1
+        let ticket = sweep
         let entries = ClipboardStore.fileEntries(in: items)
         guard !entries.isEmpty else {
             if !missingFileIDs.isEmpty { missingFileIDs = [] }
@@ -857,12 +867,19 @@ final class ClipboardStore: ObservableObject {
                 if isGone { gone.insert(entry.id) }
             }
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, ClipboardStore.sweepLands(ticket: ticket, latest: self.sweep) else { return }
                 // The history can have moved on while the disk was being asked.
                 let answers = ClipboardStore.pruned(gone, to: self.items)
                 if answers != self.missingFileIDs { self.missingFileIDs = answers }
             }
         }
+    }
+
+    /// Whether a sweep's answer is the one to show: it is the last sweep that was sent. An
+    /// older one landing after is dropped, since the newer has asked the disk since. Pure, so
+    /// it is tested.
+    static func sweepLands(ticket: Int, latest: Int) -> Bool {
+        ticket == latest
     }
 
     /// The entries a sweep has to ask the disk about at all: the ones that point at files.

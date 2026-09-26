@@ -75,6 +75,17 @@ struct ClipboardView: View {
         SectionEmptyState(symbol: "doc.on.clipboard", title: "No copies yet",
                           subtitle: "Anything you copy shows up here, the last \(Int(Preferences.shared.clipboardLimit)) items.")
     }
+
+    /// A row as VoiceOver reads it: what it is, the start of it and how long ago, and then what
+    /// the row shows beside it that the sentence left out — the pin, and the words saying a
+    /// copied file has gone from the disk. Both were drawn and never said, so a pinned row and a
+    /// dead one read exactly as any other. Pure, so it is tested.
+    static func spokenRow(kind: String, preview: String, age: String, pinned: Bool, missing: Bool) -> String {
+        var line = "Copied \(kind): \(preview), \(age)"
+        if pinned { line += ", pinned" }
+        if missing { line += ", no longer on disk" }
+        return line
+    }
 }
 
 /// Sentence-case name for a clipboard entry's kind, used only for VoiceOver.
@@ -101,6 +112,9 @@ private struct ClipboardRowView: View {
     /// sweep rather than from the disk: a row is redrawn on every hover and every scroll, and
     /// asking the disk here meant a `stat` per file per redraw on the thread that draws.
     var missing: Bool
+    /// Whether the keyboard focus is on this row, with Full Keyboard Access on. Qualified: the
+    /// island has a `FocusState` of its own, the payload of a Focus activity.
+    @SwiftUI.FocusState private var focused: Bool
 
     /// Not watched. A row's picture is the one thing it takes from the store as it changes, and
     /// the picture's own view watches that (`ClipboardThumbnail`); watched whole, every
@@ -143,7 +157,9 @@ private struct ClipboardRowView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
             // The age in words: the column's "4m" is "4 metres" read aloud.
-            .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.spokenAge(at: now))")
+            .accessibilityLabel(ClipboardView.spokenRow(kind: item.kind.accessibilityName, preview: item.preview,
+                                                        age: item.spokenAge(at: now), pinned: item.pinned,
+                                                        missing: missing))
             // What a click does as things stand: with "Paste after picking an item" on and
             // Accessibility allowed, it closes the panel and pastes into the app in front.
             .accessibilityHint(ClipboardStore.pickHint(pastes: pastes))
@@ -158,9 +174,32 @@ private struct ClipboardRowView: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(Color.white.opacity(isHovered ? 0.08 : 0))
         )
+        .overlay {
+            // Where the keyboard is, over the mark a hovered row has.
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                .opacity(focused ? 1 : 0)
+                .accessibilityHidden(true)
+        }
         .contentShape(Rectangle())
         .onTapGesture { copyBack() }
         .modifier(DragOut(item: item, pastes: pastes))
+        // A row answered a click and nothing else, so with Full Keyboard Access on Tab went
+        // past the list and no copy could be picked from it. Now Tab stops on each row, and
+        // Space or Return does what a click does. Focusable for that alone (`.activate`): with
+        // Full Keyboard Access off a click gives a row no focus, and nothing about the pointer
+        // changes.
+        .focusable(interactions: .activate)
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.space) {
+            copyBack()
+            return .handled
+        }
+        .onKeyPress(.return) {
+            copyBack()
+            return .handled
+        }
         .animation(IslandMotion.hover, value: isHovered)
     }
 
@@ -204,7 +243,7 @@ private struct ClipboardRowView: View {
                     if let app = item.app, !app.isEmpty {
                         Text(app)
                             .font(.system(size: 9.5))
-                            .foregroundStyle(.white.opacity(0.32))
+                            .quietWhite(0.32)
                             .lineLimit(1)
                     }
                     Text(item.age(at: now))

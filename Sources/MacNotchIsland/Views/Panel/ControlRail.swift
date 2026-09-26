@@ -233,7 +233,7 @@ private struct RailVolume: View {
                     // each side, into the panel's margin and the gap before the slider,
                     // without moving the glyph off the column it hangs from.
                     .hitOutset(horizontal: IslandHit.outset(drawn: ControlRail.leadingGlyph), vertical: 0)
-                    .contentTransition(.symbolEffect(.replace))
+                    .islandSymbolReplace()
             }
             .buttonStyle(IslandButtonStyle())
             // An output with no mute of its own — a USB DAC with only a level, HDMI, some AirPlay
@@ -288,15 +288,14 @@ private struct RailOutputPicker: View {
                     // Both halves of Control Centre's Sound module. The input is the one
                     // nobody can reach without opening System Settings, and it is the one
                     // that matters at the moment a call starts.
+                    //
+                    // Each item a toggle rather than a button with a tick drawn beside its name:
+                    // the menu draws the tick itself and says which is chosen, where a tick that
+                    // was only a picture told VoiceOver nothing. Choosing the one already chosen
+                    // chooses it again, as the button did; nothing is ever switched off here.
                     Section(SoundList.output) {
                         ForEach(route.shownOutputs) { device in
-                            Button(action: { outputs.select(device) }) {
-                                if device == route.current {
-                                    Label(device.shortName, systemImage: "checkmark")
-                                } else {
-                                    Text(device.shortName)
-                                }
-                            }
+                            Toggle(device.shortName, isOn: Self.choice(device == route.current) { outputs.select(device) })
                         }
                     }
                     // The HomePods and Apple TVs, which Control Centre lists and CoreAudio only
@@ -305,26 +304,18 @@ private struct RailOutputPicker: View {
                     if !route.airPlay.isEmpty {
                         Section(SoundList.airPlay) {
                             ForEach(route.airPlay) { target in
-                                Button(action: { outputs.selectAirPlay(target) }) {
-                                    if route.airPlayCurrent.contains(target.source) {
-                                        Label(target.name, systemImage: "checkmark")
-                                    } else {
-                                        Text(target.name)
-                                    }
-                                }
+                                Toggle(target.name, isOn: Self.choice(route.airPlayCurrent.contains(target.source)) {
+                                    outputs.selectAirPlay(target)
+                                })
                             }
                         }
                     }
                     if route.inputs.count > 1 {
                         Section("Input") {
                             ForEach(route.inputs) { device in
-                                Button(action: { outputs.selectInput(device) }) {
-                                    if device == route.currentInput {
-                                        Label(device.shortName, systemImage: "checkmark")
-                                    } else {
-                                        Text(device.shortName)
-                                    }
-                                }
+                                Toggle(device.shortName, isOn: Self.choice(device == route.currentInput) {
+                                    outputs.selectInput(device)
+                                })
                             }
                         }
                     }
@@ -348,6 +339,12 @@ private struct RailOutputPicker: View {
         }
         .help(route.destinationName.map { "Sound is going to \($0)" } ?? "Choose where the sound goes")
         .accessibilityLabel("Sound: \(route.destinationName ?? "unknown")")
+    }
+
+    /// A menu item's tick: on for the one chosen, and a click on any of them — the chosen one
+    /// too — picks it.
+    private static func choice(_ chosen: Bool, pick: @escaping () -> Void) -> Binding<Bool> {
+        Binding(get: { chosen }, set: { _ in pick() })
     }
 
     /// The disc the picker wears: the current output's symbol, the same size as every other
@@ -486,7 +483,7 @@ struct RailControlView: View {
             KeepAwakeRailButton()
         case .mirror:
             RailDisc(symbol: showingMirror ? "camera.fill" : "camera", label: showingMirror ? "Hide mirror" : "Mirror",
-                     active: showingMirror) {
+                     active: showingMirror, toggle: RailToggle(subject: "Mirror", isOn: showingMirror)) {
                 withAnimation(IslandMotion.fade) { showingMirror.toggle() }
             }
         case .airDrop:
@@ -519,7 +516,8 @@ private struct WiFiRailButton: View {
 
     var body: some View {
         RailDisc(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
-                 label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn) {
+                 label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn,
+                 toggle: RailToggle(subject: "Wi-Fi", isOn: toggles.wifiOn)) {
             toggles.toggleWiFi()
         }
     }
@@ -543,7 +541,8 @@ private struct BluetoothRailButton: View {
         } else {
             // The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
             RailDisc(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
-                     active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
+                     active: toggles.bluetoothOn, toggle: RailToggle(subject: "Bluetooth", isOn: toggles.bluetoothOn),
+                     action: { toggles.toggleBluetooth() }) {
                 BluetoothRune()
                     .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                     .frame(width: 9, height: 14)
@@ -559,7 +558,8 @@ private struct KeepAwakeRailButton: View {
 
     var body: some View {
         RailDisc(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
-                 label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
+                 label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn,
+                 toggle: RailToggle(subject: "Keep Awake", isOn: keepAwake.isOn)) {
             keepAwake.toggle()
         }
     }
@@ -570,12 +570,16 @@ private struct KeepAwakeRailButton: View {
 struct RailDisc<Glyph: View>: View {
     let label: String
     var active = false
+    /// What a disc that is a switch says to VoiceOver in place of `label`, see `RailToggle`.
+    var toggle: RailToggle? = nil
     let action: () -> Void
     let glyph: Glyph
 
-    init(label: String, active: Bool = false, action: @escaping () -> Void, @ViewBuilder glyph: () -> Glyph) {
+    init(label: String, active: Bool = false, toggle: RailToggle? = nil, action: @escaping () -> Void,
+         @ViewBuilder glyph: () -> Glyph) {
         self.label = label
         self.active = active
+        self.toggle = toggle
         self.action = action
         self.glyph = glyph()
     }
@@ -592,15 +596,53 @@ struct RailDisc<Glyph: View>: View {
         }
         .buttonStyle(IslandButtonStyle())
         .help(label)
-        .accessibilityLabel(label)
+        .modifier(RailDiscSpeech(label: label, toggle: toggle))
     }
 }
 
 extension RailDisc where Glyph == RailSymbol {
     /// A disc wearing an SF Symbol. `tint` colours the glyph where its state is worth a colour —
     /// a recording's red.
-    init(symbol: String, label: String, active: Bool = false, tint: Color? = nil, action: @escaping () -> Void) {
-        self.init(label: label, active: active, action: action) { RailSymbol(name: symbol, tint: tint) }
+    init(symbol: String, label: String, active: Bool = false, tint: Color? = nil, toggle: RailToggle? = nil,
+         action: @escaping () -> Void) {
+        self.init(label: label, active: active, toggle: toggle, action: action) { RailSymbol(name: symbol, tint: tint) }
+    }
+}
+
+/// A disc that is a switch, as VoiceOver reads it: named for what it switches, with its state
+/// as the value, the way the Controls section's header switches are read (`HeaderSwitch`).
+///
+/// The discs for Wi-Fi, Bluetooth, Keep Awake, the microphone and the mirror were buttons named
+/// for what a click would do — "Turn Wi-Fi off" — which says the state only by implication and
+/// never that the thing is a switch. The tooltip still says what a click will do; that is what
+/// somebody pointing at it wants to know.
+struct RailToggle: Equatable {
+    /// What it switches: "Wi-Fi".
+    var subject: String
+    var isOn: Bool
+    var onWord = "On"
+    var offWord = "Off"
+
+    /// "On" or "Off", or the words a switch has of its own. Pure, so it is tested.
+    var value: String { isOn ? onWord : offWord }
+}
+
+/// The disc's name to VoiceOver: the switch's, with its state and the toggle trait, where it is
+/// one, and otherwise what a click does, as it always was.
+private struct RailDiscSpeech: ViewModifier {
+    let label: String
+    let toggle: RailToggle?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let toggle {
+            content
+                .accessibilityLabel(toggle.subject)
+                .accessibilityValue(toggle.value)
+                .accessibilityAddTraits(.isToggle)
+        } else {
+            content.accessibilityLabel(label)
+        }
     }
 }
 
@@ -619,7 +661,8 @@ struct RailSymbol: View {
     private var symbol: some View {
         Image(systemName: name)
             .font(.system(size: 13, weight: .semibold))
-            .contentTransition(.symbolEffect(.replace))
+            // Replaced, or faded under Reduce Motion.
+            .islandSymbolReplace()
     }
 }
 
@@ -679,7 +722,10 @@ private struct MicrophoneRailButton: View {
 
     var body: some View {
         RailDisc(symbol: muted ? "mic.slash.fill" : "mic.fill",
-                 label: muted ? "Unmute the microphone" : "Mute the microphone", active: muted) {
+                 label: muted ? "Unmute the microphone" : "Mute the microphone", active: muted,
+                 // Lit while muted, as a mute key's light is; said the way the Sound column's
+                 // switch says the speaker's, on or muted.
+                 toggle: RailToggle(subject: "Microphone", isOn: !muted, offWord: "Muted")) {
             MicrophoneControl.shared.toggle()
         }
         .disabled(!available)
@@ -880,8 +926,9 @@ enum RailMetrics {
 /// into a private framework — the first of them opens that framework — and they were made on
 /// the main thread twice a second for as long as the rail was up, and once more at the moment
 /// the rail was mounted, inside the spring that opens the panel. Only what is shown is decided
-/// here. Writes to the driven display stay where the slider is: the slider must not wait on a
-/// queue to move.
+/// here. Every write is made there too, the driven display's included: the slider draws the
+/// level it asked for at once (`level` is published optimistically), and never waits on the
+/// queue to move. See `set(_:)`.
 ///
 /// `level` is the driven display's: the built-in panel, or with the lid shut the main display
 /// (`BrightnessMonitor.drivenDisplay`) — the one the brightness keys, the Display popover's first
@@ -910,6 +957,11 @@ final class BrightnessControl: ObservableObject {
     private var watched: [CGDirectDisplayID: Int] = [:]
     /// Writes to those displays not reported back yet, as `pending` is for the driven one.
     private var panelPending: [CGDirectDisplayID: (value: Double, until: TimeInterval)] = [:]
+    /// The driven display's writes, one on the queue at a time and only the latest waiting
+    /// behind it (`set(_:)`). Main thread.
+    private var drive = LatestWrite<Float>()
+    /// When a reading of the driven display last landed, on the clock that only counts forwards.
+    private var readAt = LocalWrite.never
 
     @Published private(set) var level: Double = 0.5
     /// Whether there is a brightness to set at all: a Mac driving nothing but an external display
@@ -949,10 +1001,6 @@ final class BrightnessControl: ObservableObject {
 
     func current() -> Double? { monitor.currentBrightness().map { Double($0) } }
 
-    /// What the display says it is set to, straight from DisplayServices. Internal because
-    /// the gesture router reads it too, for the scroll that carries Option.
-    static func read() -> Double? { BrightnessMonitor().currentBrightness().map { Double($0) } }
-
     /// When the rail's own slider last wrote the brightness. See `LocalWrite`.
     private(set) static var lastLocalWrite = LocalWrite.never
 
@@ -964,12 +1012,56 @@ final class BrightnessControl: ObservableObject {
     static func markLocalWriteForTesting(_ stamp: TimeInterval) { lastLocalWrite = stamp }
 
     /// Sets the driven display: the built-in panel, or with the lid shut the main display.
+    ///
+    /// The level is taken at once, here, and written on `queue`, one write at a time. A drag of
+    /// the slider asks for a level on every move of the pointer, and each was a DisplayServices
+    /// call on the main thread — with the lid shut and a monitor as the driven display, a round
+    /// trip down the cable, as many as a hundred and twenty times a second, the panel stopping
+    /// under the pointer for each. Now a level asked for while a write is still out waits for it,
+    /// and whatever is asked for meanwhile takes its place: the last one asked for is always
+    /// written, and nothing in between that nobody will see. Main thread.
     func set(_ value: Double) {
         let clamped = min(1, max(0, value))
         Self.lastLocalWrite = LocalWrite.now()
         pending = (clamped, LocalWrite.now() + Self.writeSettle)
         if level != clamped { level = clamped }
-        _ = monitor.setBrightness(Float(clamped))
+        if let now = drive.offer(Float(clamped)) { write(now) }
+    }
+
+    /// Writes one level to the driven display on the queue, then the level that waited behind
+    /// it, if one did.
+    private func write(_ value: Float) {
+        queue.async { [weak self] in
+            // The display the instance's own write means, looked up where the write is made.
+            _ = BrightnessMonitor.setBrightness(value, of: BrightnessMonitor.currentDrivenDisplay())
+            DispatchQueue.main.async {
+                guard let self, let next = self.drive.landed() else { return }
+                self.write(next)
+            }
+        }
+    }
+
+    /// How long a reading of the driven display stands as its brightness for a scroll on the
+    /// island to start from: a little over the rail's poll, which keeps it that fresh while the
+    /// rail is up.
+    static let readingStands: TimeInterval = 1
+
+    /// Whether the level published is recent enough to start a scroll from: read, or written
+    /// here, within `readingStands`. Pure, so it is tested.
+    static func levelIsCurrent(readAt: TimeInterval, wroteAt: TimeInterval, now: TimeInterval) -> Bool {
+        LocalWrite.isRecent(max(readAt, wroteAt), within: readingStands, now: now)
+    }
+
+    /// The driven display's brightness, for a scroll on the island that carries Option to start
+    /// from — nil when there is none to set, and nil while the level published is older than
+    /// `readingStands`: a reading is asked for then, on the queue, and the scroll's next event
+    /// starts from it. The router used to ask DisplayServices itself, on the main thread, at
+    /// the start of every scroll. Main thread.
+    func levelForGesture(now: TimeInterval = LocalWrite.now()) -> Double? {
+        guard isAvailable else { return nil }
+        if Self.levelIsCurrent(readAt: readAt, wroteAt: Self.lastLocalWrite, now: now) { return level }
+        refresh()
+        return nil
     }
 
     /// Sets another display a rail is on (`railTarget`). Written on the queue, as the Display
@@ -1112,6 +1204,7 @@ final class BrightnessControl: ObservableObject {
         // only thing that keeps `isAvailable` honest between one screen arrangement and the next.
         if isAvailable != (reading.level != nil) { isAvailable = reading.level != nil }
         guard let value = reading.level else { return }
+        readAt = LocalWrite.now()
         // A reading that left before the slider moved lands after it: `pending` is what keeps
         // the slider from being pulled back to it.
         if let pending {
@@ -1168,5 +1261,36 @@ final class BrightnessControl: ObservableObject {
     /// label and the level jumping under the pointer. Pure, so it is tested.
     static func holdStands(until: TimeInterval, now: TimeInterval, dragging: Bool) -> Bool {
         dragging || now < until
+    }
+}
+
+/// Writes of a value to somewhere slow, one at a time, keeping only the latest of those asked
+/// for meanwhile. A value offered while nothing is out is written now; one offered while a
+/// write is out waits, and takes the place of any that was already waiting. When the write
+/// lands, the one waiting, if any, is next. Nothing is lost that matters: the last value asked
+/// for is always written. Pure, so it is tested.
+struct LatestWrite<Value> {
+    /// A write is out and has not landed.
+    private(set) var isWriting = false
+    private var waiting: Value?
+
+    /// `value`, to be written now; or nil, and it waits for the write that is out.
+    mutating func offer(_ value: Value) -> Value? {
+        guard !isWriting else {
+            waiting = value
+            return nil
+        }
+        isWriting = true
+        return value
+    }
+
+    /// The write that was out has landed: the value to write next, or nil when none waited.
+    mutating func landed() -> Value? {
+        guard let next = waiting else {
+            isWriting = false
+            return nil
+        }
+        waiting = nil
+        return next
     }
 }

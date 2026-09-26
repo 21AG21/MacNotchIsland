@@ -292,4 +292,31 @@ final class RailControlTests: XCTestCase {
         XCTAssertNil(AudioOutputs.destinationName(current: nil, airPlay: [kitchen], airPlayCurrent: []),
                      "nothing known, nothing named")
     }
+
+    // MARK: - Switches, as VoiceOver reads them
+
+    func testADiscThatIsASwitchSaysWhatItSwitchesAndWhetherItIsOn() {
+        XCTAssertEqual(RailToggle(subject: "Wi-Fi", isOn: true).value, "On")
+        XCTAssertEqual(RailToggle(subject: "Wi-Fi", isOn: false).value, "Off")
+        let microphone = RailToggle(subject: "Microphone", isOn: false, offWord: "Muted")
+        XCTAssertEqual(microphone.value, "Muted", "a switch with words of its own says them")
+        XCTAssertEqual(microphone.subject, "Microphone", "named for the thing, not for the click")
+    }
+
+    // MARK: - The appearance switch's hold
+
+    func testTheAppearanceHoldStartsWhenItsScriptDoes() {
+        let clicked = Date(timeIntervalSinceReferenceDate: 100)
+        let started = clicked.addingTimeInterval(5)
+        let waiting = SystemToggles.Pending(value: true, until: .distantFuture)
+        XCTAssertEqual(SystemToggles.holdStarted(waiting, wanted: true, at: started, settle: SystemToggles.writeSettle),
+                       SystemToggles.Pending(value: true, until: started.addingTimeInterval(SystemToggles.writeSettle)))
+        XCTAssertFalse(SystemToggles.accepts(false, waitingFor: waiting, at: clicked.addingTimeInterval(60)),
+                       "held for as long as the script waits its turn, however long that is")
+        let thrownBack = SystemToggles.Pending(value: false, until: .distantFuture)
+        XCTAssertEqual(SystemToggles.holdStarted(thrownBack, wanted: true, at: started, settle: SystemToggles.writeSettle),
+                       thrownBack, "thrown again since: held for the later script")
+        XCTAssertNil(SystemToggles.holdStarted(nil, wanted: true, at: started, settle: SystemToggles.writeSettle),
+                     "already agreed to, or let go: not held again")
+    }
 }

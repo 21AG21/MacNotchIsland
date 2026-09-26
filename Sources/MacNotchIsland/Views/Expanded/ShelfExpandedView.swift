@@ -157,11 +157,12 @@ struct ShelfStripView: View {
             // under somebody's hand mid-drag.
             if canFind, !shelf.items.isEmpty || center.findQuery != nil {
                 // Return opens the first file whose name matches — the shelf's version of
-                // typing at a Finder window and pressing Return.
-                FindField(matches: shown.count) {
+                // typing at a Finder window and pressing Return. The arrows say the name of the
+                // file they reach.
+                FindField(matches: shown.count, onSubmit: {
                     guard let index = center.findTarget(of: shown.count) else { return }
                     shelf.open([shown[index].url])
-                }
+                }, spokenRow: { spokenName(at: $0) })
             }
             if picked {
                 PillButton(title: "Open") { shelf.open(orderedSelection) }
@@ -301,6 +302,13 @@ struct ShelfStripView: View {
 
     // MARK: - Selection
 
+    /// The name of the file at `index` of what the strip shows, for the find to say as its mark
+    /// reaches it; nil for an index the strip has moved on from.
+    private func spokenName(at index: Int) -> String? {
+        let files = shown
+        return files.indices.contains(index) ? files[index].url.lastPathComponent : nil
+    }
+
     /// The tile the find's mark is on, which Return would open.
     private var found: URL? {
         guard let index = center.findTarget(of: shown.count) else { return nil }
@@ -359,6 +367,9 @@ struct ShelfItemView: View {
     /// thumbnail made for any file on the shelf drew every tile on it again.
     private var shelf: ShelfStore { .shared }
     @State private var hovering = false
+    /// Whether the keyboard focus is on this tile, with Full Keyboard Access on. Qualified: the
+    /// island has a `FocusState` of its own, the payload of a Focus activity.
+    @SwiftUI.FocusState private var focused: Bool
 
     private var url: URL { item.url }
 
@@ -416,11 +427,28 @@ struct ShelfItemView: View {
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { shelf.open([url]) }
         .onTapGesture { onSelect() }
+        // A tile answered the pointer and nothing else, so with Full Keyboard Access on Tab went
+        // past the strip and no file on it could be picked out. Now Tab stops on each tile, and
+        // Space or Return does what a click does: the pills in the header then act on it.
+        // Focusable for that alone (`.activate`): with Full Keyboard Access off a click gives a
+        // tile no focus, and nothing about the pointer changes.
+        .focusable(interactions: .activate)
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.space) {
+            onSelect()
+            return .handled
+        }
+        .onKeyPress(.return) {
+            onSelect()
+            return .handled
+        }
         .contextMenu { menu }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("File \(url.lastPathComponent), added \(accessibilityAge)")
-        .accessibilityValue(isSelected ? "selected" : "")
+        // Picked out, as the system's own lists say it, rather than a word read as its value.
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint("Selects the file. Open is in the actions.")
         .accessibilityAction { onSelect() }
         .accessibilityAction(named: Text("Open")) { shelf.open([url]) }
@@ -443,6 +471,17 @@ struct ShelfItemView: View {
                     if isSelected {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .strokeBorder(Color.white, lineWidth: 2)
+                    }
+                }
+                .overlay {
+                    // Where the keyboard is. Inside the picture's own edge, inside the selection
+                    // ring where there is one, rather than round it, where the strip would cut it
+                    // off at either end.
+                    if focused {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                            .padding(3)
+                            .accessibilityHidden(true)
                     }
                 }
         }

@@ -191,10 +191,22 @@ final class SystemToggles: ObservableObject {
         return now >= waiting.until || waiting.value == value
     }
 
-    /// What the user just asked for, shown at once and held until the system agrees.
-    private func expect(_ key: Switch, _ value: Bool) {
-        pending[key.rawValue] = Pending(value: value, until: Date().addingTimeInterval(Self.settle(for: key, wanted: value)))
+    /// What the user just asked for, shown at once and held until the system agrees — for the
+    /// switch's settle from now, or, `untilStarted`, for as long as the write waits its turn and
+    /// its settle from when it starts (`holdStarted`).
+    private func expect(_ key: Switch, _ value: Bool, untilStarted: Bool = false) {
+        let until = untilStarted ? Date.distantFuture : Date().addingTimeInterval(Self.settle(for: key, wanted: value))
+        pending[key.rawValue] = Pending(value: value, until: until)
         show(key, value)
+    }
+
+    /// The hold on a switch once the write that throws it has started, at `start`: its settle
+    /// from then, if what is held is still what that write asked for. A switch thrown again
+    /// since is held for the later write, and one the system has already agreed to, or that
+    /// was let go, is not held again. Pure, so it is tested.
+    static func holdStarted(_ waiting: Pending?, wanted: Bool, at start: Date, settle: TimeInterval) -> Pending? {
+        guard let waiting, waiting.value == wanted else { return waiting }
+        return Pending(value: wanted, until: start.addingTimeInterval(settle))
     }
 
     private func show(_ key: Switch, _ value: Bool) {
@@ -273,7 +285,11 @@ final class SystemToggles: ObservableObject {
     /// through System Events, so the first use asks for permission to control it.
     func toggleAppearance() {
         let wanted = !darkMode
-        expect(.appearance, wanted)
+        // Held from when the script starts rather than from the click. It waits its turn on the
+        // script queue, behind a Now Playing poll that can hold it for seconds, and the hold ran
+        // out there: the rail's next look at the appearance, which had not changed yet, put the
+        // switch back, and the script landing a moment later put it forward again.
+        expect(.appearance, wanted, untilStarted: true)
         let source = """
         tell application "System Events" to tell appearance preferences to set dark mode to \(wanted)
         """
@@ -282,6 +298,13 @@ final class SystemToggles: ObservableObject {
         // polls and presses. Not the radios' queue either: System Events can take seconds to
         // answer the first time, and the rail's poll should not be waiting behind it.
         ScriptQueue.async { [weak self] in
+            let started = Date()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let key = Switch.appearance.rawValue
+                self.pending[key] = Self.holdStarted(self.pending[key], wanted: wanted, at: started,
+                                                     settle: Self.settle(for: .appearance, wanted: wanted))
+            }
             let outcome = ScriptQueue.execute(ScriptQueue.timed(source, seconds: Self.appearanceTimeout))
             DispatchQueue.main.async {
                 if !outcome.succeeded {

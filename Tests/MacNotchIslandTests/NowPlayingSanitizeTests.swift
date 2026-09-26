@@ -96,4 +96,48 @@ final class NowPlayingSanitizeTests: XCTestCase {
         XCTAssertEqual(AppleScriptBackend.scriptedSeconds(""), 0)
         XCTAssertEqual(AppleScriptBackend.scriptedSeconds("inf"), 0)
     }
+
+    // MARK: - The script queue's waits
+
+    private let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
+
+    private func press(_ kind: AppleScriptBackend.Press.Kind) -> AppleScriptBackend.Press {
+        AppleScriptBackend.Press(kind: kind, player: AppleScriptBackend.musicID, source: "", at: t0)
+    }
+
+    func testAPressWaitingOnAPollThatAnsweredIsNotOutOfPatience() {
+        let patience = AppleScriptBackend.pressPatience
+        // The poll ahead held the queue for eight seconds, and the press began to run then.
+        let freed = t0 + 8
+        XCTAssertEqual(AppleScriptBackend.patienceStart(madeAt: t0, queueFreeAt: freed, stalledAt: nil), freed)
+        XCTAssertTrue(AppleScriptBackend.stillWanted(press(.toggle), now: freed, queueFreeAt: freed),
+                      "the poll's wait was the island's own")
+        XCTAssertFalse(AppleScriptBackend.stillWanted(press(.toggle), now: freed + patience + 1, queueFreeAt: freed),
+                       "the wait after it still counts")
+    }
+
+    func testAPressWaitingOnAPlayerThatDidNotAnswerStillRunsOutOfPatience() {
+        let freed = t0 + 8
+        let stalled = t0 + 4
+        XCTAssertEqual(AppleScriptBackend.patienceStart(madeAt: t0, queueFreeAt: freed, stalledAt: stalled), t0)
+        XCTAssertFalse(AppleScriptBackend.stillWanted(press(.toggle), now: freed, queueFreeAt: freed, stalledAt: stalled))
+        XCTAssertTrue(AppleScriptBackend.stillWanted(press(.pause), now: freed, queueFreeAt: freed, stalledAt: stalled),
+                      "a pause is never too late")
+        XCTAssertEqual(AppleScriptBackend.patienceStart(madeAt: t0, queueFreeAt: freed, stalledAt: t0 - 1), freed,
+                       "a stall before the press was made is not this press's wait")
+    }
+
+    func testPatienceNeverStartsBeforeThePressWasMade() {
+        XCTAssertEqual(AppleScriptBackend.patienceStart(madeAt: t0, queueFreeAt: t0 - 5, stalledAt: nil), t0)
+        XCTAssertEqual(AppleScriptBackend.patienceStart(madeAt: t0, queueFreeAt: nil, stalledAt: nil), t0)
+    }
+
+    func testOneSpotifyCoverFetchIsOutAtATime() {
+        XCTAssertTrue(AppleScriptBackend.startsCoverFetch(hasCover: false, attempts: 0, inFlight: false))
+        XCTAssertFalse(AppleScriptBackend.startsCoverFetch(hasCover: false, attempts: 0, inFlight: true),
+                       "the poll after does not send another while the first is out")
+        XCTAssertFalse(AppleScriptBackend.startsCoverFetch(hasCover: true, attempts: 0, inFlight: false))
+        XCTAssertFalse(AppleScriptBackend.startsCoverFetch(hasCover: false, attempts: AppleScriptBackend.coverAttemptLimit,
+                                                           inFlight: false))
+    }
 }

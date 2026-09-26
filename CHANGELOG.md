@@ -278,6 +278,14 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- VoiceOver says each alert as it comes up, a finished download, a device connecting, "Copied", and each card that takes the island, and alerts stay up three times as long, up to a minute, while VoiceOver is running.
+- The rail's Wi-Fi, Bluetooth, Keep Awake, microphone and mirror buttons read as switches with their state ("Wi-Fi, On"), and the output menu's tick on the current device is one VoiceOver can read.
+- Moving through a find with the arrow keys says the file reached and where it is in the matches, and the number of matches is spoken as you type.
+- Clipboard rows say when they are pinned or their file is gone, Wi-Fi networks say whether they are secured and how strong their signal is, the Controls titles and Sound headings are headings, and a selected shelf file is read as selected.
+- With Full Keyboard Access on, clipboard rows, shelf files and Home tiles can be reached with Tab and used with Space or Return, with a ring showing where the focus is.
+- With Increase Contrast on, the Controls notes, the Sound headings and the clipboard's app names are drawn stronger; with Differentiate Without Color on, a low battery in the Bluetooth list shows a "!"; and under Reduce Motion the volume and brightness card's glyph and figure fade instead of moving.
+- Dragging the brightness slider or scrolling with Option no longer stalls the panel on a slow external display, and the Dark Mode switch on the rail no longer flips back and forth while Now Playing is busy.
+- A play or pause pressed while Spotify's cover is loading is no longer dropped, the cover arrives a moment later instead of holding up the controls, and a file put back on disk is no longer marked missing again by a slow earlier check.
 - With Full Keyboard Access on, Space presses the button the focus is on instead of playing music, and the arrow keys reach the focused control before they step between sections.
 - Window tiles can be reached with Tab and opened with Space or Return, and a notification can be tabbed to and forgotten with Delete.
 - VoiceOver announces when a timer or alarm goes off and when a script asks a question, including how to answer it with Control-Y or Control-N.

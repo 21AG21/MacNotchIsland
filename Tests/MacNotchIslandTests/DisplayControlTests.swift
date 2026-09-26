@@ -125,4 +125,30 @@ final class DisplayControlTests: XCTestCase {
         let locked = EnergyPolicy.pollingMultiplier(asleep: false, lowPower: false, onBattery: false, unattended: true)
         XCTAssertGreaterThanOrEqual(BrightnessControl.scaledPollInterval(multiplier: locked), 4)
     }
+
+    // MARK: - The driven display's writes
+
+    func testOneBrightnessWriteIsOutAtATimeAndOnlyTheLatestWaits() {
+        var writes = LatestWrite<Float>()
+        XCTAssertEqual(writes.offer(0.2), 0.2, "nothing out: written now")
+        XCTAssertNil(writes.offer(0.3), "one out: waits")
+        XCTAssertNil(writes.offer(0.4), "and takes the place of the one that waited")
+        XCTAssertEqual(writes.landed(), 0.4, "the latest goes next")
+        XCTAssertTrue(writes.isWriting)
+        XCTAssertNil(writes.landed(), "nothing else waited")
+        XCTAssertFalse(writes.isWriting)
+        XCTAssertEqual(writes.offer(0.5), 0.5, "free again: written now")
+    }
+
+    func testAScrollStartsFromThePublishedLevelOnlyWhileItIsFresh() {
+        let now: TimeInterval = 500
+        let stands = BrightnessControl.readingStands
+        XCTAssertTrue(BrightnessControl.levelIsCurrent(readAt: now - stands / 2, wroteAt: LocalWrite.never, now: now))
+        XCTAssertTrue(BrightnessControl.levelIsCurrent(readAt: LocalWrite.never, wroteAt: now - stands / 2, now: now),
+                      "a level written here is as good as one read")
+        XCTAssertFalse(BrightnessControl.levelIsCurrent(readAt: now - stands - 1, wroteAt: now - stands - 5, now: now),
+                       "stale: a reading is asked for instead")
+        XCTAssertFalse(BrightnessControl.levelIsCurrent(readAt: LocalWrite.never, wroteAt: LocalWrite.never, now: now),
+                       "never read at all")
+    }
 }

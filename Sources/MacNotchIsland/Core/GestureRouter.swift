@@ -613,17 +613,12 @@ final class GestureRouter {
         return true
     }
 
-    /// Whether this Mac's display answers a brightness read at all. Asked at most once a
-    /// second: it is a DisplayServices round trip and a scroll is thirty events a second.
-    private var brightnessCheckedAt = Date.distantPast
-    private var brightnessIsAvailable = false
-
+    /// Whether this Mac's display answers a brightness read at all, as the brightness service
+    /// last found it. It was asked of DisplayServices here, on the main thread, once a second
+    /// of every scroll — with the lid shut, a round trip down the cable to the monitor. The
+    /// service reads it on its own queue, and again whenever the displays change.
     private func brightnessAvailable(now: Date) -> Bool {
-        if now.timeIntervalSince(brightnessCheckedAt) > 1 {
-            brightnessCheckedAt = now
-            brightnessIsAvailable = BrightnessControl.read() != nil
-        }
-        return brightnessIsAvailable
+        BrightnessControl.shared.isAvailable
     }
 
     /// Where the brightness was when this gesture started, carried from event to event.
@@ -632,10 +627,12 @@ final class GestureRouter {
     @discardableResult
     private func applyBrightness(delta: Double) -> Bool {
         guard delta != 0 else { return false }
-        // Read once at the start of a gesture and carried from there. A DisplayServices read
-        // on every event of a thirty-a-second scroll is not worth its cost, and the value in
-        // between is one this router has just written itself.
-        guard let current = brightnessBase ?? BrightnessControl.read() else { return false }
+        // Taken once at the start of a gesture and carried from there: the value in between is
+        // one this router has just written itself. Taken from the level the brightness service
+        // publishes, which it reads on its own queue, rather than from DisplayServices on the
+        // main thread; while that level is stale the service asks for a fresh one and the
+        // gesture starts on the event after it lands (`levelForGesture`).
+        guard let current = brightnessBase ?? BrightnessControl.shared.levelForGesture() else { return false }
         let target = min(1, max(0, current + delta))
         brightnessBase = target
         BrightnessControl.shared.set(target)
