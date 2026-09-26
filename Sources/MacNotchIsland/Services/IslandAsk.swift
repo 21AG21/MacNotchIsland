@@ -264,9 +264,6 @@ final class IslandAsk {
         }
     }
 
-    /// Whether a question is up.
-    var isAsking: Bool { pending != nil }
-
     /// `notchisland://ask?…`, read and checked. A question with a reply file the island will not
     /// write is refused; one with nothing to ask is answered "timeout" at once, where its reply
     /// file is one it will write, so the script finds out now rather than in a minute.
