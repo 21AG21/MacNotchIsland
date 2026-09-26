@@ -46,7 +46,7 @@ struct CaptureExpandedView: View {
                     // press, so the host takes the line the file name was on.
                     Text(copied ?? linkLine ?? state.subtitle)
                         .font(.system(size: 12.5))
-                        .foregroundStyle(.white.opacity(0.55))
+                        .quietWhite(0.55)
                         .lineLimit(1)
                         .contentTransition(.opacity)
                 }

@@ -338,7 +338,7 @@ struct NotesSectionView: View {
                     // needs — and it is the line that tells you the section is for typing in.
                     Text(invitation)
                         .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.4))
+                        .quietWhite(0.4)
                         .padding(.top, 1)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)

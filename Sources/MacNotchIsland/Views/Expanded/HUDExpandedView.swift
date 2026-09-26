@@ -37,7 +37,7 @@ struct HUDExpandedView: View {
                     if let line = state.device ?? (state.isUnavailable ? LevelHUD.unavailableHint(state) : nil) {
                         Text(line)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
+                            .quietWhite(0.5)
                             .lineLimit(1)
                     }
                 }

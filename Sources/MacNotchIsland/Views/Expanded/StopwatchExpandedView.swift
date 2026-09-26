@@ -28,7 +28,7 @@ struct StopwatchExpandedView: View {
                     VStack(alignment: .leading, spacing: -4) {
                         Text(state.laps.isEmpty ? "Stopwatch" : "Lap \(state.laps.count + 1)")
                             .font(.system(size: 12.5))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .quietWhite(0.55)
                             .lineLimit(1)
                         let elapsed = Self.format(state.elapsed(at: context.date), showTenths: !coarse)
                         Text(elapsed)

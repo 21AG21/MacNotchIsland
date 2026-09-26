@@ -155,18 +155,18 @@ private struct NotificationRowView: View {
                         // remembered, so the app is what the eye runs down the column for.
                         Text(entry.appName)
                             .font(.system(size: 9.5))
-                            .foregroundStyle(.white.opacity(0.32))
+                            .quietWhite(0.32)
                             .lineLimit(1)
                         Text(headline)
                             .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(entry.isThin ? 0.55 : 1))
+                            .quietWhite(entry.isThin ? 0.55 : 1)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
                     if let detail {
                         Text(detail)
                             .font(.system(size: 10.5))
-                            .foregroundStyle(.white.opacity(0.45))
+                            .quietWhite(0.45)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -230,7 +230,7 @@ private struct NotificationRowView: View {
                 Text(age(at: now))
                     .font(.system(size: 10))
                     .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.4))
+                    .quietWhite(0.4)
             }
         }
         .frame(width: Self.trailingWidth, alignment: .trailing)

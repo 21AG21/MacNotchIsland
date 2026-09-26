@@ -59,7 +59,7 @@ struct CustomExpandedView: View {
                     if let subtitle = state.subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.system(size: 12.5))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .quietWhite(0.55)
                             .lineLimit(1)
                     }
                     if let body = state.body, !body.isEmpty {

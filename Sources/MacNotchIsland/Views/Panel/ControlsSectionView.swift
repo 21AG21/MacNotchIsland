@@ -188,7 +188,7 @@ struct ControlsSectionView: View {
                     .accessibilityHidden(true)
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .quietWhite(0.55)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 trailing()
@@ -295,7 +295,8 @@ struct ControlsSectionView: View {
                                              if let battery = device.battery {
                                                  Text("\(battery)%")
                                                      .font(.system(size: 10).monospacedDigit())
-                                                     .foregroundStyle(Self.batteryTint(battery))
+                                                     .foregroundStyle(Self.batteryTint(battery,
+                                                                                       increased: display.increaseContrast))
                                                  // Red is the whole of the warning; under
                                                  // Differentiate Without Color a "!" follows
                                                  // the figure as well.
@@ -373,9 +374,14 @@ struct ControlsSectionView: View {
 
     /// Quiet grey for a level nobody needs to act on, and a warm red for the one that wants
     /// catching — the keyboard that will die mid-sentence this afternoon. Red from the level
-    /// the AirPods card turns red at, see `BluetoothState.isLow`.
-    static func batteryTint(_ percent: Int) -> Color {
-        BluetoothState.isLow(percent) ? Color(red: 1, green: 0.42, blue: 0.4) : Color.white.opacity(0.45)
+    /// the AirPods card turns red at, see `BluetoothState.isLow`. The grey is a figure, and is
+    /// raised with every other quiet line under Increase Contrast (`IslandContrast`); a colour
+    /// rather than `quietWhite`, since the red is the other half of the same choice.
+    static func batteryTint(_ percent: Int,
+                            increased: Bool = AccessibilityDisplay.shared.increaseContrast) -> Color {
+        BluetoothState.isLow(percent)
+            ? Color(red: 1, green: 0.42, blue: 0.4)
+            : Color.white.opacity(IslandContrast.alpha(0.45, increased: increased))
     }
 
     /// The route picker's glyph: the same box the row's other glyphs sit in, a little larger,

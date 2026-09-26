@@ -126,7 +126,7 @@ struct TimerExpandedView: View {
         HStack(spacing: 6) {
             Text(headline)
                 .font(.system(size: 12.5))
-                .foregroundStyle(.white.opacity(0.55))
+                .quietWhite(0.55)
                 .lineLimit(1)
             if let phase = pomodoro { sessionDots(phase) }
         }
@@ -242,7 +242,7 @@ struct TimerExpandedView: View {
                 .accessibilityHidden(true)
             Text(entry.label)
                 .font(.system(size: 12.5))
-                .foregroundStyle(.white.opacity(0.55))
+                .quietWhite(0.55)
                 .lineLimit(1)
                 .accessibilityHidden(true)
             let remaining = entry.state.alarmAt.map(IslandAlarm.clock)

@@ -137,7 +137,7 @@ struct SectionEmptyState<Action: View>: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .quietWhite(0.4)
                     .multilineTextAlignment(.center)
             }
             action()
@@ -179,7 +179,7 @@ struct SectionHeader<Trailing: View>: View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.55))
+                .quietWhite(0.55)
                 .lineLimit(1)
                 // A heading, so VoiceOver's rotor can jump from one section to the next.
                 .accessibilityAddTraits(.isHeader)

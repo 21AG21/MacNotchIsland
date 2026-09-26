@@ -165,7 +165,7 @@ struct SwitcherBand: View {
         HStack(spacing: 6) {
             Text(name)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.55))
+                .quietWhite(0.55)
                 .lineLimit(1)
             // The key that goes straight here, where somebody is already looking to find out
             // how to get here. Only while the digits are actually the island's, and only for

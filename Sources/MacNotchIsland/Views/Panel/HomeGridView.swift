@@ -146,7 +146,7 @@ struct HomeGridView: View {
                     .lineLimit(1)
                 Text(glimpse)
                     .font(.system(size: 10.5))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .quietWhite(0.45)
                     .lineLimit(1)
             }
             .padding(10)
@@ -273,7 +273,7 @@ private struct NowPlayingTile: View {
                         .lineLimit(1)
                     Text(subtitle)
                         .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.45))
+                        .quietWhite(0.45)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 6)

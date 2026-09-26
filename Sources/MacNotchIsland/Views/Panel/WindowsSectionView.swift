@@ -142,13 +142,13 @@ struct WindowsSectionView: View {
             } else {
                 Text("1 picked")
                     .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .quietWhite(0.4)
             }
             PillButton(title: "Clear", tint: .white.opacity(0.85)) { selection.removeAll() }
         case .count:
             Text(Self.tally(allWindows.count))
                 .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.4))
+                .quietWhite(0.4)
         }
     }
 
@@ -284,7 +284,7 @@ struct WindowsSectionView: View {
                 }
                 Text(window.label)
                     .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(window.away == nil ? 0.6 : 0.35))
+                    .quietWhite(window.away == nil ? 0.6 : 0.35)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

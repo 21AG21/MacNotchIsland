@@ -15,10 +15,11 @@ struct MarqueeText: View {
 
     @ObservedObject private var energy = EnergyPolicy.shared
     @State private var textWidth: CGFloat = 0
-    /// When this text arrived. The scroll is timed from here, so a new title holds still for
-    /// its pause and then sets off from its first letter. Timed from the wall clock, as it
-    /// was, a new title landed at whatever point of the cycle the clock happened to be at:
-    /// most of the time mid-scroll, with its first letters already gone.
+    /// When this text arrived, or was last set going again (`restartsScroll`). The scroll is
+    /// timed from here, so a new title holds still for its pause and then sets off from its
+    /// first letter. Timed from the wall clock, as it was, a new title landed at whatever point
+    /// of the cycle the clock happened to be at: most of the time mid-scroll, with its first
+    /// letters already gone.
     @State private var epoch = Date()
 
     var body: some View {
@@ -71,21 +72,52 @@ struct MarqueeText: View {
             }
         }
         .frame(height: lineHeight)
-        .onChange(of: text) { _, _ in epoch = Date() }
+        .onChange(of: text) { _, _ in if Self.restartsScroll(on: .newText) { epoch = Date() } }
         // Played again, the title holds for its pause and sets off from its first letter, the
         // way a new one does, rather than jumping to wherever the clock has got to meanwhile.
-        .onChange(of: isPlaying) { _, playing in if playing { epoch = Date() } }
+        .onChange(of: isPlaying) { _, playing in if Self.restartsScroll(on: .playing(playing)) { epoch = Date() } }
+        // And the same when the energy policy lets it go: Low Power Mode ended, the Mac plugged
+        // back in with "Pause animations on battery" on, Reduce Motion turned off, the screen
+        // unlocked. The epoch stayed where the title had arrived, so it came back part-way
+        // through its scroll, with its first letters already gone and no pause to read them in.
+        .onChange(of: energy.animationsPaused) { _, paused in
+            if Self.restartsScroll(on: .animationsPaused(paused)) { epoch = Date() }
+        }
         .background(
             label.fixedSize().hidden().background(
                 GeometryReader { g in
                     Color.clear.onChange(of: g.size.width, initial: true) { _, w in
                         textWidth = w
                         // The width is known a frame after the text: the cycle starts then.
-                        epoch = Date()
+                        if Self.restartsScroll(on: .measured) { epoch = Date() }
                     }
                 }
             )
         )
+    }
+
+    /// What can happen to a title that bears on where its scroll is.
+    enum ScrollEvent: Equatable {
+        /// A different text arrived.
+        case newText
+        /// The text's width was measured, a frame after it arrived.
+        case measured
+        /// What the text names started (`true`) or stopped playing.
+        case playing(Bool)
+        /// The energy policy began (`true`) or stopped holding every animation still.
+        case animationsPaused(Bool)
+    }
+
+    /// Whether `event` sets the scroll off again from the first letter, after its pause: a new
+    /// text and its measuring do, and so does the title being let go, by the music playing again
+    /// or by the energy policy. Being held still does not, and need not, since a title held
+    /// still shows its first letters anyway. Pure, so it is tested.
+    static func restartsScroll(on event: ScrollEvent) -> Bool {
+        switch event {
+        case .newText, .measured: return true
+        case .playing(let playing): return playing
+        case .animationsPaused(let paused): return !paused
+        }
     }
 
     /// How much of each end the fade covers.

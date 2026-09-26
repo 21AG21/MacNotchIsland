@@ -38,7 +38,7 @@ struct CallExpandedView: View {
                                 .lineLimit(1)
                             Text("Call in progress")
                                 .font(.system(size: 12.5))
-                                .foregroundStyle(.white.opacity(0.55))
+                                .quietWhite(0.55)
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 0)

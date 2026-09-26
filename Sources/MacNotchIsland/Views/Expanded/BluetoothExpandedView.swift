@@ -39,7 +39,7 @@ struct BluetoothExpandedView: View {
                         .lineLimit(1)
                     Text(state.isConnected ? "Connected" : "Disconnected")
                         .font(.system(size: 12.5))
-                        .foregroundStyle(.white.opacity(0.55))
+                        .quietWhite(0.55)
                         .lineLimit(1)
                 }
                 // Said once, in the row's sentence, see `hidesItsWords`.
@@ -94,7 +94,7 @@ struct BluetoothExpandedView: View {
                     if let current = airPods.current {
                         Text(current.title)
                             .font(.system(size: 12.5))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .quietWhite(0.55)
                             .lineLimit(1)
                             .accessibilityHidden(true)
                     }

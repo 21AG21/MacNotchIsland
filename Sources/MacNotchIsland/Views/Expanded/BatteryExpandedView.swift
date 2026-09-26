@@ -29,7 +29,7 @@ struct BatteryExpandedView: View {
                     if BatteryFormatting.showsConnectToPower(for: state) {
                         Text("Connect to power")
                             .font(.system(size: 12.5))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .quietWhite(0.55)
                             .lineLimit(1)
                     }
                 }
@@ -40,7 +40,7 @@ struct BatteryExpandedView: View {
                     if let time = BatteryFormatting.timeLine(for: state) {
                         Text(time)
                             .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .quietWhite(0.55)
                             .lineLimit(1)
                     }
                     Text("\(state.percent)%")

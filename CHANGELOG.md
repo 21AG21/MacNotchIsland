@@ -278,6 +278,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- A long title no longer comes back part-way through its scroll after Low Power Mode ends, the Mac is plugged back in with "Pause animations on battery" on, Reduce Motion is turned off or the screen is unlocked: it starts again from its first letter after its usual pause.
+- Increase Contrast now reaches the cards' and the panel's quiet lines: subtitles, times and captions on every card, the section headers, empty-state lines, tile previews, clipboard and notification ages, a hovered slot's name and the Bluetooth list's battery figures are drawn no fainter than 60% white with the setting on, and exactly as before with it off.
 - With the panel open on two displays, VoiceOver hears the find's match count once rather than once a display.
 - A click on a window tile no longer waits behind a walk of the window list held up by an app that has stopped answering.
 - The island's menu still lists paired Bluetooth devices on its first opening when Bluetooth alerts are off and Controls has never been opened.

@@ -30,7 +30,7 @@ struct DownloadExpandedView: View {
                         .lineLimit(1)
                     Text(state.isComplete ? "Download complete · \(state.app)" : "\(state.sizeText) · \(state.app)")
                         .font(.system(size: 12.5).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.55))
+                        .quietWhite(0.55)
                         .lineLimit(1)
                 }
                 .accessibilityHidden(true)

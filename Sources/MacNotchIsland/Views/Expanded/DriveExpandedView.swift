@@ -33,7 +33,7 @@ struct DriveExpandedView: View {
                         .lineLimit(1)
                     Text(state.subtitle)
                         .font(.system(size: 12.5).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.55))
+                        .quietWhite(0.55)
                         .lineLimit(1)
                 }
                 // Said once, in the row's sentence below, rather than again line by line.

@@ -26,7 +26,7 @@ struct FocusExpandedView: View {
                         .lineLimit(1)
                     Text(state.isOn ? "On" : "Off")
                         .font(.system(size: 12.5))
-                        .foregroundStyle(.white.opacity(0.55))
+                        .quietWhite(0.55)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)

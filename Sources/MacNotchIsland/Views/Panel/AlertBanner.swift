@@ -27,7 +27,7 @@ struct AlertBanner: View {
                         // The output is named in the title; this says what to do about it.
                         Text(LevelHUD.unavailableHint(hud))
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
+                            .quietWhite(0.5)
                             .lineLimit(1)
                     } else {
                         LevelBar(level: hud.isMuted ? 0 : hud.level, tint: .white)

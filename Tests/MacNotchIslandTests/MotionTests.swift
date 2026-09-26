@@ -336,4 +336,22 @@ final class MotionTests: XCTestCase {
         let order = SettingsSection.allCases
         XCTAssertEqual(order.firstIndex(of: .motion), order.firstIndex(of: .island).map { $0 + 1 })
     }
+
+    // MARK: - Where a scrolling title starts from
+
+    /// A title that is let go starts from its first letter, after its pause, the way a new one
+    /// does. The energy policy letting it go — Low Power Mode ending, the screen unlocked — did
+    /// not restart it, and it came back part-way through its scroll.
+    func testATitleLetGoByTheEnergyPolicyStartsFromItsFirstLetter() {
+        XCTAssertTrue(MarqueeText.restartsScroll(on: .animationsPaused(false)))
+        XCTAssertFalse(MarqueeText.restartsScroll(on: .animationsPaused(true)),
+                       "held still it shows its first letters anyway")
+    }
+
+    func testANewTitleOrOnePlayedAgainStartsFromItsFirstLetterToo() {
+        XCTAssertTrue(MarqueeText.restartsScroll(on: .newText))
+        XCTAssertTrue(MarqueeText.restartsScroll(on: .measured), "the width is known a frame after the text")
+        XCTAssertTrue(MarqueeText.restartsScroll(on: .playing(true)))
+        XCTAssertFalse(MarqueeText.restartsScroll(on: .playing(false)))
+    }
 }

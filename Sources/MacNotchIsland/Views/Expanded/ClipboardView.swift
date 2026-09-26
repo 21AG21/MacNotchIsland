@@ -144,13 +144,13 @@ private struct ClipboardRowView: View {
                 glyph
                 Text(item.preview)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(missing ? 0.45 : 1))
+                    .quietWhite(missing ? 0.45 : 1)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if missing {
                     Text("no longer on disk")
                         .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.35))
+                        .quietWhite(0.35)
                         .lineLimit(1)
                 }
             }
@@ -249,7 +249,7 @@ private struct ClipboardRowView: View {
                     Text(item.age(at: now))
                         .font(.system(size: 10))
                         .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.4))
+                        .quietWhite(0.4)
                 }
             }
         }

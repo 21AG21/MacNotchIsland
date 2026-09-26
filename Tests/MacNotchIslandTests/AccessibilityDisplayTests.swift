@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SwiftUI
 import XCTest
 @testable import MacNotchIsland
 
@@ -69,6 +70,16 @@ final class AccessibilityDisplayTests: XCTestCase {
         XCTAssertEqual(IslandContrast.alpha(0.85, increased: true), 0.85)
         XCTAssertEqual(IslandContrast.alpha(1, increased: true), 1)
         XCTAssertEqual(IslandContrast.floor, 0.6)
+    }
+
+    /// The Bluetooth list's battery figure is a colour rather than a line drawn with
+    /// `quietWhite`, so it is raised by hand; its grey rises, and the red that warns does not.
+    func testTheBluetoothListsBatteryFigureRisesUnderIncreaseContrast() {
+        XCTAssertEqual(ControlsSectionView.batteryTint(80, increased: false), Color.white.opacity(0.45),
+                       "exactly as it was with the setting off")
+        XCTAssertEqual(ControlsSectionView.batteryTint(80, increased: true), Color.white.opacity(IslandContrast.floor))
+        XCTAssertEqual(ControlsSectionView.batteryTint(15, increased: true), ControlsSectionView.batteryTint(15, increased: false),
+                       "the red is not a grey, and is left alone")
     }
 
     // MARK: - Differentiate Without Color
