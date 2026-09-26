@@ -134,16 +134,24 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(StopwatchExpandedView.format(65.34, showTenths: false, locale: german), "01:05", "no mark without tenths")
     }
 
+    /// The overrides are the notch's alone (`NotchGeometry.overridden`): a display with one
+    /// takes them, and a display without keeps the pill's own size — which is what the
+    /// display running the tests has, unless a notch is simulated.
     func testNotchGeometryOverrides() {
         let prefs = Preferences.shared
+        let saved = (prefs.notchWidthOverride, prefs.notchHeightOverride)
+        defer { (prefs.notchWidthOverride, prefs.notchHeightOverride) = saved }
         prefs.notchWidthOverride = 222
         prefs.notchHeightOverride = 33
         guard let screen = NSScreen.main else { return }
         let g = NotchGeometry.detect(on: screen, prefs: prefs)
-        XCTAssertEqual(g.notchWidth, 222)
-        XCTAssertEqual(g.notchHeight, 33)
-        prefs.notchWidthOverride = 0
-        prefs.notchHeightOverride = 0
+        if g.hasPhysicalNotch {
+            XCTAssertEqual(g.notchWidth, max(222, NotchGeometry.automaticWidth(on: screen)))
+            XCTAssertEqual(g.notchHeight, max(33, NotchGeometry.automaticHeight(on: screen)))
+        } else {
+            XCTAssertEqual(g.notchWidth, NotchGeometry.automaticWidth(on: screen), "a pill keeps its own width")
+            XCTAssertEqual(g.notchHeight, NotchGeometry.automaticHeight(on: screen), "and its own height")
+        }
     }
 
     /// The override can only widen the island, so the Width slider starts at the width the
@@ -182,7 +190,9 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchHeight, automatic,
                        "a figure under it, stored by an older build, leaves the island as it is")
         prefs.notchHeightOverride = Double(automatic) + 6
-        XCTAssertEqual(NotchGeometry.detect(on: screen, prefs: prefs).notchHeight, automatic + 6,
-                       "and one over it makes the island taller")
+        // Taller on a notch; the pill on a display without one keeps its height (`overridden`).
+        let taller = NotchGeometry.detect(on: screen, prefs: prefs)
+        XCTAssertEqual(taller.notchHeight, taller.hasPhysicalNotch ? automatic + 6 : automatic,
+                       "and one over it makes the island taller, where there is a notch to be taller than")
     }
 }
