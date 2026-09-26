@@ -241,6 +241,10 @@ final class TimerEntryParseTests: XCTestCase {
 
     func testTheFieldSaysWhatReturnWouldStart() {
         XCTAssertEqual(TimerEntryField.hint(for: .minutes(5), text: "5", now: now), "5 min timer")
+        XCTAssertEqual(TimerEntryField.hint(for: .minutes(120), text: "2h", now: now), "2 h timer", "whole hours in hours")
+        XCTAssertEqual(TimerEntryField.hint(for: .minutes(60), text: "60", now: now), "1 h timer")
+        XCTAssertEqual(TimerEntryField.hint(for: .minutes(90), text: "90", now: now), "1 h 30 min timer")
+        XCTAssertEqual(TimerEntryField.hint(for: .minutes(59), text: "59", now: now), "59 min timer")
         XCTAssertNil(TimerEntryField.hint(for: nil, text: "", now: now), "nothing typed, nothing said")
         XCTAssertEqual(TimerEntryField.hint(for: nil, text: "7:", now: now), "Minutes, or a time")
         XCTAssertTrue(TimerEntryField.hint(for: .alarm(at(26, 7, 30)), text: "7:30", now: now)?.hasPrefix("Alarm ") ?? false)

@@ -54,11 +54,17 @@ struct TimerEntryField: View {
         .transition(IslandMotion.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
     }
 
-    /// What Return would do, in a few words: "5 min timer", "Alarm 7:30 AM tomorrow" — or,
-    /// for something that is neither, what would be. Nothing while the field is empty.
+    /// What Return would do, in a few words: "5 min timer", "2 h timer", "Alarm 7:30 AM
+    /// tomorrow" — or, for something that is neither, what would be. Nothing while the field
+    /// is empty. Whole hours are said in hours, so "2h" is answered in its own terms and "120"
+    /// in the terms it was typed in.
     static func hint(for typed: TimerEntry.Typed?, text: String, now: Date) -> String? {
         switch typed {
-        case .minutes(let minutes)?: return "\(minutes) min timer"
+        case .minutes(let minutes)?:
+            let hours = minutes / 60, rest = minutes % 60
+            if hours > 0, rest == 0 { return "\(hours) h timer" }
+            if hours > 0 { return "\(hours) h \(rest) min timer" }
+            return "\(minutes) min timer"
         case .alarm(let date)?: return "Alarm " + IslandAlarm.describe(date, now: now)
         case nil: return text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : "Minutes, or a time"
         }
@@ -66,7 +72,7 @@ struct TimerEntryField: View {
 
     private static func tooltip(for typed: TimerEntry.Typed?) -> String {
         if case .alarm? = typed { return IslandAlarm.awakeNote }
-        return "Type minutes for a timer, or a time such as 7:30 or 7:30pm for an alarm. Return starts it, Escape leaves."
+        return "Type minutes or hours (25, 2h) for a timer, or a time such as 7:30 or 7:30pm for an alarm. Return starts it, Escape leaves."
     }
 
     /// Return: the timer or the alarm, and the field closes. Something that is neither leaves
