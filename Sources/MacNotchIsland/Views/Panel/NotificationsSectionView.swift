@@ -119,7 +119,7 @@ private struct NotificationRowView: View {
 
     @State private var hovering = false
     /// Whether the keyboard focus is on this row, with Full Keyboard Access on.
-    @FocusState private var focused: Bool
+    @SwiftUI.FocusState private var focused: Bool
 
     /// The clipboard's own column, to the point: a row here and a row there have their marks
     /// on the same line and their text on the same one.

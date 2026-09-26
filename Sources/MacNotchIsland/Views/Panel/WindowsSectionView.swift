@@ -16,7 +16,7 @@ struct WindowsSectionView: View {
     /// Windows picked out with a Command-click, to be laid out together.
     @State private var selection: Set<CGWindowID> = []
     /// The tile the keyboard focus is on, with Full Keyboard Access on.
-    @FocusState private var focusedTile: CGWindowID?
+    @SwiftUI.FocusState private var focusedTile: CGWindowID?
 
     /// Every window there is, before the find narrows it.
     private var allWindows: [IslandWindow] {
