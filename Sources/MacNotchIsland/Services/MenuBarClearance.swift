@@ -5,9 +5,10 @@ import Combine
 /// How much of the menu bar is free on either side of the notch.
 ///
 /// The compact island widens sideways into the menu bar, where the frontmost app's menus end
-/// on the left and the status items begin on the right. Covering either hides text, so the
-/// island only takes room that is actually free. Status items are read from the window list
-/// (each is a window of its own, no permission needed); the app's menu titles are read through
+/// on the left and the status items begin on the right, or the app's own menus do where it has
+/// more than fit to the left of the notch. Covering any of them hides text, so the island only
+/// takes room that is actually free. Status items are read from the window list (each is a
+/// window of its own, no permission needed); the app's menu titles are read through
 /// Accessibility when the app is trusted for it, and assumed clear otherwise, which holds for
 /// all but the widest menus on a 15-inch display.
 final class MenuBarClearance: ObservableObject {
@@ -145,8 +146,10 @@ final class MenuBarClearance: ObservableObject {
         queue.async { [weak self] in
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
             let band = Self.menuBarBand(screenFrame: frame, primaryHeight: primaryHeight, notchHeight: geometry.notchHeight)
-            let trailing = Self.statusItemClearance(windows: windows, menuBar: band, notchMaxX: notch.maxX)
-            let leading = Self.menuClearance(app: app, menuBar: band, notchMinX: notch.minX)
+            let titles = Self.menuTitleFrames(app: app)
+            let leading = titles.flatMap { Self.menuClearance(itemFrames: $0, menuBar: band, notchMinX: notch.minX) }
+            let trailing = Self.nearer(Self.statusItemClearance(windows: windows, menuBar: band, notchMaxX: notch.maxX),
+                                       titles.flatMap { Self.menuTrailingClearance(itemFrames: $0, menuBar: band, notchMaxX: notch.maxX) })
             let measured = Limits(leading: leading, trailing: trailing)
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -217,6 +220,16 @@ final class MenuBarClearance: ObservableObject {
     /// on each switch piles up behind itself, and a measurement that late is of a menu bar
     /// nobody is looking at any more.
     static func menuClearance(app: NSRunningApplication?, menuBar band: CGRect, notchMinX: CGFloat) -> CGFloat? {
+        menuTitleFrames(app: app).flatMap { menuClearance(itemFrames: $0, menuBar: band, notchMinX: notchMinX) }
+    }
+
+    /// The frontmost app's menu titles, where Accessibility has them (top-left coordinates);
+    /// nil without the permission, or when the menu bar cannot be read. Read once a
+    /// measurement and put to both sides of the notch: the leading side's room is where the
+    /// titles end (`menuClearance(itemFrames:…)`), and the trailing side's is where any that
+    /// have run past the notch begin (`menuTrailingClearance`). See `menuClearance(app:…)`
+    /// for why each round trip is given so little time.
+    static func menuTitleFrames(app: NSRunningApplication?) -> [CGRect]? {
         guard let app, AXIsProcessTrusted() else { return nil }
         let application = WindowsMonitor.bounded(AXUIElementCreateApplication(app.processIdentifier))
         var menuBarValue: CFTypeRef?
@@ -226,8 +239,7 @@ final class MenuBarClearance: ObservableObject {
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(menuBar, kAXChildrenAttribute as CFString, &childrenValue) == .success,
               let items = childrenValue as? [AXUIElement], !items.isEmpty else { return nil }
-        return menuClearance(itemFrames: items.compactMap { frame(of: WindowsMonitor.bounded($0)) },
-                             menuBar: band, notchMinX: notchMinX)
+        return items.compactMap { frame(of: WindowsMonitor.bounded($0)) }
     }
 
     /// The same, from the menu titles' frames (Accessibility's top-left coordinates, which are
@@ -242,9 +254,38 @@ final class MenuBarClearance: ObservableObject {
     /// Titles that are somewhere else say nothing about this menu bar, so the answer is
     /// unknown, as it is without the permission.
     static func menuClearance(itemFrames: [CGRect], menuBar: CGRect, notchMinX: CGFloat) -> CGFloat? {
-        let here = itemFrames.filter { $0.width > 0 && menuBar.contains(CGPoint(x: $0.midX, y: $0.midY)) }
+        let here = onMenuBar(itemFrames, menuBar)
         guard let rightEdge = here.map(\.maxX).max() else { return nil }
         return max(0, notchMinX - rightEdge)
+    }
+
+    /// Room between the notch's right edge and the first of the app's menu titles to the right
+    /// of it, from the same frames, by the same rule as the status items beside them: a title
+    /// that starts left of the notch and reaches past it leaves no room at all. Nil when no
+    /// title on this menu bar reaches past the notch, which leaves the room to the status items.
+    ///
+    /// An app with more menus than fit left of the notch — Xcode, Office, Photoshop — has the
+    /// rest drawn to the right of it, where the status items would be. Only the status items
+    /// were counted on that side, so the compact island's trailing half was drawn over those
+    /// titles. Pure.
+    static func menuTrailingClearance(itemFrames: [CGRect], menuBar: CGRect, notchMaxX: CGFloat) -> CGFloat? {
+        let past = onMenuBar(itemFrames, menuBar).filter { $0.maxX > notchMaxX }
+        guard let nearest = past.map({ max($0.minX, notchMaxX) }).min() else { return nil }
+        return nearest - notchMaxX
+    }
+
+    /// The titles on the notched screen's menu bar: those whose middle is on it. See
+    /// `menuClearance(itemFrames:…)`.
+    private static func onMenuBar(_ frames: [CGRect], _ menuBar: CGRect) -> [CGRect] {
+        frames.filter { $0.width > 0 && menuBar.contains(CGPoint(x: $0.midX, y: $0.midY)) }
+    }
+
+    /// The smaller of two rooms, either of which may be unknown: whichever is known where only
+    /// one is, and unknown where neither is. Pure.
+    static func nearer(_ a: CGFloat?, _ b: CGFloat?) -> CGFloat? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return min(a, b)
     }
 
     private static func frame(of element: AXUIElement) -> CGRect? {

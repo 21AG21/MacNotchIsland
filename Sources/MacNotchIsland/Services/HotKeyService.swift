@@ -191,6 +191,8 @@ final class HotKeyService: ObservableObject {
     private var escapeArmed = false
     private var stepKeysArmed = false
     private var askKeysArmed = false
+    /// Set while the recorder is taking a new combination, see `suspend`.
+    private var suspended = false
     /// What the panel is allowed to take from the keyboard at this moment, see `claim`.
     private var panelClaim = KeyClaim.nothing
     private var cancellables = Set<AnyCancellable>()
@@ -272,15 +274,34 @@ final class HotKeyService: ObservableObject {
     }
 
     /// Recording a replacement: the live combo must not fire while the user presses keys.
-    func suspend() { unregister() }
+    func suspend() {
+        suspended = true
+        unregister()
+    }
 
+    /// Recording is over: everything is registered again with the combination and the
+    /// modifiers in force now, which takes in a start or a stop of VoiceOver heard meanwhile.
     func resume() {
+        suspended = false
         guard handlerRef != nil else { return }
         register()
     }
 
+    /// Whether a registration may go ahead: only with the handler installed, and not while the
+    /// recorder has the shortcut suspended.
+    ///
+    /// Only `resume` was meant to put the shortcut back, but everything that registers did it
+    /// while suspended as well: VoiceOver starting while the recorder said "Press keys…"
+    /// registered the old shortcut again, and pressing it toggled the island instead of being
+    /// recorded. The shortcut's switch turned while recording did the same. Asked while
+    /// suspended, a registration waits for `resume`, which registers whatever is in force by
+    /// then. Pure.
+    static func registers(handlerInstalled: Bool, suspended: Bool) -> Bool {
+        handlerInstalled && !suspended
+    }
+
     private func register() {
-        guard handlerRef != nil else { return }
+        guard Self.registers(handlerInstalled: handlerRef != nil, suspended: suspended) else { return }
         unregister()
         if Preferences.shared.hotkeyEnabled {
             let modifiers = Self.currentModifiers

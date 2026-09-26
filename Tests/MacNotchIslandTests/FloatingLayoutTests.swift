@@ -67,6 +67,20 @@ final class FloatingLayoutTests: XCTestCase {
         XCTAssertEqual(onNotch.hitTop, 0, "fused to the top edge")
     }
 
+    // MARK: - the notch's size, set by hand
+
+    /// Settings' notch size is the notch's. It was put on every display, so a height set to
+    /// match the notch made the floating pill taller too — on a monitor, and on the only island
+    /// there is with the lid shut.
+    func testANotchSizeSetByHandIsTheNotchsAlone() {
+        XCTAssertEqual(NotchGeometry.overridden(32, by: 38, hasNotch: true), 38, "the notch takes it")
+        XCTAssertEqual(NotchGeometry.overridden(185, by: 222, hasNotch: true), 222)
+        XCTAssertEqual(NotchGeometry.overridden(30, by: 38, hasNotch: false), 30, "the pill keeps its own height")
+        XCTAssertEqual(NotchGeometry.overridden(190, by: 222, hasNotch: false), 190, "and its own width")
+        XCTAssertEqual(NotchGeometry.overridden(32, by: 0, hasNotch: true), 32, "Automatic changes nothing")
+        XCTAssertEqual(NotchGeometry.overridden(32, by: 20, hasNotch: true), 32, "and an override never shrinks the notch")
+    }
+
     // MARK: - a menu bar that hides itself
 
     /// With the menu bar set to hide, the display still counted as carrying one, and the pill

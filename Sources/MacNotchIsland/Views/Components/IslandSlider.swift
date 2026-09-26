@@ -17,11 +17,16 @@ import SwiftUI
 struct IslandSlider: View {
     var value: Double
     var onChange: (Double) -> Void
-    /// Called once when the drag begins, before the first value: the volume slider unmutes here.
+    /// Called once when a drag begins, and at each press of an arrow key or of VoiceOver's
+    /// increment or decrement, before the first value: the volume slider begins a slide here,
+    /// which writes to the output playing as it begins (`AudioOutputs.beginSlide`).
     var onBegin: (() -> Void)? = nil
 
     @State private var hovering = false
     @State private var dragging = false
+    /// Whether the keyboard focus is on this slider, with Full Keyboard Access on. Qualified: the
+    /// island has a `FocusState` of its own, the payload of a Focus activity.
+    @SwiftUI.FocusState private var focused: Bool
     /// The value the user set, held against stale reports; see the note above.
     @State private var held: Double?
     @State private var releaseWork: DispatchWorkItem?
@@ -40,6 +45,8 @@ struct IslandSlider: View {
     /// The track as it is drawn: a hairline at rest, and thicker under the pointer.
     static let restingTrack: CGFloat = 4
     static let activeTrack: CGFloat = 7
+    /// How far the ring that shows the keyboard focus stands off the track, all round.
+    static let focusRingOutset: CGFloat = 3
     /// The height it takes its clicks in, with the track drawn across the middle of it. It was
     /// 20, four short of what the pointer is owed; the rail's row is taller than either, so
     /// the extra comes out of air that was already there and nothing beside it moves.
@@ -56,6 +63,14 @@ struct IslandSlider: View {
                     .frame(width: max(0, geo.size.width * shown))
             }
             .frame(height: active ? Self.activeTrack : Self.restingTrack)
+            .overlay {
+                // Where the keyboard is, drawn as the rows of the lists draw it, round the track.
+                Capsule()
+                    .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                    .padding(-Self.focusRingOutset)
+                    .opacity(focused ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
             .frame(maxHeight: .infinity, alignment: .center)
             // The whole row takes the click, not just the 4 pt of track in the middle.
             .contentShape(Rectangle())
@@ -91,6 +106,22 @@ struct IslandSlider: View {
             case .decrement: adjust(up: false)
             default: break
             }
+        }
+        // The slider answered the pointer and VoiceOver and nothing else, so with Full Keyboard
+        // Access on Tab went past the volume and the brightness, and the arrows went to the
+        // panel instead: up and down moved the volume whichever slider was meant, and left and
+        // right changed section. Now Tab stops here, and each arrow is a press of VoiceOver's
+        // increment or decrement (`raises`). All four are taken while the slider has the focus,
+        // so none of them reaches the panel (`NotchPanel.route`); without the focus they go
+        // where they always did. Focusable for that alone (`.activate`), as the rows are: with
+        // Full Keyboard Access off a click gives the slider no focus, and a drag is as it was.
+        .focusable(interactions: .activate)
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(keys: Self.arrowKeys, phases: [.down, .repeat]) { press in
+            guard let up = Self.raises(press.key) else { return .ignored }
+            adjust(up: up)
+            return .handled
         }
         .onDisappear {
             releaseWork?.cancel()
@@ -135,16 +166,28 @@ struct IslandSlider: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleWindow, execute: work)
     }
 
-    /// A press of VoiceOver's increment or decrement, which is a drag by another name: the
-    /// same unmute at the start, the same value out through the same callback, and the same
-    /// moment of holding it afterwards. Without this the volume and the brightness can only
-    /// be set by somebody holding a pointer.
+    /// A press of VoiceOver's increment or decrement, or of an arrow key with the focus here,
+    /// which is a drag by another name: the same beginning, the same value out through the same
+    /// callback, and the same moment of holding it afterwards. Without this the volume and the
+    /// brightness can only be set by somebody holding a pointer.
     private func adjust(up: Bool) {
         onBegin?()
         // From what is on screen, not from the feed: two presses in quick succession must
         // move twice, and the second one comes before the Mac has reported the first.
         set(Self.stepped(from: shown, up: up))
         settle()
+    }
+
+    /// The keys the slider takes while it has the focus.
+    static let arrowKeys: Set<KeyEquivalent> = [.leftArrow, .rightArrow, .upArrow, .downArrow]
+
+    /// Which way an arrow moves the slider: right and up raise it, left and down lower it, the
+    /// way they move a slider anywhere on the Mac. Nil for any other key, which the slider
+    /// leaves to the panel. Pure.
+    static func raises(_ key: KeyEquivalent) -> Bool? {
+        if key == .rightArrow || key == .upArrow { return true }
+        if key == .leftArrow || key == .downArrow { return false }
+        return nil
     }
 
     /// Where a press lands. Kept pure so it can be checked without a screen: the ends are

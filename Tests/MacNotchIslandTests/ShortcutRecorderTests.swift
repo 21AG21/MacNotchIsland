@@ -91,6 +91,27 @@ final class ShortcutRecorderTests: XCTestCase {
             .contains("macOS") == true, "and so is the system answering the shortcut itself")
     }
 
+    /// ⌥⌘D hides the Dock, and the row said macOS used it to switch between two input sources.
+    /// The input menu is named for its own two combinations, and for no other.
+    func testTheRowNamesTheInputMenuOnlyForItsOwnCombinations() {
+        let remedy = " Choose another, or turn that one off in System Settings, under Keyboard Shortcuts."
+        let inputMenu: String = "macOS uses this for one of its own shortcuts and answers it first — with two input sources, "
+            + "switching between them." + remedy
+        let other: String = "macOS uses this combination for one of its own shortcuts and answers it first." + remedy
+        XCTAssertEqual(ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: true, inputMenu: true),
+                       inputMenu, "the input menu's own, as it always read")
+        XCTAssertEqual(ShortcutRecorderView.conflictNote(registrationFailed: false, takenBySystem: true, inputMenu: false),
+                       other, "any other of macOS's shortcuts")
+        XCTAssertEqual(ShortcutRecorderView.conflictNote(registrationFailed: true, takenBySystem: true, inputMenu: true),
+                       "Another app is already using this shortcut.", "a refusal is still said first")
+
+        // Which is which goes by the keys.
+        XCTAssertTrue(HotKeyService.isInputMenuCombination(keyCode: kVK_Space, modifiers: control | option))
+        XCTAssertTrue(HotKeyService.isInputMenuCombination(keyCode: kVK_Space, modifiers: control))
+        XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: kVK_ANSI_D, modifiers: option | cmd))
+        XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: kVK_Space, modifiers: cmd), "Spotlight's")
+    }
+
     /// Control and Option are VoiceOver's own keys. A shortcut as it shipped has moved off them
     /// while VoiceOver runs, and the row says why it reads differently; one somebody recorded
     /// is kept, and the row says whose keys those are.

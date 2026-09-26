@@ -638,6 +638,18 @@ final class HotKeyServiceTests: XCTestCase {
                                                  keyboardSources: 2))
     }
 
+    /// VoiceOver starting while the recorder waited for keys registered the old shortcut again,
+    /// and pressing it toggled the island instead of being recorded. Nothing registers while
+    /// the recorder has the shortcut suspended; resuming registers what is in force then.
+    func testNothingIsRegisteredWhileTheRecorderIsListening() {
+        XCTAssertTrue(HotKeyService.registers(handlerInstalled: true, suspended: false))
+        XCTAssertFalse(HotKeyService.registers(handlerInstalled: true, suspended: true),
+                       "not for VoiceOver, nor for the shortcut's switch")
+        XCTAssertFalse(HotKeyService.registers(handlerInstalled: false, suspended: false),
+                       "nor before the service has started, as before")
+        XCTAssertFalse(HotKeyService.registers(handlerInstalled: false, suspended: true))
+    }
+
     /// Shift-Tab steps backward only where Shift is not already part of the shortcut; with it,
     /// the backward step would be the forward one, and neither the registration nor the pane
     /// offers it.

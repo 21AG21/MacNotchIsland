@@ -71,7 +71,9 @@ struct ShortcutRecorderView: View {
     private var note: String? {
         if let hint = hint { return hint }
         return Self.conflictNote(registrationFailed: hotkey.registrationFailed, takenBySystem: hotkey.takenBySystem,
-                                 stepsWithheld: !HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers))
+                                 stepsWithheld: !HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers),
+                                 inputMenu: HotKeyService.isInputMenuCombination(keyCode: HotKeyService.currentKeyCode,
+                                                                                 modifiers: HotKeyService.currentModifiers))
             ?? Self.voiceOverNote(voiceOver: hotkey.voiceOverRunning, recorded: HotKeyService.recordedModifiers,
                                   shipping: HotKeyService.recordedIsShipping)
     }
@@ -98,11 +100,22 @@ struct ShortcutRecorderView: View {
     /// the recorder refused one, whose Tab and arrow steps are every app's and are left to them
     /// (`HotKeyService.stepsAreSafe`). It still opens and closes the island, and nothing else
     /// said the steps listed under it had gone.
-    static func conflictNote(registrationFailed: Bool, takenBySystem: Bool, stepsWithheld: Bool = false) -> String? {
+    ///
+    /// The input menu is named only where the combination is one of its two (`inputMenu`, from
+    /// `HotKeyService.isInputMenuCombination`): macOS's list says which combinations are taken
+    /// and not by what, and those two are the only ones known by their keys. Every system
+    /// shortcut used to be put down to switching input sources, so ⌥⌘D, which hides the Dock,
+    /// was said to switch between two of them.
+    static func conflictNote(registrationFailed: Bool, takenBySystem: Bool, stepsWithheld: Bool = false,
+                             inputMenu: Bool = false) -> String? {
         if registrationFailed { return "Another app is already using this shortcut." }
         if takenBySystem {
-            return "macOS uses this for one of its own shortcuts and answers it first — with two input sources, "
-                + "switching between them. Choose another, or turn that one off in System Settings, under Keyboard Shortcuts."
+            let remedy = " Choose another, or turn that one off in System Settings, under Keyboard Shortcuts."
+            if inputMenu {
+                return "macOS uses this for one of its own shortcuts and answers it first — with two input sources, "
+                    + "switching between them." + remedy
+            }
+            return "macOS uses this combination for one of its own shortcuts and answers it first." + remedy
         }
         if stepsWithheld {
             return "This opens and closes the island, but its steps are left off: apps use Tab and the arrows with it held. "

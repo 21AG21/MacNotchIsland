@@ -35,14 +35,27 @@ struct NotchGeometry: Equatable {
         let keptByMenuBar = Self.menuBarHeight(notchTop: top, carriesMenuBar: hasMenuBar,
                                                autoHides: Self.menuBarAutoHides, thickness: menuBar)
 
-        // An override exists for a notch the system under-reports. It may only enlarge the
-        // island: a value below the measured cutout would put content under glass that is
-        // not there.
-        if prefs.notchWidthOverride > 0 { width = max(width, prefs.notchWidthOverride) }
-        if prefs.notchHeightOverride > 0 { height = max(height, prefs.notchHeightOverride) }
+        // An override exists for a notch the system under-reports, and only a display with a
+        // notch takes it (`overridden`).
+        width = Self.overridden(width, by: prefs.notchWidthOverride, hasNotch: hasNotch)
+        height = Self.overridden(height, by: prefs.notchHeightOverride, hasNotch: hasNotch)
 
         return NotchGeometry(screenFrame: screen.frame, notchWidth: width, notchHeight: height, hasPhysicalNotch: hasNotch,
                              menuBarHeight: keptByMenuBar)
+    }
+
+    /// The width or height the island takes on a display, `measured` there, given the override
+    /// set for it in Settings (nothing for Automatic).
+    ///
+    /// An override may only enlarge the island: a value below the measured cutout would put
+    /// content under glass that is not there. And it is the notch's alone. It was put on every
+    /// display, so a height set to match the notch made the floating pill on a monitor taller
+    /// too — on every monitor with "Show on all displays" on, and on the only island there is
+    /// with the lid shut. A display without a notch keeps the pill's own size. A notch that
+    /// `NOTCH_SIMULATE` draws counts as one, as it does everywhere else here. Pure.
+    static func overridden(_ measured: CGFloat, by override: Double, hasNotch: Bool) -> CGFloat {
+        guard hasNotch, override > 0 else { return measured }
+        return max(measured, CGFloat(override))
     }
 
     /// How much of the top of a display the menu bar keeps, for a floating island to hang

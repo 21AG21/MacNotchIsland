@@ -708,11 +708,14 @@ final class AudioOutputs: ObservableObject {
     }
 
     private func writeLevel(_ level: Float) {
-        let clamped = max(0, min(1, level))
-        Self.markLocalWrite()
         // The output asked for once and written to by name, so the write is counted against the
         // output it went to (`noteSet`).
-        let output = AudioMonitor.defaultOutputDevice()
+        writeLevel(level, to: AudioMonitor.defaultOutputDevice())
+    }
+
+    private func writeLevel(_ level: Float, to output: AudioDeviceID) {
+        let clamped = max(0, min(1, level))
+        Self.markLocalWrite()
         if AudioMonitor.writeOutputVolume(clamped, device: output) {
             noteSet(.volume, for: output)
             volume = clamped
@@ -746,6 +749,58 @@ final class AudioOutputs: ObservableObject {
     private var slideTarget: Float?
     private var slideWork: DispatchWorkItem?
     private var lastSlideWrite = LocalWrite.never
+    /// Where the slide under way stands (`slideWrite`). Main thread.
+    private var slide = Slide.starting
+
+    /// A slide of the rail's slider: a drag, or one press of a key or of VoiceOver's increment or
+    /// decrement on it, from `beginSlide` to the next.
+    enum Slide: Equatable {
+        /// Begun, and nothing written yet: its first level finds the output.
+        case starting
+        /// Writing to this output, the one playing when its first level was written.
+        case writing(AudioDeviceID)
+        /// That output stopped being the one playing while the slide was under way. Nothing
+        /// more of it is written.
+        case lost
+    }
+
+    /// A slide begins: the slider's drag or press, before its first level. Main thread.
+    func beginSlide() {
+        slide = .starting
+    }
+
+    /// Where a level the slider asks for is written, in a slide that stands at `slide`, with
+    /// `output` the default output now; and where the slide stands afterwards. Pure.
+    ///
+    /// A slide writes to the output it began on and to no other. Each write asked CoreAudio for
+    /// the default output afresh, so AirPods that went mid-drag handed the rest of the drag to
+    /// the Mac's speakers, which were set to wherever the AirPods' level had been — loud, in
+    /// the middle of a call. Once the output has changed the slide writes nothing more, even if
+    /// the first output comes back before it ends; the next drag or press begins a slide of its
+    /// own and writes to whatever is playing then.
+    static func slideWrite(_ slide: Slide, output: AudioDeviceID) -> (slide: Slide, writeTo: AudioDeviceID?) {
+        switch slide {
+        case .starting: return (.writing(output), output)
+        case .writing(let began):
+            if began == output { return (slide, output) }
+            return (.lost, nil)
+        case .lost: return (.lost, nil)
+        }
+    }
+
+    /// Writes a level of the slide under way, where `slideWrite` says. A slide that has just
+    /// lost its output is ended: nothing it asked for is left waiting. Main thread.
+    private func writeSlideLevel(_ level: Float) {
+        let step = Self.slideWrite(slide, output: AudioMonitor.defaultOutputDevice())
+        slide = step.slide
+        guard let output = step.writeTo else {
+            slideWork?.cancel()
+            slideWork = nil
+            slideTarget = nil
+            return
+        }
+        writeLevel(level, to: output)
+    }
 
     /// A level from the rail's slider, written at `slideInterval`'s pace. Main thread.
     ///
@@ -754,9 +809,12 @@ final class AudioOutputs: ObservableObject {
     /// watching this object. Now a level asked for inside the interval waits for the end of it,
     /// and whatever the slider asks for meanwhile takes its place: the latest level is written
     /// at the next tick, one write a tick. The last one asked for is always written — the drag's
-    /// end is a level like any other. The slider draws what it was asked for as it is dragged
-    /// (`IslandSlider`), so the wait is never seen.
+    /// end is a level like any other — to the output the slide began on, and not at all once
+    /// that has stopped playing (`slideWrite`). The slider draws what it was asked for as it is
+    /// dragged (`IslandSlider`), so the wait is never seen.
     func slideVolume(to level: Float) {
+        // A slide whose output has gone asks for nothing more (`slideWrite`).
+        guard slide != .lost else { return }
         let now = LocalWrite.now()
         let wait = Self.slideWait(lastWrite: lastSlideWrite, now: now)
         guard wait > 0 else {
@@ -764,7 +822,7 @@ final class AudioOutputs: ObservableObject {
             slideWork = nil
             slideTarget = nil
             lastSlideWrite = now
-            writeLevel(level)
+            writeSlideLevel(level)
             return
         }
         slideTarget = level
@@ -781,7 +839,7 @@ final class AudioOutputs: ObservableObject {
         guard let level = slideTarget else { return }
         slideTarget = nil
         lastSlideWrite = LocalWrite.now()
-        writeLevel(level)
+        writeSlideLevel(level)
     }
 
     /// How long a level the slider asks for at `now` waits before it is written, the slider

@@ -278,6 +278,12 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The compact island no longer draws over an app's menu titles that run past the notch: in Xcode, Office or Photoshop its right side stops short of the first title there, as it does before a status item.
+- A drag of the rail's volume slider stops setting the level if the output changes under it, so AirPods disconnecting mid-drag no longer turn the Mac's speakers up to where the AirPods were; the next drag sets the speakers.
+- With Full Keyboard Access on, Tab stops on the rail's volume and brightness sliders, which show a ring while they have the focus, and the arrow keys move the focused one a notch a press; with no slider focused the arrows still step sections and change the volume.
+- A notch width or height set in Settings no longer makes the floating pill bigger on a display without a notch.
+- VoiceOver starting or stopping while the shortcut recorder says "Press keys…" no longer turns the old shortcut back on, so the keys pressed are recorded instead of toggling the island.
+- The shortcut recorder blames switching input sources only for ⌃Space and ⌃⌥Space; any other combination macOS keeps, such as ⌥⌘D for hiding the Dock, is said to be macOS's own.
 - A long title no longer comes back part-way through its scroll after Low Power Mode ends, the Mac is plugged back in with "Pause animations on battery" on, Reduce Motion is turned off or the screen is unlocked: it starts again from its first letter after its usual pause.
 - Increase Contrast now reaches the cards' and the panel's quiet lines: subtitles, times and captions on every card, the section headers, empty-state lines, tile previews, clipboard and notification ages, a hovered slot's name and the Bluetooth list's battery figures are drawn no fainter than 60% white with the setting on, and exactly as before with it off.
 - With the panel open on two displays, VoiceOver hears the find's match count once rather than once a display.

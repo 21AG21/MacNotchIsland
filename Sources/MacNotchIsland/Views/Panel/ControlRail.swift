@@ -248,13 +248,16 @@ private struct RailVolume: View {
             // level above nothing unmutes, the way it does in Control Centre (`setVolume` does
             // that half). It used to unmute as the drag or the press began, whichever way it
             // went, so a decrement on a muted Mac unmuted it and wrote a level of nothing over
-            // the one it had been muted at. See `volumeWrite`.
+            // the one it had been muted at. See `volumeWrite`. A drag or a press begins a slide,
+            // which writes to the output playing as it begins and to no other
+            // (`AudioOutputs.slideWrite`).
             IslandSlider(value: outputs.isMuted ? 0 : Double(outputs.volume ?? 0),
                          onChange: { level in
                              if let write = ControlRail.volumeWrite(level, muted: outputs.isMuted) {
                                  outputs.slideVolume(to: Float(write))
                              }
-                         })
+                         },
+                         onBegin: { outputs.beginSlide() })
                 .frame(width: RailMetrics.volumeSlider)
                 .opacity(outputs.volume == nil ? 0.3 : 1)
                 .disabled(outputs.volume == nil)

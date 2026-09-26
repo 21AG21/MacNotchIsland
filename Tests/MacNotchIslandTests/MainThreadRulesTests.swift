@@ -4,7 +4,7 @@ import XCTest
 /// The rules behind work that moved off the main thread: which window pictures a beat retakes,
 /// what the calendar's reading decides once it has come back from its queue, when a reading
 /// of the sound devices may set the level the rail shows, how often the menu bar is measured and
-/// the volume slider writes, and which reading of the AirPods' route is shown.
+/// the volume slider writes and where, and which reading of the AirPods' route is shown.
 final class MainThreadRulesTests: XCTestCase {
 
     // MARK: - Window pictures
@@ -254,6 +254,30 @@ final class MainThreadRulesTests: XCTestCase {
         for (earlier, later) in zip(writes, writes.dropFirst()) {
             XCTAssertGreaterThanOrEqual(later.at - earlier.at, interval - 1e-9)
         }
+    }
+
+    /// AirPods that go mid-drag hand the Mac's speakers the default output. The rest of the
+    /// drag used to set the speakers to where the AirPods' level had been; it writes nothing
+    /// now, even once the AirPods are back, and the next drag writes to the speakers.
+    func testADragWritesOnlyToTheOutputItBeganOn() {
+        let pods: UInt32 = 7
+        let speakers: UInt32 = 3
+        var slide = AudioOutputs.Slide.starting
+        var written: [UInt32] = []
+        for output in [pods, pods, speakers, speakers, pods] {
+            let step = AudioOutputs.slideWrite(slide, output: output)
+            slide = step.slide
+            if let target = step.writeTo { written.append(target) }
+        }
+        XCTAssertEqual(written, [pods, pods], "nothing after the AirPods went")
+        XCTAssertEqual(slide, .lost)
+
+        let next = AudioOutputs.slideWrite(.starting, output: speakers)
+        XCTAssertEqual(next.writeTo, speakers, "a drag begun afterwards writes to what is playing then")
+        XCTAssertEqual(next.slide, .writing(speakers))
+        let steady = AudioOutputs.slideWrite(.writing(speakers), output: speakers)
+        XCTAssertEqual(steady.writeTo, speakers)
+        XCTAssertEqual(steady.slide, .writing(speakers), "a drag on one output is written whole, as it always was")
     }
 
     // MARK: - The AirPods' route

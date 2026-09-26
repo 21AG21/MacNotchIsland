@@ -116,4 +116,38 @@ final class MenuBarClearanceTests: XCTestCase {
         XCTAssertEqual(MenuBarClearance.menuClearance(itemFrames: onBuiltIn, menuBar: band, notchMinX: notchMinX),
                        notchMinX - 924)
     }
+
+    /// An app with more menus than fit left of the notch has the rest drawn to the right of
+    /// it. Only the status items were counted on that side, so the island's trailing half was
+    /// drawn over those titles.
+    func testMenuTitlesPastTheNotchLimitTheTrailingSide() {
+        let band = CGRect(x: 0, y: 0, width: 1710, height: 32)
+        // The notch spans 755...955. Titles fill the left side up to 740, and two more follow
+        // the notch at 975 and 1040.
+        let titles = [CGRect(x: 0, y: 0, width: 40, height: 24), CGRect(x: 40, y: 0, width: 700, height: 24),
+                      CGRect(x: 1040, y: 0, width: 80, height: 24), CGRect(x: 975, y: 0, width: 60, height: 24)]
+        XCTAssertEqual(MenuBarClearance.menuTrailingClearance(itemFrames: titles, menuBar: band, notchMaxX: 955), 20,
+                       "the first title past the notch, not the last")
+        XCTAssertNil(MenuBarClearance.menuTrailingClearance(itemFrames: Array(titles.prefix(2)), menuBar: band, notchMaxX: 955),
+                     "menus that end left of the notch leave the right side to the status items")
+        XCTAssertEqual(MenuBarClearance.menuTrailingClearance(itemFrames: [CGRect(x: 900, y: 0, width: 100, height: 24)],
+                                                              menuBar: band, notchMaxX: 955), 0,
+                       "a title reaching past the notch leaves no room at all")
+        let beside = titles.map { $0.offsetBy(dx: 1710, dy: 0) }
+        XCTAssertNil(MenuBarClearance.menuTrailingClearance(itemFrames: beside, menuBar: band, notchMaxX: 955),
+                     "titles on the display beside this one say nothing about it")
+
+        // Both kinds of item on that side: whichever starts first sets the room.
+        let statusItems = MenuBarClearance.statusItemClearance(windows: [window(x: 1600)], menuBar: band, notchMaxX: 955)
+        XCTAssertEqual(statusItems, 645)
+        let fromTitles = MenuBarClearance.menuTrailingClearance(itemFrames: titles, menuBar: band, notchMaxX: 955)
+        XCTAssertEqual(MenuBarClearance.nearer(statusItems, fromTitles), 20)
+        XCTAssertEqual(MenuBarClearance.nearer(statusItems, nil), 645, "no titles there: the status items, as before")
+        XCTAssertEqual(MenuBarClearance.nearer(nil, fromTitles), 20)
+        XCTAssertNil(MenuBarClearance.nearer(nil, nil), "nothing known on either count")
+
+        // The margin is the leading side's: 20 free is room for a 16-point glyph and no more.
+        XCTAssertEqual(MenuBarClearance.fitted(60, minimal: 16, free: 20), 16)
+        XCTAssertEqual(MenuBarClearance.fitted(60, minimal: 18, free: 20), 0)
+    }
 }

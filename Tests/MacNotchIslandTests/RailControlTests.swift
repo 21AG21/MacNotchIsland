@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import SwiftUI
 import XCTest
 @testable import MacNotchIsland
 
@@ -214,6 +215,26 @@ final class RailControlTests: XCTestCase {
         XCTAssertNil(ControlRail.volumeWrite(0, muted: true), "nor does a drag to the bottom")
         XCTAssertEqual(ControlRail.volumeWrite(0, muted: false), 0, "unmuted, the bottom is a level like any other")
         XCTAssertEqual(ControlRail.volumeWrite(0.3, muted: true), 0.3, "and anything above it is written")
+    }
+
+    /// With Full Keyboard Access on, Tab stops on the volume and the brightness, and the arrows
+    /// move whichever has the focus: right and up raise it, left and down lower it, a notch a
+    /// press, as VoiceOver's increment and decrement do. Every other key is left to the panel.
+    func testTheArrowsMoveAFocusedSliderANotchAPress() {
+        XCTAssertEqual(IslandSlider.raises(.rightArrow), true)
+        XCTAssertEqual(IslandSlider.raises(.upArrow), true)
+        XCTAssertEqual(IslandSlider.raises(.leftArrow), false)
+        XCTAssertEqual(IslandSlider.raises(.downArrow), false)
+        XCTAssertEqual(IslandSlider.arrowKeys.count, 4)
+        for key in IslandSlider.arrowKeys {
+            XCTAssertNotNil(IslandSlider.raises(key), "every key the slider takes moves it")
+        }
+        XCTAssertNil(IslandSlider.raises(.space), "Space still plays and pauses")
+        XCTAssertNil(IslandSlider.raises(.return))
+        XCTAssertNil(IslandSlider.raises(KeyEquivalent("m")))
+        XCTAssertFalse(IslandSlider.arrowKeys.contains(.space))
+        let up = IslandSlider.raises(.rightArrow) ?? false
+        XCTAssertEqual(IslandSlider.stepped(from: 0.5, up: up), 0.5 + GestureRouter.keyStep, accuracy: 0.0001)
     }
 
     // MARK: - The volume's glyph
