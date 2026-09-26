@@ -11,6 +11,8 @@ import SwiftUI
 /// would start, so "7:30" never becomes a seven-and-a-half-hour timer by surprise.
 struct TimerEntryField: View {
     @ObservedObject private var center = ActivityCenter.shared
+    /// Watched, so a change of Reduce Motion redraws the field with the transition it asks for.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     // Qualified: the island has a `FocusState` of its own, the payload of a Focus activity.
     @SwiftUI.FocusState private var focused: Bool
 
@@ -51,7 +53,7 @@ struct TimerEntryField: View {
         .frame(width: Self.width, height: Self.height)
         .background(Capsule().fill(Color.white.opacity(0.08)))
         .help(Self.tooltip(for: typed))
-        .transition(IslandMotion.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+        .transition(display.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
     }
 
     /// What Return would do, in a few words: "5 min timer", "2 h timer", "Alarm 7:30 AM

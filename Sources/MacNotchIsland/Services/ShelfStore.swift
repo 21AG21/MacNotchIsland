@@ -484,8 +484,8 @@ final class ShelfStore: ObservableObject {
     // MARK: - What Space previews
 
     /// What the strip on screen has picked out and what it is showing, as it last said. The
-    /// selection is the strip's own state, and the hot key that turns Space into Quick Look
-    /// lives nowhere near it; this is how the one hears about the other.
+    /// selection is the strip's own state, and the panel's key handling that turns Space into
+    /// Quick Look lives nowhere near it; this is how the one hears about the other.
     private var stripSelection: [URL] = []
     private var stripShown: [URL] = []
     private var stripFinding = false

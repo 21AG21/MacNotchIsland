@@ -10,6 +10,8 @@ import SwiftUI
 /// is (`LyricsService.ticks`).
 struct LyricsView: View {
     @ObservedObject private var lyrics = LyricsService.shared
+    /// Watched, so a change of Reduce Motion redraws the lines with the transition it asks for.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     var font: Font = .system(size: 13, weight: .semibold)
     var color: Color = .white
@@ -33,7 +35,7 @@ struct LyricsView: View {
                     .frame(height: lineHeight, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .id(line)
-                    .transition(IslandMotion.reduceMotion ? .opacity : .asymmetric(
+                    .transition(display.reduceMotion ? .opacity : .asymmetric(
                         insertion: .offset(y: 6).combined(with: .opacity),
                         removal: .offset(y: -6).combined(with: .opacity)
                     ))

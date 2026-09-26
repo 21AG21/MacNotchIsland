@@ -118,10 +118,13 @@ struct WindowsSectionView: View {
         case .find:
             // Return brings the first match forward: type "mai", press Return, and Mail is in
             // front — a window switcher that needs no window switcher.
-            FindField(matches: windows.count) {
+            FindField(matches: windows.count, onSubmit: {
                 guard let index = center.findTarget(of: windows.count) else { return }
                 monitor.focus(windows[index])
-            }
+            }, spokenRow: { index in
+                // The tile's own label, said as the mark reaches it.
+                windows.indices.contains(index) ? "\(windows[index].appName), \(windows[index].label)" : nil
+            })
         case .showPictures:
             // Each permission does half of this section: one draws the pictures, the other
             // moves and closes the windows. Whichever is missing is offered here, because a

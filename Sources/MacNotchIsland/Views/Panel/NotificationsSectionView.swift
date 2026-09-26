@@ -17,6 +17,14 @@ struct NotificationsSectionView: View {
 
     private var matches: [NotificationInbox.Entry] { Self.ordered(inbox.entries, query: center.findQuery) }
 
+    /// What the find says as its mark reaches a row: the app and the headline, the way the
+    /// row's own label leads. Pure, so it is tested.
+    static func spokenRow(_ entry: NotificationInbox.Entry) -> String {
+        guard !entry.isThin else { return "\(entry.appName), Something arrived" }
+        let lead = [entry.title, entry.subtitle ?? "", entry.body ?? ""].first { !$0.isEmpty } ?? ""
+        return [entry.appName, lead].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
     /// The list as it is drawn: collapsed into a block per app, the app that spoke most
     /// recently first, and only what answers the find.
     ///
@@ -35,7 +43,9 @@ struct NotificationsSectionView: View {
                 // keeps its field whatever the list does, so an entry ageing out from under it
                 // never takes the caret away mid-word.
                 if !inbox.entries.isEmpty || center.findQuery != nil {
-                    FindField(matches: matches.count)
+                    FindField(matches: matches.count, spokenRow: { index in
+                        matches.indices.contains(index) ? Self.spokenRow(matches[index]) : nil
+                    })
                 }
                 // What the list is showing, and no more: with a find up the pill counts the
                 // matches it will take, and the rows the find is hiding stay.

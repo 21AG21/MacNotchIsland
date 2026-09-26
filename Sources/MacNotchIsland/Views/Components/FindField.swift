@@ -18,6 +18,8 @@ struct FindField: View {
     var spokenRow: (Int) -> String? = { _ in nil }
 
     @ObservedObject private var center = ActivityCenter.shared
+    /// Watched, so a change of Reduce Motion redraws the field with the transition it asks for.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     /// Which island this field is drawn on, for `speaksCount`.
     @Environment(\.islandPanelID) private var panelID
     // Qualified: the island has a `FocusState` of its own, the payload of a Focus activity.
@@ -84,7 +86,7 @@ struct FindField: View {
         .padding(.horizontal, 9)
         .frame(width: Self.width, height: Self.height)
         .background(Capsule().fill(Color.white.opacity(0.08)))
-        .transition(IslandMotion.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+        .transition(display.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
         // The count beside the field changes with every letter, and a screen reader is in the
         // field, not on the count: what it comes to is said as the field opens and as it
         // changes. At medium, after the letter VoiceOver echoes as it is typed. Said rather than

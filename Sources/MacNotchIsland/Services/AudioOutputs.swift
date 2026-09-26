@@ -765,7 +765,18 @@ final class AudioOutputs: ObservableObject {
     }
 
     /// A slide begins: the slider's drag or press, before its first level. Main thread.
+    ///
+    /// A level the last slide asked for and had still waiting (`slideVolume`) is written now,
+    /// to that slide's output: left waiting, it landed inside this slide, which by then had
+    /// found the output playing now — the speakers, at a level meant for the AirPods.
     func beginSlide() {
+        if let level = slideTarget {
+            slideWork?.cancel()
+            slideWork = nil
+            slideTarget = nil
+            lastSlideWrite = LocalWrite.now()
+            writeSlideLevel(level)
+        }
         slide = .starting
     }
 

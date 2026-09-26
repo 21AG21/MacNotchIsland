@@ -295,7 +295,9 @@ final class HotKeyService: ObservableObject {
     /// registered the old shortcut again, and pressing it toggled the island instead of being
     /// recorded. The shortcut's switch turned while recording did the same. Asked while
     /// suspended, a registration waits for `resume`, which registers whatever is in force by
-    /// then. Pure.
+    /// then — Escape, the arrows and the question's keys as they stand armed included, which
+    /// used to register through the suspension when the island opened or a question came up
+    /// mid-recording, and took Escape from the recorder. Pure.
     static func registers(handlerInstalled: Bool, suspended: Bool) -> Bool {
         handlerInstalled && !suspended
     }
@@ -489,7 +491,9 @@ final class HotKeyService: ObservableObject {
     func setEscapeArmed(_ armed: Bool) {
         guard armed != escapeArmed else { return }
         escapeArmed = armed
-        guard handlerRef != nil else { return }
+        // Arming while suspended waits for `resume`, which registers what is armed by then;
+        // disarming is always honoured, and finds nothing registered while suspended.
+        guard Self.registers(handlerInstalled: handlerRef != nil, suspended: suspended) || !armed else { return }
         if armed { registerEscape() } else { unregister(.escape) }
     }
 
@@ -497,7 +501,7 @@ final class HotKeyService: ObservableObject {
     func setStepKeysArmed(_ armed: Bool) {
         guard armed != stepKeysArmed else { return }
         stepKeysArmed = armed
-        guard handlerRef != nil else { return }
+        guard Self.registers(handlerInstalled: handlerRef != nil, suspended: suspended) || !armed else { return }
         if armed { registerStepKeys() } else { unregisterStepKeys() }
     }
 
@@ -508,10 +512,12 @@ final class HotKeyService: ObservableObject {
     func setAskKeysArmed(_ armed: Bool) -> Bool {
         if armed != askKeysArmed {
             askKeysArmed = armed
-            if handlerRef != nil {
+            if Self.registers(handlerInstalled: handlerRef != nil, suspended: suspended) || !armed {
                 if armed { registerAskKeys() } else { unregisterAskKeys() }
             }
         }
+        // While suspended the two are not registered, so the card does not say they answer it
+        // until `resume` puts them on.
         return armed && hotKeyRefs[Slot.askYes.rawValue] != nil && hotKeyRefs[Slot.askNo.rawValue] != nil
     }
 

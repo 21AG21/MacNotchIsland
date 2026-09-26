@@ -9,6 +9,8 @@ struct PanelView: View {
     var isDropTarget = false
 
     @EnvironmentObject private var center: ActivityCenter
+    /// Watched, so a change of Reduce Motion redraws the sections with the transition it asks for.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     @State private var showingMirror = false
 
     var body: some View {
@@ -52,7 +54,7 @@ struct PanelView: View {
                     .accessibilityHidden(center.overlayAlert != nil)
                 if let alert = center.overlayAlert {
                     AlertBanner(activity: alert)
-                        .transition(IslandMotion.reduceMotion ? .opacity
+                        .transition(display.reduceMotion ? .opacity
                                     : .asymmetric(insertion: .offset(y: 8).combined(with: .opacity), removal: .opacity))
                 }
             }

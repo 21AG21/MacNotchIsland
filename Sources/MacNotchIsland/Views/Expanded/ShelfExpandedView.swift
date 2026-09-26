@@ -66,8 +66,9 @@ struct ShelfStripView: View {
             selection = selection.intersection(live)
             if let anchor = selectionAnchor, !live.contains(anchor) { selectionAnchor = nil }
         }
-        // Space is Quick Look here, and the hot key that takes it is nowhere near this view's
-        // selection; the store passes on what is picked out and what the find is showing, so
+        // Space is Quick Look here, and the panel that takes the press (`NotchPanel.route`) is
+        // nowhere near this view's selection; the store passes on what is picked out and what
+        // the find is showing, so
         // Space previews those rather than the whole shelf — and, with a find up, never more
         // than it shows, which for a find that matches nothing is nothing.
         .onChange(of: orderedSelection, initial: true) { _, picked in

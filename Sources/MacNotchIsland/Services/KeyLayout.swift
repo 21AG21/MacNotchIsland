@@ -3,11 +3,12 @@ import Foundation
 
 /// What a key actually types on this Mac.
 ///
-/// A Carbon hot key is delivered as a virtual key code, which is a position on the keyboard
-/// rather than a letter: key 12 is Q on a US layout, A on a French one and ' on a Dvorak one.
-/// The island claims the letter keys while the panel is open so that typing starts a find, and
-/// the character that opens the find has to be the one the person actually pressed — otherwise
-/// the first letter of every search is wrong for half the world.
+/// A key press reaches the island as a virtual key code — from a Carbon hot key and at the
+/// panel's key window alike — which is a position on the keyboard rather than a letter: key 12
+/// is Q on a US layout, A on a French one and ' on a Dvorak one. The panel answers the letter
+/// keys while it holds the keyboard so that typing starts a find, and the character that opens
+/// the find has to be the one the person actually pressed — otherwise the first letter of every
+/// search is wrong for half the world.
 ///
 /// `UCKeyTranslate` answers that question against the layout that is switched on right now.
 enum KeyLayout {

@@ -52,10 +52,13 @@ struct ClipboardSectionView: View {
                     // Return puts the first match back on the pasteboard: type three letters
                     // of something copied an hour ago and press Return, without ever leaving
                     // the keyboard or looking at the list.
-                    FindField(matches: matches.count) {
+                    FindField(matches: matches.count, onSubmit: {
                         guard let index = center.findTarget(of: matches.count) else { return }
                         store.pick(item: matches[index])
-                    }
+                    }, spokenRow: { index in
+                        // What the row shows, said as the mark reaches it.
+                        matches.indices.contains(index) ? matches[index].preview : nil
+                    })
                 }
                 // A pin is somebody saying "keep this", and Clear is not them taking it back:
                 // the pill takes what is not pinned, so a list of nothing but pins has none.

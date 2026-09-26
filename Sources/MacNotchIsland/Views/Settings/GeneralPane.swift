@@ -111,7 +111,10 @@ struct GeneralPane: View {
             } header: {
                 Text("Notch size")
             } footer: {
-                Text("Leave both automatic unless the island sits slightly off your notch. Each starts at the size the island measures on its own, since either can only make it bigger.")
+                // On a display with no notch the island floats as a pill of its own size, and
+                // these two do nothing to it: said here, rather than left for somebody to find
+                // out by dragging them.
+                Text(Self.notchSizeFooter(anyNotch: NSScreen.screens.contains { $0.safeAreaInsets.top > 0 }))
             }
 
             Section {
@@ -125,6 +128,15 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .onAppear { prefs.settleLoginItem() }
+    }
+
+    /// The note under the notch sliders: how to use them where a display has a notch, and
+    /// that they apply to no display here where none has. Pure, so it is tested.
+    static func notchSizeFooter(anyNotch: Bool) -> String {
+        guard anyNotch else {
+            return "None of the displays connected now has a notch, so these apply to nothing yet: the island floats as a pill of its own size. They take effect on a display with a notch."
+        }
+        return "Leave both automatic unless the island sits slightly off your notch. Each starts at the size the island measures on its own, since either can only make it bigger."
     }
 
     /// Whether hiding in full screen is on, a display has a notch, and Accessibility has not

@@ -14,6 +14,8 @@ struct WelcomeView: View {
     @EnvironmentObject private var prefs: Preferences
     /// Watched so the keyboard row names the shortcut only while pressing it will do something.
     @ObservedObject private var hotkey = HotKeyService.shared
+    /// Watched, so a change of Reduce Motion redraws the pages with the transition it asks for.
+    @ObservedObject private var display = AccessibilityDisplay.shared
     var dismiss: () -> Void
     /// The last switch's answer, held back until the window closes — see `Draft`.
     @ObservedObject var draft: Draft
@@ -79,10 +81,10 @@ struct WelcomeView: View {
             // fade: a whole window's content crossing the screen is the journey that setting
             // asks to be spared, the way the island's own sections are spared it.
             if page == 0 {
-                welcome.transition(IslandMotion.reduceMotion ? .opacity
+                welcome.transition(display.reduceMotion ? .opacity
                                    : .asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
             } else {
-                picker.transition(IslandMotion.reduceMotion ? .opacity
+                picker.transition(display.reduceMotion ? .opacity
                                   : .asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
             }
         }

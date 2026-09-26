@@ -46,13 +46,16 @@ struct TimerRing: View {
     let diameter: CGFloat
     var lineWidth: CGFloat = 2.5
     @ObservedObject private var energy = EnergyPolicy.shared
+    /// Watched, so Reduce Motion turned on mid-timer stills the ring at its next tick.
+    @ObservedObject private var display = AccessibilityDisplay.shared
 
     /// The clock every timer's timeline ticks on.
     static let cadence: Double = 1
 
     var body: some View {
         ProgressRing(progress: state.isFinished ? 1 : state.progress(at: date), lineWidth: lineWidth, tint: .orange,
-                     animation: Self.curve(for: state, diameter: diameter, paused: energy.animationsPaused),
+                     animation: Self.curve(for: state, diameter: diameter, paused: energy.animationsPaused,
+                                           reduced: display.reduceMotion),
                      timer: state)
             .frame(width: diameter, height: diameter)
     }
