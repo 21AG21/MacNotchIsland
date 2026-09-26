@@ -140,4 +140,48 @@ final class PanelRulesTests: XCTestCase {
         XCTAssertEqual(found.live.count + found.away.count + found.gone.count, paths.count, "nothing lost, nothing twice")
         XCTAssertEqual(found.gone, ["/Applications/Deleted.app", "/Users/me/Apps/Gone.app"], "in the stored order")
     }
+
+    // MARK: - The Home grid's Notes tile
+
+    /// The tile split the whole scratchpad at every line break, twice a pass, to keep the first
+    /// piece. It reads only as far as the end of that piece now, and the piece is the same one:
+    /// blank lines before it passed over, a line break inside a character left alone.
+    func testTheNotesTileReadsOnlyItsFirstLine() {
+        let texts = ["", "\n", "\n\n\n", "Milk", "Milk\n", "Milk\nEggs", "\n\nMilk\nEggs\n", "  \nMilk",
+                     "Line\r\nNext", "\r\n\r\nx", "e\u{301}\nb", "\n\u{301}a", "שלום\nעולם"]
+        for text in texts {
+            let split = text.split(separator: "\n").first.map(String.init) ?? ""
+            XCTAssertEqual(HomeGridView.notesGlimpse(text), split.isEmpty ? "Jot it down" : split,
+                           "the same line as the split gave for \(text.debugDescription)")
+        }
+        XCTAssertEqual(HomeGridView.notesGlimpse("\n\nShopping\nMilk"), "Shopping", "blank lines before it are passed over")
+        XCTAssertEqual(HomeGridView.notesGlimpse(""), "Jot it down")
+        XCTAssertEqual(HomeGridView.notesGlimpse("\n\n"), "Jot it down", "nothing but blank lines is nothing")
+        let long = "Heading\n" + String(repeating: "and a great deal more\n", count: 50_000)
+        XCTAssertEqual(HomeGridView.notesGlimpse(long), "Heading")
+    }
+
+    // MARK: - The call card's icon
+
+    /// Looked up once per app: the card asked LaunchServices and the disk for it on every pass,
+    /// and passes come with every change of the microphone's mute. The same image comes back,
+    /// and an app that is nowhere to be found has none, as it had none.
+    func testTheCallCardLooksItsAppUpOnce() throws {
+        XCTAssertNil(CallAppIcon.icon(for: "invalid.notch-island.no-such-app"))
+        XCTAssertNil(CallAppIcon.icon(for: "invalid.notch-island.no-such-app"), "not found is asked again, and is still nothing")
+        guard let finder = CallAppIcon.icon(for: "com.apple.finder") else {
+            throw XCTSkip("LaunchServices cannot find Finder in this session")
+        }
+        XCTAssertTrue(CallAppIcon.icon(for: "com.apple.finder") === finder, "the second pass draws the first one's image")
+    }
+
+    // MARK: - The press-in
+
+    /// The press-in is drawn only on the collapsed island, and so it is published only there:
+    /// in an open panel every click on the rail, the switcher, a slider or the scrubber set it
+    /// and cleared it, and the whole island was drawn twice for a change nothing drew.
+    func testThePressInIsPublishedOnlyWhileTheIslandIsCollapsed() {
+        XCTAssertTrue(IslandPress.publishes(expanded: false))
+        XCTAssertFalse(IslandPress.publishes(expanded: true), "an open panel, a card or a peek")
+    }
 }

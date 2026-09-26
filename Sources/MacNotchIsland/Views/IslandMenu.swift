@@ -15,7 +15,9 @@ struct IslandMenu: View {
     var activity: IslandActivity?
 
     @ObservedObject private var keepAwake = KeepAwake.shared
-    @ObservedObject private var shelf = ShelfStore.shared
+    /// Whether the shelf has anything on it, which is all the menu asks of the shelf: the whole
+    /// shelf publishes a thumbnail at a time as they are made, and each drew the menu again.
+    @ObservedObject private var shelfHasFiles = NarrowReadings.shelfHasFiles
     @ObservedObject private var prefs = Preferences.shared
     @ObservedObject private var volumes = VolumeMonitor.shared
     @ObservedObject private var timers = IslandTimer.shared
@@ -29,7 +31,7 @@ struct IslandMenu: View {
         Button(keepAwake.isOn ? "Let the Mac Sleep" : "Keep Awake") { keepAwake.toggle() }
         // Beside Keep Awake, since an alarm rings only on a Mac that is awake.
         pendingAlarms
-        if !shelf.items.isEmpty {
+        if shelfHasFiles.value {
             Button("Clear Shelf") { ShelfStore.shared.clear() }
         }
         // Getting a drive out safely, at any moment rather than only while its card happens

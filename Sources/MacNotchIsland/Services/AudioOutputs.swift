@@ -110,8 +110,55 @@ final class AudioOutputs: ObservableObject {
 
     /// Where the sound is going, by name: the AirPlay receivers it is on, or else the output.
     var destinationName: String? {
+        Self.destinationName(current: current, airPlay: airPlay, airPlayCurrent: airPlayCurrent)
+    }
+
+    /// The same, from the readings. Pure.
+    static func destinationName(current: Device?, airPlay: [AirPlayTarget], airPlayCurrent: Set<UInt32>) -> String? {
         let receivers = airPlay.filter { airPlayCurrent.contains($0.source) }.map(\.name)
         return receivers.isEmpty ? current?.name : receivers.joined(separator: ", ")
+    }
+
+    /// Where the sound goes and comes from, without its level: all that the rail's output
+    /// picker is drawn from, and all that decides whether the rail has a picker at all.
+    ///
+    /// The level is published on every write the rail's slider makes; the route only when a
+    /// device comes or goes or is picked. A view that shows only the route and watched the
+    /// whole of this object was drawn again for every one of those writes, so it watches
+    /// `routeChanges` instead (`NarrowReadings`).
+    struct Route: Equatable {
+        var devices: [Device] = []
+        var current: Device?
+        var inputs: [Device] = []
+        var currentInput: Device?
+        var airPlay: [AirPlayTarget] = []
+        var airPlayCurrent: Set<UInt32> = []
+
+        /// See `AudioOutputs.hasChoice`.
+        var hasChoice: Bool { AirPlayList.hasChoice(outputs: devices, airPlay: airPlay) }
+        /// See `AudioOutputs.shownOutputs`.
+        var shownOutputs: [Device] { AirPlayList.outputs(devices, airPlay: airPlay) }
+        /// See `AudioOutputs.destinationName`.
+        var destinationName: String? {
+            AudioOutputs.destinationName(current: current, airPlay: airPlay, airPlayCurrent: airPlayCurrent)
+        }
+    }
+
+    /// The route as it is now.
+    var route: Route {
+        Route(devices: devices, current: current, inputs: inputs, currentInput: currentInput,
+              airPlay: airPlay, airPlayCurrent: airPlayCurrent)
+    }
+
+    /// The route, once when subscribed to and again whenever any part of it changes; never for a
+    /// change of the level or the mute. Main thread, where every part of it is published.
+    var routeChanges: AnyPublisher<Route, Never> {
+        $devices.combineLatest($current, $inputs, $currentInput)
+            .combineLatest($airPlay, $airPlayCurrent)
+            .map { Route(devices: $0.0.0, current: $0.0.1, inputs: $0.0.2, currentInput: $0.0.3,
+                         airPlay: $0.1, airPlayCurrent: $0.2) }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     }
 
     /// Main thread.
@@ -586,7 +633,16 @@ final class AudioOutputs: ObservableObject {
     /// than the brightness one — has no other way in.
     static func markLocalWriteForTesting(_ stamp: TimeInterval) { lastLocalWrite = stamp }
 
+    /// Writes the level now. Supersedes a level the slider asked for that is still waiting for
+    /// its turn (`slideVolume`): this one was asked for after it.
     func setVolume(_ level: Float) {
+        slideWork?.cancel()
+        slideWork = nil
+        slideTarget = nil
+        writeLevel(level)
+    }
+
+    private func writeLevel(_ level: Float) {
         let clamped = max(0, min(1, level))
         Self.markLocalWrite()
         if AudioMonitor.writeOutputVolume(clamped) {
@@ -596,8 +652,68 @@ final class AudioOutputs: ObservableObject {
     }
 
     func setMuted(_ muted: Bool) {
+        // A level the slider asked for just before goes first, as it would have without the
+        // wait: written after the mute, a level above nothing would unmute again.
+        flushSlide()
         Self.markLocalWrite()
         if AudioMonitor.writeOutputMute(muted) { isMuted = muted }
+    }
+
+    // MARK: - The slider's writes
+
+    /// How often a drag of the rail's slider writes the level: the pace a scroll on the island
+    /// keeps (`GestureRouter.volumeInterval`), about thirty a second.
+    static let slideInterval: TimeInterval = GestureRouter.volumeInterval
+
+    /// The level the slider last asked for that has not been written yet, the write that will
+    /// write it, and when the slider last wrote. Main thread.
+    private var slideTarget: Float?
+    private var slideWork: DispatchWorkItem?
+    private var lastSlideWrite = LocalWrite.never
+
+    /// A level from the rail's slider, written at `slideInterval`'s pace. Main thread.
+    ///
+    /// A drag reports every move of the pointer, sixty to a hundred and twenty a second, and
+    /// each was a write to CoreAudio on the main thread and a level published to everything
+    /// watching this object. Now a level asked for inside the interval waits for the end of it,
+    /// and whatever the slider asks for meanwhile takes its place: the latest level is written
+    /// at the next tick, one write a tick. The last one asked for is always written — the drag's
+    /// end is a level like any other. The slider draws what it was asked for as it is dragged
+    /// (`IslandSlider`), so the wait is never seen.
+    func slideVolume(to level: Float) {
+        let now = LocalWrite.now()
+        let wait = Self.slideWait(lastWrite: lastSlideWrite, now: now)
+        guard wait > 0 else {
+            slideWork?.cancel()
+            slideWork = nil
+            slideTarget = nil
+            lastSlideWrite = now
+            writeLevel(level)
+            return
+        }
+        slideTarget = level
+        guard slideWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.flushSlide() }
+        slideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+    }
+
+    /// Writes the level the slider is waiting to write, if there is one.
+    private func flushSlide() {
+        slideWork?.cancel()
+        slideWork = nil
+        guard let level = slideTarget else { return }
+        slideTarget = nil
+        lastSlideWrite = LocalWrite.now()
+        writeLevel(level)
+    }
+
+    /// How long a level the slider asks for at `now` waits before it is written, the slider
+    /// having last written at `lastWrite`: nothing once the interval since is over, otherwise
+    /// the rest of it. Pure.
+    static func slideWait(lastWrite: TimeInterval, now: TimeInterval,
+                          interval: TimeInterval = AudioOutputs.slideInterval) -> TimeInterval {
+        max(0, lastWrite + interval - now)
     }
 
     // MARK: - CoreAudio

@@ -2,8 +2,9 @@ import XCTest
 @testable import MacNotchIsland
 
 /// The rules behind work that moved off the main thread: which window pictures a beat retakes,
-/// what the calendar's reading decides once it has come back from its queue, and when a reading
-/// of the sound devices may set the level the rail shows.
+/// what the calendar's reading decides once it has come back from its queue, when a reading
+/// of the sound devices may set the level the rail shows, how often the menu bar is measured and
+/// the volume slider writes, and which reading of the AirPods' route is shown.
 final class MainThreadRulesTests: XCTestCase {
 
     // MARK: - Window pictures
@@ -152,5 +153,118 @@ final class MainThreadRulesTests: XCTestCase {
         XCTAssertEqual(AudioOutputs.showsLevel(rebound: true, wroteRecently: true, shownVolume: 0.4, shownHasMute: true,
                                                readVolume: nil, readMute: nil),
                        AudioOutputs.LevelParts.all, "an output with no level shows none, not the last one's")
+    }
+
+    // MARK: - The menu bar's measurement
+
+    /// The first ask is measured at once; an ask inside the hold on the last measurement waits
+    /// for the end of it; an ask after it, or one whose own delay ends later, keeps its time.
+    func testTheMenuBarIsMeasuredAtOnceAndThenNoSoonerThanAHoldAfterTheLast() {
+        let hold = MenuBarClearance.hold
+        XCTAssertEqual(MenuBarClearance.refreshDue(asked: 100, lastAt: LocalWrite.never), 100,
+                       "nothing measured yet: at once")
+        XCTAssertEqual(MenuBarClearance.refreshDue(asked: 100.25, lastAt: 100), 100 + hold,
+                       "inside the hold: at its end")
+        XCTAssertEqual(MenuBarClearance.refreshDue(asked: 100 + hold + 0.5, lastAt: 100), 100 + hold + 0.5,
+                       "after it: when asked")
+        XCTAssertEqual(MenuBarClearance.refreshDue(asked: 100.5, lastAt: 100, hold: 0.25), 100.5)
+    }
+
+    /// A measurement waiting to start answers every ask it starts no sooner than, and none it
+    /// would start too soon for: an app just switched to wants its menus measured once they are
+    /// laid out, and an alert straight after the switch used to measure them before.
+    func testAMeasurementWaitingAnswersEveryAskItStartsNoSoonerThan() {
+        XCTAssertFalse(MenuBarClearance.answered(due: 101, byPendingAt: nil), "nothing waiting")
+        XCTAssertTrue(MenuBarClearance.answered(due: 101, byPendingAt: 101), "the end of the hold, shared")
+        XCTAssertTrue(MenuBarClearance.answered(due: 100.5, byPendingAt: 101), "later measures it as well")
+        XCTAssertFalse(MenuBarClearance.answered(due: 101.5, byPendingAt: 101), "sooner does not")
+    }
+
+    /// A scroll of the volume is an alert a turn — thirty-two a second here, for four seconds —
+    /// and each alert asks. It was a measurement an ask; it is one at once, one at the end of
+    /// each hold after it, and the last of them after the last ask.
+    func testAScrollOfAlertsIsMeasuredOnceAHoldAndOnceMoreAfterTheLastAsk() {
+        var lastAt = LocalWrite.never
+        var pending: TimeInterval?
+        var starts: [TimeInterval] = []
+        func start(upTo now: TimeInterval) {
+            guard let due = pending, due <= now else { return }
+            starts.append(due)
+            lastAt = due
+            pending = nil
+        }
+        let asks = (0..<128).map { TimeInterval($0) / 32 }
+        for now in asks {
+            start(upTo: now)
+            let due = MenuBarClearance.refreshDue(asked: now, lastAt: lastAt)
+            if !MenuBarClearance.answered(due: due, byPendingAt: pending) { pending = due }
+        }
+        start(upTo: .greatestFiniteMagnitude)
+        XCTAssertEqual(starts.first, 0, "the first at once")
+        XCTAssertEqual(starts.count, 5, "at 0, 1, 2 and 3 seconds, and once after the last ask")
+        XCTAssertGreaterThanOrEqual(starts.last ?? 0, asks.last ?? 0, "the last ask is answered")
+        for (earlier, later) in zip(starts, starts.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(later - earlier, MenuBarClearance.hold)
+        }
+    }
+
+    // MARK: - The volume slider's writes
+
+    /// The first move of a drag is written at once, as is one a whole interval after the last
+    /// write; one inside the interval waits for the rest of it. The pace is the scroll's.
+    func testTheSliderWritesAtOnceAndThenAtMostOnceAnInterval() {
+        XCTAssertEqual(AudioOutputs.slideWait(lastWrite: LocalWrite.never, now: 50), 0, "the first move, at once")
+        XCTAssertEqual(AudioOutputs.slideWait(lastWrite: 50, now: 50.5, interval: 0.25), 0, "long after, at once")
+        XCTAssertEqual(AudioOutputs.slideWait(lastWrite: 50, now: 50, interval: 0.25), 0.25)
+        XCTAssertEqual(AudioOutputs.slideWait(lastWrite: 50, now: 50.125, interval: 0.25), 0.125, "the rest of it")
+        XCTAssertEqual(AudioOutputs.slideInterval, GestureRouter.volumeInterval, "the pace a scroll on the island keeps")
+    }
+
+    /// A drag reports a move a hundred and twenty-eight times a second here, for a second. The
+    /// level is written about thirty times, never twice inside an interval, each time the
+    /// latest level asked for — and the drag's last level always, after it has ended.
+    func testADragWritesTheLatestLevelEachIntervalAndItsLastLevelAlways() {
+        let interval = AudioOutputs.slideInterval
+        var lastWrite = LocalWrite.never
+        var waiting: (level: Float, at: TimeInterval)?
+        var writes: [(level: Float, at: TimeInterval)] = []
+        func flush(upTo now: TimeInterval) {
+            guard let due = waiting, due.at <= now else { return }
+            writes.append(due)
+            lastWrite = due.at
+            waiting = nil
+        }
+        let moves = (0..<128).map { (level: Float($0) / 127, at: TimeInterval($0) / 128) }
+        for move in moves {
+            flush(upTo: move.at)
+            let wait = AudioOutputs.slideWait(lastWrite: lastWrite, now: move.at)
+            if wait <= 0 {
+                waiting = nil
+                writes.append(move)
+                lastWrite = move.at
+            } else {
+                waiting = (move.level, waiting?.at ?? move.at + wait)
+            }
+        }
+        flush(upTo: .greatestFiniteMagnitude)
+        XCTAssertLessThanOrEqual(writes.count, 32, "about thirty a second, where it was one a move")
+        XCTAssertGreaterThanOrEqual(writes.count, 25)
+        XCTAssertEqual(writes.first?.level, 0, "the first move at once")
+        XCTAssertEqual(writes.last?.level, 1, "the drag's last level is written")
+        for (earlier, later) in zip(writes, writes.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(later.at - earlier.at, interval - 1e-9)
+        }
+    }
+
+    // MARK: - The AirPods' route
+
+    /// A Bluetooth card reads the route on the spot, ahead of a reading still on its way back
+    /// from the queue; that one left first, and landing afterwards it must not put the older
+    /// route back.
+    func testAReadingTakenOnTheSpotIsNotUndoneByAnOlderOneLandingAfterIt() {
+        XCTAssertTrue(AirPodsControl.showsReading(ticket: 1, shown: 0), "the first")
+        XCTAssertTrue(AirPodsControl.showsReading(ticket: 3, shown: 2))
+        XCTAssertFalse(AirPodsControl.showsReading(ticket: 2, shown: 3), "left before the card's reading, landed after it")
+        XCTAssertFalse(AirPodsControl.showsReading(ticket: 3, shown: 3), "never shown twice")
     }
 }

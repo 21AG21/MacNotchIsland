@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import XCTest
 @testable import MacNotchIsland
 
@@ -240,5 +241,44 @@ final class RailControlTests: XCTestCase {
                        "muted is still muted")
         XCTAssertEqual(ControlRail.muteButton(volume: 0, muted: false, hasMute: true).symbol, "speaker.slash.fill",
                        "a level of nothing is drawn as it always was")
+    }
+
+    // MARK: - What the rail watches
+
+    /// The rail, the Controls section and the island's menu watch one thing each of the shelf
+    /// and the sound devices, and are drawn again only when that thing changes: not for a
+    /// thumbnail made for a file on the shelf, nor for a write of a drag of the volume slider.
+    func testANarrowReadingStartsFromItsSourceAndPublishesOnlyAChange() {
+        let source = CurrentValueSubject<Int, Never>(3)
+        let reading = NarrowReading(source, initial: 0)
+        XCTAssertEqual(reading.value, 3, "the source's own value, as it is subscribed to")
+        var published = 0
+        let watching = reading.objectWillChange.sink { _ in published += 1 }
+        source.send(3)
+        XCTAssertEqual(published, 0, "the same again is not news, and draws nothing")
+        source.send(4)
+        XCTAssertEqual(published, 1)
+        XCTAssertEqual(reading.value, 4)
+        watching.cancel()
+    }
+
+    /// The rail's output picker is drawn from the route alone, and says what the service would:
+    /// whether there is a choice, and where the sound is going.
+    func testTheRouteThePickerIsDrawnFromSaysWhatTheServiceWould() {
+        let speakers = AudioOutputs.Device(id: 1, name: "MacBook Air Speakers", transport: 0)
+        let pods = AudioOutputs.Device(id: 2, name: "AirPods Pro", transport: 0)
+        let kitchen = AudioOutputs.AirPlayTarget(device: 9, source: 7, name: "Kitchen")
+        let alone = AudioOutputs.Route(devices: [speakers], current: speakers)
+        XCTAssertFalse(alone.hasChoice, "one output is a label, not a picker")
+        XCTAssertEqual(alone.destinationName, "MacBook Air Speakers")
+        let two = AudioOutputs.Route(devices: [speakers, pods], current: pods)
+        XCTAssertTrue(two.hasChoice)
+        XCTAssertEqual(two.hasChoice, AirPlayList.hasChoice(outputs: two.devices, airPlay: two.airPlay))
+        XCTAssertEqual(two.shownOutputs, [speakers, pods])
+        let receiving = AudioOutputs.Route(devices: [speakers], current: speakers, airPlay: [kitchen], airPlayCurrent: [7])
+        XCTAssertTrue(receiving.hasChoice, "a receiver is somewhere else to go")
+        XCTAssertEqual(receiving.destinationName, "Kitchen", "the receiver the sound is on, not the output")
+        XCTAssertNil(AudioOutputs.destinationName(current: nil, airPlay: [kitchen], airPlayCurrent: []),
+                     "nothing known, nothing named")
     }
 }

@@ -325,52 +325,122 @@ final class AirPodsControl: ObservableObject {
     private var reportedNoContext = false
     private var reportedNoDevices = false
 
+    /// Where the route is read: the context, its `outputDevices`, and each device's name,
+    /// identifier and modes, every one a call through a private class into the audio server.
+    /// They were asked on the main thread as Controls appeared, inside the section's slide-in,
+    /// and every two seconds after for as long as it was up. Serial, one reading at a time
+    /// (`pass`), and shown on the main thread, the way `PairedDevices` reads the paired list.
+    private let queue = DispatchQueue(label: "com.macnotchisland.airpods", qos: .userInitiated)
+    /// Main thread.
+    private var pass = RadioPass()
+    /// Each reading is numbered as it is asked for, and only one newer than the last shown is
+    /// shown (`showsReading`). Main thread.
+    private var readingsAsked = 0
+    private var readingShown = 0
+
     private init() {
         bridge = RenderMode.isGallery ? nil : Bridge.load()
     }
 
     // MARK: - Reading
 
-    /// Reads the route once. Main thread.
+    /// What one look at the route found.
+    private enum Route {
+        /// AVFoundation gave no system audio context.
+        case noContext
+        /// The context gave no list of devices to ask.
+        case noDevices
+        /// The device the pills drive, with the names it answered to, or nil where no device on
+        /// the route offers a choice.
+        case read((device: NSObject, names: Names, choice: Choice)?)
+    }
+
+    /// Asks for the route on `queue` and shows it when it comes. Main thread; returns at once.
     func refresh() {
         guard let bridge, !RenderMode.isGallery else { return publish(nil) }
-        let context = bridge.context()
-        let refusals = context == nil ? min(contextRefusals + 1, Self.refusalsToStop) : 0
-        let polled = Self.shouldPoll(hasBridge: true, refusals: contextRefusals, viewers: viewers)
-        contextRefusals = refusals
-        // Stops the poll, or starts it again, where that answer changed it.
-        if polled != Self.shouldPoll(hasBridge: true, refusals: refusals, viewers: viewers) { schedule() }
-        guard let context else {
-            if !reportedNoContext {
-                reportedNoContext = true
-                IslandLog.audio.notice("AVFoundation gave no system audio context; the listening modes stay hidden")
+        guard pass.start() else { return }
+        readingsAsked += 1
+        let ticket = readingsAsked
+        queue.async { [weak self] in
+            let route = Self.read(bridge)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let again = self.pass.finish()
+                self.show(route, ticket: ticket)
+                // Asked again while this one was out: the route may have changed hands since.
+                if again { self.refresh() }
             }
-            return publish(nil)
         }
-        guard let devices = Self.object(context, "outputDevices") as? [NSObject] else {
-            if !reportedNoDevices {
-                reportedNoDevices = true
-                IslandLog.audio.error("the system audio context has no outputDevices to ask")
-            }
-            return publish(nil)
-        }
+    }
+
+    /// Reads the route here and now and shows it before returning, for `offers`, which has to
+    /// answer there and then: once for each pair that connects, on the main thread, as it always
+    /// was. Not by waiting on `queue`, which would hold the main thread for a reading already out
+    /// as well as its own, and could never finish if AVFoundation ever wanted the main thread
+    /// for either. A reading out on the queue meanwhile lands afterwards, older, and is not shown.
+    private func refreshNow() {
+        guard let bridge, !RenderMode.isGallery else { return publish(nil) }
+        readingsAsked += 1
+        show(Self.read(bridge), ticket: readingsAsked)
+    }
+
+    /// Whether a reading numbered `ticket` is shown, the last shown being `shown`: only when it
+    /// was asked for after that one. A reading asked for on the spot (`offers`) goes ahead of
+    /// one still on its way back from the queue, which must not put the older route back. Pure.
+    static func showsReading(ticket: Int, shown: Int) -> Bool {
+        ticket > shown
+    }
+
+    /// One look at the route. On `queue`, or on the main thread for `offers`.
+    private static func read(_ bridge: Bridge) -> Route {
+        guard let context = bridge.context() else { return .noContext }
+        guard let devices = object(context, "outputDevices") as? [NSObject] else { return .noDevices }
         var readings: [Reading] = []
         var names: [Names?] = []
         for device in devices {
             let lookup = Self.names(for: device)
             names.append(lookup)
-            guard let found = lookup, Self.saysItSupportsModes(device) else {
+            guard let found = lookup, saysItSupportsModes(device) else {
                 readings.append(Reading(name: "", identifier: "", available: [], current: nil))
                 continue
             }
-            readings.append(Reading(name: (Self.object(device, "name") as? String) ?? "",
-                                    identifier: (Self.object(device, "deviceID") as? String) ?? "",
-                                    available: (Self.object(device, found.available) as? [String]) ?? [],
-                                    current: Self.object(device, found.current) as? String))
+            readings.append(Reading(name: (object(device, "name") as? String) ?? "",
+                                    identifier: (object(device, "deviceID") as? String) ?? "",
+                                    available: (object(device, found.available) as? [String]) ?? [],
+                                    current: object(device, found.current) as? String))
         }
-        guard let choice = Self.choose(readings), let found = names[choice.index] else { return publish(nil) }
-        live = (devices[choice.index], found, choice)
-        publish(choice)
+        guard let choice = choose(readings), let found = names[choice.index] else { return .read(nil) }
+        return .read((devices[choice.index], found, choice))
+    }
+
+    /// Where every reading lands. Main thread.
+    private func show(_ route: Route, ticket: Int) {
+        guard Self.showsReading(ticket: ticket, shown: readingShown) else { return }
+        readingShown = ticket
+        var refusals = 0
+        if case .noContext = route { refusals = min(contextRefusals + 1, Self.refusalsToStop) }
+        let polled = Self.shouldPoll(hasBridge: true, refusals: contextRefusals, viewers: viewers)
+        contextRefusals = refusals
+        // Stops the poll, or starts it again, where that answer changed it.
+        if polled != Self.shouldPoll(hasBridge: true, refusals: refusals, viewers: viewers) { schedule() }
+        switch route {
+        case .noContext:
+            if !reportedNoContext {
+                reportedNoContext = true
+                IslandLog.audio.notice("AVFoundation gave no system audio context; the listening modes stay hidden")
+            }
+            publish(nil)
+        case .noDevices:
+            if !reportedNoDevices {
+                reportedNoDevices = true
+                IslandLog.audio.error("the system audio context has no outputDevices to ask")
+            }
+            publish(nil)
+        case .read(let found):
+            guard let found else { return publish(nil) }
+            live = found
+            publish(found.choice)
+        }
     }
 
     /// The first set of names this device answers every one of, read and write.
@@ -415,7 +485,7 @@ final class AirPodsControl: ObservableObject {
     /// Reads the route now and says whether the pills would go on this device: for the card that
     /// announces a pair, which has to know how tall to be before anything is watching.
     func offers(name: String, address: String) -> Bool {
-        refresh()
+        refreshNow()
         return drives(name: name, address: address)
     }
 

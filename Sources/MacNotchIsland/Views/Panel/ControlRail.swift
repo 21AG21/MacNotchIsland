@@ -17,11 +17,14 @@ struct ControlRail: View {
     /// than two that do the same. This is the way to the shelf from every other section, so
     /// it stands down on that one.
     var showingShelf = false
-    @ObservedObject private var outputs = AudioOutputs.shared
-    // Watched for what they decide about the rail's shape — whether AirDrop, Wi-Fi, Bluetooth
-    // and the keyboard's light are on it at all — not for what the buttons show, which each
-    // button watches for itself.
-    @ObservedObject private var shelf = ShelfStore.shared
+    // Watched for what they decide about the rail's shape — whether the output picker, AirDrop,
+    // Wi-Fi, Bluetooth and the keyboard's light are on it at all — not for what the buttons
+    // show, which each button watches for itself. The sound devices and the shelf through the
+    // one thing the shape takes from each (`NarrowReadings`): watched whole, every write of a
+    // drag of the volume slider and every thumbnail made for a file on the shelf drew the whole
+    // rail again, every disc on it included.
+    @ObservedObject private var outputChoice = NarrowReadings.hasOutputChoice
+    @ObservedObject private var shelfHasFiles = NarrowReadings.shelfHasFiles
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var keyboard = KeyboardLight.shared
@@ -47,9 +50,9 @@ struct ControlRail: View {
 
     var body: some View {
         // A reading the brightness service already has, rather than a fresh walk of the display
-        // list: the rail is rebuilt on every volume change and every hover.
+        // list: the rail is rebuilt on every hover.
         let hasBrightness = brightness.isAvailable
-        let hasPicker = outputs.hasChoice || RenderMode.isGallery
+        let hasPicker = outputChoice.value || RenderMode.isGallery
         let plan = RailPlan.current(prefs: prefs, showingShelf: showingShelf, showingMirror: showingMirror)
         // The row is not a fixed set: the brightness slider comes with a display that has one,
         // the picker with a second output or an AirPlay receiver, and the buttons with the
@@ -60,11 +63,11 @@ struct ControlRail: View {
         // spacer that soaks up the rest, and as many of the chosen controls as fit, 12 pt apart.
         // `RailMetrics.room` adds it up and `RailControl.fit` spends it.
         return HStack(spacing: RailMetrics.gap) {
-            volume
+            RailVolume()
             // Beside the volume, not among the toggles: where the sound is going belongs with
             // how loud it is. Only when there is a choice to make — one output is not a
             // picker, it is a label nobody asked for.
-            if hasPicker { outputPicker }
+            if hasPicker { RailOutputPicker() }
             if hasBrightness { brightnessControl }
             Spacer(minLength: RailMetrics.minSpacer)
             ForEach(plan.rail, id: \.self) { control in
@@ -87,7 +90,7 @@ struct ControlRail: View {
             DispatchQueue.main.async {
                 guard onScreen, !counted else { return }
                 counted = true
-                outputs.viewerAppeared()
+                AudioOutputs.shared.viewerAppeared()
                 // The display under this rail is read with the driven one from the first pass,
                 // so it is told before the pass that `viewerAppeared` starts.
                 if let display = BrightnessControl.display(forPanel: panelID) {
@@ -102,7 +105,7 @@ struct ControlRail: View {
             onScreen = false
             guard counted else { return }
             counted = false
-            outputs.viewerDisappeared()
+            AudioOutputs.shared.viewerDisappeared()
             brightness.viewerDisappeared()
             if let display = watchedDisplay {
                 brightness.unwatch(display)
@@ -114,49 +117,7 @@ struct ControlRail: View {
 
     // MARK: - Sliders
 
-    private static let leadingGlyph: CGFloat = RailMetrics.glyph
-
-    private var volume: some View {
-        let mute = Self.muteButton(volume: outputs.volume, muted: outputs.isMuted, hasMute: outputs.hasMute)
-        return HStack(spacing: RailMetrics.groupGap) {
-            Button(action: { outputs.setMuted(!outputs.isMuted) }) {
-                Image(systemName: mute.symbol)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: Self.leadingGlyph, height: 28, alignment: .leading)
-                    // 22 across, 2 short of what the pointer is owed: a point further out on
-                    // each side, into the panel's margin and the gap before the slider,
-                    // without moving the glyph off the column it hangs from.
-                    .hitOutset(horizontal: IslandHit.outset(drawn: Self.leadingGlyph), vertical: 0)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .buttonStyle(IslandButtonStyle())
-            // An output with no mute of its own — a USB DAC with only a level, HDMI, some AirPlay
-            // receivers — took the click and did nothing (`AudioMonitor.writeOutputMute` refuses
-            // what it cannot set). Dimmed and deaf to it, as the microphone's disc is.
-            .disabled(!mute.isEnabled)
-            .opacity(mute.isEnabled ? 1 : 0.4)
-            .help(mute.help)
-            .accessibilityLabel(mute.label)
-            // Muted, the bar is drawn empty, and everything about it starts from there: a drag
-            // or a press of VoiceOver's increment sets a level up from nothing, and setting a
-            // level above nothing unmutes, the way it does in Control Centre (`setVolume` does
-            // that half). It used to unmute as the drag or the press began, whichever way it
-            // went, so a decrement on a muted Mac unmuted it and wrote a level of nothing over
-            // the one it had been muted at. See `volumeWrite`.
-            IslandSlider(value: outputs.isMuted ? 0 : Double(outputs.volume ?? 0),
-                         onChange: { level in
-                             if let write = Self.volumeWrite(level, muted: outputs.isMuted) {
-                                 outputs.setVolume(Float(write))
-                             }
-                         })
-                .frame(width: RailMetrics.volumeSlider)
-                .opacity(outputs.volume == nil ? 0.3 : 1)
-                .disabled(outputs.volume == nil)
-                .accessibilityLabel("Volume")
-                .accessibilityValue(Self.volumeValue(volume: outputs.volume, muted: outputs.isMuted))
-        }
-    }
+    fileprivate static let leadingGlyph: CGFloat = RailMetrics.glyph
 
     /// What a move of the volume slider writes: the level asked for, except on a muted Mac
     /// taken to the bottom of the bar, where it is drawn already and nothing is written — the
@@ -201,84 +162,6 @@ struct ControlRail: View {
         return MuteButton(symbol: symbol, label: label, help: label, isEnabled: true)
     }
 
-    /// Where the sound goes. It used to live in the Now Playing header, which meant it was
-    /// there only while something was playing and only on that one section — and switching to
-    /// headphones is not a thing you only want to do mid-track. The rail is under every
-    /// section, so it is here, once.
-    private var outputPicker: some View {
-        Group {
-            if RenderMode.isGallery {
-                // A menu is AppKit's, and `ImageRenderer` draws one as a yellow block with a
-                // red line through it. The gallery gets the disc without the menu behind it,
-                // which is the whole of what anybody sees at rest.
-                outputGlyph
-            } else {
-                Menu {
-                    // Both halves of Control Centre's Sound module. The input is the one
-                    // nobody can reach without opening System Settings, and it is the one
-                    // that matters at the moment a call starts.
-                    Section(SoundList.output) {
-                        ForEach(outputs.shownOutputs) { device in
-                            Button(action: { outputs.select(device) }) {
-                                if device == outputs.current {
-                                    Label(device.shortName, systemImage: "checkmark")
-                                } else {
-                                    Text(device.shortName)
-                                }
-                            }
-                        }
-                    }
-                    // The HomePods and Apple TVs, which Control Centre lists and CoreAudio only
-                    // does as the AirPlay device's data sources. Inside the one menu, so the
-                    // rail keeps its width whatever is on the network.
-                    if !outputs.airPlay.isEmpty {
-                        Section(SoundList.airPlay) {
-                            ForEach(outputs.airPlay) { target in
-                                Button(action: { outputs.selectAirPlay(target) }) {
-                                    if outputs.airPlayCurrent.contains(target.source) {
-                                        Label(target.name, systemImage: "checkmark")
-                                    } else {
-                                        Text(target.name)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if outputs.inputs.count > 1 {
-                        Section("Input") {
-                            ForEach(outputs.inputs) { device in
-                                Button(action: { outputs.selectInput(device) }) {
-                                    if device == outputs.currentInput {
-                                        Label(device.shortName, systemImage: "checkmark")
-                                    } else {
-                                        Text(device.shortName)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    outputGlyph
-                }
-                // Borderless, with no indicator: `.button` draws AppKit's own bezel, which put
-                // a rounded rectangle in a row of discs and was the one control on the rail
-                // that did not look like it belonged to the island.
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .fixedSize()
-                // Laid out at a disc's width whatever AppKit's menu button asks for: the rail's
-                // budget counts the picker as one disc (`RailMetrics.leading`), and with every
-                // control on and no brightness slider it is spent to the point, so a menu drawn a
-                // few points wider pushed the row past the panel's edge. Anything AppKit adds
-                // around the disc lands in the gaps either side of it.
-                .frame(width: RailMetrics.button, height: RailMetrics.button)
-            }
-        }
-        .help(outputs.destinationName.map { "Sound is going to \($0)" } ?? "Choose where the sound goes")
-        .accessibilityLabel("Sound: \(outputs.destinationName ?? "unknown")")
-    }
-
     /// The brightness of the display this panel is on, where that display answers; otherwise
     /// the driven one — the built-in panel — named when there is more than one display to
     /// mistake it for. See `BrightnessControl.railTarget`.
@@ -311,19 +194,196 @@ struct ControlRail: View {
                 .accessibilityValue("\(Int((level * 100).rounded())) percent")
         }
     }
+}
+
+/// The volume at the head of the rail: the mute button and the slider.
+///
+/// A view of its own, and the only part of the rail that watches the whole of `AudioOutputs`,
+/// whose level is published on every write a drag of this slider makes: watched from the rail,
+/// each write drew every disc on it again, and the output picker's menu, sixty to a hundred and
+/// twenty times a second. The slider's writes go at `AudioOutputs.slideInterval`'s pace.
+private struct RailVolume: View {
+    @ObservedObject private var outputs = AudioOutputs.shared
+
+    var body: some View {
+        let mute = ControlRail.muteButton(volume: outputs.volume, muted: outputs.isMuted, hasMute: outputs.hasMute)
+        return HStack(spacing: RailMetrics.groupGap) {
+            Button(action: { outputs.setMuted(!outputs.isMuted) }) {
+                Image(systemName: mute.symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: ControlRail.leadingGlyph, height: 28, alignment: .leading)
+                    // 22 across, 2 short of what the pointer is owed: a point further out on
+                    // each side, into the panel's margin and the gap before the slider,
+                    // without moving the glyph off the column it hangs from.
+                    .hitOutset(horizontal: IslandHit.outset(drawn: ControlRail.leadingGlyph), vertical: 0)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(IslandButtonStyle())
+            // An output with no mute of its own — a USB DAC with only a level, HDMI, some AirPlay
+            // receivers — took the click and did nothing (`AudioMonitor.writeOutputMute` refuses
+            // what it cannot set). Dimmed and deaf to it, as the microphone's disc is.
+            .disabled(!mute.isEnabled)
+            .opacity(mute.isEnabled ? 1 : 0.4)
+            .help(mute.help)
+            .accessibilityLabel(mute.label)
+            // Muted, the bar is drawn empty, and everything about it starts from there: a drag
+            // or a press of VoiceOver's increment sets a level up from nothing, and setting a
+            // level above nothing unmutes, the way it does in Control Centre (`setVolume` does
+            // that half). It used to unmute as the drag or the press began, whichever way it
+            // went, so a decrement on a muted Mac unmuted it and wrote a level of nothing over
+            // the one it had been muted at. See `volumeWrite`.
+            IslandSlider(value: outputs.isMuted ? 0 : Double(outputs.volume ?? 0),
+                         onChange: { level in
+                             if let write = ControlRail.volumeWrite(level, muted: outputs.isMuted) {
+                                 outputs.slideVolume(to: Float(write))
+                             }
+                         })
+                .frame(width: RailMetrics.volumeSlider)
+                .opacity(outputs.volume == nil ? 0.3 : 1)
+                .disabled(outputs.volume == nil)
+                .accessibilityLabel("Volume")
+                .accessibilityValue(ControlRail.volumeValue(volume: outputs.volume, muted: outputs.isMuted))
+        }
+    }
+}
+
+/// Where the sound goes. It used to live in the Now Playing header, which meant it was there
+/// only while something was playing and only on that one section — and switching to headphones
+/// is not a thing you only want to do mid-track. The rail is under every section, so it is here,
+/// once.
+///
+/// Drawn from the route alone (`AudioOutputs.Route`), which changes when a device comes, goes or
+/// is picked, and not from the level beside it, which changes on every write of a drag.
+private struct RailOutputPicker: View {
+    @ObservedObject private var reading = NarrowReadings.outputRoute
+
+    var body: some View {
+        let route = reading.value
+        let outputs = AudioOutputs.shared
+        return Group {
+            if RenderMode.isGallery {
+                // A menu is AppKit's, and `ImageRenderer` draws one as a yellow block with a
+                // red line through it. The gallery gets the disc without the menu behind it,
+                // which is the whole of what anybody sees at rest.
+                outputGlyph
+            } else {
+                Menu {
+                    // Both halves of Control Centre's Sound module. The input is the one
+                    // nobody can reach without opening System Settings, and it is the one
+                    // that matters at the moment a call starts.
+                    Section(SoundList.output) {
+                        ForEach(route.shownOutputs) { device in
+                            Button(action: { outputs.select(device) }) {
+                                if device == route.current {
+                                    Label(device.shortName, systemImage: "checkmark")
+                                } else {
+                                    Text(device.shortName)
+                                }
+                            }
+                        }
+                    }
+                    // The HomePods and Apple TVs, which Control Centre lists and CoreAudio only
+                    // does as the AirPlay device's data sources. Inside the one menu, so the
+                    // rail keeps its width whatever is on the network.
+                    if !route.airPlay.isEmpty {
+                        Section(SoundList.airPlay) {
+                            ForEach(route.airPlay) { target in
+                                Button(action: { outputs.selectAirPlay(target) }) {
+                                    if route.airPlayCurrent.contains(target.source) {
+                                        Label(target.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(target.name)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if route.inputs.count > 1 {
+                        Section("Input") {
+                            ForEach(route.inputs) { device in
+                                Button(action: { outputs.selectInput(device) }) {
+                                    if device == route.currentInput {
+                                        Label(device.shortName, systemImage: "checkmark")
+                                    } else {
+                                        Text(device.shortName)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    outputGlyph
+                }
+                // Borderless, with no indicator: `.button` draws AppKit's own bezel, which put
+                // a rounded rectangle in a row of discs and was the one control on the rail
+                // that did not look like it belonged to the island.
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .fixedSize()
+                // Laid out at a disc's width whatever AppKit's menu button asks for: the rail's
+                // budget counts the picker as one disc (`RailMetrics.leading`), and with every
+                // control on and no brightness slider it is spent to the point, so a menu drawn a
+                // few points wider pushed the row past the panel's edge. Anything AppKit adds
+                // around the disc lands in the gaps either side of it.
+                .frame(width: RailMetrics.button, height: RailMetrics.button)
+            }
+        }
+        .help(route.destinationName.map { "Sound is going to \($0)" } ?? "Choose where the sound goes")
+        .accessibilityLabel("Sound: \(route.destinationName ?? "unknown")")
+    }
 
     /// The disc the picker wears: the current output's symbol, the same size as every other
     /// button on the rail.
     private var outputGlyph: some View {
         ZStack {
             Circle().fill(Color.white.opacity(0.10))
-            Image(systemName: outputs.current?.symbol ?? "airplayaudio")
+            Image(systemName: reading.value.current?.symbol ?? "airplayaudio")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.85))
         }
         .frame(width: RailMetrics.button, height: RailMetrics.button)
         .contentShape(Circle())
     }
+}
+
+/// One thing about a busy service, published only when it changes.
+///
+/// A view that watches a whole service is drawn again for every change to anything the service
+/// publishes, whatever it reads of it. The rail, the Controls section and the island's menu read
+/// one thing each of two services that publish far more often than that thing changes — the
+/// shelf, which publishes a thumbnail at a time as they are made, and the sound devices, which
+/// publish the level on every write of a drag of the volume slider — and they watch this
+/// instead. Main thread, where the services publish.
+final class NarrowReading<Value: Equatable>: ObservableObject {
+    @Published private(set) var value: Value
+    private var cancellable: AnyCancellable?
+
+    /// `source` gives its current value as it is subscribed to, as a `@Published` property does,
+    /// so `value` is the service's own from the start; `initial` is only what it is before that.
+    init<Source: Publisher>(_ source: Source, initial: Value) where Source.Output == Value, Source.Failure == Never {
+        value = initial
+        cancellable = source.sink { [weak self] next in
+            guard let self, self.value != next else { return }
+            self.value = next
+        }
+    }
+}
+
+/// The readings the rail, the Controls section and the island's menu watch in place of the
+/// services they come from. See `NarrowReading`.
+enum NarrowReadings {
+    /// Whether the shelf has anything on it: whether AirDrop is on the rail at all
+    /// (`RailControl.Presence.shelfHasFiles`), and whether the island's menu offers Clear Shelf.
+    static let shelfHasFiles = NarrowReading(ShelfStore.shared.$items.map { !$0.isEmpty },
+                                             initial: !ShelfStore.shared.items.isEmpty)
+    /// Whether the sound has anywhere else to go: whether the rail has an output picker, and so
+    /// how much room it has left for everything after it (`RailPlan`).
+    static let hasOutputChoice = NarrowReading(AudioOutputs.shared.routeChanges.map(\.hasChoice),
+                                               initial: AudioOutputs.shared.hasChoice)
+    /// Where the sound goes and comes from, for the rail's output picker.
+    static let outputRoute = NarrowReading(AudioOutputs.shared.routeChanges, initial: AudioOutputs.shared.route)
 }
 
 /// What the rail holds and what it has no room for, from the live readings: the chosen controls
@@ -357,55 +417,35 @@ enum RailPlan {
 
 /// One control from the catalog, drawn the same wherever it lands: on the rail, or in the row the
 /// Controls section keeps for the ones the rail had no room for.
+///
+/// Watches nothing itself. Each control that shows a service's state is a view of its own that
+/// watches that service alone, as the Focus disc always has: every control used to watch the
+/// radios, Keep Awake and the whole shelf, so a thumbnail made for one file on the shelf drew
+/// every disc on the rail again, and every one in the Controls section's row with them. The
+/// AirDrop disc shows nothing of the shelf, and asks for its files only when it is clicked.
 struct RailControlView: View {
     let control: RailControl
     @Binding var showingMirror: Bool
-    @ObservedObject private var toggles = SystemToggles.shared
-    @ObservedObject private var keepAwake = KeepAwake.shared
-    @ObservedObject private var shelf = ShelfStore.shared
 
     var body: some View {
         switch control {
         case .wifi:
-            RailDisc(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
-                     label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn) {
-                toggles.toggleWiFi()
-            }
+            WiFiRailButton()
         case .bluetooth:
-            if !toggles.hasBluetooth, toggles.bluetoothAccessRefused {
-                // A radio this app has been refused, rather than none: the disc stays, and
-                // takes the user to the pane that can give it back.
-                RailDisc(label: "Bluetooth access is off. Open Privacy settings",
-                         action: { SystemSettingsPane.bluetooth.open() }) {
-                    BluetoothRune()
-                        .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                        .frame(width: 9, height: 14)
-                        .opacity(0.5)
-                }
-            } else {
-                // The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
-                RailDisc(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
-                         active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
-                    BluetoothRune()
-                        .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                        .frame(width: 9, height: 14)
-                        .opacity(toggles.bluetoothOn ? 1 : 0.5)
-                }
-            }
+            BluetoothRailButton()
         case .display:
             DisplayRailButton()
         case .keepAwake:
-            RailDisc(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
-                     label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
-                keepAwake.toggle()
-            }
+            KeepAwakeRailButton()
         case .mirror:
             RailDisc(symbol: showingMirror ? "camera.fill" : "camera", label: showingMirror ? "Hide mirror" : "Mirror",
                      active: showingMirror) {
                 withAnimation(IslandMotion.fade) { showingMirror.toggle() }
             }
         case .airDrop:
-            RailDisc(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") { shelf.airDrop(shelf.urls) }
+            RailDisc(symbol: "dot.radiowaves.right", label: "AirDrop the shelf") {
+                ShelfStore.shared.airDrop(ShelfStore.shared.urls)
+            }
         case .focus:
             FocusRailButton()
         case .microphone:
@@ -422,6 +462,58 @@ struct RailControlView: View {
             KeyboardLightRailButton()
         case .settings:
             RailDisc(symbol: RailControl.settings.symbol, label: "Settings") { SettingsWindow.open() }
+        }
+    }
+}
+
+/// Wi-Fi on the rail: lit while the radio is on, and a click switches it.
+private struct WiFiRailButton: View {
+    @ObservedObject private var toggles = SystemToggles.shared
+
+    var body: some View {
+        RailDisc(symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
+                 label: toggles.wifiOn ? "Turn Wi-Fi off" : "Turn Wi-Fi on", active: toggles.wifiOn) {
+            toggles.toggleWiFi()
+        }
+    }
+}
+
+/// Bluetooth on the rail, drawn with the rune, since Bluetooth has no symbol of its own.
+private struct BluetoothRailButton: View {
+    @ObservedObject private var toggles = SystemToggles.shared
+
+    var body: some View {
+        if !toggles.hasBluetooth, toggles.bluetoothAccessRefused {
+            // A radio this app has been refused, rather than none: the disc stays, and
+            // takes the user to the pane that can give it back.
+            RailDisc(label: "Bluetooth access is off. Open Privacy settings",
+                     action: { SystemSettingsPane.bluetooth.open() }) {
+                BluetoothRune()
+                    .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                    .frame(width: 9, height: 14)
+                    .opacity(0.5)
+            }
+        } else {
+            // The same disc for a glyph the system does not draw: Bluetooth has no symbol of its own.
+            RailDisc(label: toggles.bluetoothOn ? "Turn Bluetooth off" : "Turn Bluetooth on",
+                     active: toggles.bluetoothOn, action: { toggles.toggleBluetooth() }) {
+                BluetoothRune()
+                    .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                    .frame(width: 9, height: 14)
+                    .opacity(toggles.bluetoothOn ? 1 : 0.5)
+            }
+        }
+    }
+}
+
+/// Keep Awake on the rail: lit while the Mac is being kept awake.
+private struct KeepAwakeRailButton: View {
+    @ObservedObject private var keepAwake = KeepAwake.shared
+
+    var body: some View {
+        RailDisc(symbol: keepAwake.isOn ? "cup.and.saucer.fill" : "cup.and.saucer",
+                 label: keepAwake.isOn ? "Let the Mac sleep" : "Keep awake", active: keepAwake.isOn) {
+            keepAwake.toggle()
         }
     }
 }
@@ -988,14 +1080,22 @@ final class BrightnessControl: ObservableObject {
     /// A display nobody watches keeps its last level while it is online, so a rail mounted on
     /// it again starts from that rather than from the driven display's; and a watched display
     /// under a hold that gave no reading this pass keeps what it showed, rather than handing
-    /// its slider to the driven display in the middle of a drag.
+    /// its slider to the driven display in the middle of a drag — for the write's hold and no
+    /// longer. Only a reading or `unwatch` ended the hold, so a display that stopped answering
+    /// after a drag stayed a target for as long as its rail was up, and its slider did nothing;
+    /// once the hold is over it is let go, and the slider drives the driven display again.
     private func takeOthers(_ readings: [CGDirectDisplayID: Double]) {
         let online = Set(NSScreen.screens.compactMap {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
         })
         var next: [CGDirectDisplayID: Double] = [:]
         for (id, shown) in panelLevels where watched[id] == nil && online.contains(id) { next[id] = shown }
+        let now = LocalWrite.now()
         for (id, hold) in panelPending where watched[id] != nil && readings[id] == nil {
+            guard now < hold.until else {
+                panelPending[id] = nil
+                continue
+            }
             next[id] = panelLevels[id] ?? hold.value
         }
         for (id, value) in readings where watched[id] != nil {

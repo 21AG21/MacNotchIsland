@@ -90,12 +90,14 @@ final class ShelfDragView: NSView, NSDraggingSource {
         var items: [NSDraggingItem] = []
         for (index, url) in files.enumerated() {
             let item = NSDraggingItem(pasteboardWriter: url as NSURL)
-            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            // Only for the icons the pile draws: every file's was asked of the workspace, a trip
+            // to Launch Services and the disk each, and all but the first few thrown away.
+            let icon = index < Self.maxStacked ? NSWorkspace.shared.icon(forFile: url.path) : nil
             let side = bounds.width > 0 ? min(bounds.width, bounds.height) : 56
             let offset = CGFloat(min(index, Self.maxStacked)) * Self.stackOffset
             let frame = NSRect(x: origin.x - side / 2 + offset, y: origin.y - side / 2 - offset,
                                width: side, height: side)
-            item.setDraggingFrame(frame, contents: index < Self.maxStacked ? icon : nil)
+            item.setDraggingFrame(frame, contents: icon)
             items.append(item)
         }
         let session = beginDraggingSession(with: items, event: event, source: self)

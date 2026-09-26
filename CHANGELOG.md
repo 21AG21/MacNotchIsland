@@ -278,6 +278,13 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The rail is no longer redrawn, every disc on it, on every write of a drag of the volume slider or for every thumbnail made for a file on the shelf: only the volume is, and the slider writes at most thirty times a second, the last level always written.
+- The Controls section no longer redraws the networks, the paired devices and the rail's overflow on every step of a volume drag or for every shelf thumbnail, and Clear Shelf in the island's menu is no longer re-read for each thumbnail either.
+- The menu bar's spare room is measured at most once a second, on a queue of its own, and the last ask is the one answered, so an alert right after an app switch no longer measures the old app's bar.
+- A press on the island is reported only while it is collapsed; pressing an open panel pins the peek as before but no longer shrinks the whole panel.
+- The AirPods listening modes are read on a queue of their own rather than on the main thread as the Controls section slides in, and a pair that connects is still answered on the spot.
+- Dragging many files off the shelf fetches icons for only the four the drag draws, rather than one per file.
+- A second display that stops answering after a drag of its brightness slider is let go when the write's hold ends, and the slider drives the built-in display again, rather than staying dead until the panel closed.
 - The weather follows the Temperature setting in System Settings and the region's own habit, so Puerto Rico reads Fahrenheit and Liberia Celsius, whatever the measurement system.
 - The hour strip writes hours the way the Mac's region does ("17", "5 pm", "17 h"), in the forecast's own zone, VoiceOver reads them as times, and the strip no longer loses the hour that spring skips or shows the autumn hour twice.
 - Times in Today, the calendar card, the alarms and the menu bar follow a change to the 24-hour clock, region or time zone without a relaunch.

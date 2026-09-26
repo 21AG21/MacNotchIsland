@@ -29,9 +29,29 @@ final class MenuBarClearance: ObservableObject {
     /// workspace's own centre and must be removed there.
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var timer: Timer?
+    /// The measurement asked for and not yet started, and when it is due, on the clock that only
+    /// counts forwards (`LocalWrite.now`). Main thread.
     private var pending: DispatchWorkItem?
-    /// A slow window-list walk must not overwrite the result of a later one.
-    private var generation = 0
+    private var pendingDue: TimeInterval?
+    /// When the last measurement set off, on the same clock. Main thread.
+    private var lastRefreshAt = LocalWrite.never
+    /// One measurement out at a time, and one more after it at most when it is asked for while
+    /// the first is out. Main thread. With one at a time on one serial queue a slow walk can
+    /// never land over a later one, which is what a count of walks used to guard against.
+    private var pass = RadioPass()
+    /// Where the window list and the front app's menu bar are read: one queue, one walk at a
+    /// time. Each ask used to start a block of its own on a global queue, as many at once as
+    /// were asked for, each able to wait on an app that has stopped answering.
+    private let queue = DispatchQueue(label: "com.macnotchisland.menu-bar-clearance", qos: .utility)
+
+    /// The least time between the starts of two measurements.
+    ///
+    /// Every alert asks for one, since the island is about to widen into the menu bar, and a
+    /// scroll of the volume or the brightness is an alert a turn: up to thirty walks of the
+    /// window list and of the front app's menu bar a second, each item of it a round trip
+    /// through Accessibility. A second is quicker than anybody changes what the menu bar holds,
+    /// and the widening it measures for is already on screen.
+    static let hold: TimeInterval = 1
 
     private init() {}
 
@@ -61,15 +81,51 @@ final class MenuBarClearance: ObservableObject {
         timer = nil
         pending?.cancel()
         pending = nil
+        pendingDue = nil
+        // Started again, the first ask is measured at once, as it is at launch.
+        lastRefreshAt = LocalWrite.never
         if limits != .unlimited { limits = .unlimited }
     }
 
+    /// Measures the menu bar `delay` from now, or at the end of the hold on the last measurement
+    /// (`hold`), whichever is later. Main thread.
+    ///
+    /// An ask inside the hold is answered by one measurement at its end, which every ask made
+    /// meanwhile shares, rather than one each; a measurement already waiting for that moment or
+    /// a later one answers it outright. The first ask after a quiet second is measured at once.
+    /// An ask with a delay of its own — an app just switched to, whose menu bar is still being
+    /// laid out — still waits that long: an alert straight after it used to cancel it and
+    /// measure the menu bar before the new app's menus were on it.
     func refresh(after delay: TimeInterval = 0) {
         guard timer != nil else { return }
+        let now = LocalWrite.now()
+        let due = Self.refreshDue(asked: now + delay, lastAt: lastRefreshAt)
+        guard !Self.answered(due: due, byPendingAt: pending == nil ? nil : pendingDue) else { return }
         pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.refreshNow() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pending = nil
+            self.pendingDue = nil
+            self.refreshNow()
+        }
         pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        pendingDue = due
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, due - now), execute: work)
+    }
+
+    /// When an ask made for `asked` is measured, the last measurement having started at `lastAt`:
+    /// when it was asked for, or at the end of the hold on the last one if that is later. Pure.
+    static func refreshDue(asked: TimeInterval, lastAt: TimeInterval,
+                           hold: TimeInterval = MenuBarClearance.hold) -> TimeInterval {
+        max(asked, lastAt + hold)
+    }
+
+    /// Whether a measurement already waiting, due at `pendingDue`, answers an ask due at `due`:
+    /// it does when it starts no sooner, since it then measures the menu bar as the ask would
+    /// have. Nil, nothing waiting, answers nothing. Pure.
+    static func answered(due: TimeInterval, byPendingAt pendingDue: TimeInterval?) -> Bool {
+        guard let pendingDue else { return false }
+        return pendingDue >= due
     }
 
     private func refreshNow() {
@@ -77,25 +133,30 @@ final class MenuBarClearance: ObservableObject {
             if limits != .unlimited { limits = .unlimited }
             return
         }
+        // One out already: this ask is taken up when it lands, at the hold's pace.
+        guard pass.start() else { return }
+        lastRefreshAt = LocalWrite.now()
         let geometry = NotchGeometry.detect(on: screen)
         let frame = screen.frame
         let notch = CGRect(x: frame.midX - geometry.notchWidth / 2, y: 0, width: geometry.notchWidth, height: geometry.notchHeight)
         let primaryHeight = NSScreen.screens.first?.frame.height ?? frame.height
         let app = NSWorkspace.shared.frontmostApplication
-        generation += 1
-        let ticket = generation
         // The window list walk and the Accessibility round trip both belong off the main thread.
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        queue.async { [weak self] in
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
             let band = Self.menuBarBand(screenFrame: frame, primaryHeight: primaryHeight, notchHeight: geometry.notchHeight)
             let trailing = Self.statusItemClearance(windows: windows, menuBar: band, notchMaxX: notch.maxX)
             let leading = Self.menuClearance(app: app, menuBar: band, notchMinX: notch.minX)
             let measured = Limits(leading: leading, trailing: trailing)
             DispatchQueue.main.async {
-                guard let self, self.timer != nil, ticket == self.generation else { return }
-                let next = Self.settled(measured, from: self.limits)
-                guard self.limits != next else { return }
-                self.limits = next
+                guard let self else { return }
+                let again = self.pass.finish()
+                if self.timer != nil {
+                    let next = Self.settled(measured, from: self.limits)
+                    if self.limits != next { self.limits = next }
+                }
+                // Asked for while this one was out: once more, when the hold allows.
+                if again { self.refresh() }
             }
         }
     }

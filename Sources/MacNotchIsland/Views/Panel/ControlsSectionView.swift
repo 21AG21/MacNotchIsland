@@ -19,10 +19,15 @@ struct ControlsSectionView: View {
     var showingMirror: Binding<Bool> = .constant(false)
     @ObservedObject private var toggles = SystemToggles.shared
     @ObservedObject private var wifi = WiFiScanner.shared
-    @ObservedObject private var sound = AudioOutputs.shared
-    // Watched for what they decide about the rail's overflow, as the rail watches them.
+    // Watched for what they decide about the rail's overflow, as the rail watches them — the
+    // shelf and the sound devices through the one thing the overflow takes from each
+    // (`NarrowReadings`), as the rail does. The sound devices are otherwise the Sound column's
+    // alone (`SoundColumn`): watched here, every write of a drag of the rail's volume slider
+    // drew the networks, the paired devices and the overflow again with it, and so did every
+    // thumbnail made for a file on the shelf.
     @ObservedObject private var prefs = Preferences.shared
-    @ObservedObject private var shelf = ShelfStore.shared
+    @ObservedObject private var shelfHasFiles = NarrowReadings.shelfHasFiles
+    @ObservedObject private var outputChoice = NarrowReadings.hasOutputChoice
     @ObservedObject private var brightness = BrightnessControl.shared
     @ObservedObject private var keyboard = KeyboardLight.shared
     // A webcam plugged in or pulled out adds or takes away the mirror's disc, which can be
@@ -33,8 +38,6 @@ struct ControlsSectionView: View {
     @ObservedObject private var paired = PairedDevices.shared
     /// The address of the AirPods row that is open on its listening modes, if one is.
     @State private var expandedAirPods: String?
-    /// The route picker on the Sound column's last row, so the whole row can open it.
-    @State private var routePicker = AirPlayRouteHandle()
 
     /// Three columns with a gutter between them, filling the section's width.
     static let gutter: CGFloat = 18
@@ -87,54 +90,40 @@ struct ControlsSectionView: View {
     /// The three columns.
     private var lists: some View {
         HStack(alignment: .top, spacing: Self.gutter) {
-            column(title: "Wi-Fi",
-                   symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
-                   lit: toggles.wifiOn,
-                   note: toggles.hasWiFi ? (toggles.wifiOn ? nil : "Off") : "Not on this Mac",
-                   trailing: {
-                       if toggles.hasWiFi {
-                           HeaderSwitch(subject: "Wi-Fi", isOn: toggles.wifiOn) { toggles.toggleWiFi() }
-                       }
-                   }) {
+            Self.column(title: "Wi-Fi",
+                        symbol: toggles.wifiOn ? "wifi" : "wifi.slash",
+                        lit: toggles.wifiOn,
+                        note: toggles.hasWiFi ? (toggles.wifiOn ? nil : "Off") : "Not on this Mac",
+                        trailing: {
+                            if toggles.hasWiFi {
+                                HeaderSwitch(subject: "Wi-Fi", isOn: toggles.wifiOn) { toggles.toggleWiFi() }
+                            }
+                        }) {
                 wifiList
             }
-            column(title: "Bluetooth",
-                   symbol: "dot.radiowaves.left.and.right",
-                   lit: toggles.bluetoothOn,
-                   note: Self.bluetoothNote(hasBluetooth: toggles.hasBluetooth, isOn: toggles.bluetoothOn,
-                                            accessRefused: toggles.bluetoothAccessRefused),
-                   trailing: {
-                       if toggles.hasBluetooth {
-                           HeaderSwitch(subject: "Bluetooth", isOn: toggles.bluetoothOn) { toggles.toggleBluetooth() }
-                       }
-                   }) {
+            Self.column(title: "Bluetooth",
+                        symbol: "dot.radiowaves.left.and.right",
+                        lit: toggles.bluetoothOn,
+                        note: Self.bluetoothNote(hasBluetooth: toggles.hasBluetooth, isOn: toggles.bluetoothOn,
+                                                 accessRefused: toggles.bluetoothAccessRefused),
+                        trailing: {
+                            if toggles.hasBluetooth {
+                                HeaderSwitch(subject: "Bluetooth", isOn: toggles.bluetoothOn) { toggles.toggleBluetooth() }
+                            }
+                        }) {
                 if !toggles.hasBluetooth, toggles.bluetoothAccessRefused {
                     bluetoothRefused
                 } else {
                     bluetoothList
                 }
             }
-            column(title: "Sound",
-                   symbol: sound.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                   lit: !sound.isMuted,
-                   // Never a note in place of the list: the AirPlay row at its foot is always
-                   // there, even on a Mac CoreAudio shows no devices for. See `soundList`.
-                   note: nil,
-                   trailing: {
-                       if sound.hasMute {
-                           // Control Centre has no mute at all — you drag the slider to nothing
-                           // and drag it back afterwards, guessing where it was.
-                           HeaderSwitch(subject: "Sound", isOn: !sound.isMuted, offTitle: "Muted") { sound.setMuted(!sound.isMuted) }
-                       }
-                   }) {
-                soundList
-            }
+            SoundColumn()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             toggles.viewerAppeared()
             wifi.viewerAppeared()
-            sound.viewerAppeared()
+            AudioOutputs.shared.viewerAppeared()
             airPods.viewerAppeared()
             // Read only once the tour is done and while the radio is on, on a queue of its own;
             // see `PairedDevices`.
@@ -143,7 +132,7 @@ struct ControlsSectionView: View {
         .onDisappear {
             toggles.viewerDisappeared()
             wifi.viewerDisappeared()
-            sound.viewerDisappeared()
+            AudioOutputs.shared.viewerDisappeared()
             airPods.viewerDisappeared()
             paired.viewerDisappeared()
         }
@@ -178,11 +167,12 @@ struct ControlsSectionView: View {
 
     // MARK: - A column
 
+    /// Static, as `row` is, so the Sound column, a view of its own, is drawn by the same code.
     @ViewBuilder
-    private func column<Trailing: View, Content: View>(title: String, symbol: String, lit: Bool,
-                                                       note: String?,
-                                                       @ViewBuilder trailing: () -> Trailing,
-                                                       @ViewBuilder content: () -> Content) -> some View {
+    fileprivate static func column<Trailing: View, Content: View>(title: String, symbol: String, lit: Bool,
+                                                                  note: String?,
+                                                                  @ViewBuilder trailing: () -> Trailing,
+                                                                  @ViewBuilder content: () -> Content) -> some View {
         // The same gap under the column's header line as under every section's header, so the
         // first network sits where the first event, window or file does in the others.
         VStack(alignment: .leading, spacing: SectionMetrics.gapBelowHeader) {
@@ -251,10 +241,10 @@ struct ControlsSectionView: View {
             IslandScrollStrip(axis: .vertical) {
                 VStack(spacing: 0) {
                     ForEach(wifi.networks) { network in
-                        row(title: network.ssid,
-                            trailing: { WiFiBars(bars: network.bars) },
-                            lock: network.isSecure && !network.isKnown,
-                            isOn: network.isCurrent) {
+                        Self.row(title: network.ssid,
+                                 trailing: { WiFiBars(bars: network.bars) },
+                                 lock: network.isSecure && !network.isKnown,
+                                 isOn: network.isCurrent) {
                             // The ticked row is the network the Mac is on; joining it again
                             // could drop it. See `WiFiScanner.joins`.
                             if WiFiScanner.joins(network) { wifi.join(network) }
@@ -290,27 +280,27 @@ struct ControlsSectionView: View {
                         let hasModes = device.isConnected && airPods.drives(name: device.name, address: device.address)
                         let open = hasModes && expandedAirPods == device.address
                         VStack(alignment: .leading, spacing: Self.modesGap) {
-                            row(title: device.name,
-                                trailing: {
-                                    HStack(spacing: 5) {
-                                        if let battery = device.battery {
-                                            Text("\(battery)%")
-                                                .font(.system(size: 10).monospacedDigit())
-                                                .foregroundStyle(Self.batteryTint(battery))
-                                        }
-                                        Image(systemName: device.symbol)
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.white.opacity(0.45))
-                                        if hasModes {
-                                            Image(systemName: open ? "chevron.up" : "chevron.down")
-                                                .font(.system(size: 8, weight: .bold))
-                                                .foregroundStyle(.white.opacity(0.35))
-                                        }
-                                    }
-                                },
-                                lock: false,
-                                isOn: device.isConnected,
-                                detail: device.battery.map { "\($0) percent" }) {
+                            Self.row(title: device.name,
+                                     trailing: {
+                                         HStack(spacing: 5) {
+                                             if let battery = device.battery {
+                                                 Text("\(battery)%")
+                                                     .font(.system(size: 10).monospacedDigit())
+                                                     .foregroundStyle(Self.batteryTint(battery))
+                                             }
+                                             Image(systemName: device.symbol)
+                                                 .font(.system(size: 11, weight: .medium))
+                                                 .foregroundStyle(.white.opacity(0.45))
+                                             if hasModes {
+                                                 Image(systemName: open ? "chevron.up" : "chevron.down")
+                                                     .font(.system(size: 8, weight: .bold))
+                                                     .foregroundStyle(.white.opacity(0.35))
+                                             }
+                                         }
+                                     },
+                                     lock: false,
+                                     isOn: device.isConnected,
+                                     detail: device.battery.map { "\($0) percent" }) {
                                 if hasModes {
                                     withAnimation(IslandMotion.content) {
                                         expandedAirPods = open ? nil : device.address
@@ -370,86 +360,6 @@ struct ControlsSectionView: View {
         BluetoothState.isLow(percent) ? Color(red: 1, green: 0.42, blue: 0.4) : Color.white.opacity(0.45)
     }
 
-    // MARK: - Where the sound goes, and comes from
-
-    private var soundEntries: [SoundList.Entry] {
-        SoundList.entries(outputs: sound.devices, current: sound.current,
-                          inputs: sound.inputs, currentInput: sound.currentInput,
-                          airPlay: sound.airPlay, airPlayCurrent: sound.airPlayCurrent)
-    }
-
-    @ViewBuilder
-    private var soundList: some View {
-        let entries = soundEntries
-        IslandScrollStrip(axis: .vertical) {
-            VStack(spacing: 0) {
-                if entries.isEmpty {
-                    Text("No devices")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: Self.rowHeight)
-                }
-                ForEach(entries) { entry in
-                    switch entry {
-                    case .heading(let title):
-                        Text(title)
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .kerning(0.4)
-                            .foregroundStyle(.white.opacity(0.3))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .frame(height: 15)
-                            // Air above every heading but the first.
-                            .padding(.top, entry.id == entries.first?.id ? 0 : 5)
-                    case .device(let device, let isCurrent, let isInput):
-                        row(title: device.shortName,
-                            trailing: {
-                                Image(systemName: isInput ? "mic.fill" : device.symbol)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.45))
-                            },
-                            lock: false,
-                            isOn: isCurrent) {
-                            if isInput { sound.selectInput(device) } else { sound.select(device) }
-                        }
-                    case .airPlay(let target, let isCurrent):
-                        row(title: target.name,
-                            trailing: {
-                                Image(systemName: "airplayaudio")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.45))
-                            },
-                            lock: false,
-                            isOn: isCurrent) {
-                            sound.selectAirPlay(target)
-                        }
-                    }
-                }
-                airPlayPickerRow
-            }
-        }
-    }
-
-    /// The last row, always: the system's own AirPlay picker, one click from every receiver
-    /// Control Centre knows about — whatever the list above made of the AirPlay device.
-    private var airPlayPickerRow: some View {
-        row(title: "AirPlay…",
-            trailing: {
-                if RenderMode.isGallery {
-                    Image(systemName: "airplayaudio")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white)
-                } else {
-                    AirPlayRoutePicker(handle: routePicker)
-                        .frame(width: Self.pickerGlyph, height: Self.pickerGlyph)
-                }
-            },
-            lock: false,
-            isOn: false) {
-            routePicker.open()
-        }
-    }
-
     /// The route picker's glyph: the same box the row's other glyphs sit in, a little larger,
     /// because AVKit draws its own glyph with air around it.
     static let pickerGlyph: CGFloat = 20
@@ -458,9 +368,9 @@ struct ControlsSectionView: View {
 
     /// `detail` is what a row has to say beyond its name and its tick — a battery level, so
     /// far. Wi-Fi and Sound rows have nothing of the sort and leave it out.
-    private func row<Trailing: View>(title: String, @ViewBuilder trailing: () -> Trailing,
-                                     lock: Bool, isOn: Bool, detail: String? = nil,
-                                     action: @escaping () -> Void) -> some View {
+    fileprivate static func row<Trailing: View>(title: String, @ViewBuilder trailing: () -> Trailing,
+                                                lock: Bool, isOn: Bool, detail: String? = nil,
+                                                action: @escaping () -> Void) -> some View {
         var label = isOn ? "\(title), on" : title
         if let detail { label += ", \(detail)" }
         return Button(action: action) {
@@ -489,6 +399,115 @@ struct ControlsSectionView: View {
         }
         .buttonStyle(IslandButtonStyle())
         .accessibilityLabel(label)
+    }
+}
+
+/// The Sound column: where the sound goes and comes from, under the mute's switch.
+///
+/// A view of its own so that it alone in the section watches `AudioOutputs`, which publishes the
+/// level on every write a drag of the rail's volume slider makes. The column shows no level, but
+/// watched from the section every one of those writes drew the whole section again — the
+/// networks, the paired devices, the rail's overflow.
+private struct SoundColumn: View {
+    @ObservedObject private var sound = AudioOutputs.shared
+    /// The route picker on the column's last row, so the whole row can open it.
+    @State private var routePicker = AirPlayRouteHandle()
+
+    var body: some View {
+        ControlsSectionView.column(title: "Sound",
+                                   symbol: sound.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                                   lit: !sound.isMuted,
+                                   // Never a note in place of the list: the AirPlay row at its foot is
+                                   // always there, even on a Mac CoreAudio shows no devices for. See
+                                   // `soundList`.
+                                   note: nil,
+                                   trailing: {
+                                       if sound.hasMute {
+                                           // Control Centre has no mute at all — you drag the slider to
+                                           // nothing and drag it back afterwards, guessing where it was.
+                                           HeaderSwitch(subject: "Sound", isOn: !sound.isMuted, offTitle: "Muted") { sound.setMuted(!sound.isMuted) }
+                                       }
+                                   }) {
+            soundList
+        }
+    }
+
+    private var soundEntries: [SoundList.Entry] {
+        SoundList.entries(outputs: sound.devices, current: sound.current,
+                          inputs: sound.inputs, currentInput: sound.currentInput,
+                          airPlay: sound.airPlay, airPlayCurrent: sound.airPlayCurrent)
+    }
+
+    @ViewBuilder
+    private var soundList: some View {
+        let entries = soundEntries
+        IslandScrollStrip(axis: .vertical) {
+            VStack(spacing: 0) {
+                if entries.isEmpty {
+                    Text("No devices")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: ControlsSectionView.rowHeight)
+                }
+                ForEach(entries) { entry in
+                    switch entry {
+                    case .heading(let title):
+                        Text(title)
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .kerning(0.4)
+                            .foregroundStyle(.white.opacity(0.3))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(height: 15)
+                            // Air above every heading but the first.
+                            .padding(.top, entry.id == entries.first?.id ? 0 : 5)
+                    case .device(let device, let isCurrent, let isInput):
+                        ControlsSectionView.row(title: device.shortName,
+                                                trailing: {
+                                                    Image(systemName: isInput ? "mic.fill" : device.symbol)
+                                                        .font(.system(size: 11, weight: .medium))
+                                                        .foregroundStyle(.white.opacity(0.45))
+                                                },
+                                                lock: false,
+                                                isOn: isCurrent) {
+                            if isInput { sound.selectInput(device) } else { sound.select(device) }
+                        }
+                    case .airPlay(let target, let isCurrent):
+                        ControlsSectionView.row(title: target.name,
+                                                trailing: {
+                                                    Image(systemName: "airplayaudio")
+                                                        .font(.system(size: 11, weight: .medium))
+                                                        .foregroundStyle(.white.opacity(0.45))
+                                                },
+                                                lock: false,
+                                                isOn: isCurrent) {
+                            sound.selectAirPlay(target)
+                        }
+                    }
+                }
+                airPlayPickerRow
+            }
+        }
+    }
+
+    /// The last row, always: the system's own AirPlay picker, one click from every receiver
+    /// Control Centre knows about — whatever the list above made of the AirPlay device.
+    private var airPlayPickerRow: some View {
+        ControlsSectionView.row(title: "AirPlay…",
+                                trailing: {
+                                    if RenderMode.isGallery {
+                                        Image(systemName: "airplayaudio")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white)
+                                    } else {
+                                        AirPlayRoutePicker(handle: routePicker)
+                                            .frame(width: ControlsSectionView.pickerGlyph, height: ControlsSectionView.pickerGlyph)
+                                    }
+                                },
+                                lock: false,
+                                isOn: false) {
+            routePicker.open()
+        }
     }
 }
 

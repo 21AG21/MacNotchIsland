@@ -35,14 +35,23 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
 
     /// The press-in is the body's alone. A click on the bubble pressed the pill beside it in,
     /// as if the click had landed on the pill: feedback on the one thing not being clicked.
+    ///
+    /// And the collapsed island's alone (`IslandPress.publishes`). Open, the press is not told
+    /// as a press-in, only as the press that pins a peek, which `setPressed` also did.
     override func mouseDown(with event: NSEvent) {
         if islandContains(windowPoint: event.locationInWindow, includingBubble: false) {
-            ActivityCenter.shared.setPressed(true, panel: panelID)
+            let expanded = islandLayoutProvider?()?.isExpanded ?? false
+            if IslandPress.publishes(expanded: expanded) {
+                ActivityCenter.shared.setPressed(true, panel: panelID)
+            } else {
+                ActivityCenter.shared.pinPeek(panel: panelID)
+            }
         }
         super.mouseDown(with: event)
     }
 
-    /// Cleared whatever the press landed on, so nothing can be left pressed in.
+    /// Cleared whatever the press landed on, so nothing can be left pressed in. Nothing is
+    /// published when nothing was pressed (`setPressed` sets only a change).
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
         ActivityCenter.shared.setPressed(false, panel: panelID)
@@ -122,6 +131,20 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         guard let path = islandPath() else { return nil }
         guard Self.contains(path, topLeft(convert(point, from: superview)), margin: 0) else { return nil }
         return super.hitTest(point)
+    }
+}
+
+/// The island's press-in: whether a press on its body is told to the centre as one.
+enum IslandPress {
+    /// Only while the island is collapsed, which is the only time the press-in is drawn
+    /// (`IslandBodyView`'s `pressed` asks for a layout that is not expanded). The pressed island
+    /// is published, and every click inside an open panel — on the rail, the switcher, a slider,
+    /// the scrubber — set it and cleared it again: the whole island drawn twice for a change
+    /// nothing drew. The window's pass-through does not need it while the panel is open: a
+    /// button held down there is a press that began on the island (`NotchPanel.Hold`), and with
+    /// no button down the press has been cleared before it is asked about. Pure.
+    static func publishes(expanded: Bool) -> Bool {
+        !expanded
     }
 }
 
