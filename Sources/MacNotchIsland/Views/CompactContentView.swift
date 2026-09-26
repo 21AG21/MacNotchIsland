@@ -63,8 +63,13 @@ struct CompactContentView: View {
     /// Whether the privacy dots are drawn on the pill.
     private var showsDots: Bool { layout.privacyWidth > 0 }
 
-    /// Whether a click on the pill opens anything, see `IslandAccessibility.pillOpens`.
-    private var opens: Bool { IslandAccessibility.pillOpens(activity.content) }
+    /// Whether a click on the pill opens anything, see `IslandAccessibility.pillOpens` — and
+    /// not while it is a key press's feedback, which a click does nothing to
+    /// (`ActivityCenter.isTransientHUD`). Caps Lock's pill has a card behind it, as every
+    /// `.custom` one does, and VoiceOver read it as a button that did nothing when pressed.
+    private var opens: Bool {
+        IslandAccessibility.pillOpens(activity.content) && !ActivityCenter.isTransientHUD(activity, alert: center.alert)
+    }
 
     /// What VoiceOver says a press of the pill, or of the island at rest, does.
     static let opensHint = "Opens the panel"
@@ -283,7 +288,8 @@ struct CompactTrailingView: View {
                     MarqueeText(text: info.title, font: .system(size: 12, weight: .semibold), color: .white)
                         .frame(height: 15)
                     MarqueeText(text: info.artist.isEmpty ? info.appName : info.artist,
-                                font: .system(size: 11, weight: .regular), color: .white.opacity(0.55))
+                                font: .system(size: 11, weight: .regular),
+                                color: .white.opacity(IslandContrast.alpha(0.55, increased: display.increaseContrast)))
                         .frame(height: 13)
                 }
                 .padding(.trailing, Self.peekEndClearance)

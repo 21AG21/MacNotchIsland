@@ -260,7 +260,9 @@ final class IslandTimer: ObservableObject {
                                                    endDate: Date().addingTimeInterval(seconds)),
                                  priority: Self.basePriority, createdAt: Date()))
         reprioritize()
-        ActivityCenter.shared.dismissAlert()
+        // The alert on screen gives way to the timer; what waits behind it, and a battery
+        // about to run out, do not (`ActivityCenter.yieldAlert`).
+        ActivityCenter.shared.yieldAlert()
         publishAll()
         syncTicker()
         return id
@@ -520,8 +522,9 @@ final class IslandTimer: ObservableObject {
         alarms.removeAll { $0.id == id }
         saveAlarms()
         scheduleAlarmCheck()
-        // The card that said it was set would otherwise go on saying so.
-        if ActivityCenter.shared.alert?.id == Self.alarmSetAlertID { ActivityCenter.shared.dismissAlert() }
+        // The card that said it was set would otherwise go on saying so. That card alone: the
+        // alerts waiting behind it keep their turn.
+        if ActivityCenter.shared.alert?.id == Self.alarmSetAlertID { ActivityCenter.shared.yieldAlert() }
     }
 
     /// Every waiting alarm, gone. A ringing one is a timer by then, and `cancelAll` stops it.
@@ -623,7 +626,7 @@ final class IslandTimer: ObservableObject {
         timers.removeAll { $0.id == entry.id }
         timers.append(entry)
         reprioritize()
-        ActivityCenter.shared.dismissAlert()
+        ActivityCenter.shared.yieldAlert()
         publishAll()
         finish(entry)
         syncTicker()

@@ -278,6 +278,12 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A ringing card gives the island back.** A timer or Pomodoro phase that rings during a call hands the island back to the call, muted microphone and all, once its card goes, and a sooner timer or music you start later can take the pill again.
+- **A ringing card waits for the scrubber.** A timer that rings while you drag the scrubber or a slider in the peek comes up the moment you let go, so the seek lands, and its eight seconds start when you can see it.
+- **Each question from a script is its own card.** A click or Control-Y already on its way to one `notchctl ask` question no longer answers the question that replaces it.
+- **`activity/update` updates.** `notchisland://activity/update` changes only what it carries on a card that is up and is refused for one that is not, and a title-less update arriving just after `notchctl end` no longer brings the card back as “Activity”.
+- **Starting a timer leaves other alerts alone.** A timer starting or an alarm ringing takes down only the alert on screen, never a low-battery warning, and a finished download or “Alarm set” waiting its turn still gets it.
+- **VoiceOver is interrupted less.** Track changes, finished downloads and scripts' alerts wait for VoiceOver to finish its sentence, the mute key is no longer announced, a volume press is no longer lost behind an alert kept up for VoiceOver, a script's exact duration is kept, and Caps Lock's pill is no longer called a button.
 - The compact island no longer draws over an app's menu titles that run past the notch: in Xcode, Office or Photoshop its right side stops short of the first title there, as it does before a status item.
 - A drag of the rail's volume slider stops setting the level if the output changes under it, so AirPods disconnecting mid-drag no longer turn the Mac's speakers up to where the AirPods were; the next drag sets the speakers.
 - With Full Keyboard Access on, Tab stops on the rail's volume and brightness sliders, which show a ring while they have the focus, and the arrow keys move the focused one a notch a press; with no slider focused the arrows still step sections and change the volume.

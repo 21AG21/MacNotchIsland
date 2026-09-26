@@ -1443,7 +1443,8 @@ final class ActivityCenterTests: XCTestCase {
         let watch = center.$alert.sink { if let id = $0?.id { shown.append(id) } }
         settle(0.6)
         watch.cancel()
-        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID, "the question has the island again")
+        XCTAssertNotNil(IslandAsk.shared.cardID)
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.shared.cardID, "the question has the island again")
         XCTAssertFalse(shown.contains("download-done"), "never put up only to be taken straight down")
         XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"], "still waiting, now behind the question")
     }

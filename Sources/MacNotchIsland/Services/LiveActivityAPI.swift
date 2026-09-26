@@ -24,6 +24,9 @@ final class LiveActivityAPI {
     static let notificationName = Notification.Name("com.macnotchisland.api")
 
     private var token: NSObjectProtocol?
+    /// When a script last ended each of its cards, by id, for as long as `endedMemory` says it
+    /// is worth remembering (`arrival`). Main thread, where every message is handled.
+    private var endedAt: [String: Date] = [:]
 
     func start() {
         guard token == nil else { return }
@@ -278,6 +281,78 @@ final class LiveActivityAPI {
         }
     }
 
+    // MARK: - Updating a card
+
+    /// How long a card a script ended stays ended against a message that only updates it
+    /// (`arrival`).
+    static let endedMemory: TimeInterval = 10
+
+    /// What an `activity` message does to the card it names.
+    enum Arrival: Equatable {
+        /// Puts the card up from the message alone, in place of the one there if there is one.
+        case put
+        /// Changes what the message carries on the card that is up, and nothing else (`merged`).
+        case merge
+        /// Nothing, and the log says why.
+        case refuse
+    }
+
+    /// Pure: what an `activity` message does. `activity/update` changes a card that is up, and
+    /// is refused when none is. It used to be read as a start, so after `notchctl end build` a
+    /// late `progress=` put the card back as the newest one, taking the island, with every
+    /// field it left out back to its default — "Activity", `app.fill`, and a card with no
+    /// `ttl=` that never went. A plain `activity` puts the card up, except that one with no
+    /// title of its own, `endedAgo` seconds after the script ended that card, is taken for a
+    /// late update to it and refused as well: it is a figure for a card that has gone, not a
+    /// card anybody started. With a title it is a card started again, as ever.
+    static func arrival(update: Bool, cardUp: Bool, endedAgo: TimeInterval?, titled: Bool) -> Arrival {
+        if update { return cardUp ? .merge : .refuse }
+        if !cardUp, !titled, let endedAgo, endedAgo >= 0, endedAgo < endedMemory { return .refuse }
+        return .put
+    }
+
+    /// Pure: the card `activity` is once an `activity/update` message has been applied to it —
+    /// what the message carries, and nothing it leaves out. A field sent empty clears one that
+    /// can be cleared (`subtitle=`, `trailing=`, `body=`, `url=`, `progress=`), a title sent
+    /// empty or a glyph SF Symbols has no such name for keeps the card's own, and buttons are
+    /// replaced only by a message that names one. Its place on the island, when it started,
+    /// stays where it was. Nil for a card that is not a script's kind of card.
+    static func merged(_ activity: IslandActivity, with q: [String: String], allowsShortcuts: Bool, now: Date,
+                       symbolExists: (String) -> Bool = { NSImage(systemSymbolName: $0, accessibilityDescription: nil) != nil })
+        -> IslandActivity? {
+        guard case .custom(var custom) = activity.content else { return nil }
+        var updated = activity
+        if let title = text(q["title"]) { custom.title = title }
+        if let subtitle = q["subtitle"] { custom.subtitle = text(subtitle) }
+        if let raw = q["symbol"] ?? q["icon"] { custom.symbol = symbol(raw, fallback: custom.symbol, exists: symbolExists) }
+        if let tint = q["tint"] ?? q["color"] { custom.tint = tint }
+        if let raw = q["progress"] { custom.progress = Double(raw).map { min(1, max(0, $0)) } }
+        if let trailing = q["trailing"] { custom.trailingText = text(trailing) }
+        if let body = q["body"] { custom.body = text(body) }
+        if let raw = q["url"] {
+            custom.url = safeLink(raw)
+            updated.openAction = custom.url.map { OpenAction.url($0) }
+        }
+        if let ring = q["ring"] { custom.showsRing = ["1", "true", "yes"].contains(ring.lowercased()) }
+        if q["action"] != nil || q["action2"] != nil { custom.actions = actions(from: q, allowsShortcuts: allowsShortcuts) }
+        if let rank = Self.priority(q["priority"]) { updated.priority = rank }
+        if case .seconds(let seconds) = ttl(q["ttl"]) { updated.expiresAt = now.addingTimeInterval(seconds) }
+        updated.content = .custom(custom)
+        return updated
+    }
+
+    /// How long ago a script ended the card `id`, while that is still worth remembering
+    /// (`endedMemory`); nil otherwise. Whatever has been remembered for longer is let go here.
+    private func endedAgo(_ id: String, now: Date) -> TimeInterval? {
+        endedAt = endedAt.filter { now.timeIntervalSince($0.value) < Self.endedMemory }
+        return endedAt[id].map { now.timeIntervalSince($0) }
+    }
+
+    /// Forgets which cards were ended a moment ago. Used by the test suite.
+    func resetForTesting() {
+        endedAt.removeAll()
+    }
+
     /// What a refused command was sent, for the log.
     private static func said(_ q: [String: String], _ keys: String...) -> String {
         keys.compactMap { key in q[key].map { "\(key)=\($0)" } }.joined(separator: " ")
@@ -331,22 +406,44 @@ final class LiveActivityAPI {
                 IslandLog.island.error("activity: \(Self.said(q, "ttl"), privacy: .public) \(why, privacy: .public)")
                 return
             }
-            var custom = CustomActivity(title: Self.text(q["title"]) ?? "Activity")
-            custom.subtitle = q["subtitle"]
-            custom.symbol = Self.symbol(q["symbol"] ?? q["icon"], fallback: "app.fill")
-            custom.tint = q["tint"] ?? q["color"] ?? "white"
-            custom.progress = q["progress"].flatMap { Double($0) }.map { min(1, max(0, $0)) }
-            custom.trailingText = q["trailing"]
-            // "body=" is no body. Kept as "", the card was sized for a line the view does not
-            // draw (`cardHeight`), and 24 pt of black hung under it.
-            custom.body = Self.text(q["body"])
-            custom.url = Self.safeLink(q["url"])
-            custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
-            custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
-            let priority = Self.priority(q["priority"]) ?? 70
-            var activity = IslandActivity(id: Self.pushedID(q["id"]), kind: .custom, content: .custom(custom), priority: priority)
-            if case .seconds(let seconds) = ttl { activity.expiresAt = Date().addingTimeInterval(seconds) }
-            if let u = custom.url { activity.openAction = .url(u) }
+            let id = Self.pushedID(q["id"])
+            let now = Date()
+            let card = center.activity(id: id)
+            let activity: IslandActivity
+            switch Self.arrival(update: path == "update", cardUp: card != nil, endedAgo: endedAgo(id, now: now),
+                                titled: Self.text(q["title"]) != nil) {
+            case .refuse:
+                let why = path == "update" ? "there is no such card up to update"
+                                           : "it was ended a moment ago, and this names no title to start it again with"
+                IslandLog.island.error("activity: \(id, privacy: .public) left alone: \(why, privacy: .public)")
+                return
+            case .merge:
+                guard let card, let merged = Self.merged(card, with: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled,
+                                                         now: now) else {
+                    IslandLog.island.error("activity: \(id, privacy: .public) is not a card a script can update")
+                    return
+                }
+                activity = merged
+            case .put:
+                var custom = CustomActivity(title: Self.text(q["title"]) ?? "Activity")
+                custom.subtitle = q["subtitle"]
+                custom.symbol = Self.symbol(q["symbol"] ?? q["icon"], fallback: "app.fill")
+                custom.tint = q["tint"] ?? q["color"] ?? "white"
+                custom.progress = q["progress"].flatMap { Double($0) }.map { min(1, max(0, $0)) }
+                custom.trailingText = q["trailing"]
+                // "body=" is no body. Kept as "", the card was sized for a line the view does not
+                // draw (`cardHeight`), and 24 pt of black hung under it.
+                custom.body = Self.text(q["body"])
+                custom.url = Self.safeLink(q["url"])
+                custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
+                custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
+                let priority = Self.priority(q["priority"]) ?? 70
+                var fresh = IslandActivity(id: id, kind: .custom, content: .custom(custom), priority: priority)
+                if case .seconds(let seconds) = ttl { fresh.expiresAt = now.addingTimeInterval(seconds) }
+                if let u = custom.url { fresh.openAction = .url(u) }
+                activity = fresh
+                endedAt[id] = nil
+            }
             center.upsert(activity)
             if ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased()) {
                 center.forceExpanded(id: activity.id, for: Self.seconds(q["duration"]) ?? 4)
@@ -356,10 +453,17 @@ final class LiveActivityAPI {
             // Without an id, every card a script pushed — and only those. The island's own
             // activities are `.custom` too (the screen recording's, with its Stop button), and
             // ending by kind took that one down while `screencapture` went on recording.
+            // Each one is remembered for a moment, so a late update to it does not put it back
+            // (`arrival`).
+            let now = Date()
             if let id = q["id"] {
                 center.end(id: Self.pushedID(id))
+                endedAt[Self.pushedID(id)] = now
             } else {
-                for a in center.activities where a.id.hasPrefix(Self.pushedPrefix) { center.end(id: a.id) }
+                for a in center.activities where a.id.hasPrefix(Self.pushedPrefix) {
+                    center.end(id: a.id)
+                    endedAt[a.id] = now
+                }
             }
 
         case ("alert", _):

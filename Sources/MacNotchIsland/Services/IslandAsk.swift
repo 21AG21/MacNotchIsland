@@ -240,7 +240,14 @@ enum AskReply {
 /// `notchisland://ask/answer?answer=yes` answers nothing.
 final class IslandAsk {
     static let shared = IslandAsk()
-    static let activityID = "ask"
+    /// What every question's card id starts with. Each question has an id of its own
+    /// (`cardID`): a second question put up in place of the first under the one id "ask" was
+    /// the same card updated, not a card that replaced another, so nothing recorded that it
+    /// had grown under the pointer (`ActivityCenter.cardReplaces`), and a click already on its
+    /// way to the first question's Yes answered the second one Yes.
+    static let activityPrefix = "ask-"
+    /// Whether an activity id is a question's card. Pure, so it is tested.
+    static func isCardID(_ id: String) -> Bool { id.hasPrefix(activityPrefix) }
     /// Ranked with the screen recording's card, under a call's.
     static let priority = 90
     /// Past its own timeout, the activity also expires on its own. The timeout ends it first;
@@ -260,14 +267,23 @@ final class IslandAsk {
         let request: AskRequest
         let reply: String
         let token: String
+        /// The id of its card, which is its own and no other question's.
+        let cardID: String
         /// When its time is up, for taking the island back for what is left of it.
         let deadline: Date
+        /// When it took the place of another question still up, if it did (`keyAnswerCounts`).
+        let replacedAt: Date?
     }
 
     private var pending: Pending?
     /// Whether a question is up, for the activity center's alert queue: an alert let through
     /// while the question's card was on its way back would blink on and off. Main thread.
     var isAsking: Bool { pending != nil }
+    /// The card of the question that is up; nil when none is. Main thread.
+    var cardID: String? { pending?.cardID }
+    /// How many questions have been put up, which numbers their cards. Not the question's
+    /// token, which is what answers it and has no business in the log beside every card id.
+    private var asked = 0
     private var timeoutWork: DispatchWorkItem?
     private var cardWatch: AnyCancellable?
     private var forcedWatch: AnyCancellable?
@@ -305,20 +321,30 @@ final class IslandAsk {
     }
 
     func ask(_ request: AskRequest, reply: String) {
-        // One at a time: the one on screen is answered and replaced, its card kept for this one.
-        if pending != nil { settle(.timeout, endCard: false) }
+        // One at a time: the one on screen is answered and replaced. Its card goes once this
+        // one's is live, and before this one is forced up, so the island records the change as
+        // a card arriving where something else was (`ActivityCenter.cardReplaces`) — even where
+        // the first card had been clicked open, and its panel closes with it. The alerts waiting
+        // behind it stay waiting: with this question up and its card live, the slot coming free
+        // for that moment is left for it to take (`questionMayTakeSlotBack`).
+        let replaced = pending?.cardID
+        if replaced != nil { settle(.timeout, endCard: false) }
         let token = UUID().uuidString
-        pending = Pending(request: request, reply: reply, token: token,
-                          deadline: Date().addingTimeInterval(request.timeout))
+        asked &+= 1
+        let cardID = Self.activityPrefix + String(asked)
+        pending = Pending(request: request, reply: reply, token: token, cardID: cardID,
+                          deadline: Date().addingTimeInterval(request.timeout),
+                          replacedAt: replaced == nil ? nil : Date())
         let keysHeld = HotKeyService.shared.setAskKeysArmed(true)
 
         let center = ActivityCenter.shared
-        var activity = IslandActivity(id: Self.activityID, kind: .custom,
+        var activity = IslandActivity(id: cardID, kind: .custom,
                                       content: .custom(Self.card(for: request, token: token, keysHeld: keysHeld)),
                                       priority: Self.priority, presentation: .expanded)
         activity.expiresAt = Date().addingTimeInterval(request.timeout + Self.expiryGrace)
         center.upsert(activity)
-        center.forceExpanded(id: Self.activityID, for: request.timeout)
+        if let replaced { center.end(id: replaced) }
+        center.forceExpanded(id: cardID, for: request.timeout)
         IslandAccessibility.announce(request.announcement(keysHeld: keysHeld))
         watchCard()
         watchForcedSlot(token: token)
@@ -333,14 +359,30 @@ final class IslandAsk {
 
     /// An answer. From the card's buttons it carries the question's token, and one that does
     /// not match — a stale card, or a URL made up elsewhere — is ignored; from the keys it
-    /// carries none, and answers whatever question is up.
-    func answer(_ answer: AskAnswer, token: String? = nil) {
+    /// carries none, and answers whatever question is up — unless that question has only just
+    /// taken the place of another (`keyAnswerCounts`).
+    func answer(_ answer: AskAnswer, token: String? = nil, now: Date = Date()) {
         guard let pending else { return }
         if let token, token != pending.token {
             IslandLog.island.notice("ask: an answer for a question that is not up")
             return
         }
+        if token == nil, !Self.keyAnswerCounts(sinceReplaced: pending.replacedAt.map { now.timeIntervalSince($0) }) {
+            IslandLog.island.notice("ask: a key pressed as the question changed, taken for an answer to the one before")
+            return
+        }
         settle(answer, endCard: true)
+    }
+
+    /// Whether Control-Y or Control-N answers the question up now, `sinceReplaced` after it
+    /// took the place of another (nil when it replaced none). Not within the growth guard
+    /// (`NotchPanel.growthGuard`), as a click there is not taken for one on the new card's
+    /// buttons: the keys were pressed for the question that was there a moment before, and a
+    /// Control-Y meant for "Deploy to staging?" answered "Deploy to production?" Yes. A clock
+    /// gone backwards since is no change. Pure, so it is tested.
+    static func keyAnswerCounts(sinceReplaced: TimeInterval?, window: TimeInterval = NotchPanel.growthGuard) -> Bool {
+        guard let sinceReplaced, sinceReplaced >= 0 else { return true }
+        return sinceReplaced > window
     }
 
     /// `notchisland://ask/cancel?token=…`: the script that asked was interrupted — Control-C, a
@@ -384,10 +426,10 @@ final class IslandAsk {
         guard let pending, pending.token == token else { return }
         let center = ActivityCenter.shared
         let remaining = pending.deadline.timeIntervalSinceNow
-        guard Self.reclaims(forcedID: center.forcedExpandedID, cardUp: center.activity(id: Self.activityID) != nil,
+        guard Self.reclaims(forcedID: center.forcedExpandedID, cardUp: center.activity(id: pending.cardID) != nil,
                             remaining: remaining) else { return }
         IslandLog.island.notice("ask: back on the island for its last \(Int(remaining), privacy: .public)s")
-        center.forceExpanded(id: Self.activityID, for: remaining)
+        center.forceExpanded(id: pending.cardID, for: remaining)
     }
 
     /// `notchctl ask` makes the reply's folder and removes it when it exits, however it exits
@@ -438,7 +480,7 @@ final class IslandAsk {
     /// expiry and hold — rather than a new question. Nothing when no question is up, or its
     /// card has already gone: a hint is no reason to put a card back.
     func showKeyHint() {
-        guard let pending, var activity = ActivityCenter.shared.activity(id: Self.activityID) else { return }
+        guard let pending, var activity = ActivityCenter.shared.activity(id: pending.cardID) else { return }
         activity.content = .custom(Self.card(for: pending.request, token: pending.token, keysHeld: true))
         ActivityCenter.shared.upsert(activity)
     }
@@ -466,10 +508,11 @@ final class IslandAsk {
     }
 
     /// Answers the question and lets everything it held go: the reply is written, the timer,
-    /// the watches and the keys are given back, and — unless the card is already gone, or about
-    /// to be reused — the card ends. `pending` is cleared first, so the card ending is not taken
-    /// for the card being taken away. A nil answer is a question taken down with nobody waiting
-    /// (`cancel`, the folder gone), and writes nothing.
+    /// the watches and the keys are given back, and — unless the card is already gone, or is to
+    /// stay until the next question's is up in its place (`ask`) — the card ends. `pending` is
+    /// cleared first, so the card ending is not taken for the card being taken away. A nil
+    /// answer is a question taken down with nobody waiting (`cancel`, the folder gone), and
+    /// writes nothing.
     private func settle(_ answer: AskAnswer?, endCard: Bool) {
         guard let pending else { return }
         self.pending = nil
@@ -488,7 +531,7 @@ final class IslandAsk {
         } else {
             IslandLog.island.notice("ask: taken down unanswered")
         }
-        if endCard { ActivityCenter.shared.end(id: Self.activityID) }
+        if endCard { ActivityCenter.shared.end(id: pending.cardID) }
     }
 
     /// The card can go without an answer — its activity ended by something else, or expired —
@@ -496,7 +539,7 @@ final class IslandAsk {
     /// Control-Y and Control-N from everybody else. So it is answered "timeout" there and then.
     private func watchCard() {
         cardWatch = ActivityCenter.shared.$activities.sink { [weak self] activities in
-            guard let self, self.pending != nil, !activities.contains(where: { $0.id == Self.activityID }) else { return }
+            guard let self, let card = self.pending?.cardID, !activities.contains(where: { $0.id == card }) else { return }
             self.settle(.timeout, endCard: false)
         }
     }

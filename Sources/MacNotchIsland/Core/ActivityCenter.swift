@@ -86,15 +86,31 @@ final class ActivityCenter: ObservableObject {
     /// always set right before the change that is.
     private(set) var navigationDirection = 0
     /// The card forced up (`forceExpanded`). When it goes, whichever way — its time, its Stop,
-    /// a close — what waited behind it starts its patience again from then (`afterHold`).
+    /// a close — what waited behind it starts its patience again from then (`afterHold`), and
+    /// the pin the force made goes with it (`pinAfterForce`).
     @Published private(set) var forcedExpandedID: String? = nil {
         didSet {
             if oldValue != nil, forcedExpandedID != oldValue {
                 pendingAlerts = Self.afterHold(pendingAlerts, now: Date())
             }
+            if forcedExpandedID == nil, pinnedByForce != nil {
+                let pin = Self.pinAfterForce(pinned: pinnedID, forcedPin: pinnedByForce)
+                pinnedByForce = nil
+                if pinnedID != pin { pinnedID = pin }
+            }
         }
     }
     @Published private(set) var pinnedID: String? = nil
+    /// The pin `forceExpanded` put in place, while it is still the pin. A card forced up has to
+    /// be the main activity, and is pinned there for as long as it is forced — and no longer:
+    /// the pin outlived the force, and ranks above a call (`ordered`), so a timer that rang
+    /// during a call kept the island for good, the call and its muted microphone in the bubble
+    /// behind it. Nil once the user pins something themselves (`promote`), whose pin stays.
+    private var pinnedByForce: String? = nil
+    /// A card forced up while a slider or the scrubber was being dragged in a peek, waiting
+    /// for the drag to end (`forceWaitsForDrag`): which card, and how long it is up for once
+    /// it is.
+    private var heldForce: (id: String, seconds: TimeInterval)? = nil
     @Published var micInUse = false
     @Published var cameraInUse = false
     /// The islands whose display a full-screen app covers, while the user asked to hide
@@ -263,6 +279,7 @@ final class ActivityCenter: ObservableObject {
         pendingAlerts.removeAll()
         alertRequest = (nil, false)
         alertShownAt = .distantPast
+        alertOwnTimeEnds = .distantPast
         alertHeldPastTime = false
         heldAlertIDs.removeAll()
         hoverPanel = nil
@@ -288,7 +305,9 @@ final class ActivityCenter: ObservableObject {
         closeReason = nil
         findQuery = nil
         findIndex = 0
+        heldForce = nil
         forcedExpandedID = nil
+        pinnedByForce = nil
         pinnedID = nil
         micInUse = false
         cameraInUse = false
@@ -375,6 +394,9 @@ final class ActivityCenter: ObservableObject {
         if pressedPanel != nil { pressedPanel = nil }
         if openView == nil, peekView != nil { peekView = nil }
         navigationDirection = 0
+        // The drag went with the pointer, and a card forced up during it is not to wait for a
+        // button that is never coming up.
+        releaseHeldForce()
     }
 
     /// The same, for some islands only: a full-screen app has just covered their displays.
@@ -409,6 +431,7 @@ final class ActivityCenter: ObservableObject {
             dragPanel = nil
         }
         if let pressed = pressedPanel, panels.contains(pressed) { pressedPanel = nil }
+        releaseHeldForce()
     }
 
     /// `panels` were covered, and the panel goes with them: it was pinned on one of them, or
@@ -655,6 +678,8 @@ final class ActivityCenter: ObservableObject {
         activities.removeAll { $0.id == id }
         let wasHeld = heldAlertIDs.remove(id) != nil
         if pinnedID == id { pinnedID = nil }
+        if pinnedByForce == id { pinnedByForce = nil }
+        if heldForce?.id == id { heldForce = nil }
         let wasForced = forcedExpandedID == id
         if wasForced { forcedExpandedID = nil }
         if openView == .activity(id: id) {
@@ -679,17 +704,63 @@ final class ActivityCenter: ObservableObject {
     func promote(id: String) {
         guard activities.contains(where: { $0.id == id }) else { return }
         if pinnedID != id { pinnedID = id }
+        // The user's own pin now, whatever put the last one there: it outlasts a card forced up.
+        pinnedByForce = nil
+    }
+
+    /// What is pinned once the card forced up has gone: nothing, when the pin is still the one
+    /// the force put in place (`forcedPin`), and otherwise the pin as it is — the user's own,
+    /// from a click on the bubble while the card was up. Pure, so it is tested.
+    static func pinAfterForce(pinned: String?, forcedPin: String?) -> String? {
+        guard let forcedPin, pinned == forcedPin else { return pinned }
+        return nil
+    }
+
+    /// Whether a card forced up waits for the drag to end before it goes up: a slider or the
+    /// scrubber is being dragged in a peek, which the card would take the place of under the
+    /// hand. The scrubber, gone from under the pointer, let go of its drag without seeking, and
+    /// the seek the hand was halfway through was lost. A panel pinned open is never replaced
+    /// by a card, and has nothing to wait for. Pure, so it is tested.
+    static func forceWaitsForDrag(dragging: Bool, peeking: Bool) -> Bool {
+        dragging && peeking
+    }
+
+    /// Whether the island under the pointer is showing its peek.
+    private var peekUnderPointer: Bool {
+        guard let hoverPanel else { return false }
+        return peeks(on: hoverPanel)
+    }
+
+    /// The drag is over, or was forgotten with the pointer: a card forced up during it goes up
+    /// now, for its whole time from now.
+    private func releaseHeldForce() {
+        guard !controlDragging, let held = heldForce else { return }
+        heldForce = nil
+        forceExpanded(id: held.id, for: held.seconds)
     }
 
     /// Temporarily force an activity into its expanded view (e.g. a timer finishing).
     func forceExpanded(id: String, for seconds: TimeInterval = 6) {
+        // In the middle of a drag in a peek it waits for the button to come up
+        // (`forceWaitsForDrag`), and its time starts then. A later force takes its place, as
+        // it would take the slot.
+        if Self.forceWaitsForDrag(dragging: controlDragging, peeking: peekUnderPointer) {
+            heldForce = (id, seconds)
+            return
+        }
+        heldForce = nil
         forcedWork?.cancel()
         // What each island showed, so the ones the card takes count as grown under a click.
         let before = shownOnIslands()
         let wasForced = forcedExpandedID
         if forcedExpandedID != id { forcedExpandedID = id }
-        // A forced activity must be the primary one, or nothing visible happens.
-        if activities.contains(where: { $0.id == id }), pinnedID != id { pinnedID = id }
+        // A forced activity must be the primary one, or nothing visible happens. It is pinned
+        // there for as long as it is forced (`pinnedByForce`); a pin the user made on it
+        // already is theirs, and stays after.
+        if activities.contains(where: { $0.id == id }), pinnedID != id {
+            pinnedID = id
+            pinnedByForce = id
+        }
         // An alert already up goes behind the card rather than under it, the way a louder
         // alert keeps a quieter one for afterwards: a finished download that a ringing timer
         // covered ran out its time there unseen. It comes back as long as it was asked to be,
@@ -986,7 +1057,7 @@ final class ActivityCenter: ObservableObject {
             IslandLog.island.notice("focus holds \(activity.id, privacy: .public)")
             return
         }
-        let outranked = Self.waitsBehind(alert, arriving: activity)
+        let outranked = Self.waitsBehind(alert, arriving: activity, shownPastItsTime: alertPastItsTime(now: Date()))
         // Behind a card forced up — a timer that has rung, a call — as behind a louder alert,
         // while that card is what the islands show (`alertTakesIsland`).
         let behindForcedCard = forcedCardShowing && Self.alertRank(activity) < 6
@@ -1034,24 +1105,74 @@ final class ActivityCenter: ObservableObject {
         if !before.isEmpty { noteCardArrival(since: before) }
         if haptic { Haptics.tap() }
         // An alert is up for a second or two and gone, which is over before VoiceOver's cursor
-        // could ever reach it: it is said out loud as it goes up instead.
-        if let spoken { IslandAccessibility.announce(spoken) }
+        // could ever reach it: it is said out loud as it goes up instead — over what VoiceOver
+        // is saying only when it follows the user's own hand (`alertAnnouncementIsUrgent`).
+        if let spoken { IslandAccessibility.announce(spoken, high: Self.alertAnnouncementIsUrgent(activity)) }
         let seconds = exact ? (duration ?? Self.standardAlertDuration)
                             : Self.alertDuration(requested: duration, preference: Preferences.shared.alertDuration)
+        // Its own length, which a key press's feedback does not wait out any longer than
+        // (`waitsBehind(_:arriving:shownPastItsTime:)`).
+        alertOwnTimeEnds = Date().addingTimeInterval(seconds)
         // Longer while VoiceOver is running (`alertLifetime`). The hold under a resting pointer
         // is still asked about the alert's own length, so a short confirmation still goes on
         // its own time once that is up.
-        let lifetime = Self.alertLifetime(requested: seconds, voiceOver: voiceOver && Self.speaksAlert(activity))
+        let lifetime = Self.alertLifetime(requested: seconds,
+                                          voiceOver: Self.lengthensForVoiceOver(activity, exact: exact, voiceOver: voiceOver))
         scheduleAlertDismiss(id: activity.id, after: lifetime, requested: seconds)
     }
 
+    /// When the alert on screen has been up for its own length (`showAlert`'s `seconds`): not
+    /// the longer time VoiceOver keeps it up for (`alertLifetime`).
+    private var alertOwnTimeEnds = Date.distantPast
+
+    /// Whether the alert on screen is up past its own length only because VoiceOver keeps it
+    /// longer. Not while the pointer is keeping it (`alertHeldPastTime`): that is somebody
+    /// reading it, and what arrives waits for them as it always has.
+    private func alertPastItsTime(now: Date) -> Bool {
+        alert != nil && !alertHeldPastTime && now >= alertOwnTimeEnds
+    }
+
+    /// `waitsBehind`, told whether the alert up now has had its own length already and is up
+    /// only because VoiceOver is running (`shownPastItsTime`). A key press's feedback (rank 2
+    /// and under) does not wait behind one that has. AirPods connecting stayed up six and a
+    /// half seconds instead of two and a bit, and a press of the volume key in that time was
+    /// queued with two seconds of patience and dropped: no bezel for it at all. Pure, so it is
+    /// tested.
+    static func waitsBehind(_ shown: IslandActivity?, arriving: IslandActivity, shownPastItsTime: Bool) -> Bool {
+        guard waitsBehind(shown, arriving: arriving) else { return false }
+        return !(shownPastItsTime && alertRank(arriving) <= 2)
+    }
+
+    /// Whether an alert stays up longer while VoiceOver is running (`alertLifetime`): one that
+    /// is said out loud (`speaksAlert`), and whose length was not given exactly. A script that
+    /// asked for three seconds was given nine. Pure, so it is tested.
+    static func lengthensForVoiceOver(_ activity: IslandActivity, exact: Bool, voiceOver: Bool) -> Bool {
+        voiceOver && !exact && speaksAlert(activity)
+    }
+
     /// Whether an alert is said out loud as it goes up (`alertAnnouncement`). Not a key press's
-    /// own feedback — the volume, the brightness, Caps Lock — which follows the hand on the key:
-    /// VoiceOver says Caps Lock itself, and a level said at every step of a held key would talk
-    /// over everything else. Pure, so it is tested.
+    /// own feedback — the volume, the brightness, the mute switch, Caps Lock — which follows
+    /// the hand on the key: VoiceOver says Caps Lock itself, and a level said at every step of
+    /// a held key would talk over everything else. Pure, so it is tested.
     static func speaksAlert(_ activity: IslandActivity) -> Bool {
         if case .hud = activity.content { return false }
+        if case .silent = activity.content { return false }
         return activity.id != "capslock"
+    }
+
+    /// Whether an alert is said over whatever VoiceOver is in the middle of, or waits its turn
+    /// (`IslandAccessibility.announce`'s `high`). Over it for what follows the user's own hand —
+    /// a device connecting, "Copied", a charger going in — and for a battery about to run out,
+    /// which cannot wait. Not for what arrives on its own: the next track's sneak peek, a
+    /// finished download, an event coming up, or an alert a script pushed. Every track change
+    /// cut VoiceOver off in the middle of a sentence to say what was playing. Pure, so it is
+    /// tested.
+    static func alertAnnouncementIsUrgent(_ activity: IslandActivity) -> Bool {
+        if isSneakPeek(activity) || activity.id.hasPrefix(LiveActivityAPI.pushedPrefix) { return false }
+        switch activity.content {
+        case .download, .calendar: return false
+        default: return true
+        }
     }
 
     /// What VoiceOver is told as an alert goes up in place of `shown`: the alert's spoken
@@ -1202,8 +1323,9 @@ final class ActivityCenter: ObservableObject {
     /// The queue is looked at once the question has had its turn, and then waits behind its
     /// card if it did take the slot, or goes now if it did not (too little of its time left).
     private func showNextPendingAlertAfterForcedCard() {
+        let question = IslandAsk.shared.cardID
         guard Self.questionMayTakeSlotBack(asking: IslandAsk.shared.isAsking,
-                                           questionCardUp: activity(id: IslandAsk.activityID) != nil) else {
+                                           questionCardUp: question.map { activity(id: $0) != nil } ?? false) else {
             return showNextPendingAlert()
         }
         // After the question's own look, which `IslandAsk` put on the main queue when the slot
@@ -1236,6 +1358,26 @@ final class ActivityCenter: ObservableObject {
         if let alert, openView == .activity(id: alert.id), activity(id: alert.id) == nil { openView = nil }
         if alert != nil { alert = nil }
         pendingAlerts.removeAll()
+    }
+
+    /// The alert on screen gives way to something the user has just started — a timer, an
+    /// alarm ringing — unless it is one that keeps the island from anything (`alertYields`).
+    /// Only the alert on screen: what waits behind it keeps its place, and has its turn as it
+    /// would have. A timer used to call `dismissAlert`, which emptied the queue as well, so
+    /// `notchctl timer` from a script took down a low-battery warning, and a finished download
+    /// or "Alarm set" waiting behind a question from a script was never shown.
+    func yieldAlert() {
+        guard let shown = alert, Self.alertYields(shown) else { return }
+        alertWork?.cancel()
+        if openView == .activity(id: shown.id), activity(id: shown.id) == nil { openView = nil }
+        alert = nil
+    }
+
+    /// Whether an alert gives way to something the user has just started: every one but a
+    /// battery about to run out, which takes the island from anything (`alertTakesIsland`).
+    /// Pure, so it is tested.
+    static func alertYields(_ alert: IslandActivity) -> Bool {
+        alertRank(alert) < 6
     }
 
     // MARK: - Interaction
@@ -1317,7 +1459,11 @@ final class ActivityCenter: ObservableObject {
         guard controlDragging != active else { return }
         controlDragging = active
         lastInteraction = Date()
-        guard !active, let deferred = deferredHoverExit else { return }
+        guard !active else { return }
+        // A card forced up during the drag goes up now it is over (`forceWaitsForDrag`), after
+        // the pointer's own exit, if it had one.
+        defer { releaseHeldForce() }
+        guard let deferred = deferredHoverExit else { return }
         deferredHoverExit = nil
         // Straight away, not after another grace period: the pointer left a while ago.
         hoverWork?.cancel()
@@ -1465,8 +1611,10 @@ final class ActivityCenter: ObservableObject {
         openView != nil && Self.shows(openPanel: openPanel, on: panel)
     }
 
-    /// A key-press HUD (volume, brightness, Caps Lock) is feedback, not a card to open.
-    private static func isTransientHUD(_ a: IslandActivity, alert: IslandActivity?) -> Bool {
+    /// A key-press HUD (volume, brightness, Caps Lock) is feedback, not a card to open: a click
+    /// on its pill does nothing (`tap`), and VoiceOver is not told it is a button that opens
+    /// the panel (`CompactContentView`). Pure, so it is tested.
+    static func isTransientHUD(_ a: IslandActivity, alert: IslandActivity?) -> Bool {
         alert?.id == a.id && alertRank(a) <= 2
     }
 
@@ -1927,6 +2075,8 @@ final class ActivityCenter: ObservableObject {
         if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
+        // A card waiting for a drag to end goes the way a card already up does.
+        heldForce = nil
         let hovering = isHovering
         closedUnderPointer()
         withAnimation(IslandMotion.close) {

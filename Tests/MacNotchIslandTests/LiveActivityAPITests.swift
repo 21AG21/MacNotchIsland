@@ -7,6 +7,7 @@ final class LiveActivityAPITests: XCTestCase {
     override func setUp() {
         super.setUp()
         center.resetForTesting()
+        LiveActivityAPI.shared.resetForTesting()
         IslandTimer.shared.cancel()
         IslandStopwatch.shared.reset()
     }
@@ -34,6 +35,95 @@ final class LiveActivityAPITests: XCTestCase {
 
         handle("notchisland://activity/end?id=build")
         XCTAssertNil(center.activity(id: "api-build"))
+    }
+
+    // MARK: - Updating a card
+
+    /// `activity/update` was read as a start: every field it left out went back to its default.
+    func testAnUpdateChangesOnlyWhatItCarries() {
+        handle("notchisland://activity?id=build&title=Building&subtitle=xcodebuild&symbol=hammer.fill&tint=blue&progress=0.4&ttl=600")
+        guard let before = center.activity(id: "api-build") else { return XCTFail("activity missing") }
+        handle("notchisland://activity/update?id=build&progress=0.8")
+        guard let after = center.activity(id: "api-build"), case .custom(let c) = after.content else { return XCTFail("activity missing") }
+        XCTAssertEqual(c.title, "Building")
+        XCTAssertEqual(c.subtitle, "xcodebuild")
+        XCTAssertEqual(c.symbol, "hammer.fill")
+        XCTAssertEqual(c.tint, "blue")
+        XCTAssertEqual(c.progress ?? -1, 0.8, accuracy: 0.0001)
+        XCTAssertEqual(after.expiresAt, before.expiresAt, "its time stays its own until an update names another")
+        XCTAssertEqual(after.startedAt, before.startedAt, "and its place on the island")
+        XCTAssertEqual(center.activities.count, 1)
+    }
+
+    /// A late `progress=` after `notchctl end build` put the card back as the newest one, as
+    /// "Activity" with `app.fill`, for good.
+    func testAnUpdateAfterTheEndDoesNotBringTheCardBack() {
+        handle("notchisland://activity?id=build&title=Building&progress=0.4")
+        handle("notchisland://activity/end?id=build")
+        handle("notchisland://activity/update?id=build&progress=0.9")
+        XCTAssertNil(center.activity(id: "api-build"), "there is no card to update")
+        handle("notchisland://activity?id=build&progress=0.9")
+        XCTAssertNil(center.activity(id: "api-build"), "a figure with no title, just after the end, is a late update")
+        handle("notchisland://activity?id=build&title=Building%20again")
+        XCTAssertNotNil(center.activity(id: "api-build"), "with a title it is the card started again")
+    }
+
+    func testAnUpdateForACardNeverStartedIsRefused() {
+        handle("notchisland://activity/update?id=ghost&title=Boo&progress=0.5")
+        XCTAssertTrue(center.activities.isEmpty)
+        handle("notchisland://activity?id=ghost&progress=0.5")
+        XCTAssertNotNil(center.activity(id: "api-ghost"), "a start that ended nothing a moment ago is a start, as ever")
+    }
+
+    func testWhatAnActivityMessageDoes() {
+        XCTAssertEqual(LiveActivityAPI.arrival(update: true, cardUp: true, endedAgo: nil, titled: false), .merge)
+        XCTAssertEqual(LiveActivityAPI.arrival(update: true, cardUp: false, endedAgo: nil, titled: true), .refuse)
+        XCTAssertEqual(LiveActivityAPI.arrival(update: false, cardUp: true, endedAgo: nil, titled: false), .put,
+                       "a start over a card that is up replaces it, as it always did")
+        XCTAssertEqual(LiveActivityAPI.arrival(update: false, cardUp: false, endedAgo: 2, titled: false), .refuse)
+        XCTAssertEqual(LiveActivityAPI.arrival(update: false, cardUp: false, endedAgo: 2, titled: true), .put)
+        XCTAssertEqual(LiveActivityAPI.arrival(update: false, cardUp: false,
+                                               endedAgo: LiveActivityAPI.endedMemory, titled: false), .put,
+                       "remembered only for a moment")
+        XCTAssertEqual(LiveActivityAPI.arrival(update: false, cardUp: false, endedAgo: -1, titled: false), .put,
+                       "a clock set back is no end a moment ago")
+    }
+
+    func testMergingAnUpdateKeepsWhatItLeavesOut() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var card = CustomActivity(title: "Building", subtitle: "xcodebuild", symbol: "hammer.fill", tint: "blue")
+        card.progress = 0.4
+        card.body = "Step 1"
+        card.actions = [CustomAction(title: "Retry", url: URL(string: "https://ci.example/retry"))]
+        var activity = IslandActivity(id: "api-build", kind: .custom, content: .custom(card), priority: 60)
+        activity.expiresAt = now.addingTimeInterval(600)
+        let exists: (String) -> Bool = { $0 != "no.such.symbol" }
+
+        let progressed = LiveActivityAPI.merged(activity, with: ["progress": "0.8"], allowsShortcuts: false, now: now,
+                                                symbolExists: exists)
+        guard case .custom(let p)? = progressed?.content else { return XCTFail("no card") }
+        XCTAssertEqual(p.progress ?? -1, 0.8, accuracy: 0.0001)
+        XCTAssertEqual(p.title, "Building")
+        XCTAssertEqual(p.subtitle, "xcodebuild")
+        XCTAssertEqual(p.body, "Step 1")
+        XCTAssertEqual(p.actions.map(\.title), ["Retry"], "buttons stay unless a message names one")
+        XCTAssertEqual(progressed?.expiresAt, activity.expiresAt)
+        XCTAssertEqual(progressed?.priority, 60)
+
+        let cleared = LiveActivityAPI.merged(activity, with: ["subtitle": "", "title": " ", "symbol": "no.such.symbol",
+                                                              "ttl": "30", "priority": "80"],
+                                             allowsShortcuts: false, now: now, symbolExists: exists)
+        guard case .custom(let c)? = cleared?.content else { return XCTFail("no card") }
+        XCTAssertNil(c.subtitle, "sent empty, it is cleared")
+        XCTAssertEqual(c.title, "Building", "a title of nothing keeps the card's own")
+        XCTAssertEqual(c.symbol, "hammer.fill", "a glyph with no such name keeps the card's own")
+        XCTAssertEqual(cleared?.expiresAt, now.addingTimeInterval(30))
+        XCTAssertEqual(cleared?.priority, 80)
+
+        let timer = IslandActivity(id: "timer", kind: .timer,
+                                   content: .timer(TimerState(label: "T", total: 60, endDate: now)), priority: 90)
+        XCTAssertNil(LiveActivityAPI.merged(timer, with: ["title": "Mine now"], allowsShortcuts: false, now: now),
+                     "not a script's kind of card")
     }
 
     func testEndingEveryCardLeavesTheIslandsOwnActivitiesAlone() {

@@ -280,21 +280,27 @@ final class AskTests: XCTestCase {
     }
 
     private var card: CustomActivity? {
-        guard case .custom(let c)? = center.activity(id: IslandAsk.activityID)?.content else { return nil }
+        guard case .custom(let c)? = askCard?.content else { return nil }
         return c
+    }
+
+    /// The question's card, whichever question it is: each has an id of its own.
+    private var askCard: IslandActivity? {
+        center.activities.first { IslandAsk.isCardID($0.id) }
     }
 
     func testAQuestionIsACardThatHoldsTheIsland() throws {
         let path = try replyPath()
         ask(path, extra: "&detail=main")
         XCTAssertTrue(IslandAsk.shared.isAsking)
+        XCTAssertNotNil(IslandAsk.shared.cardID)
         XCTAssertEqual(card?.title, "Deploy?")
         XCTAssertEqual(card?.subtitle, "main")
         XCTAssertEqual(card?.actions.map(\.title), ["Deploy", "Wait"])
-        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID)
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.shared.cardID)
         guard case .card(let shown) = center.presentation else { return XCTFail("the question is not up as a card") }
-        XCTAssertEqual(shown.id, IslandAsk.activityID)
-        XCTAssertNotNil(center.activity(id: IslandAsk.activityID)?.expiresAt, "a card that cannot outlive its question")
+        XCTAssertEqual(shown.id, IslandAsk.shared.cardID)
+        XCTAssertNotNil(askCard?.expiresAt, "a card that cannot outlive its question")
         XCTAssertNil(contents(path), "not answered yet")
     }
 
@@ -307,7 +313,7 @@ final class AskTests: XCTestCase {
         command.perform()
         XCTAssertEqual(contents(path), "yes\n")
         XCTAssertFalse(IslandAsk.shared.isAsking)
-        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertNil(askCard)
         XCTAssertNil(center.forcedExpandedID)
     }
 
@@ -324,7 +330,7 @@ final class AskTests: XCTestCase {
         ask(path)
         IslandAsk.shared.answer(.no)
         XCTAssertEqual(contents(path), "no\n")
-        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertNil(askCard)
         IslandAsk.shared.answer(.yes)
         XCTAssertEqual(contents(path), "no\n", "answered once")
     }
@@ -342,21 +348,58 @@ final class AskTests: XCTestCase {
         let first = try replyPath(), second = try replyPath()
         ask(first)
         guard let stale = card?.actions.first?.command else { return XCTFail("no button") }
+        let firstID = IslandAsk.shared.cardID
         handle("notchisland://ask?title=Restart%3F&reply=\(encoded(second))")
         XCTAssertEqual(contents(first), "timeout\n")
         XCTAssertEqual(card?.title, "Restart?")
-        XCTAssertEqual(center.activities.filter { $0.id == IslandAsk.activityID }.count, 1)
-        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID)
+        XCTAssertEqual(center.activities.filter { IslandAsk.isCardID($0.id) }.count, 1)
+        XCTAssertNotEqual(IslandAsk.shared.cardID, firstID, "a card of its own, not the first one updated")
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.shared.cardID)
         stale.perform()
         XCTAssertTrue(IslandAsk.shared.isAsking, "the first card's button does not answer the second")
         IslandAsk.shared.answer(.yes)
+        XCTAssertTrue(IslandAsk.shared.isAsking, "a key pressed as the question changed was meant for the first")
+        IslandAsk.shared.answer(.yes, now: Date().addingTimeInterval(NotchPanel.growthGuard + 0.2))
         XCTAssertEqual(contents(second), "yes\n")
+    }
+
+    /// A second question put up in place of the first was the first card updated, so nothing
+    /// recorded that it had grown under the pointer, and a click already on its way to the
+    /// first question's Yes answered the second.
+    func testASecondQuestionCountsAsGrowthUnderTheClick() throws {
+        let first = try replyPath(), second = try replyPath()
+        ask(first)
+        settle(NotchPanel.growthGuard + 0.2)
+        XCTAssertFalse(NotchPanel.clickGoesToBody(sinceGrew: center.sinceGrew(on: "main"), clickCount: 1,
+                                                  sinceOpened: .infinity),
+                       "the first question's card has settled, and takes its own clicks")
+        handle("notchisland://ask?title=Restart%3F&reply=\(encoded(second))")
+        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: center.sinceGrew(on: "main"), clickCount: 1,
+                                                 sinceOpened: .infinity),
+                      "the click aimed at the first question goes to the second's body, not to its Yes")
+    }
+
+    /// Control-Y within the growth guard of a question taking another's place was pressed for
+    /// the one before; any later, and for a question that replaced none, it answers.
+    func testAKeyPressedAsTheQuestionChangesAnswersNothing() {
+        XCTAssertTrue(IslandAsk.keyAnswerCounts(sinceReplaced: nil), "a question that replaced none")
+        XCTAssertFalse(IslandAsk.keyAnswerCounts(sinceReplaced: 0, window: 0.3))
+        XCTAssertFalse(IslandAsk.keyAnswerCounts(sinceReplaced: 0.3, window: 0.3), "the edge of the guard is inside it")
+        XCTAssertTrue(IslandAsk.keyAnswerCounts(sinceReplaced: 0.31, window: 0.3))
+        XCTAssertTrue(IslandAsk.keyAnswerCounts(sinceReplaced: -5, window: 0.3), "a clock gone backwards is no change")
+    }
+
+    func testEachQuestionsCardIsKnownByItsPrefix() {
+        XCTAssertTrue(IslandAsk.isCardID(IslandAsk.activityPrefix + "12"))
+        XCTAssertFalse(IslandAsk.isCardID("api-ask"), "a script's card called ask is not a question")
+        XCTAssertFalse(IslandAsk.isCardID("ask"))
     }
 
     func testACardThatGoesWithoutAnAnswerIsATimeout() throws {
         let path = try replyPath()
         ask(path)
-        center.end(id: IslandAsk.activityID)
+        guard let id = IslandAsk.shared.cardID else { return XCTFail("no card") }
+        center.end(id: id)
         XCTAssertEqual(contents(path), "timeout\n")
         XCTAssertFalse(IslandAsk.shared.isAsking)
     }
@@ -368,11 +411,11 @@ final class AskTests: XCTestCase {
         center.showAlert(IslandActivity(id: "download-done", kind: .download, content: .download(download),
                                         priority: 85, presentation: .expanded), duration: 4)
         guard case .card(let shown) = center.presentation else { return XCTFail("the question lost the island") }
-        XCTAssertEqual(shown.id, IslandAsk.activityID)
+        XCTAssertEqual(shown.id, IslandAsk.shared.cardID)
 
         let battery = BatteryState(percent: 4, isCharging: false, isPluggedIn: false, event: .critical)
         center.showAlert(IslandActivity(id: "battery", kind: .battery, content: .battery(battery), priority: 95))
-        if case .card(let shown) = center.presentation, shown.id == IslandAsk.activityID {
+        if case .card(let shown) = center.presentation, IslandAsk.isCardID(shown.id) {
             XCTFail("a battery about to run out takes the island from anything")
         }
         XCTAssertTrue(IslandAsk.shared.isAsking, "and the question is still waiting under it")
@@ -389,7 +432,7 @@ final class AskTests: XCTestCase {
         XCTAssertEqual(card?.body, "Control-Y for Deploy, Control-N for Wait")
         XCTAssertEqual(card?.title, "Deploy?", "the same card otherwise")
         XCTAssertEqual(card?.actions.map(\.title), ["Deploy", "Wait"])
-        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID, "and still holding the island")
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.shared.cardID, "and still holding the island")
         guard let command = card?.actions.first?.command else { return XCTFail("no button") }
         command.perform()
         XCTAssertEqual(contents(path), "yes\n", "its buttons still answer it")
@@ -400,7 +443,7 @@ final class AskTests: XCTestCase {
         ask(path)
         IslandAsk.shared.answer(.no)
         IslandAsk.shared.showKeyHint()
-        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertNil(askCard)
         XCTAssertEqual(contents(path), "no\n")
     }
 
@@ -412,14 +455,14 @@ final class AskTests: XCTestCase {
         handle("notchisland://ask?title=Deploy%3F&reply=relative")
         handle("notchisland://ask?title=Deploy%3F")
         XCTAssertFalse(IslandAsk.shared.isAsking)
-        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertNil(askCard)
     }
 
     func testNothingToAskIsAnsweredAtOnce() throws {
         let path = try replyPath()
         handle("notchisland://ask?title=%20&reply=\(encoded(path))")
         XCTAssertEqual(contents(path), "timeout\n", "the script hears now rather than in a minute")
-        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertNil(askCard)
     }
 
     // MARK: - Taken down when nobody is waiting
@@ -449,7 +492,7 @@ final class AskTests: XCTestCase {
 
         handle("notchisland://ask/cancel?token=\(token)")
         XCTAssertFalse(IslandAsk.shared.isAsking)
-        XCTAssertNil(center.activity(id: IslandAsk.activityID), "the card is gone")
+        XCTAssertNil(askCard, "the card is gone")
         XCTAssertNil(center.forcedExpandedID, "and its hold on the island")
         XCTAssertNil(contents(path), "and nothing is written for a script that has gone")
     }
@@ -469,7 +512,7 @@ final class AskTests: XCTestCase {
         try FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent)
         settle(0.3)
         XCTAssertFalse(IslandAsk.shared.isAsking, "the script that made the folder is not waiting any more")
-        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+        XCTAssertNil(askCard)
     }
 
     // MARK: - Another card forced up over the question
@@ -491,9 +534,9 @@ final class AskTests: XCTestCase {
         center.forceExpanded(id: "api-x", for: 0.2)
         XCTAssertEqual(center.forcedExpandedID, "api-x", "the other card has its turn")
         settle(0.6)
-        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID, "and the question has the island again")
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.shared.cardID, "and the question has the island again")
         guard case .card(let shown) = center.presentation else { return XCTFail("the question is not up as a card") }
-        XCTAssertEqual(shown.id, IslandAsk.activityID)
+        XCTAssertEqual(shown.id, IslandAsk.shared.cardID)
         XCTAssertTrue(IslandAsk.shared.isAsking)
         center.end(id: "api-x")
     }
@@ -503,7 +546,7 @@ final class AskTests: XCTestCase {
         ask(path)
         center.collapse()
         settle(0.2)
-        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID)
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.shared.cardID)
         IslandAsk.shared.answer(.yes)
         settle(0.2)
         XCTAssertNil(center.forcedExpandedID, "an answered question takes nothing back")
