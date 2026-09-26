@@ -102,7 +102,16 @@ private struct ClipboardRowView: View {
     /// per redraw on the thread that draws.
     private var missing: Bool { store.filesAreGone(item) }
 
+    /// Drawn from inside a timeline that turns each minute. The row's body runs when its item
+    /// or its hover changes, and nothing else: "now" went on saying now, and "4m" four
+    /// minutes, for as long as the list was open, and VoiceOver read the same stale age.
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            row(at: context.date)
+        }
+    }
+
+    private func row(at now: Date) -> some View {
         HStack(spacing: 10) {
             HStack(spacing: Self.glyphGap) {
                 glyph
@@ -120,13 +129,13 @@ private struct ClipboardRowView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.age())")
+            .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.age(at: now))")
             .accessibilityHint("Click to copy again")
             .accessibilityAction { copyBack() }
             .accessibilityAction(named: Text(item.pinned ? "Unpin" : "Pin")) { store.togglePin(item: item) }
             .accessibilityAction(named: Text("Delete")) { store.remove(item: item) }
             Spacer(minLength: 8)
-            trailing
+            trailing(at: now)
         }
         .frame(height: 28)
         .background(
@@ -156,7 +165,7 @@ private struct ClipboardRowView: View {
     }
 
     @ViewBuilder
-    private var trailing: some View {
+    private func trailing(at now: Date) -> some View {
         HStack(spacing: 2) {
             if isHovered {
                 ClipboardRowButton(symbol: item.pinned ? "pin.fill" : "pin") { store.togglePin(item: item) }
@@ -181,7 +190,7 @@ private struct ClipboardRowView: View {
                             .foregroundStyle(.white.opacity(0.32))
                             .lineLimit(1)
                     }
-                    Text(item.age())
+                    Text(item.age(at: now))
                         .font(.system(size: 10))
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.4))

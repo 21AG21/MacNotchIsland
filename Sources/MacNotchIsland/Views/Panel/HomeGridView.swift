@@ -10,6 +10,9 @@ import SwiftUI
 struct HomeGridView: View {
     @EnvironmentObject private var center: ActivityCenter
     @EnvironmentObject private var prefs: Preferences
+    /// Which island this grid is drawn on, so a panel pinned on another display does not count
+    /// as this one being pinned — see `agendaHoldNow`.
+    @Environment(\.islandPanelID) private var panelID
     @ObservedObject private var playing = NowPlayingService.shared
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var clipboard = ClipboardStore.shared
@@ -92,9 +95,16 @@ struct HomeGridView: View {
     }
 
     /// How this grid should hold the agenda at this moment, see `agendaHold`. Two stored
-    /// switches and one published flag: nothing here asks macOS anything on a pass of the body.
+    /// switches and what is published about the open panel: nothing here asks macOS anything
+    /// on a pass of the body.
+    ///
+    /// Pinned means pinned on this island (`openHere`), not open somewhere: with the panel
+    /// pinned on one display, the grid in the other's peek counted as pinned, held the agenda
+    /// as a viewer that may ask, and could put the Calendars or Reminders sheet up under a
+    /// pointer that had only crossed the top of that screen. `openHere` reads the published
+    /// open view and the island it is on, so the hold is asked again when the panel moves.
     private var agendaHoldNow: AgendaStore.Hold {
-        Self.agendaHold(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen)
+        Self.agendaHold(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.openHere(panelID))
     }
 
     /// How the grid holds the agenda.
@@ -162,11 +172,16 @@ struct HomeGridView: View {
                 Spacer(minLength: 6)
                 if info != nil {
                     // The tile is a button; this one sits on top of it and does its own thing,
-                    // the way the play button on a Music widget does.
+                    // the way the play button on a Music widget does — to a pointer. VoiceOver
+                    // reads a button's label as the one element, and a button inside that label
+                    // cannot be counted on to be an element of its own: play and pause are the
+                    // tile's named action instead (`PlayPauseAction`), and this copy is kept out
+                    // of the way so the one path to them is that action.
                     GlyphButton(symbol: info?.isPlaying == true ? "pause.fill" : "play.fill",
                                 size: 15, weight: .semibold) {
                         playing.togglePlayPause()
                     }
+                    .accessibilityHidden(true)
                 }
             }
             .padding(.horizontal, 10)
@@ -178,6 +193,7 @@ struct HomeGridView: View {
         .onHover { inside in hover(.music, inside) }
         .accessibilityLabel(info == nil ? "Now Playing, nothing playing"
                                         : "Now Playing, \(info?.title ?? ""), \(subtitle(for: info))")
+        .modifier(PlayPauseAction(isPlaying: info?.isPlaying) { playing.togglePlayPause() })
     }
 
     private func subtitle(for info: NowPlayingInfo?) -> String {
@@ -258,14 +274,46 @@ struct HomeGridView: View {
     }
 
     private var agendaGlimpse: String {
-        // Not over yet: the list is only as fresh as its last reading, and a meeting that has
-        // ended is not what is next.
-        if let next = agenda.events.first(where: { $0.end > Date() }) { return next.title }
-        if let todo = agenda.reminders.first { return todo.title }
+        Self.agendaGlimpse(events: agenda.events, reminders: agenda.reminders, at: Date())
+    }
+
+    /// The Today tile's line: the first of today's events that is not over, else the first
+    /// reminder still open, else "Nothing today". Pure, so the rule is tested.
+    ///
+    /// Today as the Today section counts it (`TodaySectionView.day`). The agenda reads the next
+    /// twenty-four hours, timed events before all-day ones, and the tile took the first of them
+    /// that had not ended: in the evening it named tomorrow morning's meeting while the section
+    /// said "Nothing left today", and tomorrow's timed event came before today's all-day one.
+    /// The day's reminders are the open ones, so one just ticked off is not named either. Not
+    /// over yet on top of that: the list is only as fresh as its last reading, and a meeting
+    /// that has ended is not what is next.
+    static func agendaGlimpse(events: [AgendaStore.Event], reminders: [AgendaStore.Reminder], at now: Date,
+                              calendar: Calendar = .current) -> String {
+        let today = TodaySectionView.day(events: events, reminders: reminders, at: now, calendar: calendar)
+        if let next = today.events.first(where: { $0.end > now }) { return next.title }
+        if let todo = today.reminders.first { return todo.title }
         return "Nothing today"
     }
 
     private func count(_ n: Int, _ noun: String) -> String {
         n == 1 ? "1 \(noun)" : "\(n) \(noun)s"
+    }
+}
+
+/// Play and pause as a named action on the Now Playing tile, while there is something playing
+/// to act on: the tile's own button is inside the tile's label, where VoiceOver cannot be
+/// counted on to reach it.
+private struct PlayPauseAction: ViewModifier {
+    /// Nil with nothing playing, when the tile has no play button either.
+    let isPlaying: Bool?
+    let toggle: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let isPlaying {
+            content.accessibilityAction(named: Text(isPlaying ? "Pause" : "Play")) { toggle() }
+        } else {
+            content
+        }
     }
 }

@@ -134,7 +134,16 @@ private struct NotificationRowView: View {
 
     private var isMarked: Bool { hovering || isFound }
 
+    /// Drawn from inside a timeline that turns each minute. The row's body runs when its entry
+    /// or its hover changes, and nothing else: "now" went on saying now, and "4m" four
+    /// minutes, for as long as the section was open, and VoiceOver read the same stale age.
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            row(at: context.date)
+        }
+    }
+
+    private func row(at now: Date) -> some View {
         HStack(spacing: 10) {
             HStack(spacing: Self.glyphGap) {
                 glyph
@@ -162,10 +171,10 @@ private struct NotificationRowView: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(spoken)
+            .accessibilityLabel(spoken(at: now))
             .accessibilityAction(named: Text("Forget")) { NotificationInbox.shared.remove(id: entry.id) }
             Spacer(minLength: 8)
-            trailing
+            trailing(at: now)
         }
         .frame(height: Self.rowHeight)
         .background(
@@ -186,13 +195,13 @@ private struct NotificationRowView: View {
     }
 
     @ViewBuilder
-    private var trailing: some View {
+    private func trailing(at now: Date) -> some View {
         HStack(spacing: 2) {
             if hovering {
                 NotificationRowButton(symbol: "xmark") { NotificationInbox.shared.remove(id: entry.id) }
                     .accessibilityLabel("Forget")
             } else {
-                Text(age)
+                Text(age(at: now))
                     .font(.system(size: 10))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.4))
@@ -230,8 +239,8 @@ private struct NotificationRowView: View {
 
     /// Compact relative age — "now", "4m", "3h", "2d" — the shorthand the clipboard's rows
     /// use, so the two columns of times read as one thing rather than as two conventions.
-    private var age: String {
-        let seconds = max(0, Date().timeIntervalSince(entry.date))
+    private func age(at now: Date) -> String {
+        let seconds = max(0, now.timeIntervalSince(entry.date))
         if seconds < 60 { return "now" }
         if seconds < 3600 { return "\(Int(seconds / 60))m" }
         if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
@@ -240,8 +249,8 @@ private struct NotificationRowView: View {
 
     /// What VoiceOver reads. Spelled out rather than clipped: the row truncates because it is
     /// 34 points tall, which is no reason for somebody listening to be told less.
-    private var spoken: String {
-        [entry.appName, headline, detail ?? "", age].filter { !$0.isEmpty }.joined(separator: ", ")
+    private func spoken(at now: Date) -> String {
+        [entry.appName, headline, detail ?? "", age(at: now)].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 }
 

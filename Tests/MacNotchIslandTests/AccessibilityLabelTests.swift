@@ -176,4 +176,48 @@ final class AccessibilityLabelTests: XCTestCase {
         XCTAssertGreaterThan(first, 0.03, "a first press that cannot be heard reads as a press that did nothing")
         XCTAssertLessThan(first, 0.15, "and it is one notch, not a jump across the room")
     }
+
+    // The pill's sentence is written from inside a timeline, because the pill's body does not
+    // run again as its digits change: written once, it went on saying "4:59 remaining" for
+    // minutes. `speechCadence` is how often that timeline turns for each kind of content.
+
+    func testThePillsSentenceTurnsAsOftenAsItsFigureDoes() {
+        let running = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
+        XCTAssertEqual(IslandAccessibility.speechCadence(for: .timer(running)), TimerRing.cadence)
+        XCTAssertEqual(IslandAccessibility.speechCadence(for: .stopwatch(StopwatchState(startedAt: now))), 1)
+        let call = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now)
+        XCTAssertEqual(IslandAccessibility.speechCadence(for: .call(call)), 1)
+        XCTAssertEqual(IslandAccessibility.speechCadence(for: .custom(CustomActivity(title: "Recording", countsUpFrom: now))), 1)
+        let standup = CalendarState(title: "Standup", start: now.addingTimeInterval(5 * 60), end: now.addingTimeInterval(20 * 60),
+                                    location: nil, joinURL: nil, tint: "blue")
+        XCTAssertEqual(IslandAccessibility.speechCadence(for: .calendar(standup)), 30,
+                       "\"in 5m\" moves by the minute, on the beat the pill redraws it on")
+    }
+
+    func testASentenceThatStandsStillIsNotRedrawn() {
+        var paused = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
+        paused.pausedRemaining = 60
+        XCTAssertNil(IslandAccessibility.speechCadence(for: .timer(paused)), "a paused timer says the same thing until it is resumed")
+        var done = TimerState(label: "Pasta", total: 300, endDate: now)
+        done.isFinished = true
+        XCTAssertNil(IslandAccessibility.speechCadence(for: .timer(done)))
+        var stopped = StopwatchState(startedAt: now)
+        stopped.isRunning = false
+        XCTAssertNil(IslandAccessibility.speechCadence(for: .stopwatch(stopped)))
+        XCTAssertNil(IslandAccessibility.speechCadence(for: .custom(CustomActivity(title: "Build", subtitle: "Running tests"))))
+        XCTAssertNil(IslandAccessibility.speechCadence(for: .battery(BatteryState(percent: 80, isCharging: true,
+                                                                                    isPluggedIn: true, event: .pluggedIn))))
+        XCTAssertNil(IslandAccessibility.speechCadence(for: .unlock))
+    }
+
+    /// Wherever the sentence turns, what it says at the turn is the time then — which is what
+    /// the timeline hands it, and what the sentence written at the body's time was not.
+    func testTheSentenceATurnLaterSaysTheTimeThen() {
+        let running = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
+        XCTAssertEqual(IslandAccessibility.compactLabel(for: .timer(running), at: now.addingTimeInterval(60)),
+                       "Timer, 3:59 remaining")
+        let call = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now)
+        XCTAssertEqual(IslandAccessibility.compactLabel(for: .call(call), at: now.addingTimeInterval(125), micMuted: true),
+                       "Call with FaceTime, 2:05, microphone muted")
+    }
 }

@@ -95,7 +95,7 @@ struct ControlsSectionView: View {
                    note: toggles.hasWiFi ? (toggles.wifiOn ? nil : "Off") : "Not on this Mac",
                    trailing: {
                        if toggles.hasWiFi {
-                           HeaderSwitch(isOn: toggles.wifiOn) { toggles.toggleWiFi() }
+                           HeaderSwitch(subject: "Wi-Fi", isOn: toggles.wifiOn) { toggles.toggleWiFi() }
                        }
                    }) {
                 wifiList
@@ -106,7 +106,7 @@ struct ControlsSectionView: View {
                    note: toggles.hasBluetooth ? (toggles.bluetoothOn ? nil : "Off") : "Not on this Mac",
                    trailing: {
                        if toggles.hasBluetooth {
-                           HeaderSwitch(isOn: toggles.bluetoothOn) { toggles.toggleBluetooth() }
+                           HeaderSwitch(subject: "Bluetooth", isOn: toggles.bluetoothOn) { toggles.toggleBluetooth() }
                        }
                    }) {
                 bluetoothList
@@ -121,7 +121,7 @@ struct ControlsSectionView: View {
                        if sound.hasMute {
                            // Control Centre has no mute at all — you drag the slider to nothing
                            // and drag it back afterwards, guessing where it was.
-                           HeaderSwitch(isOn: !sound.isMuted, offTitle: "Muted") { sound.setMuted(!sound.isMuted) }
+                           HeaderSwitch(subject: "Sound", isOn: !sound.isMuted, offTitle: "Muted") { sound.setMuted(!sound.isMuted) }
                        }
                    }) {
                 soundList
@@ -471,12 +471,18 @@ struct ControlsSectionView: View {
 /// when it is on, and flips it on a click. `PillButton` at its compact size, but as wide as
 /// the longer of its two words whichever it is showing.
 ///
+/// Read out as a switch: named for its column, with its state as the value. It said only the
+/// word on it, so VoiceOver heard "On", "Off" or "Muted" with nothing to say what was on, and
+/// no sign that pressing it would flip it.
+///
 /// The pills were only as wide as the word on them, and they sit against the column's right
 /// edge, so their left edge moved with the state: "Muted" is half as wide again as "On", and a
 /// second click where the first had landed fell short of the pill and did nothing. The two
 /// words are laid out on top of each other, the one not showing hidden, so the capsule and
 /// the click it takes keep one size.
 private struct HeaderSwitch: View {
+    /// What it switches — the column's title.
+    let subject: String
     let isOn: Bool
     var onTitle = "On"
     var offTitle = "Off"
@@ -501,7 +507,9 @@ private struct HeaderSwitch: View {
             .padding(.vertical, -reach)
         }
         .buttonStyle(IslandButtonStyle())
-        .accessibilityLabel(isOn ? onTitle : offTitle)
+        .accessibilityLabel(subject)
+        .accessibilityValue(isOn ? onTitle : offTitle)
+        .accessibilityAddTraits(.isToggle)
     }
 }
 

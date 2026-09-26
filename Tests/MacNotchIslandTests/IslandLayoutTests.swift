@@ -413,6 +413,26 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertEqual(idle.privacyWidth, IslandLayout.privacyDots)
     }
 
+    // MARK: - A side with no room
+
+    /// A menu bar that leaves less than the full width takes a side down to what still reads,
+    /// and a side with no minimal form — a word, a percentage — down to nothing. The pill drew
+    /// "Connected" into that 0 pt slot anyway, and a fragment of it showed at the pill's end.
+    func testASideTheMenuBarLeftNoRoomOnIsNotDrawn() {
+        let mouse = activity("bt", .bluetooth(BluetoothState(name: "Magic Mouse", address: "b", symbol: "magicmouse")))
+        XCTAssertEqual(mouse.content.compactMinimalWidths.trailing, 0, "\"Connected\" has no shorter form")
+        let tight = MenuBarClearance.Limits(leading: 20, trailing: 40)
+        let squeezed = IslandLayout.make(presentation: .compact(mouse, bubble: nil), geometry: geometry, clearance: tight)
+        XCTAssertEqual(squeezed.trailingWidth - squeezed.privacyWidth, 0)
+        XCTAssertFalse(CompactContentView.drawsSlot(width: squeezed.trailingWidth - squeezed.privacyWidth))
+        XCTAssertEqual(squeezed.leadingWidth, 0, "20 pt is short of even the glyph's minimal slot")
+        XCTAssertFalse(CompactContentView.drawsSlot(width: squeezed.leadingWidth))
+
+        let roomy = IslandLayout.make(presentation: .compact(mouse, bubble: nil), geometry: geometry, clearance: .unlimited)
+        XCTAssertTrue(CompactContentView.drawsSlot(width: roomy.trailingWidth - roomy.privacyWidth))
+        XCTAssertTrue(CompactContentView.drawsSlot(width: roomy.leadingWidth))
+    }
+
     // MARK: - A card is as tall as what is in it
 
     /// Every card keeps 12 pt over its row and 16 under it, so its height is those and the

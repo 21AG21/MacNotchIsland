@@ -49,11 +49,23 @@ struct AlertBanner: View {
         }
         .buttonStyle(IslandButtonStyle())
         .frame(height: IslandLayout.railHeight)
+        // Out of the island's matched group. The banner borrows the pill's views, and the
+        // pill's cover is a member of it (`IslandMatchedID.nowPlayingArtwork`): a track's sneak
+        // peek up in the rail while the panel peeks on Now Playing put two sources with the
+        // cover's id in the namespace at once, the 28 pt one here and the 60 pt one in the
+        // section, and SwiftUI is free to swap their frames or jump between them. The banner
+        // is not one end of a morph, so it joins none.
+        .environment(\.islandNamespace, nil)
         .accessibilityLabel(IslandAccessibility.compactLabel(for: activity.content))
     }
 
-    private var title: String {
+    /// What the banner says beside the glyph. Pure, so the rule is tested.
+    static func title(for activity: IslandActivity) -> String {
         switch activity.content {
+        // A track's sneak peek: the title and the artist are already in the slot at the far
+        // end, and the section under the banner may well be Now Playing showing that track.
+        // The pill's spoken sentence stood here instead, and said the title a second time.
+        case .nowPlaying where activity.id == NowPlayingService.peekAlertID: return Self.peekTitle
         case .battery(let b): return b.title
         case .bluetooth(let d): return d.isConnected ? "\(d.name) connected" : "\(d.name) disconnected"
         case .focus(let f): return f.isOn ? "\(f.name) on" : "\(f.name) off"
@@ -77,6 +89,12 @@ struct AlertBanner: View {
         default: return IslandAccessibility.compactLabel(for: activity.content)
         }
     }
+
+    /// The sneak peek's own line: what just happened, which neither the slot beside it nor the
+    /// section under it says.
+    static let peekTitle = "New track"
+
+    private var title: String { Self.title(for: activity) }
 
     private func act() {
         if case .hud = activity.content {

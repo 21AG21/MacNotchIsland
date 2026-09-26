@@ -278,6 +278,12 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **Today no longer cuts off the hourly forecast** when the day is empty or calendar access is off: the hours show only under the list, and the empty state has the whole body.
+- **The Home grid's Today tile no longer names tomorrow's event in the evening**, nor a reminder you just ticked off, and a new track's sneak peek over the Now Playing panel no longer makes the cover jump, its banner saying "New track" rather than repeating the title.
+- **VoiceOver reads the current time on timer, stopwatch, call and recording pills** and on a pushed card's running clock, reads a muted volume as "Muted", announces the Wi-Fi, Bluetooth and Sound switches in Controls as named switches with their state, and can play or pause from the Home grid's Now Playing tile; turning the volume down while muted no longer unmutes or loses the previous level.
+- **The Now Playing scrubber takes clicks 24 pt tall**, the welcome tour fades between pages under Reduce Motion, "now" and "4m" in Notifications and Clipboard keep counting while the panel is open, the compact pill no longer shows fragments of a word when the menu bar leaves no room on one side, and the Focus disc's tooltip in Settings says what it opens.
+- **The Home grid and Actions no longer check each favourite app on disk every time they redraw**; the list is checked when it changes, when an app comes forward and when a disk is plugged in or out.
+- **With two displays, a peek on one no longer asks for Calendars, Reminders or Location** because the panel is pinned open on the other.
 - **Dropping two things with the same name at once keeps both** — two links to the same site, two unnamed pictures in the same second, two snippets with the same first line — and a drop that runs out of disk no longer leaves half a file on the shelf.
 - **Compress works on several files at once**; it said "Could not compress" every time, and the archive unpacks the files as themselves, the way Finder's does.
 - **A clipboard or notification history this version cannot read**, such as one written by a newer version, is kept beside it under a new name instead of being replaced by an empty one, and quitting or sleeping while the notes or notification history was being saved can no longer leave an older copy on disk.

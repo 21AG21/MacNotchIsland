@@ -131,7 +131,7 @@ struct HomePanelPane: View {
         case .keepAwake: return "Keeps the Mac and its display awake until you switch it off again."
         case .mirror: return "A mirror button in the rail, to check yourself before a call. Asks for camera access when first opened."
         case .airDrop: return "Sends everything on the shelf by AirDrop. Shown only while there is something on the shelf and the Shelf section is not the one open."
-        case .focus: return "Lit while a Focus is on. Opens Focus in System Settings."
+        case .focus: return "Lit while a Focus is on. Opens a list of this Mac's Focus modes, which shows the one that is on and sets another. Right-click the disc for Focus in System Settings."
         case .microphone: return "Mutes and unmutes the microphone, lit while it is muted."
         case .lock: return "Locks the screen."
         case .sleepDisplay: return "Puts the display to sleep. The Mac itself stays awake."

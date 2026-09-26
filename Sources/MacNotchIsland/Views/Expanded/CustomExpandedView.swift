@@ -78,6 +78,11 @@ struct CustomExpandedView: View {
                             .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: false))
                             .lineLimit(1)
+                            // Said from inside the timeline, the way the call's card says its
+                            // time, so it is the time now. It was said in the card's summary,
+                            // worked out when the card's body last ran — which a ticking clock
+                            // does not make it do — and VoiceOver read a time minutes old.
+                            .accessibilityLabel(IslandAccessibility.spokenDuration(ctx.date.timeIntervalSince(since)))
                     }
                 } else if let text = state.trailingText {
                     Text(text)
@@ -147,14 +152,13 @@ struct CustomExpandedView: View {
     }
 
     /// The title plus whatever of subtitle / body / trailing text this activity set, as one
-    /// sentence; the Open button (when there is a URL) stays reachable underneath.
+    /// sentence; the Open button (when there is a URL) stays reachable underneath. A running
+    /// clock is not in it: the clock says its own time, from the timeline that draws it.
     private var accessibilitySummary: String {
         var parts = [state.title]
         if let subtitle = state.subtitle, !subtitle.isEmpty { parts.append(subtitle) }
         if let body = state.body, !body.isEmpty { parts.append(body) }
-        if let since = state.countsUpFrom {
-            parts.append(IslandAccessibility.spokenDuration(Date().timeIntervalSince(since)))
-        } else if let text = state.trailingText {
+        if state.countsUpFrom == nil, let text = state.trailingText {
             parts.append(text)
         }
         return parts.joined(separator: ", ")

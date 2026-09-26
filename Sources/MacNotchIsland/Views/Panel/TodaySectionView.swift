@@ -8,6 +8,9 @@ struct TodaySectionView: View {
     @ObservedObject private var weather = WeatherService.shared
     @EnvironmentObject private var prefs: Preferences
     @EnvironmentObject private var center: ActivityCenter
+    /// Which island this section is drawn on, so that a panel pinned open on another display
+    /// does not count as this one being pinned — see `agendaHoldNow`.
+    @Environment(\.islandPanelID) private var panelID
     /// How this view holds the weather, see `weatherHoldNow`.
     @State private var heldWeather = AgendaStore.Hold.off
     /// How this view holds the agenda, see `agendaHoldNow`.
@@ -44,7 +47,26 @@ struct TodaySectionView: View {
             && !WeatherService.upcoming(weather.hours, after: now).isEmpty
     }
 
-    private var showsHours: Bool { Self.showsHours(weatherOn: prefs.weatherEnabled, weather: weather) }
+    /// Whether the hours go along the floor under what the body is showing: a forecast to
+    /// show, and the list of the day above them. Pure, so the rule is tested.
+    ///
+    /// Beside the hours the body has 60 pt, and the states that stand in for the list are
+    /// taller than that — "Nothing left today" with tomorrow's first event under it, the same
+    /// with the Allow Reminders pill, the calendar's refusal with its line and its pill come
+    /// to between 63 and 107. The state grew to hold itself, the section ran past its 140 pt
+    /// and the panel's clip cut the hours off the bottom. Without the list they give their
+    /// room back and the state has the whole body, which the tallest of them fits; the
+    /// reading in the header still says what the weather is.
+    static func showsHours(forecast: Bool, showingList: Bool) -> Bool {
+        forecast && showingList
+    }
+
+    private var showsHours: Bool {
+        let today = Self.day(events: agenda.events, reminders: agenda.reminders, at: Date())
+        let list = Self.showsList(calendarOff: Self.calendarOff(agenda), rows: today.events.count + today.reminders.count)
+        return Self.showsHours(forecast: Self.showsHours(weatherOn: prefs.weatherEnabled, weather: weather),
+                               showingList: list)
+    }
     private var listHeight: CGFloat { Self.listHeight(showingHours: showsHours) }
 
     /// How many events and reminders go into that room, and how many are left out of it:
@@ -178,8 +200,15 @@ struct TodaySectionView: View {
     /// How this section holds the agenda: the same rule as the Home grid's Today tile, so a
     /// peek that lands here reads the day and does not put up the Reminders sheet because a
     /// pointer crossed the top of the screen. See `HomeGridView.agendaHold`.
+    ///
+    /// Pinned means pinned on this island (`openHere`), not open somewhere. With the panel
+    /// pinned on one display and the pointer resting on the other, whose peek showed Today,
+    /// `isOpen` made the peek a viewer that may ask, and it could put the Calendars or
+    /// Reminders sheet up under a pointer that had only crossed the top of the screen. `openHere`
+    /// reads the published open view and the island it is on, so the hold is asked again when
+    /// the panel moves from one island to the other.
     private var agendaHoldNow: AgendaStore.Hold {
-        HomeGridView.agendaHold(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.isOpen)
+        HomeGridView.agendaHold(wantsCalendar: ServiceHub.wantsCalendar(prefs), pinnedOpen: center.openHere(panelID))
     }
 
     /// What it gives back on the way out is what it took, whatever the rule says by then.
@@ -198,8 +227,10 @@ struct TodaySectionView: View {
         return pinnedOpen ? .asking : .reading
     }
 
+    /// Pinned on this island, for the reason `agendaHoldNow` gives: a panel pinned on the
+    /// other display made this island's peek one that may ask for Location.
     private var weatherHoldNow: AgendaStore.Hold {
-        Self.weatherHold(weatherOn: prefs.weatherEnabled, pinnedOpen: center.isOpen)
+        Self.weatherHold(weatherOn: prefs.weatherEnabled, pinnedOpen: center.openHere(panelID))
     }
 
     /// Takes or gives back this view's claim on the weather. What it gives back on the way out

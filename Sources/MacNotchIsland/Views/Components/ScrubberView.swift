@@ -26,6 +26,14 @@ struct ScrubberView: View {
     /// Within a second or so of a three-minute track: the player is where it was asked to go.
     static let agreement: Double = 0.03
 
+    /// The row it is laid out in, with the bar drawn across the middle of it.
+    static let height: CGFloat = 14
+    /// How far above and below that row it takes the pointer: out to `IslandHit.minimum`, 5 pt
+    /// each way. In the Now Playing section there are 8 pt of air above it, and 4 below it
+    /// before the times, which take no clicks: the reach lands on nothing that does. Not laid
+    /// out, so nothing beside it moves a point.
+    static var reach: CGFloat { IslandHit.outset(drawn: height) }
+
     var body: some View {
         GeometryReader { geo in
             let p = min(1, max(0, dragging ?? held ?? progress))
@@ -37,7 +45,9 @@ struct ScrubberView: View {
             }
             .frame(height: active ? 9 : 6)
             .frame(maxHeight: .infinity, alignment: .center)
-            .contentShape(Rectangle())
+            // 24 pt tall to the pointer, drawn and laid out in 14. It took its clicks in the
+            // 14, which is 10 short of what every other control here is given.
+            .hitOutset(horizontal: 0, vertical: Self.reach)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -81,7 +91,9 @@ struct ScrubberView: View {
                 releaseWork = nil
             }
         }
-        .frame(height: 14)
+        .frame(height: Self.height)
+        // The bar thickens wherever it takes the click, not only over the middle 14 pt of it.
+        .hitOutset(horizontal: 0, vertical: Self.reach)
         .onHover { hovering = $0 }
         .onDisappear {
             releaseWork?.cancel()

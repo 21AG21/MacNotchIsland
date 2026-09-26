@@ -114,18 +114,39 @@ struct ControlRail: View {
             .buttonStyle(IslandButtonStyle())
             .help(outputs.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(outputs.isMuted ? "Unmute" : "Mute")
+            // Muted, the bar is drawn empty, and everything about it starts from there: a drag
+            // or a press of VoiceOver's increment sets a level up from nothing, and setting a
+            // level above nothing unmutes, the way it does in Control Centre (`setVolume` does
+            // that half). It used to unmute as the drag or the press began, whichever way it
+            // went, so a decrement on a muted Mac unmuted it and wrote a level of nothing over
+            // the one it had been muted at. See `volumeWrite`.
             IslandSlider(value: outputs.isMuted ? 0 : Double(outputs.volume ?? 0),
-                         onChange: { outputs.setVolume(Float($0)) },
-                         // Dragging the volume up from a muted Mac means "unmute", the way it
-                         // does in Control Centre; the slider would otherwise write a level
-                         // nobody can hear.
-                         onBegin: { if outputs.isMuted { outputs.setMuted(false) } })
+                         onChange: { level in
+                             if let write = Self.volumeWrite(level, muted: outputs.isMuted) {
+                                 outputs.setVolume(Float(write))
+                             }
+                         })
                 .frame(width: RailMetrics.volumeSlider)
                 .opacity(outputs.volume == nil ? 0.3 : 1)
                 .disabled(outputs.volume == nil)
                 .accessibilityLabel("Volume")
-                .accessibilityValue("\(Int(((outputs.volume ?? 0) * 100).rounded())) percent")
+                .accessibilityValue(Self.volumeValue(volume: outputs.volume, muted: outputs.isMuted))
         }
+    }
+
+    /// What a move of the volume slider writes: the level asked for, except on a muted Mac
+    /// taken to the bottom of the bar, where it is drawn already and nothing is written — the
+    /// level it was muted at stays for the unmute to go back to. Pure, so the rule is tested.
+    static func volumeWrite(_ level: Double, muted: Bool) -> Double? {
+        muted && level <= 0 ? nil : level
+    }
+
+    /// What VoiceOver reads for the volume: what the bar shows. Muted, it is drawn empty and
+    /// said as "Muted"; it used to read out the level it was muted at, "50 percent" over an
+    /// empty bar. Pure, so the rule is tested.
+    static func volumeValue(volume: Float?, muted: Bool) -> String {
+        if muted { return "Muted" }
+        return "\(Int(((volume ?? 0) * 100).rounded())) percent"
     }
 
     /// Where the sound goes. It used to live in the Now Playing header, which meant it was

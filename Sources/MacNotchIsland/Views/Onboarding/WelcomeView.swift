@@ -63,10 +63,15 @@ struct WelcomeView: View {
 
     var body: some View {
         ZStack {
+            // The pages slide in from the side they are on, and with Reduce Motion on only
+            // fade: a whole window's content crossing the screen is the journey that setting
+            // asks to be spared, the way the island's own sections are spared it.
             if page == 0 {
-                welcome.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
+                welcome.transition(IslandMotion.reduceMotion ? .opacity
+                                   : .asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
             } else {
-                picker.transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
+                picker.transition(IslandMotion.reduceMotion ? .opacity
+                                  : .asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
             }
         }
         .padding(.horizontal, 40)

@@ -12,13 +12,26 @@ struct CompactContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            CompactLeadingView(activity: under ?? activity, height: layout.bodyHeight)
-                .frame(width: layout.leadingWidth, height: layout.bodyHeight)
+            // A side the menu bar left no room on (`MenuBarClearance.fitted` gives it 0) is
+            // not drawn at all. Drawn into a slot 0 pt wide, a glyph or a word is laid out at
+            // its own size around a point on the pill's edge, and half of "Connected" showed at
+            // the end of the pill with the rest cut off by it.
+            Group {
+                if Self.drawsSlot(width: layout.leadingWidth) {
+                    CompactLeadingView(activity: under ?? activity, height: layout.bodyHeight)
+                }
+            }
+            .frame(width: layout.leadingWidth, height: layout.bodyHeight)
             Color.clear.frame(width: layout.middleWidth, height: layout.bodyHeight)
             HStack(spacing: 0) {
-                CompactTrailingView(activity: activity, height: layout.bodyHeight,
-                                    minimal: layout.trailingWidth - layout.privacyWidth < activity.content.compactWidths.trailing)
-                    .frame(width: layout.trailingWidth - layout.privacyWidth, height: layout.bodyHeight)
+                let room = layout.trailingWidth - layout.privacyWidth
+                Group {
+                    if Self.drawsSlot(width: room) {
+                        CompactTrailingView(activity: activity, height: layout.bodyHeight,
+                                            minimal: room < activity.content.compactWidths.trailing)
+                    }
+                }
+                .frame(width: room, height: layout.bodyHeight)
                 if layout.privacyWidth > 0 {
                     // The dots at their own width, and the rest of the slot between them and
                     // the pill's rounded end — see `IslandLayout.compactPrivacyClearance`.
@@ -33,11 +46,20 @@ struct CompactContentView: View {
         .accessibilityElement(children: .combine)
         .modifier(CompactSpeech(shown: activity.content))
     }
+
+    /// Whether a side of the pill has any room to draw in. Pure, so the rule is tested.
+    static func drawsSlot(width: CGFloat) -> Bool { width > 0 }
 }
 
 /// The pill's one spoken sentence. A call's also says whether the microphone is muted, which
 /// is the one thing about a call worth hearing without opening it — and only a call's pill
 /// watches the microphone, so nothing else on the island wakes it.
+///
+/// Written from inside a timeline, the way the cards write theirs (`TimerExpandedView`): the
+/// sentence carries the time left, the time gone or how soon, and the pill's body is not run
+/// again when the digits on it change — those are redrawn by the timelines inside it. Written
+/// once, at the body's time, VoiceOver read "Timer, 4:59 remaining" minutes after it was so.
+/// Content whose sentence does not move with the clock gets a timeline that ticks once an hour.
 private struct CompactSpeech: ViewModifier {
     let shown: ActivityContent
 
@@ -46,9 +68,15 @@ private struct CompactSpeech: ViewModifier {
         if case .call = shown {
             content.modifier(CallSpeech(shown: shown))
         } else {
-            content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown))
+            TimelineView(.periodic(from: .now, by: IslandAccessibility.speechCadence(for: shown) ?? Self.still)) { context in
+                content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown, at: context.date))
+            }
         }
     }
+
+    /// A timeline's interval for a sentence that does not change: an hour, the way the
+    /// stopwatch's paused digits are scheduled.
+    static let still: TimeInterval = 3600
 }
 
 private struct CallSpeech: ViewModifier {
@@ -56,7 +84,9 @@ private struct CallSpeech: ViewModifier {
     @ObservedObject private var mic = MicrophoneControl.shared
 
     func body(content: Content) -> some View {
-        content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown, micMuted: mic.isMuted))
+        TimelineView(.periodic(from: .now, by: IslandAccessibility.speechCadence(for: shown) ?? CompactSpeech.still)) { context in
+            content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown, at: context.date, micMuted: mic.isMuted))
+        }
     }
 }
 
@@ -269,18 +299,19 @@ struct CompactTrailingView: View {
                 Text("\(b.percent)%")
                     .font(numeralFont)
                     .foregroundStyle(b.event == .low || b.event == .critical ? Color.named("red") : .white)
+                    .lineLimit(1)
                     .contentTransition(.numericText())
                     .animation(IslandMotion.digits, value: b.percent)
             case .bluetooth(let d):
                 if let p = d.summaryPercent {
-                    Text("\(p)%").font(numeralFont).foregroundStyle(.white)
+                    Text("\(p)%").font(numeralFont).foregroundStyle(.white).lineLimit(1)
                         .contentTransition(.numericText())
                         .animation(IslandMotion.digits, value: p)
                 } else {
-                    Text("Connected").font(wordFont).foregroundStyle(.white)
+                    Text("Connected").font(wordFont).foregroundStyle(.white).lineLimit(1)
                 }
             case .focus(let f):
-                Text(f.isOn ? "On" : "Off").font(wordFont).foregroundStyle(.white)
+                Text(f.isOn ? "On" : "Off").font(wordFont).foregroundStyle(.white).lineLimit(1)
             case .hud(let h):
                 // The pill is where a key press is actually answered, so the one state a bar
                 // cannot express gets said in words rather than shown as an empty bar that
@@ -299,6 +330,7 @@ struct CompactTrailingView: View {
                 Text(s.isSilent ? "Silent" : "Ring")
                     .font(wordFont)
                     .foregroundStyle(.white)
+                    .lineLimit(1)
             case .unlock:
                 // Every alert made of words answers with one on this side: "Silent", "On",
                 // "Connected". This one answered with nothing, so the island came out of the
@@ -306,13 +338,14 @@ struct CompactTrailingView: View {
                 Text("Unlocked")
                     .font(wordFont)
                     .foregroundStyle(.white)
+                    .lineLimit(1)
             case .calendar(let c):
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                    Text(c.relativeStart(at: ctx.date)).font(wordFont).foregroundStyle(.white)
+                    Text(c.relativeStart(at: ctx.date)).font(wordFont).foregroundStyle(.white).lineLimit(1)
                 }
             case .download(let d):
                 if d.isComplete {
-                    Text("Done").font(wordFont).foregroundStyle(.white)
+                    Text("Done").font(wordFont).foregroundStyle(.white).lineLimit(1)
                 } else if let p = d.progress {
                     ProgressRing(progress: p, lineWidth: 2.5, tint: Color.named("blue"))
                         .frame(width: height * 0.5, height: height * 0.5)
@@ -438,6 +471,27 @@ enum IslandAccessibility {
 
         case .shelf(let s):
             return s.count == 1 ? "Shelf, 1 item" : "Shelf, \(s.count) items"
+        }
+    }
+
+    /// How often the pill's spoken sentence (`compactLabel`) changes on its own, as the clock
+    /// runs: every second where it carries a running figure in minutes and seconds, every half
+    /// minute for a meeting's "in 7m" — the beat the pill's own figure is redrawn on — and nil
+    /// where nothing in it moves with the clock. Pure, so the rule is tested.
+    static func speechCadence(for content: ActivityContent) -> TimeInterval? {
+        switch content {
+        case .timer(let t):
+            return t.isAlarm || t.isFinished || t.isPaused ? nil : TimerRing.cadence
+        case .stopwatch(let s):
+            return s.isRunning ? 1 : nil
+        case .call:
+            return 1
+        case .calendar:
+            return 30
+        case .custom(let c):
+            return c.countsUpFrom == nil ? nil : 1
+        default:
+            return nil
         }
     }
 

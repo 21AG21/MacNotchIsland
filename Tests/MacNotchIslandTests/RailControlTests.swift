@@ -188,4 +188,30 @@ final class RailControlTests: XCTestCase {
         XCTAssertEqual(RailPlan.plan(shippedWithAirDrop, room: room, showingShelf: false, showingMirror: true),
                        RailControl.fit(shippedWithAirDrop, room: room, pinned: [.settings, .mirror]))
     }
+
+    // MARK: - The volume, muted
+
+    /// Muted, the bar is drawn empty, and VoiceOver read the level it was muted at — "50
+    /// percent" over nothing.
+    func testAMutedVolumeIsReadAsWhatTheBarShows() {
+        XCTAssertEqual(ControlRail.volumeValue(volume: 0.5, muted: true), "Muted")
+        XCTAssertEqual(ControlRail.volumeValue(volume: 0.5, muted: false), "50 percent")
+        XCTAssertEqual(ControlRail.volumeValue(volume: 0.254, muted: false), "25 percent")
+        XCTAssertEqual(ControlRail.volumeValue(volume: nil, muted: false), "0 percent", "no reading yet, as before")
+    }
+
+    /// A press of VoiceOver's increment on a muted Mac starts where the bar is drawn, at
+    /// nothing, and writes one notch — which unmutes it. A decrement there has nowhere to go:
+    /// it writes nothing, rather than unmuting the Mac at a level of nothing and losing the
+    /// one it was muted at.
+    func testAStepFromAMutedVolumeStartsFromTheEmptyBar() {
+        let up = IslandSlider.stepped(from: 0, up: true)
+        XCTAssertEqual(ControlRail.volumeWrite(up, muted: true) ?? -1, GestureRouter.keyStep, accuracy: 0.0001,
+                       "one notch up from the empty bar, and heard")
+        XCTAssertNil(ControlRail.volumeWrite(IslandSlider.stepped(from: 0, up: false), muted: true),
+                     "a step down from the empty bar leaves a muted Mac as it was")
+        XCTAssertNil(ControlRail.volumeWrite(0, muted: true), "nor does a drag to the bottom")
+        XCTAssertEqual(ControlRail.volumeWrite(0, muted: false), 0, "unmuted, the bottom is a level like any other")
+        XCTAssertEqual(ControlRail.volumeWrite(0.3, muted: true), 0.3, "and anything above it is written")
+    }
 }
