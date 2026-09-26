@@ -18,6 +18,8 @@ struct FindField: View {
     var spokenRow: (Int) -> String? = { _ in nil }
 
     @ObservedObject private var center = ActivityCenter.shared
+    /// Which island this field is drawn on, for `speaksCount`.
+    @Environment(\.islandPanelID) private var panelID
     // Qualified: the island has a `FocusState` of its own, the payload of a Focus activity.
     @SwiftUI.FocusState private var focused: Bool
 
@@ -89,10 +91,19 @@ struct FindField: View {
         // made the field's value, which is the text in it — the value VoiceOver reads back, and
         // moves through letter by letter.
         .onChange(of: matches, initial: true) { _, now in
-            if let words = Self.countAnnouncement(matches: now, query: ActivityCenter.shared.findQuery) {
-                IslandAccessibility.announce(words, high: false)
-            }
+            // One island says it. The find is open on every display that shows the section,
+            // and each draws a field of its own, so the count was heard once a display; the
+            // field whose window holds the keyboard is the one being typed into.
+            guard Self.speaksCount(panelID: panelID, keyPanelID: (NSApp.keyWindow as? NotchPanel)?.panelID),
+                  let words = Self.countAnnouncement(matches: now, query: ActivityCenter.shared.findQuery) else { return }
+            IslandAccessibility.announce(words, high: false)
         }
+    }
+
+    /// Whether the field on island `panelID` is the one to say the count: the one whose window
+    /// holds the keyboard, and none while no island does. Pure, so it is tested.
+    static func speaksCount(panelID: String, keyPanelID: String?) -> Bool {
+        keyPanelID == panelID
     }
 
     /// "No matches", "1 match", "12 matches". Pure, so it is tested.

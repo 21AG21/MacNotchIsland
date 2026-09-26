@@ -278,6 +278,7 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- With the panel open on two displays, VoiceOver hears the find's match count once rather than once a display.
 - A click on a window tile no longer waits behind a walk of the window list held up by an app that has stopped answering.
 - The island's menu still lists paired Bluetooth devices on its first opening when Bluetooth alerts are off and Controls has never been opened.
 - VoiceOver says each alert as it comes up, a finished download, a device connecting, "Copied", and each card that takes the island, and alerts stay up three times as long, up to a minute, while VoiceOver is running.

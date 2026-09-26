@@ -20,6 +20,14 @@ final class DeferredAccessibilityTests: XCTestCase {
         XCTAssertNil(FindField.countAnnouncement(matches: nil, query: "saf"), "a section with no count to give")
     }
 
+    /// With the find open on two displays, only the field whose window holds the keyboard says
+    /// the count, so it is heard once.
+    func testOnlyTheIslandHoldingTheKeyboardSaysTheCount() {
+        XCTAssertTrue(FindField.speaksCount(panelID: "main", keyPanelID: "main"))
+        XCTAssertFalse(FindField.speaksCount(panelID: "external", keyPanelID: "main"))
+        XCTAssertFalse(FindField.speaksCount(panelID: "main", keyPanelID: nil), "nobody holds the keyboard yet")
+    }
+
     func testTheMarkSaysWhereItIs() {
         XCTAssertEqual(FindField.moveAnnouncement(row: "Report.pdf", index: 1, count: 5), "Report.pdf, 2 of 5")
         XCTAssertEqual(FindField.moveAnnouncement(row: nil, index: 0, count: 3), "1 of 3",
