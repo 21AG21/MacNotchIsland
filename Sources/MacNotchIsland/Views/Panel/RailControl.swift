@@ -30,12 +30,12 @@ enum RailControl: String, CaseIterable, Codable {
         case .mirror: return "Camera Mirror"
         case .airDrop: return "AirDrop the Shelf"
         case .focus: return "Focus"
-        case .microphone: return "Microphone Mute"
+        case .microphone: return "Mute Microphone"
         case .lock: return "Lock Screen"
         case .sleepDisplay: return "Sleep Display"
         case .screenshot: return "Screenshot"
-        case .record: return "Record the Screen"
-        case .keyboardLight: return "Keyboard Brightness"
+        case .record: return "Record Screen"
+        case .keyboardLight: return "Keyboard Backlight"
         case .settings: return "Settings"
         }
     }

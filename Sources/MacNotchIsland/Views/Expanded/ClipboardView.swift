@@ -130,7 +130,9 @@ private struct ClipboardRowView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.age(at: now))")
-            .accessibilityHint("Click to copy again")
+            // What a click does as things stand: with "Paste after picking an item" on and
+            // Accessibility allowed, it closes the panel and pastes into the app in front.
+            .accessibilityHint(ClipboardStore.pickHint(pastes: ClipboardStore.pickPastes))
             .accessibilityAction { copyBack() }
             .accessibilityAction(named: Text(item.pinned ? "Unpin" : "Pin")) { store.togglePin(item: item) }
             .accessibilityAction(named: Text("Delete")) { store.remove(item: item) }
@@ -219,7 +221,7 @@ private struct DragOut: ViewModifier {
         if item.canDrag {
             content
                 .onDrag { item.dragProvider() ?? NSItemProvider() }
-                .help("Click to copy it again, or drag it straight into a document.")
+                .help(ClipboardStore.pickHelp(pastes: ClipboardStore.pickPastes))
         } else {
             content
         }

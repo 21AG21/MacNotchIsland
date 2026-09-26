@@ -652,6 +652,24 @@ final class ClipboardStore: ObservableObject {
         lastChangeCount = pasteboard.changeCount
     }
 
+    /// Whether picking a row pastes it into the app in front, rather than only putting it back
+    /// on the pasteboard: "Paste after picking an item" on, and Accessibility allowing the
+    /// keystroke. The rule `pick(item:)` follows, read by the row so it says what a click does.
+    static var pickPastes: Bool {
+        Preferences.shared.pasteOnPick && MediaKeyInterceptor.isTrusted
+    }
+
+    /// What picking a row does, for VoiceOver's hint. Pure, so the words follow the rule.
+    static func pickHint(pastes: Bool) -> String {
+        pastes ? "Pastes it where you were typing" : "Copies it again"
+    }
+
+    /// The row's tooltip: what a click does, and the drag that is the other way to use it.
+    static func pickHelp(pastes: Bool) -> String {
+        (pastes ? "Click to paste it where you were typing" : "Click to copy it again")
+            + ", or drag it straight into a document."
+    }
+
     /// Picking a row: put it back on the pasteboard, and then either paste it where the user
     /// was typing or say that it has been copied. Lives here rather than in the row that
     /// draws it, because Return in the find field picks one too.
@@ -660,7 +678,7 @@ final class ClipboardStore: ObservableObject {
         // "Put this where I was typing". The panel goes first, so the keyboard is back with
         // that app before the keystroke lands; without the permission to synthesise one, the
         // item is on the pasteboard and the user pastes it themselves.
-        if Preferences.shared.pasteOnPick, MediaKeyInterceptor.isTrusted {
+        if Self.pickPastes {
             ActivityCenter.shared.collapse(reason: "clipboard item picked")
             Self.pasteIntoFrontmostApp()
             return

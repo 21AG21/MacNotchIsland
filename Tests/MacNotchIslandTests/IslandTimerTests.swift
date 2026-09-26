@@ -427,10 +427,10 @@ final class IslandTimerTests: XCTestCase {
     }
 
     func testTheSleepChoicesReadTheWayAClockSaysThem() {
-        XCTAssertEqual(IslandMenu.sleepTitle(15), "15 minutes")
-        XCTAssertEqual(IslandMenu.sleepTitle(60), "1 hour")
-        XCTAssertEqual(IslandMenu.sleepTitle(90), "1 hour 30 minutes")
-        XCTAssertEqual(IslandMenu.sleepTitle(120), "2 hours")
+        XCTAssertEqual(IslandMenu.sleepTitle(15), "15 Minutes")
+        XCTAssertEqual(IslandMenu.sleepTitle(60), "1 Hour")
+        XCTAssertEqual(IslandMenu.sleepTitle(90), "1 Hour 30 Minutes")
+        XCTAssertEqual(IslandMenu.sleepTitle(120), "2 Hours")
     }
 
     // MARK: - The stopwatch's clock

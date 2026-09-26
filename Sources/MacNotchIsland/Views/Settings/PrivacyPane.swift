@@ -50,11 +50,14 @@ struct PrivacyPane: View {
                     status: Self.captureStatus(for: .video),
                     pane: .camera
                 )
-                permission(
+                // Nothing asks for the microphone: the indicator, the call card and Mute
+                // Microphone read CoreAudio's "running somewhere" and mute properties, which
+                // need no permission. A status and a way to the pane here read "Not asked yet"
+                // for ever, about a question that is never put.
+                information(
                     "Microphone",
-                    detail: "Only checked to show the microphone indicator. Nothing is recorded.",
-                    status: Self.captureStatus(for: .audio),
-                    pane: .microphone
+                    detail: "The microphone indicator reads whether the microphone is running, which needs no permission. Nothing is recorded.",
+                    value: "Not needed"
                 )
                 permission(
                     "Location",
@@ -109,7 +112,7 @@ struct PrivacyPane: View {
                     )
                     permission(
                         "Automation",
-                        detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet, and switch shuffle, repeat and favourite there when the system player does not.",
+                        detail: "Lets Notch Island ask Music and Spotify what is playing when the system player is quiet, and switch shuffle, repeat and favourite there when the system player does not. The Dark Mode switch in the Display popover asks System Events, the first time you use it, since that is how it changes the appearance.",
                         status: automationStatus,
                         pane: .automation
                     )
@@ -225,8 +228,14 @@ struct PrivacyPane: View {
     /// One thing the app asks somebody else: what is sent, who is asked, and whether it is
     /// switched on at this moment.
     private func outbound(_ title: String, detail: String, host: String, on: Bool) -> some View {
+        information(title, detail: detail, value: on ? host : "Off")
+    }
+
+    /// A row with nothing to grant: its name, what it is for, and a word in the place a status
+    /// would be, drawn the way the permission rows are but with no way to a pane.
+    private func information(_ title: String, detail: String, value: String) -> some View {
         LabeledContent {
-            Text(on ? host : "Off")
+            Text(value)
                 .font(.callout)
                 .foregroundStyle(.secondary)
         } label: {

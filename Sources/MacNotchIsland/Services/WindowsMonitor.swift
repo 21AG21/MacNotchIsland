@@ -80,9 +80,9 @@ enum SnapZone: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .leftHalf: return "Left half"
-        case .rightHalf: return "Right half"
-        case .full: return "Fill screen"
+        case .leftHalf: return "Left Half"
+        case .rightHalf: return "Right Half"
+        case .full: return "Fill Screen"
         case .center: return "Centre"
         }
     }

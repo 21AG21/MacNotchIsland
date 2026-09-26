@@ -16,7 +16,7 @@ and the same content layout as iOS.
 | Clock app alarm | Type a time on the Actions section — 7:30, 19:05, 7:30pm — and Return sets an alarm for the next time the clock reads it; type a number instead and it is a timer of that many minutes. An alarm waits in the timer row, the menu bar and the island's menu, survives a relaunch, and rings the way a timer does, with Snooze. `notchctl alarm 07:30 Wake`. It rings only while the Mac is awake: waking a sleeping Mac needs root. |
 | Timer countdown in orange, expanded pause / cancel, "timer done" state | Same: 1, 5, 10 and 25 minutes and a Pomodoro in the Actions section, or any number of minutes typed there; eight presets from a minute to an hour in the menu bar; or `notchctl timer 5`. Another minute is one click on the card, a scroll up on the pill, or `notchctl timer add`; a scroll down takes one off. |
 | Stopwatch Live Activity (iOS 17) with laps | Same: the Actions section, the menu bar, or `notchisland://stopwatch`. |
-| Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet. The card mutes the microphone for every app at once — the input device itself, not one app's idea of it — and opens Control Centre's Video Effects and Mic Mode; while it is muted the pill's glyph is a red microphone with a line through it. |
+| Call: green phone glyph and running duration | Detected from microphone use by FaceTime, Zoom, Teams, Slack, Discord, Webex, Meet, Skype and Loom. The card mutes the microphone for every app at once — the input device itself, not one app's idea of it — and opens Control Centre's Video Effects and Mic Mode; while it is muted the pill's glyph is a red microphone with a line through it. |
 | Charging bolt and percentage when you plug in; low-battery alert; "charged" | Same, from IOKit power-source events. Low Power Mode on/off too. |
 | AirPods / Bluetooth connect with battery | IOBluetooth connection events: a brief pill with the level as a device connects, the card with left, right and case one click away, read from the IORegistry. |
 | Noise Control for AirPods in Control Centre | Off, Transparency, Adaptive and Noise Cancellation as a row of pills on the AirPods card and under the pair's row in Controls (click the row to open it), whichever of them the pair has. Through AVFoundation's private `AVOutputContext` and `AVOutputDevice`, looked up by name; where a macOS does not have them, or keeps the system's audio context from an app without its entitlement, the pills are simply not there. |
@@ -27,28 +27,30 @@ and the same content layout as iOS.
 | Face ID unlock animation | "Unlocked" when the Mac unlocks. |
 | Live Activities from apps (deliveries, rides, builds…) | `notchisland://` URL scheme and `Scripts/notchctl`, usable from Shortcuts, scripts and CI. |
 | Two activities: one in the island, one in the detached bubble; tap to swap | Same, including the bubble swap: the most recently started activity owns the island, a call or a timer that just rang always does, and the shelf waits in the bubble while something plays. Alerts are ranked so a volume tick never hides a low-battery warning. |
-| Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. The Today section lists the next 24 hours and today's reminders. |
+| Upcoming calendar event | Optional: next event 10 minutes out with a Join button when a meeting link is found. The Today section lists the rest of today's events and today's open reminders. |
 | Long-press to expand, tap to open | Rest the pointer on the island to peek at the panel; click to keep it open, click anywhere else (or press Escape) to close it. What you open stays open across desktops. A global shortcut (⌃⌥Space by default, or ⌃⌥I where macOS uses that to switch input sources) toggles it, the same modifiers with Tab step through every section and with Shift + Tab step back. The island never covers a menu title or status item: it only widens into menu bar space that is free. |
-| — | A URL scheme and `notchctl` for scripts: push your own Live Activity with a title, a progress ring and up to two named buttons that open a link or run a Shortcut. |
+| — | A URL scheme and `notchctl` for scripts: push your own Live Activity with a title, a progress ring and up to two named buttons that open a link, or run a Shortcut once "Let pushed cards run Shortcuts" is on under Settings > Media (it is off out of the box). |
 | — | Ask from a script: `notchctl ask "Deploy to production?"` holds the question on the island with two buttons (Yes and No, or names of your own) until you click one or press Control-Y or Control-N, or its time runs out. It prints yes, no or timeout and exits 0, 1 or 2, so `if notchctl ask "Deploy?"; then …` does what it says. |
 | — | Tell me when the battery has had enough charge: pick 70, 80, 85 or 90 per cent and the island says so once per charge, which is the thing macOS never does. |
 | — | A sleep timer: right-click the island while something is playing and the music stops in fifteen minutes, or an hour, or whenever you say. A real countdown with a card — it just does not ring. |
 | — | Controls: the networks in range, the devices you are paired with, and where the sound goes and comes from — three lists, each with its own switch. Join a known network, connect a pair of headphones, move the sound to the AirPods or pick a different microphone, and mute, without opening System Settings. Every connected device carries its charge, the emptier ear first, red under ten per cent. HomePods, Apple TVs and AirPlay speakers get a group of their own, here and in the rail's output menu, where CoreAudio's AirPlay device lists them; the Sound list always ends in the system's own AirPlay picker, for when it does not. |
 | — | The panel opens on Home: a grid of tiles, Control Centre style. What is playing takes a wide tile with a play button on it; every other section is a tile with its name and a glimpse of what is inside — the next thing in your day, how many files are on the shelf, the first line of your notes. |
-| — | One panel for everything. A switcher beside the notch holds the live activities on the left and the sections on the right: Now Playing, Today (events, reminders, weather), Windows, the shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history with pins and search, Actions (your favourite apps and Shortcuts, timers, alarms and the stopwatch), a notes scratchpad, and system stats whose every reading opens the place macOS keeps it — Activity Monitor for the processor and the memory, Storage for the disk, Network for the network. Under every section a control rail: the volume, and the brightness where the Mac has one; where the sound is going as soon as there is more than one place it could go; then the controls you have chosen, in your order, with Settings last — out of the box Wi-Fi and Bluetooth where the Mac has them, the Display popover, Keep Awake, the camera mirror, AirDrop for the shelf when there is something to point it at, and the keyboard's backlight. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
+| — | One panel for everything. A switcher beside the notch holds the live activities on the left and the sections on the right: Now Playing, Today (events, reminders, weather), Windows, the shelf (multi-select, AirDrop, share, trash, auto-expiry), clipboard history with pins and search, Actions (your favourite apps and Shortcuts, timers, alarms and the stopwatch), a notes scratchpad, and system stats whose every reading opens the place macOS keeps it — Activity Monitor for the processor and the memory, Storage for the disk, Network for the network, and Battery for the battery on a Mac that has one. Under every section a control rail: the volume, and the brightness where the Mac has one; where the sound is going as soon as there is more than one place it could go; then the controls you have chosen, in your order, with Settings last — out of the box Wi-Fi and Bluetooth where the Mac has them, the Display popover, Keep Awake, the camera mirror, AirDrop for the shelf when there is something to point it at, and the keyboard backlight. Files dropped on the notch also show as their own activity, with a count, until the shelf is empty. |
 | — | Windows: the windows on this desktop as live tiles, minimised ones and a hidden app's dimmed after the rest. Click one to bring it forward; the zones on it send it to a half of the screen, fill the screen, centre it or move it to the next display, and the two corner buttons minimise or close it. Pictures need Screen Recording; moving windows, and finding the ones put away, needs Accessibility; without them the windows on screen are still listed by app. |
 | — | Command-click several window tiles and tile them together: two side by side, three across, four in quarters, or a grid beyond that. |
-| — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume, hold Option while scrolling for brightness, and Control for the keyboard's backlight. Or have the vertical swipe open and close instead: down on the island opens the panel, up on the panel closes it, once a swipe, with a sensitivity slider for how far a swipe has to go. A scroll on a timer's pill gives it another minute a step, or takes one off; a swipe that opens the panel puts back whatever it moved on the way. A customizable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
-| — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a view, in Tab's order — the live activities first, then the sections — so a running timer is 1 and anything past the ninth has no digit (on Actions they type a timer instead), Space plays and pauses, ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes is showing. |
+| — | Trackpad gestures: swipe sideways on the pill to skip tracks, on the panel to step between sections; scroll for volume, hold Option while scrolling for brightness, and Control for the keyboard backlight. Or have the vertical swipe open and close instead: down on the island opens the panel, up on the panel closes it, once a swipe, with a sensitivity slider for how far a swipe has to go. A scroll on a timer's pill gives it another minute a step, or takes one off; a swipe that opens the panel puts back whatever it moved on the way. A customisable global shortcut. Optional audio-reactive bars driven by a system audio tap. |
+| — | The panel answers the keyboard while it is open, with nothing held down: ← and → step between views, 1 to 9 go straight to a view, in Tab's order — the live activities first, then the sections — so a running timer is 1 and anything past the ninth has no digit (on Actions they type a timer instead), Space plays and pauses (on a Shelf with anything on it, Space is Quick Look instead, of what is selected or of the whole shelf, as in Finder), ↑ and ↓ move the volume. Only while it is pinned open, and never while Notes is showing. |
 | A–Z | Start typing on Windows, the Clipboard, the Shelf or Notifications and a find opens with that letter in it, narrowing the list as you type. ↑ and ↓ walk the matches, Return takes the one you are on, Escape leaves the find. |
+| — | Notifications: the banners that came past while you were not looking, kept as a history the Mac has never had — grouped by app, newest first, with a find and a Clear. Off out of the box; switch it on in Home Panel. It reads the banners with Accessibility, keeps the last 200 for three days in Notch Island's own folder on this Mac, and sends nothing anywhere. |
+| — | Motion: every spring in the island from one place, under Settings > Motion. Faithful is the phone's own timing, Calm keeps it and never overshoots, Instant is half the time with no overshoot, or set Duration and Bounce yourself — with an island in the pane opening and closing on the very curves it uses. With Reduce Motion on, the island fades instead. |
 | — | Screenshots: the capture you just took, as a card with the picture on it. Drag it straight into a message, copy the picture, copy the words in it (read with Vision, offered only when there are any), open a QR code's link (the host is written under the title), or open the file. |
 | Screen recording from Control Centre, a red pill while it runs | Record Screen from the island's right-click menu: Apple's own `screencapture`, a red dot and the time on the pill, Stop on its card, and the finished movie saved where screenshots go and handed back as a capture card. Needs Screen Recording; the island says so, and where to turn it on, if it is off. |
 | — | Mute Microphone, Screenshot, Lock Screen and Sleep Display in the island's right-click menu. The lock is the call the menu bar's own Lock Screen makes, looked up by name in a private framework; where that is missing or refuses, Control-Command-Q is typed on whichever key types Q (with Accessibility), and failing both the display is put to sleep. Sleep Display is `pmset displaysleepnow`; Screenshot opens Apple's toolbar. |
-| — | Keep the island out of a screen share: out of the box it is left out of screen sharing, recordings and screenshots while a call is live, and a switch under Privacy hides it all the time — the panel can hold what you copied, your notes and your notification history. Sharing built on ScreenCaptureKit may still show it on macOS 15. |
+| — | Keep the island out of a screen share: out of the box it is left out of screen sharing, recordings and screenshots while a call is live, and a switch under Privacy hides it all the time — the panel can hold what you copied, your notes and your notification history. Sharing built on ScreenCaptureKit may still show it on macOS 15 and later. |
 | — | External disks: a card when a drive is plugged in, with its name, how full it is and an Eject button on it — and a word when one is unplugged, whether or not it was ejected first. Right-clicking the island ejects any of them at any time. |
 | — | Put the panel's sections in your own order: drag them in Home Panel and the switcher, the swipe, Tab and the digit keys all follow. |
-| — | Arrange the control rail the same way: switch any of its controls on or off in Home Panel — Wi-Fi, Bluetooth, Display, Keep Awake, the camera mirror, AirDrop, Focus, microphone mute, Lock Screen, Sleep Display, Screenshot, screen recording and the keyboard's backlight — and drag them into your own order. What does not fit the rail waits in a row at the top of the Controls section, so nothing you switched on is ever simply gone. |
-| — | The keyboard's backlight, which macOS gives no app a way to set: its keys answered in the island with the same level display as the volume's (with the bezel replaced, on a keyboard that has the keys), a disc on the rail that opens its slider, and Control-scroll on the island. Through CoreBrightness's private keyboard client, the one Control Centre talks to, looked up by name; on a Mac with no backlight, or a macOS that has changed the client, none of it shows and the keys stay macOS's. |
+| — | Arrange the control rail the same way: switch any of its controls on or off in Home Panel — Wi-Fi, Bluetooth, Display, Keep Awake, Camera Mirror, AirDrop the Shelf, Focus, Mute Microphone, Lock Screen, Sleep Display, Screenshot, Record Screen and Keyboard Backlight — and drag them into your own order. What does not fit the rail waits in a row at the top of the Controls section, so nothing you switched on is ever simply gone. |
+| — | The keyboard backlight, which macOS gives no app a way to set: its keys answered in the island with the same level display as the volume's (with the bezel replaced, on a keyboard that has the keys), a disc on the rail that opens its slider, and Control-scroll on the island. Through CoreBrightness's private keyboard client, the one Control Centre talks to, looked up by name; on a Mac with no backlight, or a macOS that has changed the client, none of it shows and the keys stay macOS's. |
 | — | A Display popover behind the rail's sun, laid out like Control Centre's Display module: a brightness slider for every display that takes one — a Studio Display on the desk as well as the Mac's own — then Dark Mode, Night Shift and True Tone. Right-click Night Shift for its warmth and to turn it on until tomorrow. Private DisplayServices and CoreBrightness calls, each looked up by name; a switch this Mac has no call for is not drawn. |
 | — | The switcher's slots are spring-loaded: drag a file onto the island, rest it on a slot, and the panel goes there — so a file can reach a quick action or a window tile without being put down first. |
 | — | Drop a file on a quick action and the shortcut runs with that file as its input — the Actions row is a rack of droplets. Drop one on a window tile and it opens in that app. |
@@ -87,7 +89,10 @@ make dmg        # builds a drag-to-Applications disk image
 ```
 
 The app has no Dock icon. Use the capsule in the menu bar for Settings, the timer, the
-demo menu, and Quit — or right-click the island itself for the short version of the same menu. Turn on "Open at login" under General in Settings once you're happy with it.
+demo menu (hold Option), and Quit — or right-click the island itself for the short version of the same menu.
+Reload Island in the menu bar's menu builds the island again without quitting, with the shelf, the timer
+and the clipboard history left as they were, and Copy Diagnostics puts a report on the pasteboard to
+send with a bug. Turn on "Open at login" under General in Settings once you're happy with it.
 Press ⌃⌥Space anywhere to summon the island — or ⌃⌥I where macOS uses ⌃⌥Space to switch input
 sources; Settings shows which — and with it open, the arrows, the digits and Space drive it
 without a modifier.
@@ -136,7 +141,7 @@ them; that needs a paid Developer ID.
 Nothing is required up front. macOS asks for each of these when the feature that needs it
 first runs, and Bluetooth, the calendar and the Downloads and screenshot folders not before
 the welcome tour is done; the tour says which of its choices will ask. Nothing is asked
-because the pointer crossed the notch or a section was looked at. Settings > Privacy lists
+because the pointer crossed the notch or a section was peeked at. Settings > Privacy lists
 every one of them but system audio, with whether it is granted and a way straight to its
 pane in System Settings.
 
@@ -151,7 +156,7 @@ pane in System Settings.
   soon as the tour is done. The screenshots folder is the Desktop unless you have moved it.
 - **Location**: for the weather in Today (off out of the box) and for the names of the
   networks in the Controls section's Wi-Fi list, which macOS keeps from an app until
-  Location allows it. The list asks only when you press Show names there.
+  Location allows it. The list asks only when you press Allow Location there.
 - **Accessibility**: answering the volume and brightness keys, pasting a clipboard item where
   you were typing, moving windows, telling a full-screen app from a zoomed window on the
   display with the notch, keeping clear of app menus, and reading the banners the
@@ -163,14 +168,16 @@ pane in System Settings.
   the island cannot be seen.
 - **System audio**: the audio-reactive visualizer, off out of the box, which follows the level
   of what is playing and records nothing.
-- **Automation (Music, Spotify)**: only if the MediaRemote helper can't run. On macOS 15.4
-  and later Apple stopped delivering system-wide Now Playing data to third-party apps, so
-  the build bundles a tiny helper (`Adapter/MediaRemoteAdapter.m`) that runs inside
-  `/usr/bin/perl`, an Apple-signed host, and streams Now Playing data to the app. If that
-  ever fails, Notch Island falls back to asking Music and Spotify directly with AppleScript,
-  which prompts once per app. The same prompt can come the first time you press shuffle,
-  repeat or favourite beside play in Music or Spotify, when MediaRemote has not said whether
-  the player takes it. Settings > Privacy says which player has allowed or refused it.
+- **Automation (Music, Spotify, System Events)**: for the players, only if the MediaRemote
+  helper can't run. On macOS 15.4 and later Apple stopped delivering system-wide Now Playing
+  data to third-party apps, so the build bundles a tiny helper (`Adapter/MediaRemoteAdapter.m`)
+  that runs inside `/usr/bin/perl`, an Apple-signed host, and streams Now Playing data to the
+  app. If that ever fails, Notch Island falls back to asking Music and Spotify directly with
+  AppleScript, which prompts once per app. The same prompt can come the first time you press
+  shuffle, repeat or favourite beside play in Music or Spotify, when MediaRemote has not said
+  whether the player takes it. Settings > Privacy says which player has allowed or refused it.
+  System Events is asked once, the first time you use the Dark Mode switch in the Display
+  popover, since that is how the switch changes the appearance.
 - **Full Disk Access** (optional): macOS may keep the Focus database from the app without
   it, and then Focus alerts and holding alerts back during a Focus do nothing. Activities
   says so under the Focus switch, with a way to the pane.
@@ -188,38 +195,65 @@ Scripts/notchctl activity build --title "Building" --progress 0.9           # up
 Scripts/notchctl end build
 Scripts/notchctl alert "Deployed" --symbol checkmark.circle.fill --tint green
 Scripts/notchctl timer 25 --label Focus
+Scripts/notchctl timer pomodoro --work 50 --rest 10 --cycles 3 --long 20    # left out: 25, 5, 4 and 15
+Scripts/notchctl stopwatch                                                   # stopwatch lap | stop | reset
+Scripts/notchctl sleep 45                                                    # stop what is playing in 45 minutes; sleep cancel
 Scripts/notchctl alarm 07:30 Wake up                                         # or 7:30am, 19:30, 7pm
 Scripts/notchctl alarm cancel
 Scripts/notchctl shelf add ~/Downloads/report.pdf
-Scripts/notchctl ask "Deploy to production?" --yes Deploy --no Wait --timeout 120   # yes → 0, no → 1, timeout → 2
+Scripts/notchctl home clipboard                                              # open the panel on a section; collapse closes it
+Scripts/notchctl settings privacy                                            # open Settings on a pane
+Scripts/notchctl ask "Deploy to production?" --yes Deploy --no Wait --timeout 2m   # yes → 0, no → 1, timeout → 2
 ```
 
 The underlying URLs:
 
 ```
 notchisland://activity?id=…&title=…&subtitle=…&symbol=…&tint=…&progress=0–1&trailing=…&body=…&url=…&ttl=seconds&expanded=1&ring=1&priority=70
+  …&action=Retry&action_url=https://…&action_symbol=arrow.clockwise&action2=Ship&action2_shortcut=Deploy   (buttons, see below)
 notchisland://activity/end?id=…
-notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1
+notchisland://alert?title=…&symbol=…&tint=…&duration=3&expanded=1   (duration in seconds, up to 60 s; longer is cut to 60)
 notchisland://timer?minutes=5&label=Tea    notchisland://timer/cancel | pause | resume
-notchisland://timer/add?minutes=1
+notchisland://timer?seconds=90             (with minutes= as well, the two are added up)
+notchisland://timer/add?minutes=1          (or seconds=; a length below nought takes time off)
+notchisland://timer/pomodoro?work=25&rest=5&cycles=4&long=15   (minutes; these are what is left out)
+notchisland://sleep?minutes=30             notchisland://sleep/cancel   (stops what is playing; 30 unless told)
 notchisland://alarm?at=07:30&label=Wake    notchisland://alarm/cancel[?at=07:30 | ?id=…]
 notchisland://stopwatch                    notchisland://stopwatch/lap | stop | reset
 notchisland://shelf/add?path=…             notchisland://shelf/clear
-notchisland://ask?title=…&detail=…&yes=Yes&no=No&timeout=5–600&reply=/tmp/…/answer   (the answer is written to reply)
+notchisland://ask?title=…&detail=…&yes=Yes&no=No&timeout=5–600&reply=/tmp/…/answer&token=…   (the answer is written to reply)
+notchisland://ask/cancel?token=…           (takes that question down unanswered)
 notchisland://home[/music|today|windows|shelf|controls|clipboard|actions|notes|stats|notifications] | collapse | settings[/pane]
 ```
 
-`reply` has to be a file the island may create: an absolute path with no `.`, `..` or `~` in
-it, to a file that is not there yet (the island never writes over one), in a folder that, once
-its links are followed, is inside your home folder or `/tmp`. macOS's `$TMPDIR`
-(`/var/folders/…`) is neither, so `reply=$TMPDIR/answer` is refused, and a refused `reply`
-means no question goes up at all; the refusal is only logged (`log stream --predicate
-'subsystem == "com.macnotchisland.app"'`). Make the folder with `mktemp -d /tmp/ask.XXXXXX`, as
-`notchctl ask` does. `Scripts/notchctl --help` lists every exit status, including 64 for bad
-usage and 69 when Notch Island could not be reached.
+A card has room for two buttons. `action` names the first, and it opens `action_url` (an
+`http`, `https` or `mailto` link) or runs the Shortcut `action_shortcut` names, with
+`action_symbol` as its SF Symbol; `action2`, `action2_url`, `action2_shortcut` and
+`action2_symbol` are the second. `alert` takes them too. A button with no name, or nothing to
+do, is left off. A Shortcut runs only while "Let pushed cards run Shortcuts" is on under
+Settings > Media, which it is not out of the box: anything on this Mac can push a card, and a
+Shortcut can run a shell script. With it off, a button that would only run a Shortcut is left
+off the card.
+
+`token` on `ask` is a secret of the script's own, 16 to 128 letters, digits and hyphens;
+`ask/cancel` with the same token takes the question down unanswered, which is what `notchctl ask`
+does when it is interrupted. A question put up without one cannot be taken down that way.
+
+`reply` has to be a file the island may create: an absolute path (so no `~`) with no `.` or
+`..` in it, to a file that is not there yet (the island never writes over one), in a folder of
+your own that only you can open (mode 0700, which is what `mktemp -d` makes), inside `/tmp` or
+`$TMPDIR`, never in your home folder. The folder's links are followed before it is checked,
+and a file directly in `/tmp` or `$TMPDIR`, rather than in a folder of your own there, is
+refused. A refused `reply` means no question goes up at all; the refusal is only logged
+(`log stream --predicate 'subsystem == "com.macnotchisland.app"'`). Make the folder with
+`mktemp -d /tmp/ask.XXXXXX`, as `notchctl ask` does. `Scripts/notchctl --help` lists every exit
+status, including 64 for bad usage and 69 when Notch Island could not be reached.
 
 `tint` accepts the iOS system colour names (red, orange, yellow, green, mint, teal, cyan,
 blue, indigo, purple, pink, brown, gray, white) or a hex value. `symbol` is any SF Symbol.
+Lengths are numbers in the unit the field is counted in — minutes for `minutes`, `work`, `rest`
+and `long`; seconds for `seconds`, `ttl`, `duration` and `timeout` — or numbers with a unit of
+their own: `45m`, `90s`, `1.5h`.
 
 ## How it's put together
 

@@ -416,7 +416,7 @@ struct ShelfItemView: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("File \(url.lastPathComponent), added \(accessibilityAge)")
         .accessibilityValue(isSelected ? "selected" : "")
-        .accessibilityHint("Double-click to open, right-click for actions")
+        .accessibilityHint("Selects the file. Open is in the actions.")
         .accessibilityAction { onSelect() }
         .accessibilityAction(named: Text("Open")) { shelf.open([url]) }
     }

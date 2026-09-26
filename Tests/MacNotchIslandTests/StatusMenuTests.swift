@@ -10,6 +10,12 @@ final class StatusMenuTests: XCTestCase {
         XCTAssertEqual(StatusItemController.presetTitle(minutes: 120), "2 Hours")
     }
 
+    /// A full-screen film hid the island under a header that blamed an app on the hide list.
+    func testTheHiddenHeaderSaysWhatHidIt() {
+        XCTAssertEqual(StatusItemController.hiddenTitle(byApp: true), "Hidden while this app is in front")
+        XCTAssertEqual(StatusItemController.hiddenTitle(byApp: false), "Hidden in full screen")
+    }
+
     // MARK: - What a right-click on the island offers
 
     func testTheMenuLeadsWithWhatTheIslandIsShowing() {

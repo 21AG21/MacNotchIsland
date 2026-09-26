@@ -97,7 +97,7 @@ struct ActivitiesPane: View {
                 Toggle("Caps Lock", isOn: $prefs.capsLockEnabled)
                     .help("A brief pill when Caps Lock turns on or off.")
                 Toggle("Unlock", isOn: $prefs.unlockEnabled)
-                    .help("A welcome back pill when you unlock your Mac.")
+                    .help("An \u{201C}Unlocked\u{201D} pill when you unlock your Mac.")
             } header: {
                 Text("System")
             } footer: {
@@ -151,7 +151,7 @@ struct ActivitiesPane: View {
                 Toggle("Microphone and camera", isOn: $prefs.privacyIndicatorsEnabled)
                     .help("A dot in the island whenever the microphone or camera is in use.")
                 Toggle("Calls", isOn: $prefs.callDetectionEnabled)
-                    .help("FaceTime, Zoom, Teams, Meet, Slack, Discord and Webex.")
+                    .help("FaceTime, Zoom, Teams, Meet, Slack, Discord, Webex, Skype and Loom.")
             } header: {
                 Text("Privacy indicators")
             }
@@ -180,7 +180,7 @@ struct ActivitiesPane: View {
             } header: {
                 Text("Focus and calendar")
             } footer: {
-                Text("Calendar events ask for calendar access the first time they are turned on. The same switch shows the Today section in the panel. While a Focus is on, the island holds back what arrives on its own — a finished download, a device connecting, an event coming up, an alert a script pushed — and shows everything you did yourself, along with a nearly flat battery and a call.")
+                Text("Calendar events ask for calendar access as soon as the welcome tour is done, or when they are turned on after it, and reminders are asked for the first time you open the panel on Home or Today. The same switch shows the Today section in the panel. While a Focus is on, the island holds back what arrives on its own — a finished download, a device connecting, an event coming up, an alert a script pushed — and shows everything you did yourself, along with a nearly flat battery and a call.")
             }
 
             Section {
@@ -195,7 +195,7 @@ struct ActivitiesPane: View {
             } header: {
                 Text("Downloads, disks and timers")
             } footer: {
-                Text("A capture's card shows the picture itself: drag it from there into a message without it ever touching the Desktop, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots also land on the shelf, unless you turn that off in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the desktop.")
+                Text("A capture's card shows the picture itself: drag it from there into a message without going to the Desktop for it, put it or the words in it on the pasteboard, or open it. Finished downloads and screenshots also land on the shelf, unless you turn that off in Home Panel. A disk's card carries the Eject button, so getting a drive out safely no longer means finding its icon on the Desktop.")
             }
         }
         .formStyle(.grouped)

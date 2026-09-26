@@ -178,7 +178,7 @@ struct ActionsSectionView: View {
                     PillButton(title: "\(minutes)m") {
                         IslandTimer.shared.start(seconds: TimeInterval(minutes * 60), label: "Timer")
                     }
-                    .accessibilityLabel("Start \(minutes) minute timer")
+                    .accessibilityLabel("Start \(minutes)-minute timer")
                 }
                 PillButton(title: "Pomodoro") { IslandTimer.shared.startPomodoro() }
             }

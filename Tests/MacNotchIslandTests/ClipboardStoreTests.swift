@@ -12,6 +12,17 @@ final class ClipboardStoreTests: XCTestCase {
         ClipboardItem(kind: kind, text: text, date: Date(timeIntervalSinceReferenceDate: seconds), pinned: pinned)
     }
 
+    // MARK: - What a click says it does
+
+    /// A click pastes into the app in front with "Paste after picking an item" on and
+    /// Accessibility allowed, and the row said "copy again" either way.
+    func testARowSaysWhetherAClickPastesOrCopies() {
+        XCTAssertEqual(ClipboardStore.pickHint(pastes: true), "Pastes it where you were typing")
+        XCTAssertEqual(ClipboardStore.pickHint(pastes: false), "Copies it again")
+        XCTAssertTrue(ClipboardStore.pickHelp(pastes: true).hasPrefix("Click to paste it where you were typing"))
+        XCTAssertTrue(ClipboardStore.pickHelp(pastes: false).hasPrefix("Click to copy it again"))
+    }
+
     // MARK: - De-duplication
 
     func testConsecutiveDuplicateIsCollapsed() {

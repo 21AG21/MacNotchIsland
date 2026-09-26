@@ -137,7 +137,7 @@ struct HomePanelPane: View {
         case .sleepDisplay: return "Puts the display to sleep. The Mac itself stays awake."
         case .screenshot: return "Opens the screenshot toolbar."
         case .record: return "Starts and stops a recording of the screen, red while it runs."
-        case .keyboardLight: return "Opens the keyboard's backlight: a slider and a switch to have it follow the room's light, where the keyboard has one. Right-click the disc for the switch alone."
+        case .keyboardLight: return "Opens the keyboard backlight: a slider and a switch to have it follow the room's light, where the keyboard has one. Right-click the disc for the switch alone."
         case .settings: return "Always on, and always last."
         }
     }
@@ -147,11 +147,11 @@ struct HomePanelPane: View {
         case .home: return "Every section as a tile, with a glimpse of what is in it."
         case .music: return "What is playing, wherever it is playing."
         case .controls: return "The networks in range, the devices you are paired with, and where the sound goes and comes from, each list with its own switch — and above them, any control the rail had no room for."
-        case .today: return "Your next events and reminders, and the card that appears on the island before a meeting with its Join button — switching this off turns that card off too. Asks for calendar and reminders access when first opened."
+        case .today: return "Your next events and reminders, and the card that appears on the island before a meeting with its Join button — switching this off turns that card off too. Asks for calendar access as soon as the welcome tour is done, or when switched on after it, and for reminders the first time you open the panel on Home or Today."
         case .windows: return "The windows on this desktop as live tiles, minimised ones and a hidden app's dimmed after the rest: click one to bring it forward, or snap it to a half of the screen. Asks for Screen Recording to draw the pictures and Accessibility to move windows and to find the ones put away."
         case .shelf: return "Drag files onto the island to keep them within reach."
         case .clipboard: return "Recent copies, pinned ones first."
-        case .actions: return "Your favourite apps and shortcuts, timers you tap or type, alarms and the stopwatch."
+        case .actions: return "Your favourite apps and Shortcuts, timers you tap or type, alarms and the stopwatch."
         case .notes: return "A scratchpad that keeps whatever you type."
         case .stats: return "Processor, memory, disk, network and battery health."
         case .notifications: return "What came past on a banner, kept for three days. Records the app, what the banner said and when, in Notch Island's own folder on this Mac. Needs Accessibility to read the banners."
@@ -335,7 +335,7 @@ struct HomePanelPane: View {
                 Text("Control rail")
             } footer: {
                 HStack(spacing: 8) {
-                    Text("Drag a control to move it. The volume and the brightness always lead the rail and Settings always ends it; Wi-Fi, Bluetooth and the keyboard's backlight appear where this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Whatever does not fit the rail waits at the top of the Controls section, which comes back while anything is waiting there, even with its switch off. The apps and shortcuts in the Actions section are chosen in the Actions pane.")
+                    Text("Drag a control to move it. The volume leads the rail, then where the sound goes when there is a choice, and the brightness where a display has one; Settings always ends it. Wi-Fi, Bluetooth and the keyboard backlight appear where this Mac has them, and AirDrop when there is something on the shelf and you are not looking at it. Whatever does not fit the rail waits at the top of the Controls section, which comes back while anything is waiting there, even with its switch off. The apps and Shortcuts in the Actions section are chosen in the Actions pane.")
                     Button("Open Actions") {
                         selectedSection = SettingsSection.shortcuts.rawValue
                     }

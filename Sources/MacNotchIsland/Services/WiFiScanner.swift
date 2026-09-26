@@ -56,8 +56,8 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate, 
     ///
     /// The list used to ask the moment Controls appeared — so arriving on the section, even on
     /// a Mac with no Wi-Fi to list, put a Location prompt on screen because somebody looked.
-    /// Now the column says the names need Location and offers a "Show names" pill, and the
-    /// question is asked from that, see `askForLocation`.
+    /// Now the column says the names need Location and offers an "Allow Location" pill, and
+    /// the question is asked from that, see `askForLocation`.
     @Published private(set) var locationUnasked = false
 
     /// How often the list is refreshed while somebody is looking at it.
@@ -224,7 +224,7 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate, 
         return manager
     }
 
-    /// The column's "Show names": the one place Location is asked for. Never asked, it asks;
+    /// The column's "Allow Location": the one place Location is asked for. Never asked, it asks;
     /// otherwise the answer is System Settings' to change, and that is where it goes.
     func askForLocation() {
         let manager = locationManager()

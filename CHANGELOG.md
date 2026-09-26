@@ -278,6 +278,18 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The README's rule for where `ask` may write its answer was backwards: it is a folder of your own that only you can open, in /tmp or $TMPDIR, never your home folder.
+- `notchctl ask --timeout` takes a length the way every other flag does (90s, 2m), held to 5 to 600 seconds, as the island already did.
+- The menu bar says "Hidden in full screen" when a full-screen app hides the island, instead of blaming an app on the hide list.
+- A clipboard row's VoiceOver hint and tooltip say what a click really does: paste where you were typing, or copy it again.
+- The shelf's VoiceOver hint says a click selects the file and Open is in the actions.
+- The Privacy pane's Microphone row no longer reads "Not asked yet" for ever: nothing asks for the microphone, and the row says it needs no permission.
+- The Downloads, Desktop and Documents folder prompts now say why Notch Island asks, and the Bluetooth prompt mentions its switch and connecting.
+- Settings and the README say when calendar and reminders are really asked for, and that Automation also covers System Events for the Dark Mode switch.
+- The rail's controls are named the way the menus name them: Mute Microphone, Record Screen, Keyboard Backlight.
+- The Wi-Fi list's location pill is "Allow Location" whichever way it asks.
+- The sleep timer's menu items and the window tile's zone items use title case like the rest of the menu.
+- The README now lists the sleep, Pomodoro, seconds and ask-cancel URLs, the button parameters, Notifications, Motion, Reload Island and Copy Diagnostics.
 - The Mirror lets go of the camera when the Mac goes to sleep, even with the Mirror still on screen; the camera and its green light used to stay on across sleep.
 - "Check for Updates…" always answers: changing any setting while it was checking, with automatic checks off, used to cancel it silently. The hourly check no longer replaces one you asked for, and a replaced request no longer puts the row back to its old status while the new one is still out.
 - Closing Settings stops the pane that was open from re-reading permissions, folders and Focus every few seconds for the rest of the session; it reopens on the same pane in the same place.
@@ -1005,19 +1017,19 @@ the unreleased section is what the next tag will ship.
   something is still using it — rather than failing in silence. Right-clicking the island while
   a disk is showing offers Open and Eject too, and a Focus holds back the disk that arrives
   while never holding back the one that has gone. Switchable off in Activities.
-- **Start typing to find something.** The three sections that are lists of many things —
-  Windows, the Clipboard and the Shelf — now answer the alphabet. Type on one while the panel
-  is pinned open and a field opens with what you typed already in it, narrowing the list as you
-  go: a window by its app's name or its title, a copy by its text, a file by its name. Return
-  takes the first match — brings that window forward, puts that copy back on the pasteboard,
-  opens that file — and Escape leaves the find without closing the panel. The letters are
-  claimed from the system only on those three sections and handed straight back the moment a
-  find begins, so the field itself is yours to type in; and what a key types is read from the
-  layout that is switched on, so the first letter is the right one on a French keyboard as much
-  as an American one. There is a magnifying glass in each of those headers for the people who
-  would rather click, and the clipboard's own search field is that glass now — which also gives
-  that section back the arrows, the digits and Space it used to hold onto for a field nobody
-  was typing in.
+- **Start typing to find something.** The four sections that are lists of many things —
+  Windows, the Clipboard, the Shelf and Notifications — now answer the alphabet. Type on one
+  while the panel is pinned open and a field opens with what you typed already in it, narrowing
+  the list as you go: a window by its app's name or its title, a copy by its text, a file by its
+  name, a banner by its app or its words. Return takes the one you are on — brings that window
+  forward, puts that copy back on the pasteboard, opens that file — and Escape leaves the find
+  without closing the panel. The letters are claimed from the system only on those four
+  sections and handed straight back the moment a find begins, so the field itself is yours to
+  type in; and what a key types is read from the layout that is switched on, so the first
+  letter is the right one on a French keyboard as much as an American one. There is a
+  magnifying glass in each of those headers for the people who would rather click, and the
+  clipboard's own search field is that glass now — which also gives that section back the
+  arrows, the digits and Space it used to hold onto for a field nobody was typing in.
 - **Drop a file on a window tile to open it in that app.** The same thing as dropping it on
   the app's Dock icon, except in front of the window you want it in — and it needs no
   permission at all.
@@ -1392,7 +1404,7 @@ the unreleased section is what the next tag will ship.
   remain for alerts, a ringing timer, drag targeting and swipes.
 
 ### Added
-- Sections: Today (the next 24 hours of events, today's reminders with a checkbox, the
+- Sections: Today (the rest of today's events, today's open reminders with a checkbox, the
   weather in the header), Notes (a scratchpad kept on disk), and Stats beside the shelf,
   clipboard and actions. Now Playing is a section too, so it is reachable while anything
   else is live. The list is one enum, `HomeSection`, read by the switcher, the keyboard

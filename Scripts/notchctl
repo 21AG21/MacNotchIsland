@@ -6,8 +6,11 @@
 #                          [--url https://…] [--ttl 600] [--expanded] [--ring] [--priority 70]
 #                          [--action Retry --action-url https://ci/retry]
 #                          [--action2 Deploy --action2-shortcut "Ship it" --action2-symbol play.fill]
+#                          (--action-shortcut and --action2-shortcut run only while "Let pushed
+#                           cards run Shortcuts" is on under Settings > Media, off out of the box)
 #   notchctl end <id>
 #   notchctl alert "Deployed" [--symbol checkmark.circle.fill] [--tint green] [--duration 3] [--expanded]
+#                          (--duration is up to 60 s; longer is cut to 60)
 #   notchctl timer <minutes> [--label Tea]      notchctl timer cancel|pause|resume
 #   notchctl timer add [minutes]                (another minute for the running timer)
 #   notchctl timer pomodoro [--work 25] [--rest 5] [--cycles 4] [--long 15]
@@ -16,16 +19,18 @@
 #   notchctl alarm cancel [07:30]                (that one, or every alarm)
 #   notchctl stopwatch [lap|stop|reset]
 #   notchctl shelf add <path>                   notchctl shelf clear
-#   notchctl home [home|music|today|windows|shelf|clipboard|actions|notes|stats] | collapse
-#   notchctl settings [general|island|activities|home|media|actions|privacy|about]
+#   notchctl home [home|music|today|windows|shelf|controls|clipboard|actions|notes|stats|notifications]
+#   notchctl collapse
+#   notchctl settings [general|island|motion|activities|home|media|actions|shortcuts|privacy|about]
 #   notchctl ask "Deploy to production?" [--detail "main at 4f2c1"] [--yes Deploy] [--no Wait] [--timeout 60]
 #                                        (answered on the island, or with Control-Y / Control-N;
-#                                         prints yes, no or timeout and exits 0, 1 or 2)
+#                                         prints yes, no or timeout and exits 0, 1 or 2;
+#                                         --timeout is 5 to 600 s: less is 5, more is 600)
 #   notchctl --help                             (this, on standard output, exiting 0)
 #
-# Lengths are numbers, in the unit the flag names (minutes for timers, seconds for --ttl and
-# --duration), or numbers with a unit of their own: 45, 45m, 90s, 1.5h. A timer is at most a
-# day. Anything else is bad usage, and nothing is sent.
+# Lengths are numbers, in the unit the flag names (minutes for timers, seconds for --ttl,
+# --duration and ask's --timeout), or numbers with a unit of their own: 45, 45m, 90s, 1.5h. A
+# timer is at most a day. Anything else is bad usage, and nothing is sent.
 #
 # Exit status. Only `ask` has answers, and only a yes is success, so `if notchctl ask …; then`
 # means what it says; nothing that goes wrong before a question is asked exits 1 or 2.
@@ -248,7 +253,7 @@ case "$cmd" in
   # Control-N, or until its time is up. The island writes the answer to a file in a folder of
   # our own, and we wait for the file. What it exits with is the table at the top.
   ask)
-    ask_usage='usage: notchctl ask "Question" [--detail TEXT] [--yes LABEL] [--no LABEL] [--timeout SECONDS]'
+    ask_usage='usage: notchctl ask "Question" [--detail TEXT] [--yes LABEL] [--no LABEL] [--timeout 5-600 SECONDS]'
     if [ -z "${1:-}" ] || [[ "$1" == --* ]]; then usage "$ask_usage"; fi
     add title "$1"; shift
     wait_for=60
@@ -261,16 +266,18 @@ case "$cmd" in
             --yes) add yes "$2" ;;
             --no) add no "$2" ;;
             --timeout)
-              if ! [[ "$2" =~ ^[0-9]{1,6}$ ]]; then usage "notchctl ask: --timeout takes whole seconds"; fi
-              wait_for=$(( 10#$2 )) ;;
+              # A length as every other flag reads one (60, 90s, 2m), as the island reads
+              # `timeout=`; sent as whole seconds, held to the island's own 5 to 600 so the two
+              # ends count to the same second. Held in awk, where a length of a hundred digits
+              # is still a number, rather than in bash, where it would wrap round.
+              need_length "ask --timeout" "$2" 1 's >= 0' 'a length in seconds (60, 90s, 2m)'
+              wait_for=$(LC_ALL=C awk -v s="$(seconds_of "$2" 1)" \
+                'BEGIN { s += 0; if (s < 5) s = 5; if (s > 600) s = 600; printf "%d\n", s + 0.5 }') ;;
           esac
           shift 2 ;;
         *) usage "notchctl ask: unknown flag: $1" "$ask_usage" ;;
       esac
     done
-    # The island's own limits, so the two ends count to the same second.
-    if (( wait_for < 5 )); then wait_for=5; fi
-    if (( wait_for > 600 )); then wait_for=600; fi
     add timeout "$wait_for"
     # The island writes only into a folder of the user's own, open to nobody else, inside /tmp
     # or $TMPDIR — never the home folder — which is what mktemp -d makes. The island creates the

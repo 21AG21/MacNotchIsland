@@ -72,7 +72,7 @@ struct AboutPane: View {
             } header: {
                 Text("Energy")
             } footer: {
-                Text("Notch Island also lives in the menu bar, where you will find timers, a demo of every alert, and Quit.")
+                Text("Notch Island also lives in the menu bar, where you will find timers, a demo of the island's alerts (hold Option), and Quit.")
             }
         }
         .formStyle(.grouped)

@@ -25,7 +25,9 @@ struct MediaPane: View {
                 }
                 LabeledContent("MediaRemote", value: Self.wording(music.health[.mediaRemote]))
                 LabeledContent("AppleScript (Music and Spotify)", value: Self.wording(music.health[.appleScript]))
-                LabeledContent("Media helper",
+                // The same helper as the first row, by the same name: whether this build carries
+                // its file at all, which is the first thing to know when that row says nothing.
+                LabeledContent("MediaRemote helper file",
                                value: AdapterBackend.dylibURL != nil ? "Bundled" : "Not found")
             } header: {
                 Text("Now Playing")

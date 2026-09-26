@@ -52,13 +52,19 @@
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Notch Island lists the reminders due today in the Home panel, so you can tick them off from the island.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Notch Island shows AirPods and other Bluetooth devices when they connect, with their battery level.</string>
+	<string>Notch Island shows AirPods and other Bluetooth devices when they connect, with their battery level, and lets you turn Bluetooth on and off and connect or disconnect your paired devices from the island.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notch Island only checks whether the microphone is in use to show the privacy indicator. It never records audio.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Notch Island uses your approximate location for the weather line in Today, and macOS asks for it before showing the names of the Wi-Fi networks in range in Controls. It is never stored or shared.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Notch Island listens to the system's audio level only to animate the Now Playing bars. Nothing is recorded.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Notch Island watches your Downloads folder so a finished download can appear in the island and on the shelf.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Notch Island watches the folder your screenshots are saved to, the Desktop unless you have moved it, so a new screenshot or recording can appear in the island and on the shelf.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Notch Island watches the folder your screenshots are saved to when you have moved it into Documents, so a new screenshot or recording can appear in the island and on the shelf.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Notch Island shows a live mirror in the panel when you open it from the control rail, so you can check yourself before a call. The privacy indicator itself never captures video.</string>
 </dict>

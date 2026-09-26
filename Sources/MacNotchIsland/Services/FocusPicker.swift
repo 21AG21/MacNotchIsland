@@ -43,7 +43,7 @@ struct FocusPickerRows: Equatable {
     let modesUnread: Bool
 
     static let setupNote = "Make a shortcut named \u{201C}Set Focus\u{201D} that sets Focus from its input"
-    static let unreadNote = "Your other Focus modes can be listed with Full Disk Access."
+    static let unreadNote = "Your other Focus modes can be listed with Full Disk Access"
 
     /// `active` is the identifier of the Focus that is on, or nil when none is.
     init(modes: [FocusMode], active: String?, hasShortcut: Bool) {
@@ -54,7 +54,7 @@ struct FocusPickerRows: Equatable {
         // Focus is on, on a Mac where the island cannot see whether one is.
         let known = !modes.isEmpty
         let listed = known ? modes : [FocusMode.doNotDisturb]
-        let hint = hasShortcut ? nil : "Needs a shortcut named Set Focus"
+        let hint = hasShortcut ? nil : "Needs a shortcut named \u{201C}Set Focus\u{201D}"
         let offOn = known && active == nil
         let off = Row(id: Self.offID, title: "Off", symbol: "circle.slash", tint: "gray", isActive: offOn,
                       input: hasShortcut && !offOn ? Self.offInput : nil,

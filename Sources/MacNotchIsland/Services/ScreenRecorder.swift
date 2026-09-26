@@ -216,7 +216,7 @@ final class ScreenRecorder: ObservableObject {
     static let refusal = CustomActivity(title: "Can't record the screen",
                                         subtitle: "Notch Island needs Screen Recording.",
                                         symbol: "record.circle", tint: "orange",
-                                        actions: [CustomAction(title: "Open Settings",
+                                        actions: [CustomAction(title: "Open System Settings",
                                                                url: SystemSettingsPane.screenRecording.url)])
 
     // MARK: - Pure rules

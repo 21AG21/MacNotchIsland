@@ -236,11 +236,12 @@ struct ControlsSectionView: View {
                 Text("Network names need Location")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.white.opacity(0.35))
-                PillButton(title: "Show names", tint: .white.opacity(0.85)) {
+                // The same words as the pill a refusal puts here: one row, one name for it.
+                PillButton(title: "Allow Location", tint: .white.opacity(0.85)) {
                     wifi.askForLocation()
                 }
                 .environment(\.islandCompactControls, true)
-                .accessibilityLabel(Text("Wi-Fi network names need your location. Ask for Location."))
+                .accessibilityLabel(Text("Wi-Fi network names need your location. Allow Location."))
             }
         } else if wifi.networks.isEmpty {
             Text(wifi.isScanning ? "Looking…" : "Nothing in range")

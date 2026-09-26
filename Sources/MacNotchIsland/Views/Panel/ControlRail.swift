@@ -582,7 +582,7 @@ private struct KeyboardLightRailButton: View {
 
     var body: some View {
         RailDisc(symbol: RailControl.keyboardLight.symbol,
-                 label: light.isAutomatic ? "Keyboard brightness, adjusting automatically" : "Keyboard brightness",
+                 label: light.isAutomatic ? "Keyboard backlight, adjusting automatically" : "Keyboard backlight",
                  active: open) { open.toggle() }
             .contextMenu {
                 Toggle("Adjust Keyboard Brightness Automatically", isOn: automatic)
@@ -624,7 +624,7 @@ private struct KeyboardLightModuleView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Keyboard Brightness")
+            Text("Keyboard Backlight")
                 .font(.system(size: 13, weight: .semibold))
             HStack(spacing: 8) {
                 Image(systemName: "light.min")
@@ -633,7 +633,7 @@ private struct KeyboardLightModuleView: View {
                     .accessibilityHidden(true)
                 Slider(value: Binding(get: { light.level }, set: { light.set($0) }), in: 0...1)
                     .controlSize(.small)
-                    .accessibilityLabel("Keyboard brightness")
+                    .accessibilityLabel("Keyboard backlight")
                     .accessibilityValue("\(Int((light.level * 100).rounded())) percent")
                 Image(systemName: "light.max")
                     .font(.system(size: 13))

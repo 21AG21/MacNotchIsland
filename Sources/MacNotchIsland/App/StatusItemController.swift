@@ -127,6 +127,13 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         return minutes == 1 ? "1 Minute" : "\(minutes) Minutes"
     }
 
+    /// The header while the island is hidden by something other than the clock: an app on the
+    /// hide list in front, or a full-screen app (`ActivityCenter.isSuppressed`). Pure, so the
+    /// two cannot be said the same way again.
+    static func hiddenTitle(byApp: Bool) -> String {
+        byApp ? "Hidden while this app is in front" : "Hidden in full screen"
+    }
+
     // MARK: Live state
 
     func menuNeedsUpdate(_ menu: NSMenu) { refreshDynamicItems() }
@@ -142,7 +149,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
             visibility.title = IslandMenu.showTitle
             visibility.action = #selector(showNow)
         } else if center.isSuppressed {
-            header.title = "Hidden while this app is in front"
+            // Past the clock, the island is hidden by an app on the hide list or by a full-screen
+            // app, and the header said the first for both: a film in full screen read as an app
+            // somebody had chosen to hide the island for.
+            header.title = Self.hiddenTitle(byApp: center.appSuppressed)
             visibility.title = IslandMenu.hideTitle
             visibility.action = #selector(hideForHour)
         } else {

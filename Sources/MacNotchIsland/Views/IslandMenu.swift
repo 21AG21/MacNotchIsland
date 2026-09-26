@@ -168,13 +168,14 @@ struct IslandMenu: View {
     /// The choices, in minutes. The ones a bedside timer offers.
     static let sleepChoices = [15, 30, 45, 60, 90]
 
-    /// "15 minutes", "1 hour", "1 hour 30 minutes".
+    /// "15 Minutes", "1 Hour", "1 Hour 30 Minutes": menu items, so title case, the way the
+    /// menu bar's timer presets are written (`StatusItemController.presetTitle`).
     static func sleepTitle(_ minutes: Int) -> String {
-        guard minutes >= 60 else { return "\(minutes) minutes" }
+        guard minutes >= 60 else { return "\(minutes) Minutes" }
         let hours = minutes / 60
         let rest = minutes % 60
-        let hourText = hours == 1 ? "1 hour" : "\(hours) hours"
-        return rest == 0 ? hourText : "\(hourText) \(rest) minutes"
+        let hourText = hours == 1 ? "1 Hour" : "\(hours) Hours"
+        return rest == 0 ? hourText : "\(hourText) \(rest) Minutes"
     }
 
     /// Everything this Mac is paired with, connected first. A click connects what is not and
