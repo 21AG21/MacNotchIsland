@@ -20,9 +20,9 @@ final class MediaRemoteBackend {
 
     var onUpdate: ((NowPlayingInfo?) -> Void)?
     /// Whether a better backend is answering, so that a report from here would be dropped
-    /// (`NowPlayingService.handle`). Asked before a cover is decoded: that runs on the main
-    /// thread, and used to run for every track while the helper answered and the report went
-    /// nowhere. Main queue.
+    /// (`NowPlayingService.handle`). Asked before a cover is decoded: that used to be done for
+    /// every track while the helper answered and the report went nowhere, and on the main
+    /// thread. Main queue.
     var isOutranked: () -> Bool = { false }
 
     /// Whether MediaRemote, asked from inside this app, can say what is playing at all: up to
@@ -79,10 +79,27 @@ final class MediaRemoteBackend {
     private var setShuffleFn: SetModeFn?
     private var setRepeatFn: SetModeFn?
 
+    /// The hash of the cover bytes in the newest report, which is what decides whether the next
+    /// one brings a new cover. Set as a report comes in. Main queue.
     private var lastArtworkHash = 0
+    /// The cover of the last report to go out, and its accent. Set as each report goes out, in
+    /// the order they came in (`inOrder`): a new cover is decoded before its report leaves.
+    /// Main queue.
     private var lastArtwork: NSImage?
     private var lastAccent: NSColor = .white
     private var lastRefresh = Date.distantPast
+    /// Where a new cover is decoded, off the main thread. MediaRemote answers on the main
+    /// queue, and a new track's cover was decoded there, whole — a JPEG of many hundreds of
+    /// pixels, for a picture drawn at 60 pt at most — on the pass that started the card's
+    /// change of track. The report waits for it here instead, and nothing else does.
+    private let coverQueue = DispatchQueue(label: "com.macnotchisland.mediaremote.covers", qos: .userInitiated)
+    /// Reports on their way through `coverQueue`. While there are any, every report goes the
+    /// same way behind them, so none overtakes one still waiting for its cover. Main queue.
+    private var queued = 0
+    /// Moved on by `stop`, so that a report on its way through `coverQueue` when the backend
+    /// was switched off is not passed on when it lands, as one that arrives after it is not.
+    /// Main queue.
+    private var generation = 0
     private var observers: [NSObjectProtocol] = []
 
     private let notifications = [
@@ -129,6 +146,7 @@ final class MediaRemoteBackend {
 
     func stop() {
         started = false
+        generation += 1
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
         unregister?()
@@ -177,7 +195,9 @@ final class MediaRemoteBackend {
         if title.isEmpty && artist.isEmpty {
             // macOS 15.4+ hands unentitled apps a payload with no usable fields; don't count that
             // as healthy. Where MediaRemote answers this app, "nothing is playing" is its word.
-            if isHealthy || Self.answersThisApp { onUpdate?(nil) }
+            if isHealthy || Self.answersThisApp {
+                inOrder(decoding: nil) { [weak self] _, current in if current { self?.onUpdate?(nil) } }
+            }
             return
         }
         lastPayload = Date()
@@ -190,24 +210,18 @@ final class MediaRemoteBackend {
         let rate = d["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double
         let reportedTimestamp = d["kMRMediaRemoteNowPlayingInfoTimestamp"] as? Date
 
-        if let data = d["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data {
-            let hash = data.hashValue
-            if hash != lastArtworkHash {
-                lastArtworkHash = hash
-                lastArtwork = NSImage(data: data)
-                lastAccent = lastArtwork?.dominantColor() ?? .white
-            }
-        } else {
-            lastArtworkHash = 0
-            lastArtwork = nil
-            lastAccent = .white
-        }
+        // The cover's bytes come with every report about its track; only new ones are decoded.
+        let artwork = d["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data
+        let hash = artwork?.hashValue ?? 0
+        let step = Self.coverStep(hash: artwork.map { _ in hash }, last: lastArtworkHash)
+        lastArtworkHash = hash
 
+        // The cover and its accent are filled in as the report goes out, see `inOrder`.
         var info = NowPlayingInfo(title: title, artist: artist, album: album,
                                   duration: reportedDuration ?? 0, elapsed: reportedElapsed ?? 0,
                                   timestamp: reportedTimestamp ?? Date(),
                                   isPlaying: NowPlayingInfo.isPlaying(rate: rate, flag: nil), bundleID: nil,
-                                  artwork: lastArtwork, artworkID: lastArtworkHash, accent: lastAccent)
+                                  artwork: nil, artworkID: hash, accent: .white)
         // The elapsed time is where the playhead is; a timestamp on its own says only when,
         // and a report that carried one and no position counted from 0:00 at it.
         info.reportsPosition = reportedElapsed != nil
@@ -216,8 +230,30 @@ final class MediaRemoteBackend {
         info.shuffle = NowPlayingInfo.shuffle(fromRemote: (d["kMRMediaRemoteNowPlayingInfoShuffleMode"] as? NSNumber)?.intValue)
         info.repeatMode = NowPlayingInfo.repeatMode(fromRemote: (d["kMRMediaRemoteNowPlayingInfoRepeatMode"] as? NSNumber)?.intValue)
 
-        // The player's own word on whether it is playing, where the framework gives one, then the
-        // application that is playing it; each is a question answered on the main queue.
+        let report = info
+        inOrder(decoding: step == .decode ? artwork : nil) { [weak self] decoded, current in
+            guard let self else { return }
+            switch step {
+            case .decode:
+                self.lastArtwork = decoded?.image
+                self.lastAccent = decoded?.accent ?? .white
+            case .clear:
+                self.lastArtwork = nil
+                self.lastAccent = .white
+            case .keep:
+                break
+            }
+            guard current else { return }
+            var covered = report
+            covered.artwork = self.lastArtwork
+            covered.accent = self.lastAccent
+            self.passOn(covered, rate: rate)
+        }
+    }
+
+    /// The player's own word on whether it is playing, where the framework gives one, then the
+    /// application that is playing it; each is a question answered on the main queue.
+    private func passOn(_ info: NowPlayingInfo, rate: Double?) {
         let deliver: (NowPlayingInfo) -> Void = { [weak self] info in
             guard let self else { return }
             guard let getPIDFn = self.getPIDFn else {
@@ -240,6 +276,49 @@ final class MediaRemoteBackend {
             }
         } else {
             deliver(info)
+        }
+    }
+
+    /// What a report does with the cover the last one had. Pure, so it is tested.
+    enum CoverStep: Equatable {
+        /// New bytes: decode them.
+        case decode
+        /// The same bytes as the report before: the same cover.
+        case keep
+        /// No bytes: no cover.
+        case clear
+    }
+
+    /// `hash` is that of this report's cover bytes, nil when it has none; `last` is that of the
+    /// report before, 0 when it had none.
+    static func coverStep(hash: Int?, last: Int) -> CoverStep {
+        guard let hash else { return .clear }
+        return hash == last ? .keep : .decode
+    }
+
+    /// Runs `then` on the main queue in the order the reports came in, with the cover decoded
+    /// from `bytes` when there are any, and whether the report is still to be passed on.
+    ///
+    /// With nothing to decode and nothing on its way through `coverQueue`, `then` runs at once,
+    /// as it always did. Otherwise it goes through the queue: a new cover is decoded there
+    /// (`NSImage.cover(from:)`), and a report behind one waits its turn, so a later report can
+    /// never go out ahead of an earlier one, nor a decode that finishes late stand in for a
+    /// newer report's cover. A report that lands after `stop` is not passed on (`current` is
+    /// false), but its cover is still taken in: the next report is weighed against the hash
+    /// this one brought, and has to find the cover that goes with it. Not private, so the order
+    /// is tested. Main queue.
+    func inOrder(decoding bytes: Data?,
+                 then: @escaping (_ decoded: (image: NSImage, accent: NSColor)?, _ current: Bool) -> Void) {
+        guard bytes != nil || queued > 0 else { return then(nil, true) }
+        queued += 1
+        let generation = self.generation
+        coverQueue.async { [weak self] in
+            let decoded = bytes.flatMap { NSImage.cover(from: $0) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.queued -= 1
+                then(decoded, generation == self.generation)
+            }
         }
     }
 

@@ -13,7 +13,8 @@ struct HomeGridView: View {
     /// Which island this grid is drawn on, so a panel pinned on another display does not count
     /// as this one being pinned — see `agendaHoldNow`.
     @Environment(\.islandPanelID) private var panelID
-    @ObservedObject private var playing = NowPlayingService.shared
+    // Not what is playing: that is the Now Playing tile's to watch (`NowPlayingTile`). Every
+    // store here is one a tile's line reads.
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var clipboard = ClipboardStore.shared
     @ObservedObject private var notes = NotesStore.shared
@@ -21,7 +22,6 @@ struct HomeGridView: View {
     @ObservedObject private var apps = FavoriteApps.shared
     @ObservedObject private var agenda = AgendaStore.shared
     @ObservedObject private var inbox = NotificationInbox.shared
-    @State private var hovered: HomeSection?
     /// How this view holds the agenda, see `agendaHold`.
     @State private var heldAgenda = AgendaStore.Hold.off
 
@@ -60,9 +60,9 @@ struct HomeGridView: View {
         CGFloat(columns) * tileWidth(columns: columns) + CGFloat(columns - 1) * gap
     }
 
-    private var tiles: [HomeSection] { HomeSection.tiles(prefs) }
-
     var body: some View {
+        // Read once a pass: it walks the sections and the preferences, and it was read three times.
+        let tiles = HomeSection.tiles(prefs)
         let columns = Self.columns(for: tiles.count)
         let width = Self.tileWidth(columns: columns)
         // The wide tile eats two of the top row's columns.
@@ -74,7 +74,7 @@ struct HomeGridView: View {
         // the grid, so its tiles stay on the columns of the row above.
         return VStack(alignment: .leading, spacing: Self.gap) {
             HStack(spacing: Self.gap) {
-                nowPlayingTile(width: Self.wideWidth(columns: columns))
+                NowPlayingTile(width: Self.wideWidth(columns: columns)) { open(.music) }
                 ForEach(Array(tiles.prefix(acrossTheTop)), id: \.self) { tile($0, width: width) }
             }
             HStack(spacing: Self.gap) {
@@ -83,7 +83,6 @@ struct HomeGridView: View {
         }
         .frame(width: Self.gridWidth(columns: columns), alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(IslandMotion.hover, value: hovered)
         // The Today tile's line is read from the agenda, and the agenda only reads the day
         // while somebody is looking at it: unregistered, the tile said "Nothing today" after
         // a fresh launch and, later on, named a meeting that had ended hours before. Held on
@@ -130,81 +129,12 @@ struct HomeGridView: View {
         heldAgenda = hold
     }
 
-    // MARK: - What is playing
-
-    /// Two tiles wide, because it is the one thing the island is for: the cover, what it is,
-    /// and the one control anybody reaches for without thinking.
-    /// What the service reports, or what the island's Now Playing activity carries when the
-    /// service has nothing yet — a report still in flight, or a rendered gallery. The same
-    /// fallback the Now Playing section makes, for the same reason.
-    private var info: NowPlayingInfo? {
-        if let info = playing.info { return info }
-        if case .nowPlaying(let info)? = center.activity(id: "nowplaying")?.content { return info }
-        return nil
-    }
-
-    private func nowPlayingTile(width: CGFloat) -> some View {
-        let info = self.info
-        return Button(action: { open(.music) }) {
-            HStack(spacing: 10) {
-                if let info {
-                    ArtworkView(image: info.artwork, size: 40, radius: 8, flexible: false)
-                        .id(info.artworkID)
-                } else {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.10))
-                        Image(systemName: "music.note")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
-                    .frame(width: 40, height: 40)
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(info?.title.isEmpty == false ? info!.title : "Nothing playing")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text(subtitle(for: info))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 6)
-                if info != nil {
-                    // The tile is a button; this one sits on top of it and does its own thing,
-                    // the way the play button on a Music widget does — to a pointer. VoiceOver
-                    // reads a button's label as the one element, and a button inside that label
-                    // cannot be counted on to be an element of its own: play and pause are the
-                    // tile's named action instead (`PlayPauseAction`), and this copy is kept out
-                    // of the way so the one path to them is that action.
-                    GlyphButton(symbol: info?.isPlaying == true ? "pause.fill" : "play.fill",
-                                size: 15, weight: .semibold) {
-                        playing.togglePlayPause()
-                    }
-                    .accessibilityHidden(true)
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(width: width, height: Self.tileHeight)
-            .background(background(for: .music))
-            .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
-        }
-        .buttonStyle(IslandButtonStyle())
-        .onHover { inside in hover(.music, inside) }
-        .accessibilityLabel(info == nil ? "Now Playing, nothing playing"
-                                        : "Now Playing, \(info?.title ?? ""), \(subtitle(for: info))")
-        .modifier(PlayPauseAction(isPlaying: info?.isPlaying) { playing.togglePlayPause() })
-    }
-
-    private func subtitle(for info: NowPlayingInfo?) -> String {
-        guard let info else { return "Open Now Playing" }
-        return info.artist.isEmpty ? info.appName : info.artist
-    }
-
     // MARK: - The rest
 
     private func tile(_ section: HomeSection, width: CGFloat) -> some View {
-        Button(action: { open(section) }) {
+        // Once a pass: the line is both shown and spoken, and the Today tile's walks the agenda.
+        let glimpse = self.glimpse(section)
+        return HomeTile(width: width, alignment: .topLeading, action: { open(section) }) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: section.symbol)
                     .font(.system(size: 14, weight: .semibold))
@@ -214,28 +144,14 @@ struct HomeGridView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(glimpse(section))
+                Text(glimpse)
                     .font(.system(size: 10.5))
                     .foregroundStyle(.white.opacity(0.45))
                     .lineLimit(1)
             }
             .padding(10)
-            .frame(width: width, height: Self.tileHeight, alignment: .topLeading)
-            .background(background(for: section))
-            .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
         }
-        .buttonStyle(IslandButtonStyle())
-        .onHover { inside in hover(section, inside) }
-        .accessibilityLabel("\(section.title), \(glimpse(section))")
-    }
-
-    private func background(for section: HomeSection) -> some View {
-        RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-            .fill(Color.white.opacity(hovered == section ? 0.14 : 0.07))
-    }
-
-    private func hover(_ section: HomeSection, _ inside: Bool) {
-        if inside { hovered = section } else if hovered == section { hovered = nil }
+        .accessibilityLabel("\(section.title), \(glimpse)")
     }
 
     private func open(_ section: HomeSection) {
@@ -264,13 +180,24 @@ struct HomeGridView: View {
             let fit = QuickActionsRowView.fit(apps: apps.inRow, shortcuts: runner.favorites.count)
             let total = fit.apps + fit.shortcuts
             return total == 0 ? "Shortcuts, apps" : count(total, "action")
-        case .notes:
-            let first = notes.text.split(separator: "\n").first.map(String.init) ?? ""
-            return first.isEmpty ? "Jot it down" : first
+        case .notes: return Self.notesGlimpse(notes.text)
         case .stats: return "CPU, memory"
         case .notifications:
             return inbox.entries.isEmpty ? "Nothing yet" : count(inbox.entries.count, "notification")
         }
+    }
+
+    /// The Notes tile's line: the scratchpad's first line with anything on it, else "Jot it
+    /// down". Pure, so the rule is tested.
+    ///
+    /// Read as far as the end of that line and no further. The tile split the whole scratchpad
+    /// at every line break — and the scratchpad has no cap — to keep the first piece, twice a
+    /// pass, the second time for its spoken label. Blank lines before it are passed over, as
+    /// the split passed them over; the whole line is kept, since it is spoken whole.
+    static func notesGlimpse(_ text: String) -> String {
+        guard let start = text.firstIndex(where: { $0 != "\n" }) else { return "Jot it down" }
+        let end = text[start...].firstIndex(of: "\n") ?? text.endIndex
+        return String(text[start..<end])
     }
 
     private var agendaGlimpse: String {
@@ -297,6 +224,120 @@ struct HomeGridView: View {
 
     private func count(_ n: Int, _ noun: String) -> String {
         n == 1 ? "1 \(noun)" : "\(n) \(noun)s"
+    }
+}
+
+/// Two tiles wide, because it is the one thing the island is for: the cover, what it is, and
+/// the one control anybody reaches for without thinking.
+///
+/// A view of its own, and the one part of the grid that watches the service: a report comes
+/// several times a track and with every press, and the grid used to be drawn again, every tile
+/// and every tile's line, for each of them.
+private struct NowPlayingTile: View {
+    let width: CGFloat
+    let action: () -> Void
+    @ObservedObject private var playing = NowPlayingService.shared
+
+    /// What the service reports, or what the island's Now Playing activity carries when the
+    /// service has nothing yet — a report still in flight, or a rendered gallery. The same
+    /// fallback the Now Playing section makes, for the same reason, and read the same way
+    /// (`MusicSectionView.info`): the service moves the activity in the same turn as its track.
+    private var info: NowPlayingInfo? {
+        if let info = playing.info { return info }
+        if case .nowPlaying(let info)? = ActivityCenter.shared.activity(id: "nowplaying")?.content { return info }
+        return nil
+    }
+
+    var body: some View {
+        let info = self.info
+        // Once a pass: it is both shown and spoken, and with no artist it is the player's name.
+        let subtitle = Self.subtitle(for: info)
+        return HomeTile(width: width, action: action) {
+            HStack(spacing: 10) {
+                if let info {
+                    ArtworkView(image: info.artwork, size: 40, radius: 8, flexible: false)
+                        .id(info.artworkID)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.10))
+                        Image(systemName: "music.note")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .frame(width: 40, height: 40)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(info?.title.isEmpty == false ? info!.title : "Nothing playing")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                if info != nil {
+                    // The tile is a button; this one sits on top of it and does its own thing,
+                    // the way the play button on a Music widget does — to a pointer. VoiceOver
+                    // reads a button's label as the one element, and a button inside that label
+                    // cannot be counted on to be an element of its own: play and pause are the
+                    // tile's named action instead (`PlayPauseAction`), and this copy is kept out
+                    // of the way so the one path to them is that action.
+                    GlyphButton(symbol: info?.isPlaying == true ? "pause.fill" : "play.fill",
+                                size: 15, weight: .semibold) {
+                        playing.togglePlayPause()
+                    }
+                    .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 10)
+        }
+        .accessibilityLabel(info == nil ? "Now Playing, nothing playing"
+                                        : "Now Playing, \(info?.title ?? ""), \(subtitle)")
+        .modifier(PlayPauseAction(isPlaying: info?.isPlaying) { playing.togglePlayPause() })
+    }
+
+    private static func subtitle(for info: NowPlayingInfo?) -> String {
+        guard let info else { return "Open Now Playing" }
+        return info.artist.isEmpty ? info.appName : info.artist
+    }
+}
+
+/// A tile of the grid: its button, and its ground, which lights while the pointer is over it.
+///
+/// The hover is the tile's own. It was the grid's, one value for every tile, so the pointer
+/// crossing from one tile to the next drew the whole grid twice — every tile's line worked out
+/// again, the Today tile's walk of the agenda and the Notes tile's reading of the scratchpad
+/// with them — to change the shade of two.
+private struct HomeTile<Content: View>: View {
+    let width: CGFloat
+    let alignment: Alignment
+    let action: () -> Void
+    let content: Content
+    @State private var hovering = false
+
+    init(width: CGFloat, alignment: Alignment = .center, action: @escaping () -> Void,
+         @ViewBuilder content: () -> Content) {
+        self.width = width
+        self.alignment = alignment
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .frame(width: width, height: HomeGridView.tileHeight, alignment: alignment)
+                .background(
+                    RoundedRectangle(cornerRadius: HomeGridView.radius, style: .continuous)
+                        .fill(Color.white.opacity(hovering ? 0.14 : 0.07))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: HomeGridView.radius, style: .continuous))
+        }
+        .buttonStyle(IslandButtonStyle())
+        .onHover { hovering = $0 }
+        .animation(IslandMotion.hover, value: hovering)
     }
 }
 

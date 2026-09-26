@@ -7,16 +7,24 @@ import SwiftUI
 struct MusicSectionView: View {
     let geometry: NotchGeometry
     @ObservedObject private var service = NowPlayingService.shared
-    @ObservedObject private var outputs = AudioOutputs.shared
+    /// Not observed: the section only says when it comes and goes (`viewerAppeared`), and draws
+    /// nothing of the outputs'. Observed, every step of a volume drag on the rail — sixty to a
+    /// hundred and twenty a second — drew the whole section again.
+    private let outputs = AudioOutputs.shared
     @ObservedObject private var energy = EnergyPolicy.shared
     @EnvironmentObject private var prefs: Preferences
-    @EnvironmentObject private var center: ActivityCenter
 
     /// What the service reports, or what the island's Now Playing activity carries when the
     /// service has nothing yet (a report still in flight, a rendered gallery).
+    ///
+    /// The centre is read, not observed. The service writes its track and the activity in the
+    /// same turn of the main queue (`NowPlayingService.publish`, `clear`), so a change to the
+    /// activity comes with a change to the service, which this does observe; a gallery draws
+    /// the section afresh. Observed, the section was drawn again for everything else the centre
+    /// publishes — a hover, a press, the microphone, the find bar.
     private var info: NowPlayingInfo? {
         if let info = service.info { return info }
-        if case .nowPlaying(let info)? = center.activity(id: "nowplaying")?.content { return info }
+        if case .nowPlaying(let info)? = ActivityCenter.shared.activity(id: "nowplaying")?.content { return info }
         return nil
     }
 

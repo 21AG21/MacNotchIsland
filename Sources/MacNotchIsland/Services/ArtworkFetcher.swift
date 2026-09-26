@@ -34,8 +34,9 @@ final class ArtworkFetcher {
         }
     }
 
-    /// Covers held in memory. Small: a cover is a few hundred kilobytes and the list is capped.
-    private var cache: [Key: NSImage] = [:]
+    /// Covers held in memory, with their accents. Small: a cover is kept no larger than the
+    /// island draws one (`NSImage.coverPixels`), and the list is capped.
+    private var cache: [Key: (image: NSImage, accent: NSColor)] = [:]
     private var order: [Key] = []
     /// Tracks not to ask about again, and when that stops being true: a search that came back
     /// with no match is settled for good, but a lookup that failed because the network was
@@ -48,8 +49,8 @@ final class ArtworkFetcher {
     static let cacheLimit = 40
     /// How long a lookup that could not be made is left alone before it is tried again.
     static let retryAfterFailure: TimeInterval = 60
-    /// Covers come back at this many points square: enough for the 60 pt panel cover on a
-    /// Retina display, and for the blurred backdrop behind it.
+    /// Covers are asked for at this many pixels square, and decoded down to what the island
+    /// draws (`NSImage.coverPixels`).
     static let size = 600
 
     private init() {
@@ -59,12 +60,16 @@ final class ArtworkFetcher {
         session = URLSession(configuration: configuration)
     }
 
-    /// Cover art for a track, if one can be found. The completion runs on the main queue, and
-    /// only when there is something to show.
-    func artwork(for info: NowPlayingInfo, completion: @escaping (NSImage) -> Void) {
+    /// Cover art for a track, if one can be found, and its accent. The completion runs on the
+    /// main queue, and only when there is something to show.
+    ///
+    /// The cover is decoded where it is downloaded, off the main thread, and its accent worked
+    /// out there with it (`NSImage.cover(from:)`). Both used to be done on the main thread in
+    /// the completion — a whole 600 pixel JPEG — as the card took the cover in.
+    func artwork(for info: NowPlayingInfo, completion: @escaping (NSImage, NSColor) -> Void) {
         let key = Key(info)
         guard !key.terms.isEmpty else { return }
-        if let image = cache[key] { return completion(image) }
+        if let cover = cache[key] { return completion(cover.image, cover.accent) }
         if let until = misses[key] {
             guard Date() >= until else { return }
             misses[key] = nil
@@ -75,36 +80,37 @@ final class ArtworkFetcher {
             guard let self else { return }
             guard let data else {
                 // Nothing came back at all: the network, not the track.
-                self.finish(key, image: nil, settled: false, completion: completion)
+                self.finish(key, cover: nil, settled: false, completion: completion)
                 return
             }
             guard let artworkURL = Self.artworkURL(fromSearch: data) else {
                 // A real answer with no match in it. There is no cover to find.
-                self.finish(key, image: nil, settled: error == nil, completion: completion)
+                self.finish(key, cover: nil, settled: error == nil, completion: completion)
                 return
             }
             self.session.dataTask(with: artworkURL) { [weak self] data, _, _ in
-                self?.finish(key, image: data.flatMap { NSImage(data: $0) }, settled: false, completion: completion)
+                self?.finish(key, cover: data.flatMap { NSImage.cover(from: $0) }, settled: false, completion: completion)
             }.resume()
         }.resume()
     }
 
     /// `settled` means the search itself answered and had nothing: that track has no cover and
     /// is never asked about again. Everything else is a failure worth retrying later.
-    private func finish(_ key: Key, image: NSImage?, settled: Bool, completion: @escaping (NSImage) -> Void) {
+    private func finish(_ key: Key, cover: (image: NSImage, accent: NSColor)?, settled: Bool,
+                        completion: @escaping (NSImage, NSColor) -> Void) {
         DispatchQueue.main.async {
             self.inFlight.remove(key)
-            guard let image, image.size.width > 1 else {
+            guard let cover, cover.image.size.width > 1 else {
                 self.misses[key] = settled ? .distantFuture : Date().addingTimeInterval(Self.retryAfterFailure)
                 return
             }
-            self.cache[key] = image
+            self.cache[key] = cover
             self.order.append(key)
             while self.order.count > Self.cacheLimit, let oldest = self.order.first {
                 self.order.removeFirst()
                 self.cache.removeValue(forKey: oldest)
             }
-            completion(image)
+            completion(cover.image, cover.accent)
         }
     }
 

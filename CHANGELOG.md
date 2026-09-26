@@ -278,6 +278,10 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The Music section no longer asks LaunchServices and the disk for the player's name on every redraw; the name is looked up once per player, and the section is no longer redrawn on every step of a volume drag on the rail or for things the island's centre publishes that it never shows.
+- The Home grid no longer redraws every tile when the pointer crosses from one tile to the next or when a Now Playing report arrives, and the Notes tile reads only as far as the scratchpad's first line.
+- The call card looks up its app's icon once, instead of on the first frame of its spring and again at every microphone mute change.
+- A new track's album art is no longer decoded on the main thread just before the track-change animation: covers from MediaRemote, the helper and the artwork search are decoded off the main thread at no more than 240 pixels on the long side, with their accent colour worked out there, and reports still arrive in order.
 - Typing to find in a list works with any letter the keyboard types, not only the 26 American letter keys: the French M, German Ö Ä Ü ß, Scandinavian Å Æ Ø, Spanish Ñ, Russian and Turkish letters now start a find, and the é è ç à on a French number row, or the Czech letters there, start a find instead of jumping the switcher.
 - On Actions, a timer can be typed with Shift and the number row on a French or Czech keyboard, and with the numeric keypad; number-row keys typed without Shift are read as the figures printed on them.
 - Shortcuts are shown by what their key types on the current layout: ⌃⌥Z on a German keyboard no longer reads ⌃⌥Y, ⌃⌥A on a French one no longer reads ⌃⌥Q, and the ISO § key has a name instead of "Key 0x0A".

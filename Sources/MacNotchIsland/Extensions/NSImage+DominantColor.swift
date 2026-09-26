@@ -1,10 +1,21 @@
 import AppKit
+import ImageIO
 
 extension NSImage {
     /// A vivid colour representative of the artwork, brightened so it reads on black.
     /// Used to tint the audio visualizer like the iPhone does.
+    ///
+    /// Asking an image read from a file or from bytes for its `CGImage` decodes all of it, so
+    /// this costs a full decode on such an image; a cover is decoded small with `cover(from:)`,
+    /// which works its accent out from the small copy instead.
     func dominantColor() -> NSColor {
         guard let cg = cgImage(forProposedRect: nil, context: nil, hints: nil) else { return .white }
+        return NSImage.dominantColor(of: cg)
+    }
+
+    /// The accent of a bitmap already in hand: it is drawn into twelve by twelve pixels and
+    /// the most vivid of them is taken, or their average where none of them is vivid.
+    static func dominantColor(of cg: CGImage) -> NSColor {
         let w = 12, h = 12
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                   space: CGColorSpaceCreateDeviceRGB(),
@@ -35,5 +46,36 @@ extension NSImage {
         (chosen.usingColorSpace(.deviceRGB) ?? chosen).getHue(&hue, saturation: &sat, brightness: &bri, alpha: &alpha)
         if sat < 0.12 { return NSColor(white: 0.95, alpha: 1) }
         return NSColor(hue: hue, saturation: min(sat, 0.8), brightness: max(bri, 0.8), alpha: 1)
+    }
+
+    /// The most pixels a cover is kept at along its long side.
+    ///
+    /// The largest cover the island draws is the Music section's, 60 pt, which is 120 pixels on
+    /// a Retina display; the pill's and the Home tile's are smaller. Twice that is a clean
+    /// halving at the largest and sharper than the screen can show anywhere. A player hands
+    /// over its cover at whatever size it has — many hundreds of pixels, often more, and the
+    /// search's are 600 — and the whole of it used to be decoded on the main thread, kept, and
+    /// scaled down again on every frame it was drawn.
+    static let coverPixels = 240
+
+    /// A player's cover from its encoded bytes, decoded no larger than `maxPixels` on its long
+    /// side, with its accent worked out from that copy (`dominantColor(of:)`). Nil when the
+    /// bytes are not a picture.
+    ///
+    /// For a queue other than the main one: this is the whole decode, done at once
+    /// (`kCGImageSourceShouldCacheImmediately`) so that nothing is left for the first frame
+    /// that draws it. Bytes ImageIO cannot read are handed to `NSImage` as they always were.
+    static func cover(from data: Data, maxPixels: Int = NSImage.coverPixels) -> (image: NSImage, accent: NSColor)? {
+        if let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+           let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+               kCGImageSourceCreateThumbnailFromImageAlways: true,
+               kCGImageSourceCreateThumbnailWithTransform: true,
+               kCGImageSourceShouldCacheImmediately: true,
+               kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+           ] as CFDictionary) {
+            return (NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), dominantColor(of: cg))
+        }
+        guard let image = NSImage(data: data) else { return nil }
+        return (image, image.dominantColor())
     }
 }

@@ -618,4 +618,132 @@ final class NowPlayingReconcileTests: XCTestCase {
         XCTAssertFalse(NowPlayingService.mediaRemoteSaysNothing(answersThisApp: false, answering: true, deliveringTrack: false),
                        "from 15.4 its empty answers are not this, and change nothing")
     }
+
+    // MARK: - Covers, decoded small and off the main thread
+
+    /// A picture of one colour, `width` by `height` pixels, as a player would hand its bytes over.
+    private func png(width: Int, height: Int, color: NSColor) throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        color.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
+    private func assertClose(_ a: NSColor, _ b: NSColor?, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        guard let x = a.usingColorSpace(.deviceRGB), let y = b?.usingColorSpace(.deviceRGB) else {
+            return XCTFail("no colour to compare: \(message)", file: file, line: line)
+        }
+        XCTAssertEqual(x.redComponent, y.redComponent, accuracy: 0.02, message, file: file, line: line)
+        XCTAssertEqual(x.greenComponent, y.greenComponent, accuracy: 0.02, message, file: file, line: line)
+        XCTAssertEqual(x.blueComponent, y.blueComponent, accuracy: 0.02, message, file: file, line: line)
+    }
+
+    /// A player's cover is many hundreds of pixels, often more, for a picture drawn at 60 pt at
+    /// most. It is kept no larger than the island draws one, the same shape, and with the
+    /// accent the whole picture gives.
+    func testACoverIsDecodedNoLargerThanTheIslandDrawsIt() throws {
+        let bytes = try png(width: 1200, height: 800, color: .systemPink)
+        let cover = try XCTUnwrap(NSImage.cover(from: bytes))
+        let kept = try XCTUnwrap(cover.image.representations.first)
+        XCTAssertEqual(kept.pixelsWide, NSImage.coverPixels, "the long side at the most the island draws")
+        XCTAssertEqual(kept.pixelsHigh, NSImage.coverPixels * 2 / 3, "and the short side in proportion")
+        XCTAssertEqual(cover.image.size, NSSize(width: kept.pixelsWide, height: kept.pixelsHigh),
+                       "a point to a pixel, as the bytes had it")
+        assertClose(cover.accent, NSImage(data: bytes)?.dominantColor(), "the accent the whole picture gives")
+        XCTAssertGreaterThanOrEqual(NSImage.coverPixels, 120, "the 60 pt cover on a Retina display is not made blurry")
+    }
+
+    func testASmallCoverIsNotMadeLarger() throws {
+        let cover = try XCTUnwrap(NSImage.cover(from: png(width: 100, height: 80, color: .systemTeal)))
+        let kept = try XCTUnwrap(cover.image.representations.first)
+        XCTAssertEqual(kept.pixelsWide, 100)
+        XCTAssertEqual(kept.pixelsHigh, 80)
+    }
+
+    func testBytesThatAreNotAPictureAreNoCover() {
+        XCTAssertNil(NSImage.cover(from: Data("not a picture".utf8)))
+        XCTAssertNil(NSImage.cover(from: Data()))
+    }
+
+    /// MediaRemote hands over a cover's bytes with every report about its track; only new ones
+    /// are decoded, and a report without any has no cover.
+    func testOnlyNewCoverBytesAreDecoded() {
+        XCTAssertEqual(MediaRemoteBackend.coverStep(hash: 42, last: 0), .decode, "a first cover")
+        XCTAssertEqual(MediaRemoteBackend.coverStep(hash: 42, last: 42), .keep, "the same bytes again: the same cover")
+        XCTAssertEqual(MediaRemoteBackend.coverStep(hash: 43, last: 42), .decode, "the next track's")
+        XCTAssertEqual(MediaRemoteBackend.coverStep(hash: nil, last: 42), .clear, "no bytes, no cover")
+        XCTAssertEqual(MediaRemoteBackend.coverStep(hash: nil, last: 0), .clear)
+    }
+
+    /// A new cover is decoded off the main thread, and the report that brought it waits for it.
+    /// A report behind it must not go out first: the card would take the older report last.
+    func testAReportBehindANewCoverWaitsForIt() throws {
+        let backend = MediaRemoteBackend()
+        let bytes = try png(width: 1200, height: 1200, color: .systemIndigo)
+        var order: [String] = []
+        let done = expectation(description: "both reports out")
+        backend.inOrder(decoding: bytes) { decoded, current in
+            XCTAssertNotNil(decoded, "the cover comes with its report")
+            XCTAssertTrue(current)
+            order.append("cover")
+        }
+        backend.inOrder(decoding: nil) { decoded, current in
+            XCTAssertNil(decoded)
+            XCTAssertTrue(current)
+            order.append("next")
+            done.fulfill()
+        }
+        XCTAssertEqual(order, [], "neither goes out on the main thread's turn that took them in")
+        // Held until they land: a report whose backend has gone is dropped, not passed on.
+        withExtendedLifetime(backend) { wait(for: [done], timeout: 10) }
+        XCTAssertEqual(order, ["cover", "next"], "in the order they came")
+
+        var now: [String] = []
+        backend.inOrder(decoding: nil) { _, current in
+            XCTAssertTrue(current)
+            now.append("at once")
+        }
+        XCTAssertEqual(now, ["at once"], "with nothing to decode and nothing waiting, a report goes out as it always did")
+    }
+
+    /// An answer to a question asked before the backend was switched off is not passed on,
+    /// however long its cover took.
+    func testAReportStillDecodingWhenSwitchedOffIsNotPassedOn() throws {
+        let backend = MediaRemoteBackend()
+        let bytes = try png(width: 600, height: 600, color: .systemOrange)
+        let landed = expectation(description: "the report lands")
+        backend.inOrder(decoding: bytes) { decoded, current in
+            XCTAssertNotNil(decoded, "the cover is still taken in, for the next report to be weighed against")
+            XCTAssertFalse(current, "but the report is not passed on")
+            landed.fulfill()
+        }
+        backend.stop()
+        withExtendedLifetime(backend) { wait(for: [landed], timeout: 10) }
+    }
+
+    // MARK: - The player's name
+
+    /// Looked up once per player: the Music section asked LaunchServices and the disk for it on
+    /// every pass, up to five times. The same name comes back, and a player nowhere to be found
+    /// is "Now Playing", as it was.
+    func testAPlayersNameIsLookedUpOnceAndIsTheSameName() throws {
+        XCTAssertEqual(NowPlayingInfo.appName(bundleID: nil), "Now Playing")
+        XCTAssertEqual(NowPlayingInfo.appName(bundleID: "invalid.notch-island.no-such-player"), "Now Playing")
+        XCTAssertEqual(NowPlayingInfo.appName(bundleID: "invalid.notch-island.no-such-player"), "Now Playing",
+                       "not found is asked again, and is still not a name")
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.finder") else {
+            throw XCTSkip("LaunchServices cannot find Finder in this session")
+        }
+        let expected = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        XCTAssertEqual(NowPlayingInfo.appName(bundleID: "com.apple.finder"), expected, "the name Finder shows")
+        XCTAssertEqual(NowPlayingInfo.appName(bundleID: "com.apple.finder"), expected, "and the same one kept")
+        var report = info(playing: true)
+        report.bundleID = "com.apple.finder"
+        XCTAssertEqual(report.appName, expected, "which is what a report's name is")
+    }
 }

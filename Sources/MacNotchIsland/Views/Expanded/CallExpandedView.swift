@@ -8,10 +8,7 @@ struct CallExpandedView: View {
     @Environment(\.insidePanel) private var insidePanel
     @ObservedObject private var mic = MicrophoneControl.shared
 
-    private var icon: NSImage? {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: state.bundleID) else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
-    }
+    private var icon: NSImage? { CallAppIcon.icon(for: state.bundleID) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,5 +127,25 @@ struct CallExpandedView: View {
     /// "FaceTime call, 4 minutes 12 seconds".
     private func spokenLabel(at date: Date) -> String {
         "\(state.appName) call, \(IslandAccessibility.spokenDuration(date.timeIntervalSince(state.startedAt)))"
+    }
+}
+
+/// The icon of the app a call is in, looked up once per app.
+///
+/// The card asked LaunchServices where the app is and the file system for its icon on every
+/// pass of its body: on the first frame of the spring that brings the card up, and again at
+/// every change of the microphone's mute, each time a new image that SwiftUI had to take in
+/// afresh. An app's icon does not change during a call. An app LaunchServices cannot find is
+/// asked about again next time, so one installed or moved since is found once it can be.
+/// Read and written on the main thread only, as the card is drawn.
+enum CallAppIcon {
+    private static var icons: [String: NSImage] = [:]
+
+    static func icon(for bundleID: String) -> NSImage? {
+        if let known = icons[bundleID] { return known }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icons[bundleID] = icon
+        return icon
     }
 }

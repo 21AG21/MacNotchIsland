@@ -193,10 +193,35 @@ struct NowPlayingInfo: Equatable {
         return duration > 0 ? min(max(0, p), duration) : max(0, p)
     }
 
-    var appName: String {
-        guard let id = bundleID,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return "Now Playing" }
-        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+    var appName: String { Self.appName(bundleID: bundleID) }
+
+    /// The names already found, by bundle identifier, see `appName(bundleID:)`. Behind a lock:
+    /// a report is a value that is made on the backends' queues, and nothing should have to
+    /// know which thread may ask it for its player's name.
+    private static let appNameLock = NSLock()
+    private static var appNames: [String: String] = [:]
+
+    /// The player's name as Finder shows it, else "Now Playing".
+    ///
+    /// Looked up once per player and then kept. It is a LaunchServices query and a trip to the
+    /// file system, 0.1 to 2 ms each, and the Music section asked it on every pass of its body —
+    /// for the cover's spoken label, for the line under the title when there is no artist, and
+    /// for the tooltip of every button beside play the player does not take — as did the Home
+    /// grid's Now Playing tile, twice. An app's name does not change while it is playing. A
+    /// player LaunchServices cannot find is asked about again next time, so one installed or
+    /// moved since is named once it can be.
+    static func appName(bundleID: String?) -> String {
+        guard let id = bundleID else { return "Now Playing" }
+        appNameLock.lock()
+        let known = appNames[id]
+        appNameLock.unlock()
+        if let known { return known }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return "Now Playing" }
+        let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        appNameLock.lock()
+        appNames[id] = name
+        appNameLock.unlock()
+        return name
     }
 
     static func == (lhs: NowPlayingInfo, rhs: NowPlayingInfo) -> Bool {

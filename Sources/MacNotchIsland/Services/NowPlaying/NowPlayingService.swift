@@ -527,11 +527,12 @@ final class NowPlayingService: ObservableObject {
     /// has artwork, or a player the user asked not to look up, is left alone.
     private func lookUpArtworkIfMissing(for track: NowPlayingInfo) {
         guard Preferences.shared.artworkLookupEnabled, track.artwork == nil, !track.title.isEmpty else { return }
-        ArtworkFetcher.shared.artwork(for: track) { [weak self] image in
+        // The cover comes decoded, and with its accent: see `ArtworkFetcher.artwork(for:completion:)`.
+        ArtworkFetcher.shared.artwork(for: track) { [weak self] image, accent in
             guard let self, var current = self.info, Self.sameTrack(current, track), current.artwork == nil else { return }
             current.artwork = image
             current.artworkID = ArtworkFetcher.Key(track).hashValue
-            current.accent = image.dominantColor()
+            current.accent = accent
             self.info = current
             self.publish()
         }

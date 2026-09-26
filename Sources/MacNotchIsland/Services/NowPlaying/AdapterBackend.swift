@@ -371,10 +371,15 @@ final class AdapterBackend {
         guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         // Bytes are taken in whatever else the report says. The helper sends a cover's bytes once,
         // when its hash changes, and a report with no title can be the one that carries them.
+        // They are the player's own, at its own size — many hundreds of pixels, often more — and
+        // are decoded here, off the main thread, no larger than the island draws a cover
+        // (`NSImage.coverPixels`). The whole of it used to be kept, and scaled down on every
+        // frame that drew it.
         let hash = obj["artworkHash"] as? String ?? ""
         if !hash.isEmpty, covers.cover(for: hash) == nil,
-           let b64 = obj["artworkBase64"] as? String, let data = Data(base64Encoded: b64), let image = NSImage(data: data) {
-            covers.remember(image, accent: image.dominantColor(), for: hash)
+           let b64 = obj["artworkBase64"] as? String, let data = Data(base64Encoded: b64),
+           let cover = NSImage.cover(from: data) {
+            covers.remember(cover.image, accent: cover.accent, for: hash)
         }
         let title = obj["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
         let artist = obj["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? ""
