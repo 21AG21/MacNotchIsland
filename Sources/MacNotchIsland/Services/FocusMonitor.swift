@@ -156,8 +156,9 @@ final class FocusMonitor {
         // Read once at the start as well as on every change: a Mac that was already in a
         // Focus when the island launched is still in one.
         FocusStatus.shared.publish(mode)
-        fd = open(dbDirectory.path, O_EVTONLY)
+        let fd = open(dbDirectory.path, O_EVTONLY)
         guard fd >= 0 else { return }
+        self.fd = fd
         let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: .main)
         // One read for a burst of events, not one per event. A Focus turning on or off is
         // more than one change to the folder, and every event queued a read and parse of the
@@ -175,9 +176,13 @@ final class FocusMonitor {
                 self.check()
             }
         }
+        // Closes the descriptor this source was made with, not whichever one `self.fd` holds
+        // when the handler runs: a cancel handler runs later, and a stop and a start in
+        // between would have had it close the new watch's descriptor and leave its own open.
+        // The same as `ScreenshotMonitor.bind`.
         src.setCancelHandler { [weak self] in
-            if let fd = self?.fd, fd >= 0 { close(fd) }
-            self?.fd = -1
+            close(fd)
+            if self?.fd == fd { self?.fd = -1 }
         }
         src.resume()
         source = src

@@ -47,4 +47,21 @@ final class CameraPreviewTests: XCTestCase {
         XCTAssertNil(CameraPreview.pickDevice(from: [lidShut]), "and nothing, rather than a black picture")
         XCTAssertFalse(device("Anything").isSuspended, "a device is awake unless the system says otherwise")
     }
+
+    // MARK: - Letting go of the camera
+
+    /// Switching tabs away and straight back is a stop and a start in a row; the stop's
+    /// teardown finds the camera claimed again and leaves it running.
+    func testAViewBackOnScreenKeepsTheCamera() {
+        XCTAssertTrue(CameraPreview.reclaims(clients: 1, asleep: false))
+        XCTAssertTrue(CameraPreview.reclaims(clients: 2, asleep: false))
+        XCTAssertFalse(CameraPreview.reclaims(clients: 0, asleep: false), "nobody left looking")
+    }
+
+    /// The Mirror on screen as the Mac goes to sleep: the view is still mounted, and the
+    /// camera goes off all the same.
+    func testSleepLetsGoOfTheCameraWithTheMirrorStillUp() {
+        XCTAssertFalse(CameraPreview.reclaims(clients: 1, asleep: true))
+        XCTAssertFalse(CameraPreview.reclaims(clients: 0, asleep: true))
+    }
 }

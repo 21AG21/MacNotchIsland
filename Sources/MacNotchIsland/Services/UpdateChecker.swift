@@ -38,8 +38,18 @@ final class UpdateChecker: ObservableObject {
     private static let lastCheckKey = "lastUpdateCheck"
     private static let announcedTagKey = "announcedUpdateTag"
 
+    // Main thread only, all of it.
     private var timer: Timer?
+    /// The request in flight, if any; nil again once its answer has been read.
     private var task: URLSessionDataTask?
+    /// Whether `task` is a person's ("Check for Updates…") rather than the timer's. Switching
+    /// the automatic checks off stops the timer's requests and not a person's (`stopCancels`),
+    /// and the timer never takes over from one (`goesAhead`).
+    private var taskIsForced = false
+    /// Numbers the requests, so the cancellation of one that a newer request took over from is
+    /// not read as the newer one's answer — it put the row back to what it said before, and
+    /// re-enabled the button, while the newer request was still out.
+    private var requestNumber = 0
     private var started = false
 
     private init() {}
@@ -58,12 +68,18 @@ final class UpdateChecker: ObservableObject {
         timer = t
     }
 
+    /// Stops what `start()` started: the timer, and a request the timer made. `ServiceHub`
+    /// calls this on every preference change while the automatic checks are off, and it used
+    /// to cancel whatever was in flight — so a click on "Check for Updates…" followed by any
+    /// change to any setting before GitHub answered was never answered at all.
     func stop() {
+        guard started else { return }
         started = false
         timer?.invalidate()
         timer = nil
-        task?.cancel()
-        task = nil
+        guard let task, Self.stopCancels(forced: taskIsForced) else { return }
+        task.cancel()
+        self.task = nil
         if status == .checking { status = statusBeforeCheck }
     }
 
@@ -93,19 +109,42 @@ final class UpdateChecker: ObservableObject {
     private func performCheck(forced: Bool) {
         // Never wake the network while the Mac is asleep.
         guard !EnergyPolicy.shared.isAsleep else { return }
+        guard Self.goesAhead(forced: forced, inFlightForced: task == nil ? nil : taskIsForced) else { return }
         task?.cancel()
         if status != .checking { statusBeforeCheck = status }
         status = .checking
+        taskIsForced = forced
+        requestNumber &+= 1
+        let number = requestNumber
         var request = URLRequest(url: Self.releasesURL, timeoutInterval: 12)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         let dataTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                self?.handle(data: data, response: response, error: error, forced: forced)
+                // A request a newer one took over from has nothing left to say.
+                guard let self, self.requestNumber == number else { return }
+                self.task = nil
+                self.handle(data: data, response: response, error: error, forced: forced)
             }
         }
         task = dataTask
         dataTask.resume()
+    }
+
+    /// Whether switching the automatic checks off cancels the request in flight: only when the
+    /// timer made it. A person who clicked "Check for Updates…" is waiting for the answer, and
+    /// the switch they did not touch is not a reason to withhold it. Pure, so it is tested.
+    static func stopCancels(forced: Bool) -> Bool {
+        !forced
+    }
+
+    /// Whether a new check goes ahead, given whether the request in flight is a person's (nil
+    /// when there is none). A person's always does, taking over from whatever is out. The
+    /// timer's does too, except over a person's: that one answers out loud, and the timer's
+    /// would have cancelled it and answered in silence. Pure, so it is tested.
+    static func goesAhead(forced: Bool, inFlightForced: Bool?) -> Bool {
+        guard let inFlightForced else { return true }
+        return forced || !inFlightForced
     }
 
     private func handle(data: Data?, response: URLResponse?, error: Error?, forced: Bool) {
@@ -114,9 +153,10 @@ final class UpdateChecker: ObservableObject {
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
         switch Self.outcome(data: data, status: httpStatus, error: error) {
         case .cancelled:
-            // A newer check took over, or the feature was switched off mid-flight. Nothing was
-            // learned, so nothing is recorded and nothing is said — and the row goes back to
-            // what it said before, rather than sitting on "Checking…" for ever.
+            // The automatic checks were switched off mid-flight (a request a newer one took
+            // over from never gets here; see `performCheck`). Nothing was learned, so nothing
+            // is recorded and nothing is said — and the row goes back to what it said before,
+            // rather than sitting on "Checking…" for ever.
             if status == .checking { status = statusBeforeCheck }
             return
 

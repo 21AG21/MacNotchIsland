@@ -191,9 +191,10 @@ final class CameraPreview: ObservableObject {
         queue.async { [weak self] in
             guard let self else { return }
             // Switching tabs away and straight back queues stop then start; if a client has
-            // re-claimed the camera by the time this runs, leave the session alone.
+            // re-claimed the camera by the time this runs, leave the session alone. Both are
+            // read in the one hop, so they describe the same moment (`reclaims`).
             var reclaimed = false
-            DispatchQueue.main.sync { reclaimed = self.clients > 0 }
+            DispatchQueue.main.sync { reclaimed = Self.reclaims(clients: self.clients, asleep: self.asleep) }
             if reclaimed { return }
             if self.session.isRunning { self.session.stopRunning() }
             guard self.configured else { return }
@@ -202,6 +203,19 @@ final class CameraPreview: ObservableObject {
             self.session.commitConfiguration()
             self.configured = false
         }
+    }
+
+    /// Whether a teardown that is about to run finds the camera claimed again, and so leaves
+    /// the session running.
+    ///
+    /// A view on screen is a claim only while the Mac is awake. The test used to be the
+    /// clients alone, and sleep does not take the mirror off the screen: with the Mirror tab
+    /// up, the Mac going to sleep asked for a teardown that then found its one client still
+    /// there and stood down, so the camera and its green light stayed on across sleep while
+    /// `state` said idle. The same happened to a camera still warming up when the lid closed.
+    /// Waking is what claims it back (`energyChanged`). Pure, so it is tested.
+    static func reclaims(clients: Int, asleep: Bool) -> Bool {
+        clients > 0 && !asleep
     }
 
     /// Main thread: a mirror should show you what a mirror shows you, not what the camera

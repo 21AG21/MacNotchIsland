@@ -431,6 +431,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ActivityCenter.shared.forgetPointer()
         for panel in panels {
             panel.orderOut(nil)
+            // The island's view comes out of the window before the window goes, so SwiftUI
+            // takes the view graph down and every `onDisappear` in it runs. A dozen shared
+            // objects count their viewers that way — the rail's brightness, outputs, radios,
+            // Wi-Fi scan and the rest, the lyrics, the level tap, the mirror's camera — and
+            // start on the first and stop on the last. A panel rebuilt while it was open (a
+            // display plugged in, the Mac waking, Reload Island) is not promised to say
+            // goodbye to them when the window is simply closed around it; each one that did
+            // not would leave a viewer counted for good, and that poller running for the rest
+            // of the process. Nothing in `NotchPanel` needs the content view on the way out:
+            // it keeps its own reference to the hosting view, and the island's space is left
+            // by the order-out above, by window number.
+            panel.contentView = nil
             panel.close()
         }
         panels.removeAll()

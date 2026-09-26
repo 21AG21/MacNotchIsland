@@ -273,4 +273,23 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertTrue(UpdateChecker.isDue(last: now.addingTimeInterval(7 * day), now: now, interval: day))
         XCTAssertTrue(UpdateChecker.isDue(last: now.addingTimeInterval(1), now: now, interval: day))
     }
+
+    // MARK: - A check somebody asked for
+
+    /// With the automatic checks off, every preference change calls `stop()`; a click on
+    /// "Check for Updates…" made just before one still gets its answer.
+    func testSwitchingTheAutomaticChecksOffLeavesAPersonsCheckToAnswer() {
+        XCTAssertFalse(UpdateChecker.stopCancels(forced: true))
+        XCTAssertTrue(UpdateChecker.stopCancels(forced: false), "the timer's own request goes with the timer")
+    }
+
+    func testTheTimerNeverTakesOverFromAPersonsCheck() {
+        XCTAssertFalse(UpdateChecker.goesAhead(forced: false, inFlightForced: true))
+        XCTAssertTrue(UpdateChecker.goesAhead(forced: true, inFlightForced: false),
+                      "a click takes over from the timer, and answers out loud")
+        XCTAssertTrue(UpdateChecker.goesAhead(forced: true, inFlightForced: true), "a second click is answered once")
+        XCTAssertTrue(UpdateChecker.goesAhead(forced: false, inFlightForced: false))
+        XCTAssertTrue(UpdateChecker.goesAhead(forced: false, inFlightForced: nil), "nothing out, nothing to wait for")
+        XCTAssertTrue(UpdateChecker.goesAhead(forced: true, inFlightForced: nil))
+    }
 }

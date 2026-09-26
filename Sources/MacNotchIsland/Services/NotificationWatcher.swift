@@ -117,6 +117,9 @@ final class NotificationWatcher {
     private let lock = NSLock()
     private var loop: CFRunLoop?
     private var stopRequested = false
+    /// Bumped by every start and every stop, so a watcher thread can tell whether the run it
+    /// was started for is still the one that should exist (`keepsRunning`).
+    private var generation = 0
 
     // MARK: - Lifecycle
 
@@ -125,8 +128,10 @@ final class NotificationWatcher {
         running = true
         lock.lock()
         stopRequested = false
+        generation &+= 1
+        let current = generation
         lock.unlock()
-        let thread = Thread { [weak self] in self?.run() }
+        let thread = Thread { [weak self] in self?.run(generation: current) }
         thread.name = "com.notchisland.notifications"
         // Reading a system UI is background work by any measure; it must never take a beat
         // away from the island being drawn.
@@ -140,6 +145,7 @@ final class NotificationWatcher {
         running = false
         lock.lock()
         stopRequested = true
+        generation &+= 1
         let loop = self.loop
         lock.unlock()
         // The thread lets go of the observer itself, on the way out of its own run loop:
@@ -148,25 +154,40 @@ final class NotificationWatcher {
         thread = nil
     }
 
-    private var isStopping: Bool {
+    /// Whether the thread started as run `generation` carries on, `current` being the run that
+    /// should exist now.
+    ///
+    /// Not `stopRequested` alone: a start clears it again. The switch turned off and on while a
+    /// sweep was waiting on Notification Centre — each call may take `messagingTimeout` — had
+    /// the stop's flag cleared by the start before the old thread looked, and the old thread
+    /// swept on beside the new one with an observer of its own, until the next stop. Pure, so
+    /// it is tested.
+    static func keepsRunning(generation: Int, current: Int, stopRequested: Bool) -> Bool {
+        !stopRequested && generation == current
+    }
+
+    /// `keepsRunning` for the run `generation`, read under the lock. Any thread.
+    private func keepsRunning(_ generation: Int) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return stopRequested
+        return Self.keepsRunning(generation: generation, current: self.generation, stopRequested: stopRequested)
     }
 
     /// The watcher's thread, from the moment it starts to the moment it lets go of everything
-    /// it holds.
-    private func run() {
+    /// it holds. `generation` is the start it belongs to.
+    private func run(generation: Int) {
         let loop = CFRunLoopGetCurrent()
         lock.lock()
-        guard !stopRequested else {
+        // Stopped, or stopped and started again, before this thread got going: the run it was
+        // made for is over, and publishing this loop would give the next stop the wrong one.
+        guard Self.keepsRunning(generation: generation, current: self.generation, stopRequested: stopRequested) else {
             lock.unlock()
             return
         }
         self.loop = loop
         lock.unlock()
 
-        let session = Session(watcher: self)
+        let session = Session(watcher: self, generation: generation)
         // A run loop with no source in it returns the instant it is asked to run, so the
         // sweep timer is what keeps this thread waiting rather than spinning. The timeout on
         // `CFRunLoopRunInMode` and the sleep below are the belt to that brace.
@@ -176,7 +197,7 @@ final class NotificationWatcher {
         RunLoop.current.add(timer, forMode: .default)
         session.sweep()
 
-        while !isStopping {
+        while keepsRunning(generation) {
             if CFRunLoopRunInMode(CFRunLoopMode.defaultMode, Self.sweepInterval, false) == .finished {
                 Thread.sleep(forTimeInterval: Self.sweepInterval)
             }
@@ -346,6 +367,8 @@ final class NotificationWatcher {
     /// here, added to this thread's run loop, and let go of on the way out.
     private final class Session {
         private weak var watcher: NotificationWatcher?
+        /// The start this session's thread belongs to; a sweep after it has ended reads nothing.
+        private let generation: Int
         private var observer: AXObserver?
         private var element: AXUIElement?
         private var observed: pid_t = 0
@@ -356,8 +379,9 @@ final class NotificationWatcher {
         private var lastSweep = Date.distantPast
         private var coalesced: Timer?
 
-        init(watcher: NotificationWatcher) {
+        init(watcher: NotificationWatcher, generation: Int) {
             self.watcher = watcher
+            self.generation = generation
         }
 
         /// The observer's fast path. A dozen of these can arrive for one banner, so they are
@@ -380,7 +404,7 @@ final class NotificationWatcher {
 
         /// Look at what is on screen, and file whatever was not there last time.
         func sweep() {
-            guard let watcher, !watcher.isStopping else { return }
+            guard let watcher, watcher.keepsRunning(generation) else { return }
             lastSweep = Date()
             attach()
             guard let element else {

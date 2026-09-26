@@ -45,7 +45,12 @@ final class ShelfStore: ObservableObject {
     private let backgroundWork: Bool
 
     private var sweepTimer: Timer?
+    /// The share picker, kept while it is up and let go of once it has finished
+    /// (`sharingFinished`). It holds the view it was shown from, and that may be in a panel
+    /// that has since been rebuilt; kept until the next share, it kept that view as well.
     private var sharingPicker: NSSharingServicePicker?
+    /// The picker's delegate. Its `delegate` is weak, so the relay is kept here.
+    private lazy var sharingRelay = SharingPickerRelay { [weak self] picker in self?.sharingFinished(picker) }
     private var quitObserver: NSObjectProtocol?
 
     private var thumbnailQueue: [URL] = []
@@ -814,11 +819,21 @@ final class ShelfStore: ObservableObject {
         }
         let objects: [Any] = urls
         let picker = NSSharingServicePicker(items: objects)
+        picker.delegate = sharingRelay
         sharingPicker = picker
         let anchor = rect == .zero ? view.bounds : rect
         ActivityCenter.shared.holdOpen(for: 30)
         NSApp.activate(ignoringOtherApps: true)
         picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
+    }
+
+    /// The picker was chosen from, or dismissed. Let go of on the next turn, not inside its
+    /// own callback: a chosen service is still being handed the files when it says so.
+    private func sharingFinished(_ picker: NSSharingServicePicker) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.sharingPicker === picker else { return }
+            self.sharingPicker = nil
+        }
     }
 
     /// What a file will paste as, which decides what else goes on the pasteboard beside it.
@@ -1247,5 +1262,20 @@ final class ShelfStore: ObservableObject {
                 }
             }
         }
+    }
+}
+
+/// Hears the share picker finish, for `ShelfStore`, which is not an `NSObject` and so cannot be
+/// the picker's delegate itself. A choice and a dismissal arrive the same way: with the service
+/// the files went to, or with nil.
+private final class SharingPickerRelay: NSObject, NSSharingServicePickerDelegate {
+    private let finished: (NSSharingServicePicker) -> Void
+
+    init(finished: @escaping (NSSharingServicePicker) -> Void) {
+        self.finished = finished
+    }
+
+    func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, didChoose service: NSSharingService?) {
+        finished(sharingServicePicker)
     }
 }

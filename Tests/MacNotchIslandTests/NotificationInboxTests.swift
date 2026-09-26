@@ -333,4 +333,21 @@ final class NotificationInboxTests: XCTestCase {
                           NotificationWatcher.Banner(texts: [], position: CGPoint(x: 900, y: 90)).digest,
                           "two banners nobody can read are still two banners")
     }
+
+    // MARK: - One watcher thread at a time
+
+    func testTheWatcherThreadRunsUntilItIsStopped() {
+        XCTAssertTrue(NotificationWatcher.keepsRunning(generation: 3, current: 3, stopRequested: false))
+        XCTAssertFalse(NotificationWatcher.keepsRunning(generation: 3, current: 4, stopRequested: true),
+                       "stopped: the stop moved the run on as well")
+        XCTAssertFalse(NotificationWatcher.keepsRunning(generation: 3, current: 3, stopRequested: true))
+    }
+
+    /// Switched off and on while a sweep was waiting on Notification Centre: the start has
+    /// cleared the stop's flag by the time the old thread looks, and it still goes.
+    func testAThreadFromBeforeAQuickOffAndOnStops() {
+        XCTAssertFalse(NotificationWatcher.keepsRunning(generation: 3, current: 5, stopRequested: false))
+        XCTAssertTrue(NotificationWatcher.keepsRunning(generation: 5, current: 5, stopRequested: false),
+                      "and the new one is the one that runs")
+    }
 }

@@ -42,31 +42,48 @@ enum SettingsWindow {
 }
 
 /// Holds the one Settings window, so opening it twice does not make two.
-private final class SettingsWindowHost {
+///
+/// The window is kept when it is closed, and what it shows is not: the view is let go of on
+/// the way out (`windowWillClose`) and made again on the way back in (`show`), as the welcome
+/// tour's is. Four panes re-read what they show on a timer — Privacy asks Notification
+/// settings and Automation consent and reads two folders every few seconds, Home Panel asks
+/// for screen recording and Accessibility — and a hosting controller left in a closed window
+/// kept whichever pane was up ticking for the rest of the process, for a window nobody could
+/// see. The pane that was up is kept in the defaults (`settingsSection`), and the place the
+/// window was closed at here, so it reopens on the same pane in the same place.
+private final class SettingsWindowHost: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowHost()
     private var window: NSWindow?
+    /// Where the window was when it was closed. Main thread only.
+    private var closedFrame: NSRect?
 
     func show(_ section: SettingsSection?) {
         if let section {
             UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
         }
         if let window {
+            if window.contentViewController == nil {
+                window.contentViewController = Self.makeContent()
+                window.title = Self.title(opening: section)
+                // Setting a content controller sizes the window to it, and the hosting
+                // controller has not laid anything out yet; the frame it was closed at is the
+                // right one, the content being a fixed size.
+                if let closedFrame { window.setFrame(closedFrame, display: false) }
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let host = NSHostingController(rootView: SettingsView()
-            .environmentObject(ActivityCenter.shared)
-            .environmentObject(Preferences.shared))
-        let w = NSWindow(contentViewController: host)
+        let w = NSWindow(contentViewController: Self.makeContent())
         w.styleMask = [.titled, .closable, .miniaturizable]
         // Named for the pane it is about to show, the way System Settings names its window.
         // `navigationTitle` will say the same thing a moment later; without this the window
         // opens under a different name and changes it in front of you.
-        w.title = (section ?? SettingsSection(rawValue: UserDefaults.standard.string(forKey: "settingsSection") ?? "") ?? .general).title
-        // Closing it puts it away rather than tearing it down, so what you were reading is
-        // still there the next time, and nothing has to be rebuilt to show it.
+        w.title = Self.title(opening: section)
+        // Closing it puts the window away rather than tearing it down, so it comes back where
+        // it was; its view is what goes (see the type's comment).
         w.isReleasedWhenClosed = false
+        w.delegate = self
         // Sized before it is placed. A hosting controller has not laid its SwiftUI out when
         // the window is built, so a window centred first is a window of the wrong size
         // centred, and the right size then grows out of whichever corner the wrong one was
@@ -77,6 +94,31 @@ private final class SettingsWindowHost {
         window = w
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private static func makeContent() -> NSViewController {
+        NSHostingController(rootView: SettingsView()
+            .environmentObject(ActivityCenter.shared)
+            .environmentObject(Preferences.shared))
+    }
+
+    /// The title of the pane the window is about to show: the one asked for, or the last one.
+    private static func title(opening section: SettingsSection?) -> String {
+        (section ?? SettingsSection(rawValue: UserDefaults.standard.string(forKey: "settingsSection") ?? "") ?? .general).title
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // On the next turn, with the window off the screen: nothing is seen to empty, and a
+        // close that began inside the view does not pull the view out from under itself. A
+        // window shown again in between keeps what it has. Letting go of the controller takes
+        // the SwiftUI graph with it, and with it every pane's timer and `onDisappear`.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window, !window.isVisible else { return }
+            self.closedFrame = window.frame
+            // Both, so the hosting view goes whichever of the two AppKit clears with the other.
+            window.contentViewController = nil
+            window.contentView = nil
+        }
     }
 }
 

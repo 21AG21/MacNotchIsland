@@ -278,6 +278,13 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The Mirror lets go of the camera when the Mac goes to sleep, even with the Mirror still on screen; the camera and its green light used to stay on across sleep.
+- "Check for Updates…" always answers: changing any setting while it was checking, with automatic checks off, used to cancel it silently. The hourly check no longer replaces one you asked for, and a replaced request no longer puts the row back to its old status while the new one is still out.
+- Closing Settings stops the pane that was open from re-reading permissions, folders and Focus every few seconds for the rest of the session; it reopens on the same pane in the same place.
+- Switching Notifications off and on quickly no longer leaves two watchers reading Notification Centre.
+- The share picker lets go of the island's view once it closes.
+- Restarting the Focus watch can no longer close the new watch's file descriptor.
+- Rebuilding the islands (a display plugged in, waking, Reload Island) takes each island's view out of its window first, so the rail's controls, lyrics, level meter and camera see it go and stop polling.
 - Live radio and streams no longer make the Now Playing helper restart over and over, which dropped every player but Music and Spotify.
 - The Now Playing card goes away when the music stops, even after the helper was restarted or had gone quiet.
 - A track whose cover matches the previous one keeps its cover after an advert or a gap between tracks.
