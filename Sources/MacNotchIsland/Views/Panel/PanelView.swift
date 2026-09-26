@@ -181,6 +181,8 @@ struct SectionHeader<Trailing: View>: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
+                // A heading, so VoiceOver's rotor can jump from one section to the next.
+                .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             // One group, spaced closer than the title is from it, and drawn at the header's
             // smaller control size so nothing on this line is squeezed by its 22 pt.

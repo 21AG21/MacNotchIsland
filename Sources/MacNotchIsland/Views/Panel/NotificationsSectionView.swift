@@ -118,6 +118,8 @@ private struct NotificationRowView: View {
     var isFound: Bool
 
     @State private var hovering = false
+    /// Whether the keyboard focus is on this row, with Full Keyboard Access on.
+    @FocusState private var focused: Bool
 
     /// The clipboard's own column, to the point: a row here and a row there have their marks
     /// on the same line and their text on the same one.
@@ -132,7 +134,7 @@ private struct NotificationRowView: View {
     /// Room for "just now" shortened, or for the button that replaces it.
     static let trailingWidth: CGFloat = 34
 
-    private var isMarked: Bool { hovering || isFound }
+    private var isMarked: Bool { hovering || isFound || focused }
 
     /// Drawn from inside a timeline that turns each minute. The row's body runs when its entry
     /// or its hover changes, and nothing else: "now" went on saying now, and "4m" four
@@ -181,8 +183,32 @@ private struct NotificationRowView: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(Color.white.opacity(isMarked ? 0.08 : 0))
         )
+        .overlay {
+            // Where the keyboard is, over the mark a hovered row has.
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                .opacity(focused ? 1 : 0)
+                .accessibilityHidden(true)
+        }
         .contentShape(Rectangle())
         .onHover { inside in hovering = inside }
+        // The row's one action, forgetting it, was the × drawn under the pointer, so with Full
+        // Keyboard Access on Tab went past the list and nothing in it could be forgotten. Now
+        // Tab stops on each row, and Delete forgets it, as it takes the selected row out of a
+        // list anywhere on the Mac. Space and Return are left alone: a notification that has
+        // been and gone has nowhere to be opened. Focusable for that alone (`.activate`): with
+        // Full Keyboard Access off a click gives a row no focus, and nothing about the pointer
+        // changes.
+        .focusable(interactions: .activate)
+        .focused($focused)
+        .focusEffectDisabled()
+        // The Mac's Delete key types the DEL character and `.delete` is spelled as a backspace,
+        // so both are listed. Once for each press: a held key forgets this row, not the ones
+        // that move up into its place.
+        .onKeyPress(keys: [.delete, KeyEquivalent("\u{7F}"), .deleteForward], phases: .down) { _ in
+            NotificationInbox.shared.remove(id: entry.id)
+            return .handled
+        }
         .animation(IslandMotion.hover, value: isMarked)
     }
 

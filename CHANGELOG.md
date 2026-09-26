@@ -278,6 +278,12 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- With Full Keyboard Access on, Space presses the button the focus is on instead of playing music, and the arrow keys reach the focused control before they step between sections.
+- Window tiles can be reached with Tab and opened with Space or Return, and a notification can be tabbed to and forgotten with Delete.
+- VoiceOver announces when a timer or alarm goes off and when a script asks a question, including how to answer it with Control-Y or Control-N.
+- While VoiceOver is running, the shortcut as it shipped moves from Control-Option to Control-Shift-Command so it no longer fights VoiceOver's own keys, and Settings says so under the recorder.
+- VoiceOver reads shortcuts as words ("Control-Option-Space") instead of symbols, treats section titles as headings, and can open the island by pressing it.
+- Settings no longer lists a "Previous section" step for a shortcut that holds Shift, which has none.
 - Switching Reduce Motion on stops a scrolling title and the moving bars at once rather than at the next redraw, and the cover, a timer's digits and the call glyph fade into the card instead of flying across the island.
 - Under Reduce Motion, numbers change with a fade instead of rolling, glyphs no longer bounce, pulse or shrink into one another, and buttons no longer shrink when pressed.
 - With Increase Contrast on, the island's grey captions, times and secondary lines are drawn no fainter than 60% white.

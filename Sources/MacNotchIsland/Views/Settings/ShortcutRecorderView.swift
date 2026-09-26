@@ -19,6 +19,7 @@ struct ShortcutRecorderView: View {
                     Text(isRecording ? "Press keys…" : comboText)
                         .font(.body)
                         .foregroundStyle(isRecording ? Color.secondary : Color.primary)
+                        .accessibilityLabel(isRecording ? "Press keys…" : comboSpoken)
                     Button(isRecording ? "Cancel" : "Change") {
                         if isRecording { endRecording() } else { beginRecording() }
                     }
@@ -38,11 +39,18 @@ struct ShortcutRecorderView: View {
 
     // MARK: Pieces
 
+    /// The shortcut as it is registered, which is what pressing it has to match: the recorded
+    /// combination, with Control-Shift-Command in place of Control-Option while VoiceOver runs
+    /// over one still as it shipped (`HotKeyService.currentModifiers`). Redrawn when either
+    /// moves, since both `prefs` and `hotkey` are watched.
     private var comboText: String {
-        HotKeyService.displayString(
-            keyCode: HotKeyService.normalized(prefs.hotkeyKeyCode, fallback: HotKeyService.defaultKeyCode),
-            carbonModifiers: HotKeyService.normalized(prefs.hotkeyModifiers, fallback: HotKeyService.defaultModifiers)
-        )
+        HotKeyService.displayString(keyCode: HotKeyService.currentKeyCode,
+                                    carbonModifiers: HotKeyService.currentModifiers)
+    }
+
+    /// The same, as it is said: VoiceOver reads ⌃ as "caret" (`HotKeyService.spoken`).
+    private var comboSpoken: String {
+        HotKeyService.spoken(modifiers: HotKeyService.currentModifiers, key: HotKeyService.currentKeyCode)
     }
 
     /// The Reset button's tooltip, naming the two shortcuts a Mac may ship with as they read on
@@ -58,11 +66,27 @@ struct ShortcutRecorderView: View {
             + "where macOS uses that."
     }
 
-    /// The small grey line under the row: a nudge while recording, otherwise the conflict warning.
+    /// The small grey line under the row: a nudge while recording, otherwise the conflict
+    /// warning, and failing that what VoiceOver makes of the modifiers.
     private var note: String? {
         if let hint = hint { return hint }
         return Self.conflictNote(registrationFailed: hotkey.registrationFailed, takenBySystem: hotkey.takenBySystem,
                                  stepsWithheld: !HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers))
+            ?? Self.voiceOverNote(voiceOver: hotkey.voiceOverRunning, recorded: HotKeyService.recordedModifiers,
+                                  shipping: HotKeyService.recordedIsShipping)
+    }
+
+    /// What is said about a Control-Option shortcut while VoiceOver runs, since those are
+    /// VoiceOver's own keys (`HotKeyService.collidesWithVoiceOver`). One as it shipped has
+    /// already moved to Control-Shift-Command, and the row shows that without saying why
+    /// unless this does; one somebody recorded is kept, and they are told whose keys they
+    /// chose. Nil with VoiceOver off, or any other modifiers. `shipping` is asked only when it
+    /// matters. Pure.
+    static func voiceOverNote(voiceOver: Bool, recorded: Int, shipping: @autoclosure () -> Bool) -> String? {
+        guard voiceOver, HotKeyService.collidesWithVoiceOver(modifiers: recorded) else { return nil }
+        return shipping()
+            ? "While VoiceOver is on, Control-Shift-Command stands in for Control-Option, which are VoiceOver's own keys."
+            : "Control-Option combinations are VoiceOver's own keys."
     }
 
     /// What is said about a combination somebody else has. Two different somebodies: another

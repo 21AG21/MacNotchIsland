@@ -15,6 +15,8 @@ struct WindowsSectionView: View {
     @State private var dropTarget: CGWindowID?
     /// Windows picked out with a Command-click, to be laid out together.
     @State private var selection: Set<CGWindowID> = []
+    /// The tile the keyboard focus is on, with Full Keyboard Access on.
+    @FocusState private var focusedTile: CGWindowID?
 
     /// Every window there is, before the find narrows it.
     private var allWindows: [IslandWindow] {
@@ -248,6 +250,14 @@ struct WindowsSectionView: View {
                 if let away = window.away, !showsZones { awayBadge(away) }
                 if picked { pickedBadge }
                 if showsZones { zones(window) }
+                // Where the keyboard is. Inside the tile's own edge rather than round it, where
+                // the strip would cut it off at either end.
+                if focusedTile == window.id {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                        .padding(3)
+                        .accessibilityHidden(true)
+                }
             }
             .frame(width: Self.tileWidth, height: Self.tileHeight)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -293,6 +303,22 @@ struct WindowsSectionView: View {
         .accessibilityAction { monitor.focus(window) }
         .accessibilityAction(named: picked ? "Leave it out" : "Pick it out to tile") {
             if picked { selection.remove(window.id) } else { selection.insert(window.id) }
+        }
+        // A tile answered a click and nothing else, so with Full Keyboard Access on Tab went
+        // past the strip and no window could be brought forward from it. Now Tab stops on each
+        // tile, and Space or Return does what a click does. Focusable for that alone
+        // (`.activate`), the way the rail's buttons are: with Full Keyboard Access off a click
+        // gives a tile no focus, and nothing about the pointer changes.
+        .focusable(interactions: .activate)
+        .focused($focusedTile, equals: window.id)
+        .focusEffectDisabled()
+        .onKeyPress(.space) {
+            click(window)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            click(window)
+            return .handled
         }
     }
 

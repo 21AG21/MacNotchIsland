@@ -498,20 +498,175 @@ final class HotKeyServiceTests: XCTestCase {
             .allSatisfy { $0.kind == .numberRow || $0.kind == .keypad }, "no list, no letters wherever they are")
     }
 
-    func testEveryTypingKeyHasAnIdOfItsOwn() {
+    func testEveryTypingKeyIsOneKeyWithOneSetOfModifiers() {
         let keys = HotKeyService.typingKeys
         XCTAssertEqual(keys.count, 10 + 10 + 10 + 26 + 12)
-        for (index, key) in keys.enumerated() {
-            XCTAssertEqual(HotKeyService.typingKey(id: HotKeyService.typingKeyIDBase + UInt32(index)), key)
-        }
-        XCTAssertNil(HotKeyService.typingKey(id: HotKeyService.typingKeyIDBase - 1), "the named slots stay theirs")
-        XCTAssertNil(HotKeyService.typingKey(id: HotKeyService.typingKeyIDBase + UInt32(keys.count)))
         XCTAssertEqual(keys.filter { $0.kind == .numberRow }.map(\.digit), [1, 2, 3, 4, 5, 6, 7, 8, 9, 0])
         XCTAssertEqual(keys.filter { $0.kind == .keypad }.map(\.digit), [1, 2, 3, 4, 5, 6, 7, 8, 9, 0])
         XCTAssertTrue(keys.filter { $0.kind == .shiftedNumberRow }.allSatisfy { $0.modifiers == shift })
         XCTAssertTrue(keys.filter { $0.kind != .shiftedNumberRow }.allSatisfy { $0.modifiers == 0 })
         let pairs = keys.map { "\($0.keyCode)-\($0.modifiers)" }
-        XCTAssertEqual(Set(pairs).count, pairs.count, "no key and modifiers are registered twice")
+        XCTAssertEqual(Set(pairs).count, pairs.count, "a press is one typing key at most, never two")
+    }
+
+    // MARK: - The panel's own keys, as its window reads them
+
+    /// What a press is to the panel under `claim`, on a layout that types `plain` with nothing
+    /// held and `shifted` with Shift.
+    private func panelKey(_ keyCode: Int, _ modifiers: Int = 0, claim: HotKeyService.KeyClaim,
+                          layout plain: @escaping (Int) -> String? = TestLayout.us,
+                          shifted: @escaping (Int) -> String? = TestLayout.usShifted) -> HotKeyService.PanelKey? {
+        let shift = self.shift
+        return HotKeyService.panelKey(keyCode: keyCode, modifiers: modifiers, claim: claim,
+                                      typed: { code, held in held & shift != 0 ? shifted(code) : plain(code) })
+    }
+
+    func testThePanelAnswersNothingWhileTheClaimIsNothing() {
+        for code in [kVK_Space, kVK_LeftArrow, kVK_UpArrow, kVK_ANSI_2, kVK_ANSI_A, kVK_ANSI_Keypad5] {
+            XCTAssertNil(panelKey(code, claim: .nothing), "key \(code)")
+        }
+    }
+
+    /// The keys the window answers are the ones that were registered as hot keys, with the
+    /// same modifiers: none.
+    func testTheBareKeysAreTheOnesTheyAlwaysWere() {
+        let claim = HotKeyService.KeyClaim(bareKeys: true, letters: false)
+        XCTAssertEqual(panelKey(kVK_LeftArrow, claim: claim), .left)
+        XCTAssertEqual(panelKey(kVK_RightArrow, claim: claim), .right)
+        XCTAssertEqual(panelKey(kVK_UpArrow, claim: claim), .volumeUp)
+        XCTAssertEqual(panelKey(kVK_DownArrow, claim: claim), .volumeDown)
+        XCTAssertEqual(panelKey(kVK_Space, claim: claim), .playPause)
+        XCTAssertNil(panelKey(kVK_Space, shift, claim: claim), "Shift-Space was never the island's")
+        XCTAssertNil(panelKey(kVK_LeftArrow, option, claim: claim), "Option-Left jumps a word")
+        XCTAssertNil(panelKey(kVK_Tab, claim: claim), "Tab walks the focus")
+        XCTAssertNil(panelKey(kVK_Return, claim: claim), "Return presses what has the focus")
+    }
+
+    func testTheFiguresAndTheLettersAreTakenWhereTheyWereRegistered() {
+        let list = HotKeyService.KeyClaim(bareKeys: true, letters: true)
+        let noList = HotKeyService.KeyClaim(bareKeys: true, letters: false)
+
+        guard case .typing(let two)? = panelKey(kVK_ANSI_2, claim: noList) else { return XCTFail("2 is a slot") }
+        XCTAssertEqual(two.kind, .numberRow)
+        XCTAssertEqual(two.digit, 2)
+        guard case .typing(let five)? = panelKey(kVK_ANSI_Keypad5, claim: noList) else { return XCTFail("the keypad's 5") }
+        XCTAssertEqual(five.kind, .keypad)
+        XCTAssertNil(panelKey(kVK_ANSI_A, claim: noList), "no list, no letters")
+        guard case .typing(let a)? = panelKey(kVK_ANSI_A, claim: list) else { return XCTFail("A finds on a list") }
+        XCTAssertEqual(a.kind, .letter)
+        XCTAssertNil(panelKey(kVK_ANSI_A, shift, claim: list), "a capital was never taken")
+        XCTAssertNil(panelKey(kVK_ANSI_2, shift, claim: list), "Shift-2 is an @ on an American keyboard")
+        XCTAssertNil(panelKey(kVK_ANSI_2, control, claim: list), "Control-2 is Mission Control's")
+        XCTAssertNil(panelKey(kVK_ANSI_Semicolon, claim: list), "; is no letter there")
+
+        let french = (plain: TestLayout.azerty, shifted: TestLayout.azertyShifted)
+        guard case .typing(let figure)? = panelKey(kVK_ANSI_2, shift, claim: noList,
+                                                   layout: french.plain, shifted: french.shifted)
+        else { return XCTFail("Shift is how a French keyboard types a 2") }
+        XCTAssertEqual(figure.kind, .shiftedNumberRow)
+        guard case .typing(let m)? = panelKey(kVK_ANSI_Semicolon, claim: list, layout: french.plain, shifted: french.shifted)
+        else { return XCTFail("the French M finds on a list") }
+        XCTAssertEqual(m.kind, .punctuation)
+        XCTAssertNil(panelKey(kVK_ANSI_Semicolon, claim: noList, layout: french.plain, shifted: french.shifted),
+                     "and is left alone without one")
+    }
+
+    // MARK: - VoiceOver's keys
+
+    func testControlAndOptionTogetherAreVoiceOversOwn() {
+        XCTAssertTrue(HotKeyService.collidesWithVoiceOver(modifiers: control | option))
+        XCTAssertTrue(HotKeyService.collidesWithVoiceOver(modifiers: control | option | shift), "VO with Shift is still VO")
+        XCTAssertFalse(HotKeyService.collidesWithVoiceOver(modifiers: control | option | cmd))
+        XCTAssertFalse(HotKeyService.collidesWithVoiceOver(modifiers: control | cmd))
+        XCTAssertFalse(HotKeyService.collidesWithVoiceOver(modifiers: option | cmd))
+        XCTAssertFalse(HotKeyService.collidesWithVoiceOver(modifiers: control))
+        XCTAssertFalse(HotKeyService.collidesWithVoiceOver(modifiers: 0))
+    }
+
+    /// Nothing marks the shipping shortcut as unchosen once it is written down, so it is told
+    /// by its keys.
+    func testTheShippingShortcutIsToldByItsKeys() {
+        let controlOption = control | option
+        let i = kVK_ANSI_G
+        XCTAssertTrue(HotKeyService.isShippingShortcut(keyCode: kVK_Space, modifiers: controlOption, fallback: i))
+        XCTAssertTrue(HotKeyService.isShippingShortcut(keyCode: i, modifiers: controlOption, fallback: i),
+                      "the fallback, wherever the layout has its I")
+        XCTAssertTrue(HotKeyService.isShippingShortcut(keyCode: kVK_ANSI_I, modifiers: controlOption, fallback: i),
+                      "or where it was written down before the layout changed")
+        XCTAssertFalse(HotKeyService.isShippingShortcut(keyCode: kVK_ANSI_K, modifiers: controlOption, fallback: i))
+        XCTAssertFalse(HotKeyService.isShippingShortcut(keyCode: kVK_Space, modifiers: control | cmd, fallback: i))
+        XCTAssertFalse(HotKeyService.isShippingShortcut(keyCode: kVK_Space, modifiers: controlOption | shift, fallback: i))
+
+        var asked = 0
+        func fallback() -> Int {
+            asked += 1
+            return i
+        }
+        _ = HotKeyService.isShippingShortcut(keyCode: kVK_Space, modifiers: controlOption, fallback: fallback())
+        _ = HotKeyService.isShippingShortcut(keyCode: kVK_ANSI_K, modifiers: cmd | shift, fallback: fallback())
+        XCTAssertEqual(asked, 0, "the layout is asked only when the answer turns on it")
+        _ = HotKeyService.isShippingShortcut(keyCode: kVK_ANSI_K, modifiers: controlOption, fallback: fallback())
+        XCTAssertEqual(asked, 1)
+    }
+
+    func testVoiceOverMovesOnlyTheShippingShortcutOffControlOption() {
+        let controlOption = control | option
+        let standIn = control | shift | cmd
+        XCTAssertEqual(HotKeyService.voiceOverModifiers, standIn,
+                       "not Control-Command alone: with Space that is Emoji & Symbols in every app")
+        XCTAssertEqual(HotKeyService.effectiveModifiers(recorded: controlOption, shipping: true, voiceOver: true), standIn)
+        XCTAssertEqual(HotKeyService.effectiveModifiers(recorded: controlOption, shipping: true, voiceOver: false), controlOption,
+                       "nothing moves without VoiceOver")
+        XCTAssertEqual(HotKeyService.effectiveModifiers(recorded: controlOption, shipping: false, voiceOver: true), controlOption,
+                       "one somebody recorded is kept")
+        XCTAssertEqual(HotKeyService.effectiveModifiers(recorded: cmd | shift, shipping: false, voiceOver: true), cmd | shift)
+        XCTAssertTrue(HotKeyService.stepsAreSafe(modifiers: HotKeyService.voiceOverModifiers), "the steps move with it")
+        XCTAssertFalse(HotKeyService.hasBackwardStep(modifiers: HotKeyService.voiceOverModifiers),
+                       "all but the backward one, which would be the forward one again")
+        XCTAssertFalse(HotKeyService.collidesWithVoiceOver(modifiers: HotKeyService.voiceOverModifiers))
+        XCTAssertEqual(HotKeyService.displayString(keyCode: kVK_Space, carbonModifiers: standIn, character: TestLayout.us),
+                       "⌃⇧⌘Space")
+
+        // Nothing macOS ships with is on it: not the input menu's two, with sources to switch
+        // between, nor any of the others listed beside them.
+        XCTAssertFalse(HotKeyService.isInputMenuCombination(keyCode: kVK_Space, modifiers: standIn))
+        let listed = [symbolic(kVK_Space, control, enabled: true), symbolic(kVK_Space, controlOption, enabled: true),
+                      symbolic(kVK_Space, cmd, enabled: true), symbolic(kVK_Space, option | cmd, enabled: true)]
+        XCTAssertFalse(HotKeyService.systemTakes(keyCode: kVK_Space, modifiers: standIn, symbolic: listed,
+                                                 keyboardSources: 2))
+        XCTAssertFalse(HotKeyService.systemTakes(keyCode: kVK_ANSI_I, modifiers: standIn, symbolic: listed,
+                                                 keyboardSources: 2))
+    }
+
+    /// Shift-Tab steps backward only where Shift is not already part of the shortcut; with it,
+    /// the backward step would be the forward one, and neither the registration nor the pane
+    /// offers it.
+    func testTheBackwardStepNeedsAShortcutWithoutShift() {
+        XCTAssertTrue(HotKeyService.hasBackwardStep(modifiers: control | option))
+        XCTAssertTrue(HotKeyService.hasBackwardStep(modifiers: control | option | cmd))
+        XCTAssertFalse(HotKeyService.hasBackwardStep(modifiers: control | shift | cmd))
+        XCTAssertFalse(HotKeyService.hasBackwardStep(modifiers: option | shift | cmd))
+        XCTAssertFalse(HotKeyService.hasBackwardStep(modifiers: shift))
+    }
+
+    // MARK: - A shortcut said aloud
+
+    func testAShortcutIsSpokenInWords() {
+        XCTAssertEqual(HotKeyService.spoken(modifiers: control | option, key: kVK_Space, character: TestLayout.us),
+                       "Control-Option-Space")
+        XCTAssertEqual(HotKeyService.spoken(modifiers: cmd | shift | option | control, key: kVK_ANSI_K,
+                                            character: TestLayout.us),
+                       "Control-Option-Shift-Command-K", "in the order the glyphs are printed")
+        XCTAssertEqual(HotKeyService.spoken(modifiers: control | shift | cmd, key: kVK_LeftArrow, character: TestLayout.us),
+                       "Control-Shift-Command-Left Arrow")
+        XCTAssertEqual(HotKeyService.spoken(modifiers: HotKeyService.voiceOverModifiers, key: kVK_Space,
+                                            character: TestLayout.us),
+                       "Control-Shift-Command-Space", "the shortcut as it is while VoiceOver runs")
+        XCTAssertEqual(HotKeyService.spoken(modifiers: control | option | shift, key: kVK_Tab, character: TestLayout.us),
+                       "Control-Option-Shift-Tab")
+        XCTAssertEqual(HotKeyService.spoken(modifiers: 0, key: kVK_DownArrow, character: TestLayout.us), "Down Arrow")
+        XCTAssertEqual(HotKeyService.spoken(modifiers: control | option, key: kVK_ANSI_Y, character: TestLayout.german),
+                       "Control-Option-Z", "named by what the key types")
     }
 
     // MARK: - Naming a key by what it types

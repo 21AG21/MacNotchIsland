@@ -4,6 +4,9 @@ import SwiftUI
 /// "Island": how the island reacts to the pointer, the trackpad and the keyboard.
 struct IslandPane: View {
     @ObservedObject private var prefs = Preferences.shared
+    /// Watched so the rows below follow VoiceOver starting or stopping, which can move the
+    /// shortcut's modifiers (`HotKeyService.currentModifiers`).
+    @ObservedObject private var hotkey = HotKeyService.shared
 
     var body: some View {
         Form {
@@ -22,9 +25,14 @@ struct IslandPane: View {
                     // the steps are left to the app in front. Rows for keys that do nothing would
                     // say otherwise.
                     if HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers) {
-                        LabeledContent("Next section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers))
-                        LabeledContent("Previous section", value: HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers | shiftKey))
-                        LabeledContent("Step sideways", value: HotKeyService.displayString(keyCode: kVK_LeftArrow, carbonModifiers: HotKeyService.currentModifiers) + " and " + HotKeyService.displayString(keyCode: kVK_RightArrow, carbonModifiers: HotKeyService.currentModifiers))
+                        let modifiers = HotKeyService.currentModifiers
+                        keysRow("Next section", [(kVK_Tab, modifiers)])
+                        // Only where there is one: a shortcut that holds Shift has no backward
+                        // step, and the row would name the forward one a second time.
+                        if HotKeyService.hasBackwardStep(modifiers: modifiers) {
+                            keysRow("Previous section", [(kVK_Tab, modifiers | shiftKey)])
+                        }
+                        keysRow("Step sideways", [(kVK_LeftArrow, modifiers), (kVK_RightArrow, modifiers)])
                     }
                     LabeledContent("Close", value: "Escape")
                 }
@@ -40,16 +48,22 @@ struct IslandPane: View {
                 Toggle("The panel answers the keyboard", isOn: $prefs.panelKeysEnabled)
                     .help("While the panel is pinned open, these keys are the island's. They go back to the app in front the moment it closes.")
                 if prefs.panelKeysEnabled {
-                    LabeledContent("Step between views", value: "← and →")
+                    LabeledContent("Step between views") {
+                        Text("← and →").accessibilityLabel("the left and right arrow keys")
+                    }
                     LabeledContent("Go straight to a view", value: "1 to 9")
                     LabeledContent("Type a timer, on Actions", value: "0 to 9")
                     LabeledContent("Play or pause", value: "Space")
                     LabeledContent("Quick Look the shelf", value: "Space")
-                    LabeledContent("Volume", value: "↑ and ↓")
+                    LabeledContent("Volume") {
+                        Text("↑ and ↓").accessibilityLabel("the up and down arrow keys")
+                    }
                     // Any letter the keyboard types, not the American A to Z: an é, an ö or
                     // a ж starts a find as well (`HotKeyService.keyRole`).
                     LabeledContent("Find in a list", value: "Any letter")
-                    LabeledContent("Walk the matches", value: "↑ and ↓")
+                    LabeledContent("Walk the matches") {
+                        Text("↑ and ↓").accessibilityLabel("the up and down arrow keys")
+                    }
                     LabeledContent("Take the one you are on", value: "Return")
                     LabeledContent("Leave the find", value: "Escape")
                 }
@@ -126,6 +140,17 @@ struct IslandPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// A row naming one combination or two, printed in glyphs and spoken in words: VoiceOver
+    /// reads ⌃ as "caret" (`HotKeyService.spoken`).
+    private func keysRow(_ title: String, _ combos: [(keyCode: Int, modifiers: Int)]) -> some View {
+        LabeledContent(title) {
+            Text(combos.map { HotKeyService.displayString(keyCode: $0.keyCode, carbonModifiers: $0.modifiers) }
+                .joined(separator: " and "))
+                .accessibilityLabel(combos.map { HotKeyService.spoken(modifiers: $0.modifiers, key: $0.keyCode) }
+                    .joined(separator: " and "))
+        }
     }
 
     /// The Pointer section's footer. It says where "Open from the empty notch too" starts,

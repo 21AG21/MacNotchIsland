@@ -10,8 +10,10 @@ import Foundation
 /// step forward through every view, with Shift+Tab backward; Escape closes whatever is open,
 /// and the modifiers with the arrow keys step sideways; those are only registered while
 /// something is open. The Tab and arrow steps need two of ⌃⌥⌘ in the combination, see
-/// `stepsAreSafe`. Uses Carbon's RegisterEventHotKey, which works for
-/// background apps with no permissions.
+/// `stepsAreSafe`, and while VoiceOver is running a shortcut still as it shipped trades Option
+/// for Shift and Command, see `effectiveModifiers`. Uses Carbon's RegisterEventHotKey, which
+/// works for background apps with no permissions. The panel's own keys with nothing held down
+/// are not hot keys: its window answers them while it holds the keyboard, see `PanelKey`.
 final class HotKeyService: ObservableObject {
     /// One owner for the registration, so Settings can watch it while ServiceHub drives it.
     static let shared = HotKeyService()
@@ -23,6 +25,10 @@ final class HotKeyService: ObservableObject {
     /// Registration still succeeds for those, which is why this is a second flag rather than
     /// the first one saying yes.
     @Published private(set) var takenBySystem = false
+    /// Whether VoiceOver is running, as last heard from `NSWorkspace`. Settings and the tour
+    /// watch it, since they show the shortcut with the modifiers it is registered with
+    /// (`currentModifiers`), and those follow VoiceOver.
+    @Published private(set) var voiceOverRunning = false
 
     /// ⌃⌥Space: the shipping default, and what the recorder's "Reset" button restores on a Mac
     /// where macOS leaves it free.
@@ -57,15 +63,38 @@ final class HotKeyService: ObservableObject {
 
     private enum Slot: UInt32 {
         case toggle = 1, next = 2, previous = 3, escape = 4, left = 5, right = 6
-        /// Claimed only while the panel is pinned open on a section nobody types into.
-        case panelLeft = 7, panelRight = 8, volumeUp = 9, volumeDown = 10, playPause = 11
+        // 7 to 11 were the panel's arrows, Space and volume keys, which its window answers
+        // now (`PanelKey`). The numbers are left unused rather than handed to something else.
         /// Control-Y and Control-N, claimed only while a question from `notchctl ask` is up.
         case askYes = 12, askNo = 13
     }
 
-    /// The panel's own keys that do one job whatever the layout: the arrows and Space. The
-    /// keys that do what they type are `typingKeys`, released with these.
-    private static let panelSlots: [Slot] = [.panelLeft, .panelRight, .volumeUp, .volumeDown, .playPause]
+    /// A key the panel's own window answers while it holds the keyboard: the arrows, Space,
+    /// and the figures and letters of `typingKeys`.
+    ///
+    /// These were Carbon hot keys, and a hot key is taken from every application before any
+    /// window sees it, the island's own included. With Full Keyboard Access on, somebody who
+    /// had tabbed to a button on the rail and pressed Space to press it played the music
+    /// instead, and the arrows never reached whatever had the focus. They were only ever
+    /// claimed while one of the island's windows was the key window (`claim`), and the key
+    /// window is where the system sends a key press anyway, so taking them out of the world
+    /// first bought nothing. `NotchPanel` asks `panelKey(for:)` of each press it is sent and
+    /// answers through `answer(_:)` what used to arrive through the hot key handler.
+    enum PanelKey: Equatable {
+        /// ← and →: a step sideways, the way a swipe steps.
+        case left, right
+        /// ↑ and ↓: the volume, the keyboard's version of a scroll.
+        case volumeUp, volumeDown
+        /// Space: play and pause, or Quick Look on the shelf.
+        case playPause
+        /// A figure or a letter, read for what it types when it is answered (`keyRole`).
+        case typing(TypingKey)
+
+        /// Whether a key held down goes on answering as it repeats. Only the volume does, the
+        /// way a volume key held on the keyboard goes on moving it: a held Space would play and
+        /// pause on every repeat, and a held arrow would run through the sections to the end.
+        var repeats: Bool { self == .volumeUp || self == .volumeDown }
+    }
 
     /// A key the panel claims for what it types rather than for one job of its own.
     ///
@@ -101,11 +130,12 @@ final class HotKeyService: ObservableObject {
         /// for where the layout types no figure on it, as a French keyboard types é on the 2.
         let digit: Int?
 
-        /// The modifiers it is registered with.
+        /// The modifiers it is pressed with.
         var modifiers: Int { kind == .shiftedNumberRow ? shiftKey : 0 }
     }
 
-    /// Every `TypingKey`, in the order their hot key ids are counted from `typingKeyIDBase`.
+    /// Every `TypingKey`: the number row, the same with Shift, the keypad, the letters and the
+    /// keys around them. No two share a key and its modifiers.
     static let typingKeys: [TypingKey] = {
         var keys: [TypingKey] = []
         for (code, digit) in zip(numberRowKeyCodes, figures) {
@@ -121,17 +151,6 @@ final class HotKeyService: ObservableObject {
         for code in punctuationKeyCodes { keys.append(TypingKey(keyCode: code, kind: .punctuation, digit: nil)) }
         return keys
     }()
-
-    /// The first hot key id a typing key is registered under; the rest follow in the order of
-    /// `typingKeys`. Clear of every `Slot`.
-    static let typingKeyIDBase: UInt32 = 100
-
-    /// The typing key a hot key id was registered for.
-    static func typingKey(id: UInt32) -> TypingKey? {
-        guard id >= typingKeyIDBase else { return nil }
-        let index = Int(id - typingKeyIDBase)
-        return typingKeys.indices.contains(index) ? typingKeys[index] : nil
-    }
 
     /// The figures on the number row and the keypad, in the order their keys are listed: one
     /// to nine, then zero, as they run across the keyboard.
@@ -177,7 +196,9 @@ final class HotKeyService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private static let signature: OSType = 0x4E4F5443 // "NOTC"
 
-    private init() {}
+    private init() {
+        voiceOverRunning = NSWorkspace.shared.isVoiceOverEnabled
+    }
 
     // MARK: - Lifecycle
 
@@ -195,8 +216,6 @@ final class HotKeyService: ObservableObject {
             }
             if let slot = Slot(rawValue: hotKeyID.id) {
                 DispatchQueue.main.async { HotKeyService.handle(slot) }
-            } else if let key = HotKeyService.typingKey(id: hotKeyID.id) {
-                DispatchQueue.main.async { HotKeyService.handle(key) }
             } else {
                 IslandLog.keys.error("hot key event ignored: unknown id \(hotKeyID.id, privacy: .public)")
             }
@@ -222,7 +241,8 @@ final class HotKeyService: ObservableObject {
     // MARK: - Registration
 
     /// Re-registers whenever the recorded combo changes. Debounced so that writing the key code
-    /// and the modifiers one after the other costs a single registration.
+    /// and the modifiers one after the other costs a single registration. And whenever
+    /// VoiceOver starts or stops, which can move the modifiers too (`effectiveModifiers`).
     private func observePreferences() {
         guard cancellables.isEmpty else { return }
         let prefs = Preferences.shared
@@ -234,6 +254,21 @@ final class HotKeyService: ObservableObject {
             .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.register() }
             .store(in: &cancellables)
+        // NSWorkspace posts no notification when VoiceOver starts or stops; its
+        // `isVoiceOverEnabled` is key-value observable instead, and the change may be heard on
+        // any thread, so it is brought to the main one.
+        NSWorkspace.shared.publisher(for: \.isVoiceOverEnabled)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] running in self?.voiceOverChanged(running) }
+            .store(in: &cancellables)
+    }
+
+    /// VoiceOver started or stopped: the shortcut and its steps are registered again, with the
+    /// modifiers now in force.
+    private func voiceOverChanged(_ running: Bool) {
+        guard running != voiceOverRunning else { return }
+        voiceOverRunning = running
+        register()
     }
 
     /// Recording a replacement: the live combo must not fire while the user presses keys.
@@ -263,7 +298,9 @@ final class HotKeyService: ObservableObject {
             // before the recorder asked for two of ⌃⌥⌘ keeps its toggle and loses its steps.
             if Self.stepsAreSafe(modifiers: modifiers) {
                 register(.next, keyCode: kVK_Tab, modifiers: modifiers)
-                if modifiers & shiftKey == 0 { register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey) }
+                if Self.hasBackwardStep(modifiers: modifiers) {
+                    register(.previous, keyCode: kVK_Tab, modifiers: modifiers | shiftKey)
+                }
             }
         } else {
             // Nothing was asked of the system, so nothing was refused.
@@ -272,7 +309,6 @@ final class HotKeyService: ObservableObject {
         }
         if escapeArmed { registerEscape() }
         if stepKeysArmed { registerStepKeys() }
-        if panelClaim.bareKeys { registerPanelKeys() }
         if askKeysArmed { registerAskKeys() }
     }
 
@@ -308,34 +344,40 @@ final class HotKeyService: ObservableObject {
         unregister(.right)
     }
 
-    /// The keys the panel answers on its own, with nothing held down: the arrows step between
-    /// views the way a sideways swipe does, the digits go straight to a slot of the switcher,
-    /// Space plays and pauses, and the vertical arrows move the volume — the keyboard's
-    /// version of a scroll. Claimed only while `claim` says they are the island's, which is
-    /// while its own window holds the keyboard and nothing on it is being typed into.
-    private func registerPanelKeys() {
-        register(.panelLeft, keyCode: kVK_LeftArrow, modifiers: 0)
-        register(.panelRight, keyCode: kVK_RightArrow, modifiers: 0)
-        register(.volumeUp, keyCode: kVK_UpArrow, modifiers: 0)
-        register(.volumeDown, keyCode: kVK_DownArrow, modifiers: 0)
-        register(.playPause, keyCode: kVK_Space, modifiers: 0)
-        // The figures and, where there is a list to look through, the letters — each asked of
-        // the layout in force for whether it is worth taking at all (`claims`). The layout is
-        // looked at once for each set of modifiers, not once a key.
-        let letters = panelClaim.letters
-        let plain = letters ? KeyLayout.characters(for: Self.punctuationKeyCodes) : [:]
-        let shifted = KeyLayout.characters(for: Self.numberRowKeyCodes, modifiers: shiftKey)
-        for (index, key) in Self.typingKeys.enumerated() {
-            let typed = key.kind == .shiftedNumberRow ? shifted[key.keyCode] : plain[key.keyCode]
-            guard Self.claims(key.kind, letters: letters, typed: typed) else { continue }
-            register(id: Self.typingKeyIDBase + UInt32(index), keyCode: key.keyCode, modifiers: key.modifiers)
-        }
+    /// The panel key a press sent to the island's own window is, while the claim stands; nil
+    /// for every other press, which the window then dispatches as it would any key. The layout
+    /// in force is asked what the key types only where `claims` needs to know. Main thread.
+    func panelKey(for event: NSEvent) -> PanelKey? {
+        guard handlerRef != nil, event.type == .keyDown else { return nil }
+        return Self.panelKey(keyCode: Int(event.keyCode), modifiers: Self.carbonModifiers(from: event.modifierFlags),
+                             claim: panelClaim, typed: KeyLayout.character(for:modifiers:))
     }
 
-    private func unregisterPanelKeys() {
-        for slot in Self.panelSlots { unregister(slot) }
-        for index in Self.typingKeys.indices { unregister(id: Self.typingKeyIDBase + UInt32(index)) }
+    /// What a press is to the panel under `claim`. With nothing held down, the arrows step
+    /// between views the way a sideways swipe does and the vertical ones move the volume — the
+    /// keyboard's version of a scroll — and Space plays and pauses. The figures and, where there
+    /// is a list to look through, the letters are `typingKeys`, each taken only where `claims`
+    /// says it is worth taking on the layout `typed` answers for. Anything else, and everything
+    /// while the claim is nothing, is nil. The keys and the rules are the ones they were
+    /// registered with as hot keys. Pure, so any layout and any claim can be put to it.
+    static func panelKey(keyCode: Int, modifiers: Int, claim: KeyClaim,
+                         typed: (_ keyCode: Int, _ modifiers: Int) -> String?) -> PanelKey? {
+        guard claim.bareKeys else { return nil }
+        let held = modifiers & (controlKey | optionKey | shiftKey | cmdKey)
+        if held == 0, let key = singleJobKeys[keyCode] { return key }
+        guard let key = typingKeys.first(where: { $0.keyCode == keyCode && $0.modifiers == held }) else { return nil }
+        // Only these two are asked what they type before they are taken; the rest are taken
+        // whatever they type, and read for it when they are answered.
+        let asks = key.kind == .shiftedNumberRow || (key.kind == .punctuation && claim.letters)
+        return claims(key.kind, letters: claim.letters, typed: asks ? typed(keyCode, key.modifiers) : nil)
+            ? .typing(key) : nil
     }
+
+    /// The panel keys that do one job whatever the layout.
+    private static let singleJobKeys: [Int: PanelKey] = [
+        kVK_LeftArrow: .left, kVK_RightArrow: .right, kVK_UpArrow: .volumeUp, kVK_DownArrow: .volumeDown,
+        kVK_Space: .playPause,
+    ]
 
     /// Whether a typing key is worth claiming, given whether the section is a list to look
     /// through and what the key types on the layout in force.
@@ -461,29 +503,27 @@ final class HotKeyService: ObservableObject {
         static let nothing = KeyClaim(bareKeys: false, letters: false)
     }
 
-    /// Whether the island may take a bare key press out of the world at this moment, and
-    /// whether that stretches to the alphabet.
+    /// Whether the island may answer a bare key press at this moment, and whether that
+    /// stretches to the alphabet.
     ///
-    /// These keys are registered with Carbon, which takes them from every application at once
-    /// and hands them here instead. Being open is no licence for that. A pinned panel does not
-    /// activate its app and, until it is asked to, does not take the keyboard either: clicking
-    /// the island leaves Mail frontmost with the insertion point still blinking in the reply
-    /// somebody is halfway through, and the letters they type next belong to that reply. Taking
-    /// them anyway is how a sentence arrived with every letter missing, Space stopped their
-    /// music mid-bar, and a 3 typed into a form jumped the switcher.
+    /// Being open is no licence for that. A pinned panel does not activate its app and, until
+    /// it is asked to, does not take the keyboard either: clicking the island leaves Mail
+    /// frontmost with the insertion point still blinking in the reply somebody is halfway
+    /// through, and the letters they type next belong to that reply. While these keys were hot
+    /// keys, taken from every application at once, taking them anyway is how a sentence arrived
+    /// with every letter missing, Space stopped somebody's music mid-bar, and a 3 typed into a
+    /// form jumped the switcher.
     ///
     /// So the licence is key status, which is the one thing here nobody has to guess at: while
     /// one of the island's own windows is the key window the system has already settled who the
-    /// keyboard belongs to, and it is not the app behind — so nothing claimed can be taken from
-    /// anybody. It is a licence and not a delivery route: the presses still arrive through
-    /// Carbon, so nothing depends on where the first responder happens to be. And when key
-    /// status goes — to another app, or to a menu or a Quick Look panel the island opened
-    /// itself — the claim goes with it in the same turn of the run loop, because it is the same
-    /// call that lets go of both.
+    /// keyboard belongs to, and it is not the app behind. The presses arrive the way any key
+    /// press does now, at the key window (`PanelKey`), so none can reach the island without it;
+    /// the claim says so in as many words all the same, and the switcher reads it to show its
+    /// digits (`ActivityCenter.panelKeysActive`).
     ///
     /// `textFieldUp` is the other way of the keys not being ours. The Notes scratchpad, or a
-    /// find already running, is somewhere the user types *into* the island, and a key taken as
-    /// a hot key never reaches the field it was meant for.
+    /// find already running, is somewhere the user types *into* the island, and a key the panel
+    /// answered itself would never reach the field it was meant for.
     ///
     /// Every key class goes the same way, and deliberately so. The digits and the arrows and
     /// Space do less damage than a letter — a caret moved, a track paused — but each of them is
@@ -498,28 +538,89 @@ final class HotKeyService: ObservableObject {
         return KeyClaim(bareKeys: true, letters: listSection)
     }
 
-    /// Settles what is claimed. Both halves at once: the letters come and go as the panel steps
-    /// from one section to the next while the rest of the keys stay put, so a change to either
-    /// re-registers the set. See `ActivityCenter.panelClaim`, which holds the state `claim`
-    /// reads.
+    /// Settles what is claimed, both halves at once: the letters come and go as the panel steps
+    /// from one section to the next while the rest of the keys stay put. Nothing is registered
+    /// for either; the panel's window reads the claim for each press it is sent
+    /// (`panelKey(for:)`). See `ActivityCenter.currentClaim`, which holds the state `claim` reads.
     func setPanelKeys(_ claim: KeyClaim) {
         guard claim != panelClaim else { return }
         panelClaim = claim
-        guard handlerRef != nil else { return }
-        unregisterPanelKeys()
-        if claim.bareKeys { registerPanelKeys() }
     }
 
     static var currentKeyCode: Int {
         normalized(Preferences.shared.hotkeyKeyCode, fallback: defaultKeyCode)
     }
 
+    /// The modifiers the shortcut and its steps are registered with, and shown with: the ones
+    /// recorded, except while VoiceOver runs over a shortcut still as it shipped
+    /// (`effectiveModifiers`). Main thread.
     static var currentModifiers: Int {
+        let recorded = recordedModifiers
+        guard shared.voiceOverRunning else { return recorded }
+        return effectiveModifiers(recorded: recorded, shipping: recordedIsShipping, voiceOver: true)
+    }
+
+    /// The modifiers as they were recorded, or written down the first time the app ran.
+    static var recordedModifiers: Int {
         let stored = normalized(Preferences.shared.hotkeyModifiers, fallback: defaultModifiers)
         // Without a modifier the island would claim Tab and the arrow keys system-wide. The
         // recorder refuses such a combo; a hand-edited defaults entry is refused here. One
         // modifier keeps its shortcut and loses its steps instead, see `stepsAreSafe`.
         return stored == 0 ? defaultModifiers : stored
+    }
+
+    /// Whether the shortcut stored is one this Mac could have shipped with rather than one
+    /// somebody recorded (`isShippingShortcut`). Main thread: it may ask the layout which key
+    /// types the fallback's I.
+    static var recordedIsShipping: Bool {
+        isShippingShortcut(keyCode: currentKeyCode, modifiers: recordedModifiers,
+                           fallback: fallbackKey(character: KeyLayout.character(for:)))
+    }
+
+    // MARK: - VoiceOver
+
+    /// Whether a set of modifiers is VoiceOver's own: Control and Option together, with Shift
+    /// or without, and nothing else. VO-Space presses what the VoiceOver cursor is on, VO-I
+    /// opens its item chooser, and VO with Tab or an arrow moves the cursor, so a hot key on
+    /// any of them and VoiceOver cannot both have it: one answers, and the other never hears
+    /// the press. Pure.
+    static func collidesWithVoiceOver(modifiers: Int) -> Bool {
+        let held = modifiers & (controlKey | optionKey | shiftKey | cmdKey)
+        return held == controlKey | optionKey || held == controlKey | optionKey | shiftKey
+    }
+
+    /// What a shipping shortcut on Control-Option moves to while VoiceOver runs: Control, Shift
+    /// and Command, still one hand at the left of the keyboard. Not Control and Command alone,
+    /// since ⌃⌘Space is macOS's own Emoji & Symbols, in the Edit menu of every app, and a hot
+    /// key there would have taken it from all of them. ⌃⇧⌘ with Space, I, Tab and the arrows is
+    /// nobody's out of the box.
+    static let voiceOverModifiers = controlKey | shiftKey | cmdKey
+
+    /// Whether a stored shortcut is one of the two this Mac could have shipped with: ⌃⌥Space,
+    /// or ⌃⌥ with the key that types the fallback's I (`fallback`, asked only when it matters)
+    /// or with the key where I sits on an American keyboard, which is where it was written
+    /// down if the layout has changed since.
+    ///
+    /// The shipping shortcut is written down the first time the app runs
+    /// (`Preferences.startingShortcut`), and nothing marks it as unchosen, so the stored pair is
+    /// all there is to go on. A ⌃⌥Space somebody recorded by hand reads as the one that
+    /// shipped, which is the same keys either way. Pure.
+    static func isShippingShortcut(keyCode: Int, modifiers: Int, fallback: @autoclosure () -> Int) -> Bool {
+        if keyCode == defaultKeyCode, modifiers == defaultModifiers { return true }
+        guard modifiers == fallbackModifiers else { return false }
+        return keyCode == fallbackKeyCode || keyCode == fallback()
+    }
+
+    /// The modifiers the shortcut and its steps are registered with: `recorded`, except that a
+    /// shipping shortcut on Control-Option gives way to Control-Shift-Command
+    /// (`voiceOverModifiers`) while VoiceOver runs. ⌃⌥Space is VO-Space and ⌃⌥I is VO-I, taken
+    /// for as long as the app runs, and the steps ⌃⌥Tab and ⌃⌥← → are how the VoiceOver cursor
+    /// moves, taken whenever anything is open. A Control-Option shortcut somebody recorded is
+    /// theirs and is kept; the recorder says whose keys those are
+    /// (`ShortcutRecorderView.voiceOverNote`). Pure.
+    static func effectiveModifiers(recorded: Int, shipping: Bool, voiceOver: Bool) -> Int {
+        guard voiceOver, shipping, collidesWithVoiceOver(modifiers: recorded) else { return recorded }
+        return voiceOverModifiers
     }
 
     /// Whether the steps — Tab, Shift-Tab and the arrows, each with the shortcut's own
@@ -536,6 +637,15 @@ final class HotKeyService: ObservableObject {
     /// opening and closing the island, and the steps are left to the app in front.
     static func stepsAreSafe(modifiers: Int) -> Bool {
         [controlKey, optionKey, cmdKey].filter { modifiers & $0 != 0 }.count >= 2
+    }
+
+    /// Whether Shift-Tab with the shortcut's modifiers steps backward: only where those do not
+    /// hold Shift already, since then the backward step would be the forward one and only the
+    /// forward one is registered. The Island pane asks the same question before it lists a
+    /// "Previous section" row, which the VoiceOver stand-in (`voiceOverModifiers`) has none of.
+    /// Pure.
+    static func hasBackwardStep(modifiers: Int) -> Bool {
+        (modifiers & shiftKey) == 0
     }
 
     /// Preferences store these as Doubles; a stale or hand-edited defaults entry must never
@@ -704,11 +814,25 @@ final class HotKeyService: ObservableObject {
             // way it does in every window on the Mac that has a search field.
             if center.endFind() { return }
             center.collapse(reason: "escape")
-        case .panelLeft: _ = center.step(forward: false, wrap: false)
-        case .panelRight: _ = center.step(forward: true, wrap: false)
         // Whatever question is up, from wherever the keyboard is.
         case .askYes: IslandAsk.shared.answer(.yes)
         case .askNo: IslandAsk.shared.answer(.no)
+        }
+    }
+
+    /// A panel key, answered as the hot key handler answered the same keys when they were hot
+    /// keys. Main thread.
+    static func answer(_ key: PanelKey) {
+        if case .typing(let typingKey) = key {
+            handle(typingKey)
+            return
+        }
+        let center = ActivityCenter.shared
+        let sinceOpened = Date().timeIntervalSince(center.openedAt)
+        IslandLog.keys.notice("panel key \(String(describing: key), privacy: .public) \(sinceOpened, privacy: .public)s after opening")
+        switch key {
+        case .left: _ = center.step(forward: false, wrap: false)
+        case .right: _ = center.step(forward: true, wrap: false)
         case .volumeUp: GestureRouter.shared.nudgeVolume(up: true)
         case .volumeDown: GestureRouter.shared.nudgeVolume(up: false)
         case .playPause:
@@ -720,6 +844,8 @@ final class HotKeyService: ObservableObject {
             } else {
                 NowPlayingService.shared.togglePlayPause()
             }
+        case .typing:
+            break
         }
     }
 
@@ -811,6 +937,27 @@ final class HotKeyService: ObservableObject {
         if (carbonModifiers & cmdKey) != 0 { text += "⌘" }
         return text + keyName(for: keyCode, character: character)
     }
+
+    /// "Control-Option-Space", "Shift-Command-K", "Control-Shift-Command-Left Arrow": a combination
+    /// as it is said aloud, for VoiceOver, which reads ⌃ as "caret". The modifiers in the
+    /// order `displayString` prints them, then the key's name as its cap prints it
+    /// (`keyName`), with the arrows, whose caps print a picture, named in words. Pure over
+    /// `character`.
+    static func spoken(modifiers: Int, key keyCode: Int,
+                       character: (Int) -> String? = KeyLayout.character(for:)) -> String {
+        var words: [String] = []
+        if (modifiers & controlKey) != 0 { words.append("Control") }
+        if (modifiers & optionKey) != 0 { words.append("Option") }
+        if (modifiers & shiftKey) != 0 { words.append("Shift") }
+        if (modifiers & cmdKey) != 0 { words.append("Command") }
+        words.append(spokenKeyNames[keyCode] ?? keyName(for: keyCode, character: character))
+        return words.joined(separator: "-")
+    }
+
+    /// The keys whose caps print a picture rather than a word.
+    private static let spokenKeyNames: [Int: String] = [
+        kVK_LeftArrow: "Left Arrow", kVK_RightArrow: "Right Arrow", kVK_UpArrow: "Up Arrow", kVK_DownArrow: "Down Arrow",
+    ]
 
     /// A key's name as its own cap would print it.
     ///

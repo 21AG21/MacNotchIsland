@@ -381,8 +381,20 @@ final class NotchPanel: NSPanel {
     /// A click just after the island grew goes to the body instead of to what it landed on
     /// (`clickGoesToBody`), and the rest of that click — its drags and its mouse-up — goes
     /// nowhere, so nothing is handed the end of a click whose start it never had.
+    ///
+    /// The panel's own keys are seen here first too, see `route(_:fullKeyboardAccess:somethingFocused:)`.
     override func sendEvent(_ event: NSEvent) {
         switch event.type {
+        case .keyDown:
+            // Ahead of every view, as when these were hot keys, so nothing changes for somebody
+            // who is not moving the focus with Tab. The rest go the ordinary way, to the focus
+            // first, and `keyDown` below answers them if nothing in the window took them.
+            if let key = HotKeyService.shared.panelKey(for: event),
+               Self.route(key, fullKeyboardAccess: NSApp.isFullKeyboardAccessEnabled,
+                          somethingFocused: firstResponder != nil && firstResponder !== self) == .island {
+                Self.answer(key, event)
+                return
+            }
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // A new click: whatever became of the last one's mouse-up, it has been.
             swallowingClick = false
@@ -417,6 +429,56 @@ final class NotchPanel: NSPanel {
             break
         }
         super.sendEvent(event)
+    }
+
+    /// A key press nothing in the window took: the focused control, if there was one, had it
+    /// first and let it go. What is still one of the panel's own keys is answered here; the rest
+    /// goes on up, to be refused the way any key is.
+    override func keyDown(with event: NSEvent) {
+        if let key = HotKeyService.shared.panelKey(for: event) {
+            Self.answer(key, event)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// Where a press of one of the panel's own keys goes first.
+    enum KeyRoute: Equatable {
+        /// Straight to the island, before any view in the window sees it.
+        case island
+        /// To whatever has the keyboard focus, and to the island only if that lets it go.
+        case focusFirst
+    }
+
+    /// Where a panel key goes first. With Full Keyboard Access on, Tab walks the rail's buttons
+    /// and the rows of the lists, and Space is how the one with the focus is pressed; the
+    /// arrows are how a slider or a list with the focus moves. Taken ahead of them, Space
+    /// played the music instead of pressing the button somebody had tabbed to. So those go to
+    /// the focus first, and reach the island only when nothing there takes them: Space still
+    /// plays and pauses with nothing focused, and the arrows still step. The figures and the
+    /// letters go straight to the island either way, since nothing the panel focuses types
+    /// them. With Full Keyboard Access off the buttons and rows take no focus, and every key
+    /// goes to the island first, as it always has.
+    ///
+    /// `somethingFocused` is whether any view at all is the window's first responder. SwiftUI
+    /// keeps which of its controls has the focus to itself, behind the hosting view, so a
+    /// hosting view that is first responder may or may not have a control focused and is taken
+    /// to have one; a window that is its own first responder has nothing focused, whatever
+    /// Full Keyboard Access says, and the island answers first. Pure.
+    static func route(_ key: HotKeyService.PanelKey, fullKeyboardAccess: Bool, somethingFocused: Bool) -> KeyRoute {
+        guard fullKeyboardAccess, somethingFocused else { return .island }
+        switch key {
+        case .left, .right, .volumeUp, .volumeDown, .playPause: return .focusFirst
+        case .typing: return .island
+        }
+    }
+
+    /// A panel key, answered once for each press: a key held down repeats only where that
+    /// means something (`HotKeyService.PanelKey.repeats`), and a repeat of any other is
+    /// swallowed rather than handed to a view the press itself never reached.
+    private static func answer(_ key: HotKeyService.PanelKey, _ event: NSEvent) {
+        guard !event.isARepeat || key.repeats else { return }
+        HotKeyService.answer(key)
     }
 
     /// How soon after the island grows a click is still taken for one aimed at what was there
@@ -543,15 +605,16 @@ final class NotchPanel: NSPanel {
     /// on the hosting view.
     ///
     /// It pulls focus from the app in front, and that is the point rather than a cost. The
-    /// panel's keys are claimed from every application at once; leaving the keyboard with the
-    /// app behind meant clicking the island and carrying on typing put the letters into a find
-    /// nobody had asked for instead of into the reply they were writing. Holding the keyboard
-    /// is what makes the claim honest, and it is visible — the window behind dims — so it is
-    /// obvious where the typing is going.
+    /// panel's keys were once claimed from every application at once, and leaving the keyboard
+    /// with the app behind meant clicking the island and carrying on typing put the letters into
+    /// a find nobody had asked for instead of into the reply they were writing. Holding the
+    /// keyboard is what makes the claim honest — and now it is also how the keys arrive, at
+    /// `sendEvent` and `keyDown` — and it is visible: the window behind dims, so it is obvious
+    /// where the typing is going.
     override var canBecomeKey: Bool { ActivityCenter.shared.wantsPanelKeyboard }
     override var canBecomeMain: Bool { false }
 
-    /// Key status is what licenses the panel's hot keys, so the centre is told the moment it
+    /// Key status is what licenses the panel's own keys, so the centre is told the moment it
     /// changes either way. See `ActivityCenter.panelKeyChanged`.
     override func becomeKey() {
         super.becomeKey()

@@ -13,6 +13,47 @@ final class NotchContainerView: NSView {
         }
         return nil
     }
+
+    // MARK: VoiceOver
+
+    /// The island, to VoiceOver: a group called Island whose press does what a click on the
+    /// island's body does, so the VoiceOver cursor can open the panel. The body answered a
+    /// click and nothing else, so the pill's sentence could be heard and nothing opened it.
+    ///
+    /// On this view, not on the hosting view inside it. The hosting view is left as SwiftUI
+    /// made it: no element of its own, handing VoiceOver the pill's sentence, the sections and
+    /// their controls as its children, which a view that is not an element passes up to the
+    /// nearest one that is. That is this group, so the group adds a name and a press and hides
+    /// none of them.
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+    override func accessibilityLabel() -> String? { "Island" }
+
+    /// The island's own outline rather than the canvas round it: the window is as tall as the
+    /// tallest card whatever is showing, and a VoiceOver cursor drawn round all of it would
+    /// sit over the menu bar and the windows beside the notch.
+    override func accessibilityFrame() -> NSRect {
+        island?.islandScreenFrame ?? super.accessibilityFrame()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        island?.pressIsland() ?? false
+    }
+
+    private var island: IslandPressTarget? {
+        subviews.first { $0 is IslandPressTarget } as? IslandPressTarget
+    }
+}
+
+/// What the container asks of the hosting view it holds, which is generic over its content
+/// and so cannot be named here without saying what that is.
+protocol IslandPressTarget: AnyObject {
+    /// The island's outline, as a rectangle on the screen; nil while nothing is drawn.
+    var islandScreenFrame: NSRect? { get }
+    /// Does what a click on the island's body does. False when nothing is drawn to click.
+    func pressIsland() -> Bool
 }
 
 /// Hosting view that only accepts mouse events inside the island's drawn outline so the
@@ -132,7 +173,35 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         guard Self.contains(path, topLeft(convert(point, from: superview)), margin: 0) else { return nil }
         return super.hitTest(point)
     }
+
+    // MARK: VoiceOver's press
+
+    /// What a click on the island's body does, for VoiceOver's press on the group round it
+    /// (`NotchContainerView`): the peek pinned, as `NotchPanel.sendEvent` pins it for every
+    /// click, and then the body's own tap — the pill opens what it shows, the empty notch opens
+    /// Home, a card is kept. The press-in is left out: it is drawn between a button going down
+    /// and coming up (`IslandPress`), and a press from VoiceOver has neither.
+    func pressIsland() -> Bool {
+        guard islandLayoutProvider?() != nil else { return false }
+        let center = ActivityCenter.shared
+        center.pinPeek(panel: panelID)
+        center.tap(panel: panelID)
+        return true
+    }
+
+    /// The outline's bounding box in screen coordinates; nil while nothing is drawn.
+    var islandScreenFrame: NSRect? {
+        guard let window, let box = islandPath()?.boundingRect else { return nil }
+        // The outline is drawn from the top left (`topLeft`), and this view may count from the
+        // bottom.
+        let local = isFlipped
+            ? box
+            : NSRect(x: box.minX, y: bounds.minY + (bounds.maxY - box.maxY), width: box.width, height: box.height)
+        return window.convertToScreen(convert(local, to: nil))
+    }
 }
+
+extension NotchHostingView: IslandPressTarget {}
 
 /// The island's press-in: whether a press on its body is told to the centre as one.
 enum IslandPress {

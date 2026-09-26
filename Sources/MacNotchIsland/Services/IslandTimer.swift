@@ -945,6 +945,12 @@ final class IslandTimer: ObservableObject {
         // The finished timer's own expanded view is the alert, the way the Clock app's Live
         // Activity takes over the island when it goes off.
         ActivityCenter.shared.forceExpanded(id: entry.id, for: 8)
+        // Said as well as shown. The sound is a choice somebody may have switched off, and the
+        // card taking the island is nothing to somebody who cannot see it — VoiceOver reads the
+        // card only if its cursor happens to be there.
+        IslandAccessibility.announce(Self.finishedAnnouncement(
+            label: entry.label, phase: entry.id == pomodoroTimerID ? pomodoro : nil,
+            alarmTime: entry.state.alarmAt.map { IslandAlarm.clock($0) }))
         // The banner is for when that cannot be seen: the island hidden, an app full screen
         // over it, or the screen locked or asleep with nobody at it — which is what Privacy
         // says it is for. Posted every time, it doubled every timer with a banner, and asked
@@ -969,6 +975,20 @@ final class IslandTimer: ObservableObject {
                   current.createdAt == entry.createdAt, current.state.isFinished else { return }
             self.cancel(id: entry.id)
         }
+    }
+
+    /// What VoiceOver is told when a timer rings, named the way its card speaks of it:
+    /// "Pasta timer finished", "Timer finished" for one with no name of its own, "Focus
+    /// finished, session 2 of 4" for a Pomodoro phase, and an alarm's name and the time it
+    /// rang for, which is `alarmTime` — "Alarm ringing, 7:30". Pure, so it is tested.
+    static func finishedAnnouncement(label: String, phase: PomodoroPhase? = nil, alarmTime: String? = nil) -> String {
+        let name = label.trimmingCharacters(in: .whitespaces)
+        if let alarmTime {
+            let alarm = name.isEmpty || name == IslandAlarm.defaultLabel ? IslandAlarm.defaultLabel : "\(name) alarm"
+            return "\(alarm) ringing, \(alarmTime)"
+        }
+        if let phase { return "\(phase.name) finished, session \(phase.cycle) of \(phase.cycles)" }
+        return name.isEmpty || name == "Timer" ? "Timer finished" : "\(name) timer finished"
     }
 
     /// Banner for a timer that went off while the island was hidden or another app was full

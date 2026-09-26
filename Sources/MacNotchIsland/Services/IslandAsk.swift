@@ -91,6 +91,25 @@ struct AskRequest: Equatable {
         keysHeld ? "Control-Y for \(yes), Control-N for \(no)" : nil
     }
 
+    /// What VoiceOver says as the question goes up: the question, the detail under it, and how
+    /// to answer — the keys only when they are the island's, as with the card's own line
+    /// (`keyHint`), and otherwise the two buttons by name. The card is forced open for the
+    /// whole wait, which tells somebody who cannot see it nothing, and the script went on
+    /// waiting for an answer from somebody who never knew there was a question.
+    func announcement(keysHeld: Bool) -> String {
+        var parts = [Self.sentence(title)]
+        if let detail { parts.append(Self.sentence(detail)) }
+        parts.append(keysHeld ? "Press Control-Y for \(yes) or Control-N for \(no)."
+                              : "Answer \(yes) or \(no) on the island.")
+        return parts.joined(separator: " ")
+    }
+
+    /// A line as a sentence: with the stop it already ends in, or a full stop added.
+    private static func sentence(_ text: String) -> String {
+        guard let last = text.last, !".?!…".contains(last) else { return text }
+        return text + "."
+    }
+
     /// The reply file, when it is one the island may create; nil otherwise, and then the
     /// question is not put up at all, since an answer with nowhere to go is not an answer.
     func replyPath(isSafe: (String) -> Bool = AskRequest.isSafeOnDisk) -> String? {
@@ -300,6 +319,7 @@ final class IslandAsk {
         activity.expiresAt = Date().addingTimeInterval(request.timeout + Self.expiryGrace)
         center.upsert(activity)
         center.forceExpanded(id: Self.activityID, for: request.timeout)
+        IslandAccessibility.announce(request.announcement(keysHeld: keysHeld))
         watchCard()
         watchForcedSlot(token: token)
         watchReplyFolder(of: reply, token: token)

@@ -61,6 +61,18 @@ struct WelcomeView: View {
         return HotKeyService.displayString(keyCode: kVK_Tab, carbonModifiers: HotKeyService.currentModifiers)
     }
 
+    /// The same two as they are said: VoiceOver reads ⌃ as "caret" (`HotKeyService.spoken`).
+    /// Each is nil exactly where its printed twin is.
+    private var spokenShortcut: String? {
+        guard shortcut != nil else { return nil }
+        return HotKeyService.spoken(modifiers: HotKeyService.currentModifiers, key: HotKeyService.currentKeyCode)
+    }
+
+    private var spokenTab: String? {
+        guard tabShortcut != nil else { return nil }
+        return HotKeyService.spoken(modifiers: HotKeyService.currentModifiers, key: kVK_Tab)
+    }
+
     var body: some View {
         ZStack {
             // The pages slide in from the side they are on, and with Reduce Motion on only
@@ -95,6 +107,7 @@ struct WelcomeView: View {
 
             Text("Welcome to Notch Island")
                 .font(.system(size: 26, weight: .bold))
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, 14)
             Text(Self.headline(hasNotch: NSScreen.screens.contains { $0.safeAreaInsets.top > 0 }))
                 .font(.system(size: 13))
@@ -109,7 +122,8 @@ struct WelcomeView: View {
                 row("tray.and.arrow.down", "Drop files on the shelf",
                     Self.shelfDetail(expiryHours: prefs.shelfExpiryHours))
                 let keys = Self.keyboardRow(shortcut: shortcut, tab: tabShortcut)
-                row("keyboard", keys.title, keys.detail)
+                row("keyboard", keys.title, keys.detail,
+                    spoken: Self.keyboardRow(shortcut: spokenShortcut, tab: spokenTab))
             }
             .frame(maxWidth: 400, alignment: .leading)
             .padding(.top, 32)
@@ -267,6 +281,7 @@ struct WelcomeView: View {
 
             Text("Choose What It Shows")
                 .font(.system(size: 26, weight: .bold))
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, 14)
             Text(Self.subtitle(on: elsewhere.filter { $0.isEnabled(prefs) }.map(\.title),
                                off: elsewhere.filter { !$0.isEnabled(prefs) }.map(\.title)))
@@ -339,7 +354,10 @@ struct WelcomeView: View {
         .onAppear { prefs.settleLoginItem() }
     }
 
-    private func row(_ symbol: String, _ title: String, _ detail: String) -> some View {
+    /// One row of page one. `spoken` is the row as VoiceOver should read it, where the printed
+    /// words carry glyphs it would read as symbols — the keyboard row's ⌃⌥Space.
+    private func row(_ symbol: String, _ title: String, _ detail: String,
+                     spoken: (title: String, detail: String)? = nil) -> some View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: symbol)
                 .font(.system(size: 26, weight: .regular))
@@ -348,11 +366,14 @@ struct WelcomeView: View {
                 .frame(width: 40, alignment: .center)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .accessibilityLabel(spoken?.title ?? title)
                 Text(detail)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(spoken?.detail ?? detail)
             }
         }
         .accessibilityElement(children: .combine)

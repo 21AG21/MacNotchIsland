@@ -91,6 +91,43 @@ final class ShortcutRecorderTests: XCTestCase {
             .contains("macOS") == true, "and so is the system answering the shortcut itself")
     }
 
+    /// Control and Option are VoiceOver's own keys. A shortcut as it shipped has moved off them
+    /// while VoiceOver runs, and the row says why it reads differently; one somebody recorded
+    /// is kept, and the row says whose keys those are.
+    func testTheRowSaysWhenTheShortcutIsVoiceOversOwnKeys() {
+        let controlOption = control | option
+        let recorded = "Control-Option combinations are VoiceOver's own keys."
+        XCTAssertEqual(ShortcutRecorderView.voiceOverNote(voiceOver: true, recorded: controlOption, shipping: false), recorded)
+        XCTAssertEqual(ShortcutRecorderView.voiceOverNote(voiceOver: true, recorded: controlOption | shift, shipping: false),
+                       recorded)
+        XCTAssertEqual(ShortcutRecorderView.voiceOverNote(voiceOver: true, recorded: controlOption, shipping: true),
+                       "While VoiceOver is on, Control-Shift-Command stands in for Control-Option, which are VoiceOver's own keys.",
+                       "one that shipped says where it has gone instead")
+        XCTAssertNil(ShortcutRecorderView.voiceOverNote(voiceOver: false, recorded: controlOption, shipping: false),
+                     "nothing to say with VoiceOver off")
+        XCTAssertNil(ShortcutRecorderView.voiceOverNote(voiceOver: true, recorded: control | cmd, shipping: false))
+
+        var asked = 0
+        func shipping() -> Bool {
+            asked += 1
+            return true
+        }
+        _ = ShortcutRecorderView.voiceOverNote(voiceOver: false, recorded: controlOption, shipping: shipping())
+        _ = ShortcutRecorderView.voiceOverNote(voiceOver: true, recorded: cmd | shift, shipping: shipping())
+        XCTAssertEqual(asked, 0, "whether it shipped is asked only when the answer turns on it")
+    }
+
+    /// The stand-in holds three modifiers, two of them of ⌃⌥⌘, so the recorder's own rule takes
+    /// it on every key the shortcut ships with — and somebody may record it by hand.
+    func testTheVoiceOverStandInPassesTheRecordersRule() {
+        let standIn = HotKeyService.voiceOverModifiers
+        XCTAssertEqual(standIn, control | shift | cmd)
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_Space, modifiers: standIn))
+        XCTAssertNil(ShortcutRecorderView.rejection(keyCode: kVK_ANSI_I, modifiers: standIn))
+        XCTAssertNil(ShortcutRecorderView.voiceOverNote(voiceOver: true, recorded: standIn, shipping: false),
+                     "and says nothing about VoiceOver, whose keys it is not")
+    }
+
     func testTheIslandsOwnStepsAreRefusedWhateverIsHeld() {
         // The next section is registered on Tab, and the sideways steps on the arrows, with
         // the recorded combination's own modifiers — so any of these would be the shortcut
