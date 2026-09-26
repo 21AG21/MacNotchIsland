@@ -14,7 +14,9 @@ import AppKit
 ///   notchisland://alarm?at=07:30&label=Wake       notchisland://alarm/cancel[?id=…]
 ///   notchisland://stopwatch | stopwatch/lap | stopwatch/stop | stopwatch/reset
 ///   notchisland://shelf/add?path=/Users/me/file.pdf   notchisland://shelf/clear
-///   notchisland://ask?title=Deploy%3F&detail=…&yes=Deploy&no=Wait&timeout=60&reply=/tmp/notchctl-ask.X/answer
+///   notchisland://ask?title=Deploy%3F&detail=…&yes=Deploy&no=Wait&timeout=60&reply=/tmp/notchctl-ask.X/answer&token=…
+///   notchisland://ask/cancel?token=…              (the token the question was put up with)
+///   Lengths are numbers, or numbers with a unit: minutes=45, minutes=45m, seconds=90s, ttl=10m
 ///   notchisland://home                            notchisland://settings/island
 ///   Panes: general, island, activities, home, media, actions (or shortcuts), privacy, about
 final class LiveActivityAPI {
@@ -87,6 +89,19 @@ final class LiveActivityAPI {
     /// The id every card a script pushes carries in front of its own: `activity` and `alert`.
     static let pushedPrefix = "api-"
 
+    /// The id of a card `activity` pushes: the prefix and the script's name for it, or "custom"
+    /// for a card with no name, or a name of nothing but spaces.
+    static func pushedID(_ raw: String?) -> String {
+        pushedPrefix + (text(raw) ?? "custom")
+    }
+
+    /// The id of the alert a script pushes: the prefix alone. It was "api-alert", which is also
+    /// the id `notchctl activity alert` gave its card, and the two wrote over each other — a
+    /// clicked alert kept as an activity replaced the card, and ending the card took the alert.
+    /// Every pushed card is the prefix and a name that is never nothing (`pushedID`), so none
+    /// can take this one.
+    static let alertID = pushedPrefix
+
     /// Pure: what pressing `action` on the card `activityID` does, with the switch as it is.
     /// The order is `CustomAction`'s: a command, then a link, then a Shortcut.
     static func press(_ action: CustomAction, activityID: String, allowsShortcuts: Bool) -> Press {
@@ -111,9 +126,149 @@ final class LiveActivityAPI {
 
     /// A length in seconds, or nothing. `Double` reads "inf", "nan" and "-3" as numbers, and
     /// each of them is a way to put something up for ever or take it down on arrival; a
-    /// minute is longer than any alert needs to be read.
+    /// minute is longer than any alert needs to be read. Read as `length` reads one, so "3s"
+    /// is three seconds here as well.
     static func seconds(_ raw: String?) -> TimeInterval? {
-        raw.flatMap { Double($0) }.flatMap { $0.isFinite && $0 > 0 ? min($0, maxSeconds) : nil }
+        guard case .seconds(let value) = length(raw, per: 1), value > 0 else { return nil }
+        return min(value, maxSeconds)
+    }
+
+    // MARK: - Lengths
+
+    /// A length as a script wrote it.
+    enum Length: Equatable {
+        /// Not in the query at all: the command's own default applies.
+        case absent
+        /// A length, in seconds. Any sign; what a command does with one is its own business.
+        case seconds(TimeInterval)
+        /// In the query, and not a length: the command is refused, never run on a default.
+        case unreadable
+
+        /// The seconds, and nothing for a length that is absent or unreadable.
+        var amount: TimeInterval {
+            if case .seconds(let value) = self { return value }
+            return 0
+        }
+    }
+
+    /// The units a length may carry, in seconds. The minutes are every word the Actions field
+    /// takes after a number (`TimerEntry.typedMinutes`), so "25m" and "25 min" mean the same in
+    /// a script as they do there.
+    static let unitWords: [String: TimeInterval] = [
+        "s": 1, "sec": 1, "secs": 1, "second": 1, "seconds": 1,
+        "m": 60, "min": 60, "mins": 60, "minute": 60, "minutes": 60,
+        "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
+    ]
+
+    /// A length a script sent: a plain decimal number, optionally signed, and after it
+    /// optionally one of `unitWords`. A bare number counts `unit` seconds each — 60 for
+    /// `minutes=`, 1 for `seconds=` and `ttl=`.
+    ///
+    /// Every one of these was `Double(x) ?? default`: "45m" is not a `Double`, so `notchctl
+    /// sleep 45m` set the default thirty minutes, `timer add 5m` added one, `--work 50m` gave
+    /// twenty-five and `--ttl 10m` a card that never went — each with `notchctl` saying it had
+    /// worked. And `Double` takes "1e300", "inf" and "0x1p9", none of which anybody means as a
+    /// length. So only plain decimals are numbers here; anything else is `unreadable`, and the
+    /// command is refused and logged. Pure, so the grammar is tested.
+    static func length(_ raw: String?, per unit: TimeInterval) -> Length {
+        guard let raw else { return .absent }
+        let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        let end = text.firstIndex { !($0.isASCII && ($0.isNumber || $0 == "." || $0 == "-")) } ?? text.endIndex
+        let number = String(text[..<end])
+        let word = text[end...].trimmingCharacters(in: .whitespaces)
+        guard isPlainNumber(number), let value = Double(number),
+              let scale = word.isEmpty ? Optional(unit) : unitWords[word] else { return .unreadable }
+        let seconds = value * scale
+        return seconds.isFinite ? .seconds(seconds) : .unreadable
+    }
+
+    /// Digits, with at most one point between digits, and a minus sign in front if anything.
+    private static func isPlainNumber(_ text: String) -> Bool {
+        let body = text.hasPrefix("-") ? text.dropFirst() : Substring(text)
+        let parts = body.split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count) else { return false }
+        return parts.allSatisfy { part in !part.isEmpty && part.allSatisfy { $0.isASCII && $0.isNumber } }
+    }
+
+    /// The longest timer a script may start, or add in one go: the day the Actions field
+    /// allows (`TimerEntry.maxTypedMinutes`). `timer?minutes=1e300` was a timer, and its card
+    /// brought the app down when it was read aloud (`IslandAccessibility.spokenDuration`).
+    static let maxTimer: TimeInterval = TimeInterval(TimerEntry.maxTypedMinutes) * 60
+
+    /// A length that is a timer: more than nothing, and no more than `maxTimer`. Nil otherwise.
+    static func timerLength(_ seconds: TimeInterval) -> TimeInterval? {
+        seconds.isFinite && seconds > 0 && seconds <= maxTimer ? seconds : nil
+    }
+
+    /// A timer's length from one field: `fallback` when it is not there, and nil when it is and
+    /// cannot be read or is not a timer.
+    static func timer(_ raw: String?, per unit: TimeInterval, absent fallback: TimeInterval) -> TimeInterval? {
+        switch length(raw, per: unit) {
+        case .absent: return fallback
+        case .seconds(let value): return timerLength(value)
+        case .unreadable: return nil
+        }
+    }
+
+    /// `timer?minutes=5&seconds=30`: the two added up. Nil when either is there and cannot be
+    /// read, or the sum is not a timer — nothing at all included, which starts nothing.
+    static func timerStart(minutes: String?, seconds: String?) -> TimeInterval? {
+        let m = length(minutes, per: 60), s = length(seconds, per: 1)
+        guard m != .unreadable, s != .unreadable else { return nil }
+        return timerLength(m.amount + s.amount)
+    }
+
+    /// `timer/add?minutes=2`: a minute when neither is there, as it always was; otherwise the
+    /// two added up, a negative sum taking time off (`IslandTimer.add(seconds:id:)`). Nil when
+    /// either cannot be read, or the sum is nothing or more than a day either way. The minute
+    /// is no longer added to `seconds=30` as well, which made it ninety.
+    static func timerAdd(minutes: String?, seconds: String?) -> TimeInterval? {
+        let m = length(minutes, per: 60), s = length(seconds, per: 1)
+        guard m != .unreadable, s != .unreadable else { return nil }
+        if m == .absent && s == .absent { return IslandTimer.addStep }
+        let total = m.amount + s.amount
+        return total.isFinite && total != 0 && abs(total) <= maxTimer ? total : nil
+    }
+
+    /// `sleep?minutes=45`, thirty minutes when it says nothing.
+    static let defaultSleep: TimeInterval = 30 * 60
+
+    /// A Pomodoro run as a script asked for it.
+    struct PomodoroRequest: Equatable {
+        var work: TimeInterval
+        var rest: TimeInterval
+        var longRest: TimeInterval
+        var cycles: Int
+    }
+
+    /// `timer/pomodoro?work=50&rest=10&cycles=3&long=20`, each in minutes unless it says
+    /// otherwise, and the usual 25, 5, 4 and 15 for whatever it leaves out. Nil when any of
+    /// them is there and is not what it should be: a length that is not a timer, or a count of
+    /// cycles that is not a whole number above nought.
+    static func pomodoro(_ q: [String: String]) -> PomodoroRequest? {
+        guard let work = timer(q["work"], per: 60, absent: 25 * 60),
+              let rest = timer(q["rest"], per: 60, absent: 5 * 60),
+              let longRest = timer(q["long"], per: 60, absent: 15 * 60) else { return nil }
+        var cycles = 4
+        if let raw = q["cycles"] {
+            guard let count = Int(raw.trimmingCharacters(in: .whitespaces)), count > 0 else { return nil }
+            cycles = count
+        }
+        return PomodoroRequest(work: work, rest: rest, longRest: longRest, cycles: cycles)
+    }
+
+    /// `ttl=`: how long a card stays, in seconds unless it says otherwise. Absent is a card that
+    /// stays until it is ended; anything there that is not a length above nought is unreadable,
+    /// and the card is refused rather than left up for ever.
+    static func ttl(_ raw: String?) -> Length {
+        let read = length(raw, per: 1)
+        if case .seconds(let value) = read, value <= 0 { return .unreadable }
+        return read
+    }
+
+    /// What a refused command was sent, for the log.
+    private static func said(_ q: [String: String], _ keys: String...) -> String {
+        keys.compactMap { key in q[key].map { "\(key)=\($0)" } }.joined(separator: " ")
     }
 
     /// A card's rank, kept under a call's. Anything on this Mac can push a card, and a call is
@@ -156,20 +311,28 @@ final class LiveActivityAPI {
         let center = ActivityCenter.shared
         switch (host, path) {
         case ("activity", ""), ("activity", "start"), ("activity", "update"):
-            let id = q["id"] ?? "custom"
+            // A card asked to go in "10m" was a card that never went: the length is read as
+            // `length` reads one, and one that cannot be read is no card at all.
+            let ttl = Self.ttl(q["ttl"])
+            if ttl == .unreadable {
+                IslandLog.island.error("activity: \(Self.said(q, "ttl"), privacy: .public) is not a length")
+                return
+            }
             var custom = CustomActivity(title: Self.text(q["title"]) ?? "Activity")
             custom.subtitle = q["subtitle"]
             custom.symbol = Self.symbol(q["symbol"] ?? q["icon"], fallback: "app.fill")
             custom.tint = q["tint"] ?? q["color"] ?? "white"
             custom.progress = q["progress"].flatMap { Double($0) }.map { min(1, max(0, $0)) }
             custom.trailingText = q["trailing"]
-            custom.body = q["body"]
+            // "body=" is no body. Kept as "", the card was sized for a line the view does not
+            // draw (`cardHeight`), and 24 pt of black hung under it.
+            custom.body = Self.text(q["body"])
             custom.url = Self.safeLink(q["url"])
             custom.showsRing = ["1", "true", "yes"].contains((q["ring"] ?? "").lowercased())
             custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
             let priority = Self.priority(q["priority"]) ?? 70
-            var activity = IslandActivity(id: Self.pushedPrefix + id, kind: .custom, content: .custom(custom), priority: priority)
-            if let ttl = q["ttl"].flatMap({ Double($0) }), ttl > 0 { activity.expiresAt = Date().addingTimeInterval(ttl) }
+            var activity = IslandActivity(id: Self.pushedID(q["id"]), kind: .custom, content: .custom(custom), priority: priority)
+            if case .seconds(let seconds) = ttl { activity.expiresAt = Date().addingTimeInterval(seconds) }
             if let u = custom.url { activity.openAction = .url(u) }
             center.upsert(activity)
             if ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased()) {
@@ -181,9 +344,9 @@ final class LiveActivityAPI {
             // activities are `.custom` too (the screen recording's, with its Stop button), and
             // ending by kind took that one down while `screencapture` went on recording.
             if let id = q["id"] {
-                center.end(id: "api-" + id)
+                center.end(id: Self.pushedID(id))
             } else {
-                for a in center.activities where a.id.hasPrefix("api-") { center.end(id: a.id) }
+                for a in center.activities where a.id.hasPrefix(Self.pushedPrefix) { center.end(id: a.id) }
             }
 
         case ("alert", _):
@@ -193,11 +356,11 @@ final class LiveActivityAPI {
             custom.symbol = Self.symbol(q["symbol"] ?? q["icon"], fallback: "bell.fill")
             custom.tint = q["tint"] ?? q["color"] ?? "white"
             custom.trailingText = q["trailing"] ?? title
-            custom.body = q["body"]
+            custom.body = Self.text(q["body"])
             custom.url = Self.safeLink(q["url"])
             custom.actions = Self.actions(from: q, allowsShortcuts: Preferences.shared.apiShortcutsEnabled)
             let expanded = ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased())
-            var activity = IslandActivity(id: "api-alert", kind: .custom, content: .custom(custom), priority: 85,
+            var activity = IslandActivity(id: Self.alertID, kind: .custom, content: .custom(custom), priority: 85,
                                           presentation: expanded ? .expanded : .compact)
             if let u = custom.url { activity.openAction = .url(u) }
             // A script's own figure is taken as it stands. The alert slider scales the island's
@@ -205,23 +368,32 @@ final class LiveActivityAPI {
             let seconds = Self.seconds(q["duration"])
             center.showAlert(activity, duration: seconds, exact: seconds != nil)
 
+        // Every length below is read by `length`, and one that is there and cannot be read, or
+        // is not a timer, is refused and logged rather than run on a default.
         case ("timer", ""), ("timer", "start"):
-            let minutes = q["minutes"].flatMap { Double($0) } ?? 0
-            let seconds = q["seconds"].flatMap { Double($0) } ?? 0
-            let total = minutes * 60 + seconds
-            if total > 0 { IslandTimer.shared.start(seconds: total, label: q["label"] ?? "Timer") }
+            guard let total = Self.timerStart(minutes: q["minutes"], seconds: q["seconds"]) else {
+                IslandLog.island.error("timer: \(Self.said(q, "minutes", "seconds"), privacy: .public) is not a timer of up to a day")
+                return
+            }
+            IslandTimer.shared.start(seconds: total, label: q["label"] ?? "Timer")
         case ("timer", "pomodoro"):
-            IslandTimer.shared.startPomodoro(work: (q["work"].flatMap { Double($0) } ?? 25) * 60,
-                                             rest: (q["rest"].flatMap { Double($0) } ?? 5) * 60,
-                                             cycles: q["cycles"].flatMap { Int($0) } ?? 4,
-                                             longRest: (q["long"].flatMap { Double($0) } ?? 15) * 60)
+            guard let run = Self.pomodoro(q) else {
+                IslandLog.island.error("pomodoro: \(Self.said(q, "work", "rest", "long", "cycles"), privacy: .public) is not a run")
+                return
+            }
+            IslandTimer.shared.startPomodoro(work: run.work, rest: run.rest, cycles: run.cycles, longRest: run.longRest)
         case ("timer", "add"):
-            let minutes = q["minutes"].flatMap { Double($0) } ?? 1
-            let seconds = q["seconds"].flatMap { Double($0) } ?? 0
-            IslandTimer.shared.add(seconds: minutes * 60 + seconds)
+            guard let change = Self.timerAdd(minutes: q["minutes"], seconds: q["seconds"]) else {
+                IslandLog.island.error("timer/add: \(Self.said(q, "minutes", "seconds"), privacy: .public) is not a length of up to a day")
+                return
+            }
+            IslandTimer.shared.add(seconds: change)
         case ("timer", "sleep"), ("sleep", ""), ("sleep", "start"):
-            let minutes = q["minutes"].flatMap { Double($0) } ?? 30
-            IslandTimer.shared.startSleep(seconds: minutes * 60)
+            guard let duration = Self.timer(q["minutes"], per: 60, absent: Self.defaultSleep) else {
+                IslandLog.island.error("sleep: \(Self.said(q, "minutes"), privacy: .public) is not a timer of up to a day")
+                return
+            }
+            IslandTimer.shared.startSleep(seconds: duration)
         case ("sleep", "cancel"), ("sleep", "stop"):
             IslandTimer.shared.cancelSleep()
         case ("timer", "cancel"), ("timer", "stop"):
@@ -274,6 +446,15 @@ final class LiveActivityAPI {
             // A yes-or-no question held on the island until it is answered, with the answer
             // written to `reply`; `notchctl ask` waits on that file. See `IslandAsk`.
             IslandAsk.shared.handle(query: q)
+        case ("ask", "cancel"):
+            // `notchctl ask` interrupted: the question it put is taken down unanswered, so it
+            // does not hold the island, and Control-Y and Control-N, for the rest of its time.
+            // Only with the token the script put the question up with; see `IslandAsk.cancel`.
+            guard let token = q["token"] else {
+                IslandLog.island.error("ask/cancel: no token")
+                return
+            }
+            IslandAsk.shared.cancel(token: token)
         case ("ask", "answer"):
             // The card's own buttons, which carry the question's token. Anything without it is
             // somebody else's guess at an answer, and answers nothing.

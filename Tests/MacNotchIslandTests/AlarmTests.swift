@@ -314,4 +314,79 @@ final class AlarmTests: XCTestCase {
         }
         XCTAssertTrue(timer.alarms.isEmpty)
     }
+
+    // MARK: - A change of time zone
+
+    private func calendar(_ zone: String) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: zone)!
+        return c
+    }
+
+    /// `notchctl alarm 07:30` in New York, then a flight to Los Angeles: it rang at half past
+    /// four in the morning there, which is half past seven in a city nobody was in.
+    func testAnAlarmForATimeOnTheClockMovesWithTheZone() {
+        let newYork = calendar("America/New_York"), losAngeles = calendar("America/Los_Angeles")
+        // 22:00 in New York on the 25th, which is 19:00 in Los Angeles.
+        let setAt = at(25, 22, 0, in: newYork)
+        guard let fire = IslandAlarm.nextFire(hour: 7, minute: 30, after: setAt, calendar: newYork) else {
+            return XCTFail("no 7:30")
+        }
+        let now = setAt.addingTimeInterval(3600)
+        let wake = IslandAlarm(id: "wake", label: "Wake", fireDate: fire, createdAt: setAt)
+        let snooze = IslandAlarm(id: "snooze", label: "Snooze", fireDate: now.addingTimeInterval(IslandTimer.snoozeInterval),
+                                 createdAt: now)
+        let gone = IslandAlarm(id: "gone", label: "Gone", fireDate: now.addingTimeInterval(-60), createdAt: setAt)
+        let clocks = ["wake": IslandTimer.AlarmClock(hour: 7, minute: 30), "gone": IslandTimer.AlarmClock(hour: 22, minute: 59)]
+        let moved = IslandTimer.retimed([wake, snooze, gone], clocks: clocks, now: now, calendar: losAngeles)
+
+        let movedWake = moved.first { $0.id == "wake" }
+        XCTAssertEqual(movedWake?.fireDate, at(26, 7, 30, in: losAngeles), "the next 7:30 on the clock it is now")
+        XCTAssertEqual(moved.first { $0.id == "snooze" }?.fireDate, snooze.fireDate, "nine minutes are nine minutes anywhere")
+        XCTAssertEqual(moved.first { $0.id == "gone" }?.fireDate, gone.fireDate, "one already due is triage's to ring or report")
+        XCTAssertEqual(moved.map(\.id), IslandAlarm.sorted(moved).map(\.id), "soonest first, still")
+        XCTAssertEqual(IslandTimer.retimed([wake], clocks: clocks, now: now, calendar: newYork), [wake],
+                       "the same zone moves nothing")
+    }
+
+    func testTheListFollowsTheZoneAndSaysSo() {
+        let here = TimeZone.current
+        let now = Date()
+        // A zone whose clock reads differently from this one's, wherever the suite runs.
+        guard let there = ["Asia/Tokyo", "America/Los_Angeles"].compactMap(TimeZone.init(identifier:))
+            .first(where: { $0.secondsFromGMT(for: now) != here.secondsFromGMT(for: now) }) else {
+            return XCTFail("no zone apart from this one")
+        }
+        guard let fire = IslandAlarm.nextFire(hour: 7, minute: 30, after: now, calendar: .current),
+              let clockAlarm = timer.setAlarm(at: fire, label: "Wake", announce: false, now: now),
+              let snooze = timer.setAlarm(at: now.addingTimeInterval(IslandTimer.snoozeInterval), label: "Snooze",
+                                          announce: false, followsClock: false, now: now) else {
+            return XCTFail("no alarms")
+        }
+        XCTAssertFalse(timer.followTimeZone(here, now: now), "nothing moves in the zone it was set in")
+        XCTAssertTrue(timer.followTimeZone(there, now: now))
+        guard let moved = timer.alarms.first(where: { $0.id == clockAlarm.id }) else { return XCTFail("the alarm went") }
+        let parts = calendar(there.identifier).dateComponents([.hour, .minute], from: moved.fireDate)
+        XCTAssertEqual(parts.hour, 7)
+        XCTAssertEqual(parts.minute, 30, "7:30 on the clock where the Mac is now")
+        XCTAssertGreaterThan(moved.fireDate, now)
+        XCTAssertLessThanOrEqual(moved.fireDate.timeIntervalSince(now), 25 * 3600)
+        XCTAssertEqual(timer.alarms.first { $0.id == snooze.id }?.fireDate, snooze.fireDate)
+        XCTAssertFalse(timer.followTimeZone(there, now: now), "and once is enough")
+
+        // Written down in that zone and read back in this one: back to 7:30 here.
+        XCTAssertEqual(defaults.string(forKey: IslandTimer.alarmZoneKey), there.identifier)
+        timer.forgetAlarmsForTesting()
+        timer.restoreAlarms(now: now)
+        guard let back = timer.alarms.first(where: { $0.id == clockAlarm.id }) else { return XCTFail("not restored") }
+        XCTAssertEqual(back.fireDate, fire, "a relaunch in another zone reads the clock there")
+        XCTAssertEqual(timer.alarms.first { $0.id == snooze.id }?.fireDate, snooze.fireDate)
+    }
+
+    func testAnUnreadableClockListKeepsEveryAlarmWhereItIs() {
+        XCTAssertEqual(IslandTimer.decodeClocks(nil), [:])
+        XCTAssertEqual(IslandTimer.decodeClocks(Data("nonsense".utf8)), [:])
+        let clocks = ["a": IslandTimer.AlarmClock(hour: 7, minute: 30)]
+        XCTAssertEqual(IslandTimer.decodeClocks(try? JSONEncoder().encode(clocks)), clocks)
+    }
 }

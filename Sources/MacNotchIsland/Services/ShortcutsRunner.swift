@@ -166,13 +166,26 @@ final class ShortcutsRunner: ObservableObject {
     /// Runs the shortcut once with no input, or once per input file. The first failure is the
     /// one reported: five files that all failed the same way is one thing to say, not five.
     private static func runEach(_ name: String, inputPaths: [String]) -> ProcessResult {
-        guard !inputPaths.isEmpty else { return execute(arguments: ["run", name]) }
+        guard !inputPaths.isEmpty else { return execute(arguments: runArguments(name, inputPath: nil)) }
         var firstFailure: ProcessResult?
         for path in inputPaths {
-            let result = execute(arguments: ["run", name, "--input-path", path])
+            let result = execute(arguments: runArguments(name, inputPath: path))
             if !result.succeeded, firstFailure == nil { firstFailure = result }
         }
         return firstFailure ?? ProcessResult(succeeded: true, stderrFirstLine: nil)
+    }
+
+    /// What `shortcuts run` is given for one run.
+    ///
+    /// A Shortcut named "-v" or "--help" was read by `shortcuts` as an option rather than as
+    /// the name — the one thing on the line that is somebody else's text. `shortcuts` reads its
+    /// command line the Swift Argument Parser's way, where everything after `--` is a value, so
+    /// such a name goes after one, with the options in front of it. Every other name is passed
+    /// exactly as it always was. Pure, so it is tested.
+    static func runArguments(_ name: String, inputPath: String?) -> [String] {
+        let input = inputPath.map { ["--input-path", $0] } ?? []
+        guard name.hasPrefix("-") else { return ["run", name] + input }
+        return ["run"] + input + ["--", name]
     }
 
     /// What `shortcuts` printed, tidied into one line of a card: trimmed, and cut at a length

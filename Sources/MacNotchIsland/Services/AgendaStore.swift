@@ -351,8 +351,8 @@ final class AgendaStore: ObservableObject {
     private static func dueReminders(from found: [EKReminder]) -> [Reminder] {
         return found
             .sorted { a, b in
-                let da = a.dueDateComponents?.date ?? .distantFuture
-                let db = b.dueDateComponents?.date ?? .distantFuture
+                let da = dueDate(a.dueDateComponents) ?? .distantFuture
+                let db = dueDate(b.dueDateComponents) ?? .distantFuture
                 if da != db { return da < db }
                 return a.priority < b.priority
             }
@@ -457,13 +457,30 @@ final class AgendaStore: ObservableObject {
     // MARK: - Mapping
 
     private static func event(from e: EKEvent) -> Event {
-        Event(id: e.eventIdentifier ?? UUID().uuidString, title: e.title ?? "Event", start: e.startDate, end: e.endDate,
+        Event(id: rowID(e.eventIdentifier, start: e.startDate), title: e.title ?? "Event", start: e.startDate, end: e.endDate,
               isAllDay: e.isAllDay, location: e.location?.trimmingCharacters(in: .whitespacesAndNewlines),
               joinURL: CalendarMonitor.meetingLink(in: e), tint: tint(of: e.calendar))
     }
 
+    /// A Today row's id: the event's, and when this occurrence of it starts. Every occurrence
+    /// of a repeating event carries the same `eventIdentifier`, so a stand-up at nine and again
+    /// at five were two rows with one id, and the list drew one of them twice or dropped one.
+    /// Pure, so it is tested.
+    static func rowID(_ identifier: String?, start: Date) -> String {
+        (identifier ?? UUID().uuidString) + "@" + String(format: "%.0f", start.timeIntervalSince1970.rounded(.down))
+    }
+
+    /// When a reminder is due. `DateComponents.date` is nil for components that carry no
+    /// calendar, and a reminder whose due date came without one sorted after every other and
+    /// said nothing about when it was due; the Mac's calendar reads them instead. Pure, so it is
+    /// tested.
+    static func dueDate(_ components: DateComponents?, calendar: Calendar = .current) -> Date? {
+        guard let components else { return nil }
+        return components.date ?? calendar.date(from: components)
+    }
+
     private static func reminder(from r: EKReminder) -> Reminder {
-        Reminder(id: r.calendarItemIdentifier, title: r.title ?? "Reminder", due: r.dueDateComponents?.date,
+        Reminder(id: r.calendarItemIdentifier, title: r.title ?? "Reminder", due: dueDate(r.dueDateComponents),
                  isCompleted: r.isCompleted, priority: r.priority, tint: tint(of: r.calendar))
     }
 

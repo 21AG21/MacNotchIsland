@@ -147,4 +147,18 @@ final class TimerEntryParseTests: XCTestCase {
         XCTAssertEqual(TimerEntryField.hint(for: nil, text: "7:", now: now), "Minutes, or a time")
         XCTAssertTrue(TimerEntryField.hint(for: .alarm(at(26, 7, 30)), text: "7:30", now: now)?.hasPrefix("Alarm ") ?? false)
     }
+
+
+    // MARK: - The same minutes from a script
+
+    /// What the field takes as minutes, a script's `minutes=` takes as the same minutes
+    /// (`LiveActivityAPI.length`), and the longest timer either will start is the same day.
+    func testAScriptReadsMinutesTheWayTheFieldDoes() {
+        for typed in ["5", "25m", "25 min", "90 minutes", "1440"] {
+            guard case .minutes(let minutes)? = TimerEntry.parse(typed, now: now, calendar: calendar) else { return XCTFail(typed) }
+            XCTAssertEqual(LiveActivityAPI.timerStart(minutes: typed, seconds: nil), TimeInterval(minutes) * 60, typed)
+        }
+        XCTAssertNil(TimerEntry.typedMinutes("1441"))
+        XCTAssertNil(LiveActivityAPI.timerStart(minutes: "1441", seconds: nil))
+    }
 }

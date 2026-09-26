@@ -101,6 +101,20 @@ final class IslandTimer: ObservableObject {
     /// Whether the last run's alarms have been read back yet, see `restoreAlarms`.
     private var alarmsLoaded = false
 
+    /// The time on the clock an alarm was set for, kept beside it by id: an alarm is "the next
+    /// time the clock reads 7:30", and its `fireDate` is only where that fell in the zone it
+    /// was set in. A snooze has none — nine minutes are nine minutes wherever the Mac is.
+    struct AlarmClock: Codable, Equatable {
+        var hour: Int
+        var minute: Int
+    }
+    static let alarmClocksKey = "pendingAlarmClocks"
+    /// The time zone the alarms' `fireDate`s were worked out in, written down with them.
+    static let alarmZoneKey = "pendingAlarmsTimeZone"
+    private var alarmClocks: [String: AlarmClock] = [:]
+    /// The zone `alarms` are in, by identifier; nil until something has looked.
+    private var alarmsZone: String?
+
     /// iOS keeps the island readable by showing a couple of timers; four is our ceiling.
     static let maxTimers = 4
     private static let basePriority = 90
@@ -157,8 +171,12 @@ final class IslandTimer: ObservableObject {
 
     // MARK: - Starting
 
+    /// A length the island will count down: finite and above nought. Where a script may say
+    /// how long, the URL scheme holds it to a day as well (`LiveActivityAPI.timerLength`).
+    static func isCountable(_ seconds: TimeInterval) -> Bool { seconds.isFinite && seconds > 0 }
+
     func start(seconds: TimeInterval, label: String = "Timer") {
-        guard seconds > 0 else { return }
+        guard Self.isCountable(seconds) else { return }
         lastDuration = seconds
         lastLabel = label
         _ = add(seconds: seconds, label: label)
@@ -210,7 +228,7 @@ final class IslandTimer: ObservableObject {
     /// Stop playing in so many seconds. One at a time: asking for another moves the old one
     /// rather than leaving two countdowns racing to silence the same track.
     func startSleep(seconds: TimeInterval) {
-        guard seconds > 0 else { return }
+        guard Self.isCountable(seconds) else { return }
         cancelSleep()
         guard let id = add(seconds: seconds, label: Self.sleepLabel) else { return }
         guard let index = timers.firstIndex(where: { $0.id == id }) else { return }
@@ -415,7 +433,7 @@ final class IslandTimer: ObservableObject {
     /// ends. Nothing is persisted.
     func startPomodoro(work: TimeInterval = 25 * 60, rest: TimeInterval = 5 * 60, cycles: Int = 4,
                        longRest: TimeInterval = 15 * 60, longBreakEvery: Int = 4) {
-        guard work > 0, rest > 0, cycles > 0 else { return }
+        guard Self.isCountable(work), Self.isCountable(rest), longRest.isFinite, cycles > 0 else { return }
         if let id = pomodoroTimerID { remove(id: id) }
         stopPomodoro()
         begin(PomodoroPhase(kind: .focus, cycle: 1, cycles: cycles, work: work, rest: rest,
@@ -465,14 +483,26 @@ final class IslandTimer: ObservableObject {
 
     /// Sets an alarm for `date`, which has to be still to come, and says so on a card with a
     /// way to take it back. Returns the alarm, or nil for a time that has already gone.
+    ///
+    /// `followsClock` is an alarm for a time on the clock — the Actions field's, the URL
+    /// scheme's — whose hour and minute are kept, so it moves with the clock when the time zone
+    /// does (`followTimeZone`). A snooze is nine minutes from now, and does not.
     @discardableResult
-    func setAlarm(at date: Date, label: String? = nil, announce: Bool = true, now: Date = Date()) -> IslandAlarm? {
+    func setAlarm(at date: Date, label: String? = nil, announce: Bool = true, followsClock: Bool = true,
+                  now: Date = Date()) -> IslandAlarm? {
         guard date > now else { return nil }
         // A URL can set one before launch has read back the last run's; writing first would
         // write over them.
         loadAlarmsIfNeeded(now: now)
+        // The list is brought into this zone first, so the one being added is not the only
+        // alarm in it.
+        followTimeZone(now: now)
         let name = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let alarm = IslandAlarm(label: name.isEmpty ? IslandAlarm.defaultLabel : name, fireDate: date, createdAt: now)
+        if followsClock {
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+            if let hour = parts.hour, let minute = parts.minute { alarmClocks[alarm.id] = AlarmClock(hour: hour, minute: minute) }
+        }
         alarms = IslandAlarm.sorted(alarms + [alarm])
         saveAlarms()
         scheduleAlarmCheck(now: now)
@@ -498,6 +528,8 @@ final class IslandTimer: ObservableObject {
     func cancelAllAlarms() {
         alarmsLoaded = true
         alarms.removeAll()
+        alarmClocks.removeAll()
+        alarmsZone = TimeZone.current.identifier
         saveAlarms()
         scheduleAlarmCheck()
     }
@@ -508,6 +540,8 @@ final class IslandTimer: ObservableObject {
         alarmCheck?.invalidate()
         alarmCheck = nil
         alarms = []
+        alarmClocks = [:]
+        alarmsZone = nil
         alarmsLoaded = false
     }
 
@@ -515,7 +549,7 @@ final class IslandTimer: ObservableObject {
     func snooze(id: String) {
         guard let ringing = entry(id: id), ringing.state.isAlarm else { return }
         remove(id: id)
-        setAlarm(at: Date().addingTimeInterval(Self.snoozeInterval), label: ringing.label)
+        setAlarm(at: Date().addingTimeInterval(Self.snoozeInterval), label: ringing.label, followsClock: false)
     }
 
     /// Reads back the last run's alarms, unless something already has.
@@ -534,17 +568,32 @@ final class IslandTimer: ObservableObject {
     /// Reads back the alarms written down by the last run, at launch. Anything already in hand
     /// — a URL that set one before this was called — is kept. One that came due while the app
     /// was not running rings now if it is only just late, and is reported as missed otherwise.
+    ///
+    /// Written down in one time zone and read back in another — the Mac travelled while the app
+    /// was not running — the alarms set for a time on the clock are moved to that time here.
     func restoreAlarms(now: Date = Date()) {
         alarmsLoaded = true
-        let saved = IslandAlarm.decode(alarmDefaults.data(forKey: Self.alarmsKey))
+        var saved = IslandAlarm.decode(alarmDefaults.data(forKey: Self.alarmsKey))
+        let savedClocks = Self.decodeClocks(alarmDefaults.data(forKey: Self.alarmClocksKey))
+        let zone = TimeZone.current
+        if let savedZone = alarmDefaults.string(forKey: Self.alarmZoneKey), savedZone != zone.identifier {
+            saved = Self.retimed(saved, clocks: savedClocks, now: now, calendar: Self.calendar(in: zone))
+        }
+        // Anything in hand was set in this run, in the zone it was then.
+        if let inHand = alarmsZone, inHand != zone.identifier {
+            alarms = Self.retimed(alarms, clocks: alarmClocks, now: now, calendar: Self.calendar(in: zone))
+        }
         let known = Set(alarms.map(\.id))
         alarms = IslandAlarm.sorted(alarms + saved.filter { !known.contains($0.id) })
+        for (id, clock) in savedClocks where alarmClocks[id] == nil { alarmClocks[id] = clock }
+        alarmsZone = zone.identifier
         saveAlarms()
         checkAlarms(now: now)
     }
 
     /// Rings whatever has come due, reports whatever was missed, and sets the next look.
     func checkAlarms(now: Date = Date()) {
+        followTimeZone(now: now)
         let due = IslandAlarm.triage(alarms, now: now, grace: Self.missedGrace)
         if due.pending.count != alarms.count {
             alarms = due.pending
@@ -700,6 +749,68 @@ final class IslandTimer: ObservableObject {
     private func saveAlarms() {
         guard let data = IslandAlarm.encode(alarms) else { return }
         alarmDefaults.set(data, forKey: Self.alarmsKey)
+        // Only the clocks of alarms still waiting: one that rang or was cancelled takes its own.
+        let waiting = Set(alarms.map(\.id))
+        alarmClocks = alarmClocks.filter { waiting.contains($0.key) }
+        if let clocks = try? JSONEncoder().encode(alarmClocks) { alarmDefaults.set(clocks, forKey: Self.alarmClocksKey) }
+        alarmDefaults.set(alarmsZone ?? TimeZone.current.identifier, forKey: Self.alarmZoneKey)
+    }
+
+    /// The clocks as they were written down; nothing readable is none, and then every alarm
+    /// keeps the moment it has.
+    static func decodeClocks(_ data: Data?) -> [String: AlarmClock] {
+        guard let data, let clocks = try? JSONDecoder().decode([String: AlarmClock].self, from: data) else { return [:] }
+        return clocks
+    }
+
+    /// The Mac's calendar, in `zone`.
+    private static func calendar(in zone: TimeZone) -> Calendar {
+        var calendar = Calendar.current
+        calendar.timeZone = zone
+        return calendar
+    }
+
+    // MARK: - Alarms across a change of time zone
+
+    /// The alarms once the clock is in the zone `calendar` is: each one set for a time on the
+    /// clock and still to come is the next time the clock reads that time now. One whose time
+    /// has already come is left as it is, for `IslandAlarm.triage` to ring or report — as is a
+    /// snooze, which has no time on the clock (`AlarmClock`).
+    ///
+    /// An alarm kept its moment, and `notchctl alarm 07:30` in London rang at half past two in
+    /// the morning in New York. Pure, so it is tested.
+    static func retimed(_ alarms: [IslandAlarm], clocks: [String: AlarmClock], now: Date,
+                        calendar: Calendar) -> [IslandAlarm] {
+        IslandAlarm.sorted(alarms.map { (alarm: IslandAlarm) -> IslandAlarm in
+            guard alarm.fireDate > now, let clock = clocks[alarm.id],
+                  let fire = IslandAlarm.nextFire(hour: clock.hour, minute: clock.minute, after: now, calendar: calendar)
+            else { return alarm }
+            var moved = alarm
+            moved.fireDate = fire
+            return moved
+        })
+    }
+
+    /// Brings the alarms into `zone` when it is not the one they were worked out in, and writes
+    /// them down there. Returns whether anything moved. Heard from `NSSystemTimeZoneDidChange`
+    /// through `checkAlarms`, and asked before anything is added.
+    @discardableResult
+    func followTimeZone(_ zone: TimeZone = .current, now: Date = Date()) -> Bool {
+        guard let from = alarmsZone, from != zone.identifier else {
+            alarmsZone = zone.identifier
+            return false
+        }
+        let moved = Self.retimed(alarms, clocks: alarmClocks, now: now, calendar: Self.calendar(in: zone))
+        alarmsZone = zone.identifier
+        guard moved != alarms else {
+            saveAlarms()
+            return false
+        }
+        IslandLog.island.notice("alarms moved to the clock in \(zone.identifier, privacy: .public)")
+        alarms = moved
+        saveAlarms()
+        scheduleAlarmCheck(now: now)
+        return true
     }
 
     /// One look at the clock, set for the soonest alarm or the ceiling, whichever is first —
@@ -725,7 +836,11 @@ final class IslandTimer: ObservableObject {
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.checkAlarms() })
         for name in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
             alarmObservers.append(NotificationCenter.default.addObserver(
-                forName: name, object: nil, queue: .main) { [weak self] _ in self?.checkAlarms() })
+                forName: name, object: nil, queue: .main) { [weak self] note in
+                // The zone the process has in hand is cached until it is told to look again.
+                if note.name == .NSSystemTimeZoneDidChange { NSTimeZone.resetSystemTimeZone() }
+                self?.checkAlarms()
+            })
         }
     }
 

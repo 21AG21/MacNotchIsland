@@ -6,7 +6,7 @@ import Foundation
 /// `notchisland://ask`: what to ask, what the two answers are called, how long to wait, and the
 /// file the answer goes in.
 ///
-///   notchisland://ask?title=Deploy%20to%20production%3F&detail=main%20at%204f2c1&yes=Deploy&no=Wait&timeout=120&reply=/tmp/notchctl-ask.Xy12/answer
+///   notchisland://ask?title=Deploy%20to%20production%3F&detail=main%20at%204f2c1&yes=Deploy&no=Wait&timeout=120&reply=/tmp/notchctl-ask.Xy12/answer&token=9f86d081884c7d65
 struct AskRequest: Equatable {
     var title: String
     var detail: String?
@@ -16,6 +16,10 @@ struct AskRequest: Equatable {
     /// The reply file as the script gave it. `replyPath(isSafe:)` says whether it is one the
     /// island will write.
     var reply: String?
+    /// The script's own secret for this question, which `notchisland://ask/cancel` must carry
+    /// to take it down (`IslandAsk.cancel`). Nil when it sent none, or one too short to be a
+    /// secret (`cancelToken`); such a question cannot be taken down that way.
+    var cancelToken: String? = nil
 
     static let defaultTimeout: TimeInterval = 60
     /// Five seconds is about the least in which somebody can notice a card and read it; ten
@@ -35,7 +39,21 @@ struct AskRequest: Equatable {
                           yes: label(q["yes"], fallback: "Yes"),
                           no: label(q["no"], fallback: "No"),
                           timeout: timeout(q["timeout"]),
-                          reply: q["reply"])
+                          reply: q["reply"],
+                          cancelToken: cancelToken(q["token"]))
+    }
+
+    /// The fewest characters a cancel token may have: anything shorter could be guessed by
+    /// whatever else on the Mac opens URLs, and a question taken down by a guess is a script
+    /// told "timeout" by somebody other than the person it asked.
+    static let minTokenLength = 16
+
+    /// A token that can take the question down: `minTokenLength` to 128 letters, digits and
+    /// hyphens — a hex string or a UUID, which is what a script makes one from. Nil otherwise.
+    static func cancelToken(_ raw: String?) -> String? {
+        guard let raw, (minTokenLength...128).contains(raw.count),
+              raw.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else { return nil }
+        return raw
     }
 
     /// How long the question waits, in seconds. Anything that is not a finite number is the
@@ -81,41 +99,64 @@ struct AskRequest: Equatable {
         return isSafe(raw) ? raw : nil
     }
 
-    /// Whether the island may create this file: its folder, once every link in it is followed,
-    /// is the user's home or /tmp or inside one of them, and nothing — not even a link — is at
-    /// the path yet.
-    ///
-    /// Anything on this Mac can open a `notchisland://` URL, so the reply path is somebody
-    /// else's say-so. The folders keep the answer to the places a script of the user's own
-    /// would put it; following the links keeps a link in /tmp from pointing the write at
-    /// somewhere else entirely; and never replacing a file keeps "reply=~/.zshrc" from being a
-    /// way to wipe one, a minute later, with the word "timeout".
-    ///
-    /// `resolve` follows the links in a folder, and gives nil for one that is not there.
-    /// `exists` must not follow a link: a link to nowhere is still something at the path.
-    static func isSafeReplyPath(_ path: String, home: String, resolve: (String) -> String?,
-                                exists: (String) -> Bool) -> Bool {
-        let folder = (path as NSString).deletingLastPathComponent
-        guard let real = resolve(folder) else { return false }
-        let roots = [home, "/tmp"].compactMap(resolve).filter { $0 != "/" }
-        let inside = roots.contains { real == $0 || real.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
-        return inside && !exists(path)
+    /// What the rule needs to know about a folder: where it really is once every link in it is
+    /// followed, who owns it, and its permission bits.
+    struct Folder: Equatable {
+        var path: String
+        var owner: uid_t
+        var mode: mode_t
     }
 
-    /// `isSafeReplyPath` against the disk. Every folder is spelled the one way once its links
-    /// are followed: Foundation sometimes leaves /tmp's /private on the front and sometimes takes
-    /// it off, and a rule that compared the two spellings would turn away /tmp itself.
+    /// Whether the island may create this file: its folder, once every link in it is followed,
+    /// is a folder of the user's own, open to nobody else (0700), somewhere inside /tmp or the
+    /// user's temporary folder — which is exactly what `notchctl ask` makes with `mktemp -d` —
+    /// and not the home folder or anywhere in it; and nothing, not even a link, is at the path.
+    ///
+    /// Anything on this Mac can open a `notchisland://` URL, so the reply path is somebody
+    /// else's say-so. The home folder was allowed, as long as nothing was at the path yet, and
+    /// `reply=/Users/me/.zshenv` with a five-second timeout made a shell startup file with no
+    /// click at all: a file the next shell reads, created where there was none. Nothing a
+    /// shell, a launch agent or an editor reads lives in a private folder in /tmp. The owner and
+    /// the bits keep out a folder somebody else made there, which they could fill or swap
+    /// under the island; following the links keeps a link in /tmp from pointing the write
+    /// somewhere else entirely; and never replacing a file keeps the answer from wiping one.
+    ///
+    /// `folder` follows the links in a folder and reads it, and gives nil for one that is not
+    /// there. `exists` must not follow a link: a link to nowhere is still something at the path.
+    static func isSafeReplyPath(_ path: String, home: String, roots: [String], user: uid_t,
+                                folder: (String) -> Folder?, exists: (String) -> Bool) -> Bool {
+        guard let real = folder((path as NSString).deletingLastPathComponent) else { return false }
+        func within(_ top: String) -> Bool { real.path.hasPrefix(top.hasSuffix("/") ? top : top + "/") }
+        let homePath = folder(home)?.path ?? home
+        if real.path == homePath || within(homePath) { return false }
+        let tops = roots.compactMap { folder($0)?.path }.filter { $0 != "/" }
+        guard tops.contains(where: within) else { return false }
+        return real.owner == user && real.mode & 0o777 == 0o700 && !exists(path)
+    }
+
+    /// `isSafeReplyPath` against the disk, with /tmp and this user's temporary folder as the
+    /// places a reply folder may be.
     static func isSafeOnDisk(_ path: String) -> Bool {
         isSafeReplyPath(path, home: FileManager.default.homeDirectoryForCurrentUser.path,
-                        resolve: { folder in
-                            var isFolder: ObjCBool = false
-                            guard FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder),
-                                  isFolder.boolValue else { return nil }
-                            let real = URL(fileURLWithPath: folder).resolvingSymlinksInPath().path
-                            return real.hasPrefix("/private/") ? String(real.dropFirst("/private".count)) : real
-                        },
+                        roots: ["/tmp", NSTemporaryDirectory()], user: getuid(),
+                        folder: folderOnDisk,
                         // Read without following a link, unlike `fileExists`.
                         exists: { (try? FileManager.default.attributesOfItem(atPath: $0)) != nil })
+    }
+
+    /// A folder as it is on the disk, once its links are followed; nil when there is no folder
+    /// there. Every folder is spelled the one way: Foundation sometimes leaves /tmp's /private
+    /// on the front and sometimes takes it off, and a rule that compared the two spellings
+    /// would turn away /tmp itself.
+    static func folderOnDisk(_ path: String) -> Folder? {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue else { return nil }
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: resolved),
+              let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value,
+              let mode = (attributes[.posixPermissions] as? NSNumber)?.uint16Value else { return nil }
+        let real = resolved.hasPrefix("/private/") ? String(resolved.dropFirst("/private".count)) : resolved
+        return Folder(path: real, owner: owner, mode: mode)
     }
 }
 
@@ -162,9 +203,10 @@ enum AskReply {
 ///
 /// The card is a live activity forced open for the whole of the wait, the way a ringing timer's
 /// is: every alert but a battery about to run out waits behind it (`alertTakesIsland`), and the
-/// pointer resting on the island does not turn it into the peek. A second question while one is
-/// up answers the first "timeout" and takes its place, since the script that asked it is still
-/// waiting and deserves an answer rather than silence.
+/// pointer resting on the island does not turn it into the peek. Another card forced up over it
+/// has the island for its own time, and the question takes it back after (`reclaims`). A second
+/// question while one is up answers the first "timeout" and takes its place, since the script
+/// that asked it is still waiting and deserves an answer rather than silence.
 ///
 /// The card's buttons are links back to the app carrying a token made for this one question, so
 /// the only things that can answer it are its own buttons and the keys: a web page that opens
@@ -183,15 +225,23 @@ final class IslandAsk {
     static let keyRecheckInterval: TimeInterval = 0.25
     static let keyRechecks = 16
 
+    /// The least time left for which a question takes the island back (`reclaims`): with less,
+    /// the card would be up for a blink and gone.
+    static let minimumReclaim: TimeInterval = 1
+
     private struct Pending {
         let request: AskRequest
         let reply: String
         let token: String
+        /// When its time is up, for taking the island back for what is left of it.
+        let deadline: Date
     }
 
     private var pending: Pending?
     private var timeoutWork: DispatchWorkItem?
     private var cardWatch: AnyCancellable?
+    private var forcedWatch: AnyCancellable?
+    private var folderWatch: DispatchSourceFileSystemObject?
     private var quitObserver: NSObjectProtocol?
 
     private init() {
@@ -221,6 +271,9 @@ final class IslandAsk {
             IslandLog.island.error("ask: the reply file is not one the island will create")
             return
         }
+        if q["token"] != nil, request.cancelToken == nil {
+            IslandLog.island.notice("ask: the token is not one that can take the question down, and is ignored")
+        }
         ask(request, reply: reply)
     }
 
@@ -228,7 +281,8 @@ final class IslandAsk {
         // One at a time: the one on screen is answered and replaced, its card kept for this one.
         if pending != nil { settle(.timeout, endCard: false) }
         let token = UUID().uuidString
-        pending = Pending(request: request, reply: reply, token: token)
+        pending = Pending(request: request, reply: reply, token: token,
+                          deadline: Date().addingTimeInterval(request.timeout))
         let keysHeld = HotKeyService.shared.setAskKeysArmed(true)
 
         let center = ActivityCenter.shared
@@ -239,6 +293,8 @@ final class IslandAsk {
         center.upsert(activity)
         center.forceExpanded(id: Self.activityID, for: request.timeout)
         watchCard()
+        watchForcedSlot(token: token)
+        watchReplyFolder(of: reply, token: token)
         if !keysHeld { recheckKeys(token: token, left: Self.keyRechecks) }
 
         let work = DispatchWorkItem { [weak self] in self?.answer(.timeout, token: token) }
@@ -257,6 +313,74 @@ final class IslandAsk {
             return
         }
         settle(answer, endCard: true)
+    }
+
+    /// `notchisland://ask/cancel?token=…`: the script that asked was interrupted — Control-C, a
+    /// SIGTERM — and the question comes down unanswered: its card, its hold on the island, and
+    /// Control-Y and Control-N, which it kept from every other app for up to ten minutes after
+    /// nobody was waiting. Only with the token that script put the question up with
+    /// (`AskRequest.cancelToken`): a question put up without one cannot be taken down this way,
+    /// and a token that does not match is ignored. No reply is written; nobody is waiting for
+    /// it, and the folder it would go in is on its way out.
+    func cancel(token: String) {
+        guard let pending else { return }
+        guard let expected = pending.request.cancelToken, expected == token else {
+            IslandLog.island.notice("ask: a cancel for a question that is not up")
+            return
+        }
+        settle(nil, endCard: true)
+    }
+
+    /// Whether the question takes the island back: nothing is forced up now, its card is still
+    /// there, and it has at least `minimumReclaim` left. Pure, so it is tested.
+    static func reclaims(forcedID: String?, cardUp: Bool, remaining: TimeInterval) -> Bool {
+        forcedID == nil && cardUp && remaining >= minimumReclaim
+    }
+
+    /// The card's hold on the island is one slot (`ActivityCenter.forceExpanded`), and anything
+    /// else forced up takes it: a timer ringing, a card pushed with `--expanded`, a call coming
+    /// in. The question went on waiting as a pill for the rest of its time, and a script that
+    /// asked for a minute got `timeout` from somebody who had never seen the question. So when
+    /// the slot comes free while the question is up — the other card's time is over, or a close
+    /// let it go — the question takes it back for the time it has left (`reclaims`). A battery
+    /// about to run out never takes the slot: it is drawn over any card (`alertTakesIsland`).
+    private func watchForcedSlot(token: String) {
+        forcedWatch = ActivityCenter.shared.$forcedExpandedID
+            // After the change: `@Published` announces a value before it is stored, and a card
+            // forced up from inside the announcement would be overwritten by it.
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reclaimIsland(token: token) }
+    }
+
+    private func reclaimIsland(token: String) {
+        guard let pending, pending.token == token else { return }
+        let center = ActivityCenter.shared
+        let remaining = pending.deadline.timeIntervalSinceNow
+        guard Self.reclaims(forcedID: center.forcedExpandedID, cardUp: center.activity(id: Self.activityID) != nil,
+                            remaining: remaining) else { return }
+        IslandLog.island.notice("ask: back on the island for its last \(Int(remaining), privacy: .public)s")
+        center.forceExpanded(id: Self.activityID, for: remaining)
+    }
+
+    /// `notchctl ask` makes the reply's folder and removes it when it exits, however it exits.
+    /// A folder that goes while the question is up is a script that is not waiting any more —
+    /// killed, or its terminal closed with it — and the question comes down with it, the way a
+    /// cancel takes it down. One kernel event on the folder, not a look every so often.
+    private func watchReplyFolder(of reply: String, token: String) {
+        folderWatch?.cancel()
+        folderWatch = nil
+        let fd = Darwin.open((reply as NSString).deletingLastPathComponent, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.delete, .rename, .revoke],
+                                                               queue: .main)
+        source.setEventHandler { [weak self] in
+            guard let self, self.pending?.token == token else { return }
+            IslandLog.island.notice("ask: the reply folder has gone, so nobody is waiting for the answer")
+            self.settle(nil, endCard: true)
+        }
+        source.setCancelHandler { _ = Darwin.close(fd) }
+        source.resume()
+        folderWatch = source
     }
 
     /// A cold launch by `open -g "notchisland://ask?…"` hands the app the question before it has
@@ -311,20 +435,28 @@ final class IslandAsk {
         return components.url
     }
 
-    /// Answers the question and lets everything it held go: the reply is written, the timer and
-    /// the keys are given back, and — unless the card is already gone, or about to be reused —
-    /// the card ends. `pending` is cleared first, so the card ending is not taken for the card
-    /// being taken away.
-    private func settle(_ answer: AskAnswer, endCard: Bool) {
+    /// Answers the question and lets everything it held go: the reply is written, the timer,
+    /// the watches and the keys are given back, and — unless the card is already gone, or about
+    /// to be reused — the card ends. `pending` is cleared first, so the card ending is not taken
+    /// for the card being taken away. A nil answer is a question taken down with nobody waiting
+    /// (`cancel`, the folder gone), and writes nothing.
+    private func settle(_ answer: AskAnswer?, endCard: Bool) {
         guard let pending else { return }
         self.pending = nil
         timeoutWork?.cancel()
         timeoutWork = nil
         cardWatch = nil
+        forcedWatch = nil
+        folderWatch?.cancel()
+        folderWatch = nil
         HotKeyService.shared.setAskKeysArmed(false)
-        IslandLog.island.notice("ask: answered \(answer.rawValue, privacy: .public)")
-        if !AskReply.put(answer, at: pending.reply) {
-            IslandLog.island.error("ask: could not write the reply file")
+        if let answer {
+            IslandLog.island.notice("ask: answered \(answer.rawValue, privacy: .public)")
+            if !AskReply.put(answer, at: pending.reply) {
+                IslandLog.island.error("ask: could not write the reply file")
+            }
+        } else {
+            IslandLog.island.notice("ask: taken down unanswered")
         }
         if endCard { ActivityCenter.shared.end(id: Self.activityID) }
     }
@@ -344,6 +476,9 @@ final class IslandAsk {
         timeoutWork?.cancel()
         timeoutWork = nil
         cardWatch = nil
+        forcedWatch = nil
+        folderWatch?.cancel()
+        folderWatch = nil
         pending = nil
         HotKeyService.shared.setAskKeysArmed(false)
     }

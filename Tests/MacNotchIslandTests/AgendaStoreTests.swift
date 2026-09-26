@@ -272,4 +272,60 @@ final class AgendaStoreTests: XCTestCase {
         XCTAssertFalse(AgendaStore.newlyGranted(was: .notDetermined, now: .writeOnly),
                        "write-only access still cannot read the day")
     }
+
+    // MARK: - The Join button
+
+    /// The name of a meeting service anywhere in a link was enough, and an invitation anybody
+    /// can send put its own link behind the card's Join.
+    func testAMeetingLinkIsOneWhoseHostIsTheServices() {
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://zoom.us.evil.example/j/1"))
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://evil.example/?x=zoom.us"))
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://evil.example/meet.google.com/abc"))
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://notzoom.us/j/1"))
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://zoom.us@evil.example/j/1"), "a user name is not the host")
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join https://zoom.us/j/1")?.absoluteString, "https://zoom.us/j/1")
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "https://us02web.zoom.us/j/123?pwd=a")?.host, "us02web.zoom.us")
+        XCTAssertNotNil(CalendarMonitor.meetingLink(in: "https://teams.microsoft.com/l/meetup-join/x"))
+        XCTAssertNotNil(CalendarMonitor.meetingLink(in: "https://acme.webex.com/meet/pat"))
+    }
+
+    func testTheFirstRealMeetingLinkWinsOverADecoyBeforeIt() {
+        let notes = "Agenda: https://evil.example/?next=zoom.us\nJoin: https://meet.google.com/abc-defg-hij"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: notes)?.absoluteString, "https://meet.google.com/abc-defg-hij")
+    }
+
+    func testAMeetingHostIsTheDomainOrANameInsideIt() {
+        XCTAssertTrue(CalendarMonitor.isMeetingHost("zoom.us"))
+        XCTAssertTrue(CalendarMonitor.isMeetingHost("US02WEB.ZOOM.US"))
+        XCTAssertTrue(CalendarMonitor.isMeetingHost("zoom.us."), "the closing dot of a full name")
+        XCTAssertFalse(CalendarMonitor.isMeetingHost("zoom.us.evil.example"))
+        XCTAssertFalse(CalendarMonitor.isMeetingHost("evilzoom.us"))
+        XCTAssertFalse(CalendarMonitor.isMeetingHost(""))
+    }
+
+    // MARK: - Rows
+
+    /// Every occurrence of a repeating event has the same identifier; two in one day were two
+    /// rows with one id.
+    func testTwoOccurrencesOfOneEventAreTwoRows() {
+        let nine = Date(timeIntervalSince1970: 1_790_000_000)
+        let five = nine.addingTimeInterval(8 * 3600)
+        XCTAssertNotEqual(AgendaStore.rowID("standup", start: nine), AgendaStore.rowID("standup", start: five))
+        XCTAssertEqual(AgendaStore.rowID("standup", start: nine), AgendaStore.rowID("standup", start: nine),
+                       "and the same occurrence is the same row from one reading to the next")
+        XCTAssertTrue(AgendaStore.rowID("standup", start: nine).hasPrefix("standup@"))
+    }
+
+    func testADueDateWithNoCalendarIsStillADate() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let bare = DateComponents(year: 2026, month: 9, day: 26, hour: 9, minute: 0)
+        XCTAssertNil(bare.date, "what EventKit can hand over")
+        XCTAssertEqual(AgendaStore.dueDate(bare, calendar: utc), utc.date(from: bare))
+        var carried = bare
+        carried.calendar = utc
+        XCTAssertEqual(AgendaStore.dueDate(carried, calendar: Calendar(identifier: .buddhist)), carried.date,
+                       "components that carry a calendar are read in it")
+        XCTAssertNil(AgendaStore.dueDate(nil))
+    }
 }

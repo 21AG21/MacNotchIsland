@@ -232,7 +232,25 @@ final class ActivityCenter: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.armExpiry() }
             .store(in: &cancellables)
+        // The expiry timer counts time the Mac is awake, and knows nothing of the wall clock
+        // being set, so a card with a `ttl` — or a question's — outlived its time by as long as
+        // the Mac slept. Both are heard here, and each is a look straight away, as `IslandTimer`
+        // does for its countdowns.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .merge(with: NotificationCenter.default.publisher(for: .NSSystemClockDidChange))
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.timeMoved() }
+            .store(in: &cancellables)
         armExpiry()
+    }
+
+    /// The Mac woke, or the clock was set: whatever has run out by now goes, and the expiry
+    /// timer is set again from the clock as it reads now. The one armed before is let go even
+    /// when it names the same moment, since the moment it will really fire is not that one.
+    func timeMoved(now: Date = Date()) {
+        expiryTimer?.invalidate()
+        expiryTimer = nil
+        pruneExpired(now: now)
     }
 
     /// Clears every piece of state. Used by the test suite.
@@ -788,9 +806,8 @@ final class ActivityCenter: ObservableObject {
         expiryTimer = timer
     }
 
-    private func pruneExpired() {
+    private func pruneExpired(now: Date = Date()) {
         expiryTimer = nil
-        let now = Date()
         // A pause that has run out has nothing else to say so — one persisted across a
         // relaunch has no timer of its own — and every island was drawn as hidden.
         let until = Preferences.shared.pausedUntil

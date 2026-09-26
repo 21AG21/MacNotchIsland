@@ -519,7 +519,18 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
                         isDay: (current.isDay ?? 1) != 0,
                         highC: decoded.daily?.maxTemperature?.first,
                         lowC: decoded.daily?.minTemperature?.first,
-                        hours: hours(from: decoded.hourly))
+                        hours: hours(from: decoded.hourly,
+                                     zone: forecastZone(identifier: decoded.timezone, offset: decoded.utcOffset)))
+    }
+
+    /// The zone a forecast's times are written in. `timezone=auto` answers in the zone of the
+    /// place the forecast is for, which the answer names ("Europe/Berlin") and gives as an
+    /// offset from UTC as well. The name first, since it knows where summer time begins; the
+    /// offset when the name is not one this Mac knows; nil when the answer says neither.
+    /// Pure, so it is tested.
+    static func forecastZone(identifier: String?, offset: Int?) -> TimeZone? {
+        if let identifier, let zone = TimeZone(identifier: identifier) { return zone }
+        return offset.flatMap { TimeZone(secondsFromGMT: $0) }
     }
 
     /// How many hours ahead the strip shows.
@@ -528,16 +539,19 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     /// The next few hours out of an hourly block, starting with the one after this one.
     ///
     /// Open-Meteo returns local wall-clock times with no zone on them, because the request
-    /// asked for `timezone=auto` — so they are read in the machine's own zone, which is the
-    /// one the forecast was made for.
+    /// asked for `timezone=auto`: local to the place the forecast is for, which is `zone`
+    /// (`forecastZone`). They were read in the Mac's own zone, which is the same place only
+    /// while the Mac's clock is set for where it is — not a laptop kept on home time abroad,
+    /// nor one that has landed and not yet changed zone — and then the strip started hours
+    /// early or late. The Mac's zone (`calendar`'s) is only for an answer that does not say.
     ///
     /// Pure, so the arithmetic can be tested without the network.
-    static func hours(from block: Forecast.Hourly?, now: Date = Date(),
+    static func hours(from block: Forecast.Hourly?, zone: TimeZone? = nil, now: Date = Date(),
                       calendar: Calendar = .current) -> [Hour] {
         guard let block, let times = block.time else { return [] }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
+        formatter.timeZone = zone ?? calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
         // The three arrays are parallel, and a short one is a malformed answer rather than a
         // reason to read off the end of it.
@@ -599,6 +613,14 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         let current: Current
         let daily: Daily?
         let hourly: Hourly?
+        /// The zone the times are in, by name and as seconds from UTC (`forecastZone`).
+        let timezone: String?
+        let utcOffset: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case current, daily, hourly, timezone
+            case utcOffset = "utc_offset_seconds"
+        }
     }
 
     /// Fills in a reading for the gallery, which has no network and no location.

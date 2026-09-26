@@ -150,19 +150,41 @@ final class CalendarMonitor: NSObject {
     }
 
     /// The first video-call link in some text. Pure, so it can be tested without an event.
+    ///
+    /// Each web link in the text is read as a URL, and it is a meeting only when its host is
+    /// one of `meetingDomains` or inside one (`isMeetingHost`). The name of a meeting service
+    /// anywhere in the link used to be enough, so "https://zoom.us.evil.example/j/1" — or any
+    /// link with "?x=zoom.us" on the end — in an invitation anybody can send became the card's
+    /// Join button, and a click on the island went wherever it said.
     static func meetingLink(in text: String) -> URL? {
-        guard let regex = meetingPattern else { return nil }
+        guard let regex = linkPattern else { return nil }
         let haystack = text.replacingOccurrences(of: "\n", with: " ")
         let range = NSRange(haystack.startIndex..., in: haystack)
-        guard let match = regex.firstMatch(in: haystack, range: range), let r = Range(match.range, in: haystack) else { return nil }
-        return URL(string: String(haystack[r]))
+        for match in regex.matches(in: haystack, range: range) {
+            guard let r = Range(match.range, in: haystack), let url = URL(string: String(haystack[r])),
+                  let host = url.host, isMeetingHost(host) else { continue }
+            return url
+        }
+        return nil
     }
 
-    /// Compiled once. It was compiled afresh for every event read, on every refresh here and
-    /// for every row of Today — a regular expression built a dozen times a minute to be used
-    /// once each. `NSRegularExpression` is immutable and safe to share between threads, which
-    /// matters because both readers use it from their own queues.
-    private static let meetingPattern = try? NSRegularExpression(
-        pattern: #"https?://[^\s<>"']*(zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|webex\.com|facetime\.apple\.com|whereby\.com)[^\s<>"']*"#,
-        options: .caseInsensitive)
+    /// The services whose links are a way into a call.
+    static let meetingDomains = ["zoom.us", "meet.google.com", "teams.microsoft.com", "teams.live.com",
+                                 "webex.com", "facetime.apple.com", "whereby.com"]
+
+    /// Whether a link's host is a meeting service's: the domain itself, or a name inside it
+    /// ("us02web.zoom.us"). Not a name that merely starts with it ("zoom.us.evil.example") or
+    /// ends in it without the dot ("notzoom.us"). Pure, so it is tested.
+    static func isMeetingHost(_ host: String) -> Bool {
+        var name = host.lowercased()
+        // A fully qualified name's closing dot names the same host.
+        if name.hasSuffix(".") { name.removeLast() }
+        return meetingDomains.contains { name == $0 || name.hasSuffix("." + $0) }
+    }
+
+    /// Every web link, compiled once. It was compiled afresh for every event read, on every
+    /// refresh here and for every row of Today — a regular expression built a dozen times a
+    /// minute to be used once each. `NSRegularExpression` is immutable and safe to share
+    /// between threads, which matters because both readers use it from their own queues.
+    private static let linkPattern = try? NSRegularExpression(pattern: "https?://[^\\s<>\"']+", options: .caseInsensitive)
 }

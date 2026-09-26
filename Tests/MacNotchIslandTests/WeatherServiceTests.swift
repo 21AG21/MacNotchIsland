@@ -373,4 +373,42 @@ final class WeatherServiceTests: XCTestCase {
         let label = TodaySectionView.hourLabel(afternoon, calendar: calendar)
         XCTAssertTrue(label == "17" || label == "5 PM", label)
     }
+
+    // MARK: - The zone a forecast is written in
+
+    func testTheForecastsOwnZoneIsTheOneItsTimesAreIn() {
+        XCTAssertEqual(WeatherService.forecastZone(identifier: "Europe/Berlin", offset: 7200)?.identifier, "Europe/Berlin")
+        XCTAssertEqual(WeatherService.forecastZone(identifier: "Not/AZone", offset: -18000)?.secondsFromGMT(), -18000,
+                       "the offset when the name is not one this Mac knows")
+        XCTAssertEqual(WeatherService.forecastZone(identifier: nil, offset: 3600)?.secondsFromGMT(), 3600)
+        XCTAssertNil(WeatherService.forecastZone(identifier: nil, offset: nil))
+    }
+
+    /// `timezone=auto` answers in the zone of the place, and the times were read in the Mac's:
+    /// a Mac still on home time put the strip hours early or late.
+    func testTheHoursAreReadInTheForecastsZoneNotTheMacs() throws {
+        let tokyo = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var macCalendar = Calendar(identifier: .gregorian)
+        macCalendar.timeZone = newYork
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-26T00:00:00Z"))
+        // 10:00 and 11:00 on the 26th in Tokyo are 01:00 and 02:00 UTC.
+        let block = WeatherService.Forecast.Hourly(time: ["2026-09-26T10:00", "2026-09-26T11:00"], temperature: [20, 21],
+                                                   weatherCode: [1, 2], isDay: [1, 1])
+        let hours = WeatherService.hours(from: block, zone: tokyo, now: now, calendar: macCalendar)
+        XCTAssertEqual(hours.map(\.date), [now.addingTimeInterval(3600), now.addingTimeInterval(7200)])
+        let unsaid = WeatherService.hours(from: block, now: now, calendar: macCalendar)
+        XCTAssertEqual(unsaid.first?.date, now.addingTimeInterval(14 * 3600), "an answer that names no zone is read in the Mac's")
+    }
+
+    func testTheParsedForecastUsesTheZoneItNames() throws {
+        let json = """
+        {"utc_offset_seconds": 32400, "timezone": "Asia/Tokyo",
+         "current": {"temperature_2m": 20, "weather_code": 1, "is_day": 1},
+         "hourly": {"time": ["2999-01-01T09:00"], "temperature_2m": [20], "weather_code": [1], "is_day": [1]}}
+        """
+        let snapshot = try XCTUnwrap(WeatherService.parse(Data(json.utf8)))
+        let expected = try XCTUnwrap(ISO8601DateFormatter().date(from: "2999-01-01T00:00:00Z"))
+        XCTAssertEqual(snapshot.hours.first?.date, expected)
+    }
 }

@@ -23,17 +23,22 @@
 #                                         prints yes, no or timeout and exits 0, 1 or 2)
 #   notchctl --help                             (this, on standard output, exiting 0)
 #
+# Lengths are numbers, in the unit the flag names (minutes for timers, seconds for --ttl and
+# --duration), or numbers with a unit of their own: 45, 45m, 90s, 1.5h. A timer is at most a
+# day. Anything else is bad usage, and nothing is sent.
+#
 # Exit status. Only `ask` has answers, and only a yes is success, so `if notchctl ask …; then`
 # means what it says; nothing that goes wrong before a question is asked exits 1 or 2.
 #     0    sent; for ask, answered yes
 #     1    ask: answered no
 #     2    ask: nobody answered in time, or the island never wrote an answer
-#    64    bad usage: a missing argument, or an unknown command or flag; nothing was sent
+#    64    bad usage: a missing argument, an unknown command or flag, or a length that is not
+#          one; nothing was sent
 #    66    shelf add: no such file
 #    69    Notch Island could not be reached: `open` refused the notchisland:// URL
 #    73    ask: no folder could be made in /tmp for the answer; nothing was sent
-#   130    ask: interrupted with Control-C while waiting for the answer
-#   143    ask: terminated (SIGTERM) while waiting for the answer
+#   130    ask: interrupted with Control-C while waiting for the answer (the question is taken down)
+#   143    ask: terminated (SIGTERM) while waiting for the answer (the question is taken down)
 set -euo pipefail
 
 # Bad usage, said the one way everywhere: what was wrong, then the command's own usage line
@@ -66,6 +71,44 @@ urlencode() {
 
 query=()
 add() { query+=("$1=$(urlencode "$2")"); }
+
+# A length as the island reads one (`LiveActivityAPI.length`): a plain number, then optionally a
+# unit. `seconds_of VALUE BARE` prints it in seconds, a bare number counting BARE seconds each,
+# and fails for anything else. The island used to read "45m" as no number at all and run its
+# default instead — thirty minutes for `sleep 45m` — while this said nothing and exited 0.
+length_re='^(-?[0-9]+([.][0-9]+)?)[[:space:]]*([a-z]*)$'
+seconds_of() {
+  local v scale
+  v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [[ "$v" =~ $length_re ]] || return 1
+  case "${BASH_REMATCH[3]}" in
+    "") scale=$2 ;;
+    s|sec|secs|second|seconds) scale=1 ;;
+    m|min|mins|minute|minutes) scale=60 ;;
+    h|hr|hrs|hour|hours) scale=3600 ;;
+    *) return 1 ;;
+  esac
+  # In the C locale, so the point is a point wherever the caller is.
+  LC_ALL=C awk -v n="${BASH_REMATCH[1]}" -v u="$scale" 'BEGIN { printf "%.3f\n", n * u }'
+}
+
+# Whether a length in seconds is inside a range, given as an awk condition on s.
+length_in() { LC_ALL=C awk -v s="$1" "BEGIN { exit !($2) }"; }
+
+# Checks a length for a command, as bad usage when it is not one: WHAT VALUE BARE CONDITION HINT.
+need_length() {
+  local secs
+  if ! secs=$(seconds_of "$2" "$3") || ! length_in "$secs" "$4"; then
+    usage "notchctl: $1 takes $5, not \"$2\""
+  fi
+}
+timer_range='s > 0 && s <= 86400'
+timer_hint='a length of up to a day (25, 25m, 90s, 1.5h)'
+
+# A whole number above nought, for a count.
+need_count() {
+  if ! [[ "$2" =~ ^[0-9]{1,4}$ ]] || (( 10#$2 == 0 )); then usage "notchctl: $1 takes a whole number above nought, not \"$2\""; fi
+}
 
 open_url() {
   local base="$1" q=""
@@ -116,6 +159,11 @@ parse_flags() {
       *) usage "notchctl: unknown flag: $flag" ;;
     esac
     if (( ! have )); then usage "notchctl: $flag needs a value"; fi
+    case "$key" in
+      work|rest|long) need_length "$flag" "$value" 60 "$timer_range" "$timer_hint" ;;
+      cycles) need_count "$flag" "$value" ;;
+      ttl|duration) need_length "$flag" "$value" 1 's > 0' 'a length above nought (600, 10m)' ;;
+    esac
     add "$key" "$value"; shift
   done
 }
@@ -140,17 +188,21 @@ case "$cmd" in
   timer)
     case "${1:-}" in
       cancel|stop|pause|resume) open_url "timer/$1" ;;
-      add) shift; add minutes "${1:-1}"; open_url "timer/add" ;;
+      add)
+        # A minute less is a minute of its own: `timer add -1`.
+        shift
+        need_length "timer add" "${1:-1}" 60 's != 0 && s >= -86400 && s <= 86400' 'a length of up to a day either way (1, 5m, -1)'
+        add minutes "${1:-1}"; open_url "timer/add" ;;
       pomodoro) shift; parse_flags "$@"; open_url "timer/pomodoro" ;;
       "") usage "usage: notchctl timer <minutes> [--label TEXT] | add [minutes] | cancel | pause | resume | pomodoro" ;;
-      *) add minutes "$1"; shift; parse_flags "$@"; open_url "timer" ;;
+      *) need_length "timer" "$1" 60 "$timer_range" "$timer_hint"; add minutes "$1"; shift; parse_flags "$@"; open_url "timer" ;;
     esac ;;
   # The URL scheme has had these since the stopwatch did; this wrapper had not.
   sleep)
     case "${1:-}" in
       cancel|stop) open_url "sleep/cancel" ;;
       "") open_url "sleep" ;;
-      *) add minutes "$1"; open_url "sleep" ;;
+      *) need_length "sleep" "$1" 60 "$timer_range" "$timer_hint"; add minutes "$1"; open_url "sleep" ;;
     esac ;;
   # The time is read by the app with the same rule as a time typed on Actions, so anything
   # the island would take there it takes here; the label is the rest of the line.
@@ -173,10 +225,16 @@ case "$cmd" in
     case "${1:-}" in
       add)
         # With no path this died on bash's "unbound variable"; with one that is not there, `cd`
-        # failed quietly inside the substitution and "/name" went to the island instead.
+        # failed quietly inside the substitution and "/name" went to the island instead. With
+        # CDPATH exported, `cd` printed the folder it found — a second line in the path — or
+        # found a folder of the same name somewhere else; and a name starting with "-" was an
+        # option to dirname and basename.
         if [ -z "${2:-}" ]; then usage "usage: notchctl shelf add <path>"; fi
         if [ ! -e "$2" ]; then echo "notchctl shelf add: no such file: $2" >&2; exit 66; fi
-        add path "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; open_url "shelf/add" ;;
+        if ! shelf_dir=$(CDPATH='' cd -- "$(dirname -- "$2")" && pwd); then
+          echo "notchctl shelf add: no such file: $2" >&2; exit 66
+        fi
+        add path "$shelf_dir/$(basename -- "$2")"; open_url "shelf/add" ;;
       clear) open_url "shelf/clear" ;;
       *) usage "usage: notchctl shelf add <path> | clear" ;;
     esac ;;
@@ -214,20 +272,30 @@ case "$cmd" in
     if (( wait_for < 5 )); then wait_for=5; fi
     if (( wait_for > 600 )); then wait_for=600; fi
     add timeout "$wait_for"
-    # In /tmp, not $TMPDIR: the island writes only inside the home folder or /tmp, and macOS's
-    # $TMPDIR is neither. The folder is ours alone (mktemp makes it 0700); the island creates
-    # the file in it, and never replaces one that is already there.
+    # The island writes only into a folder of the user's own, open to nobody else, inside /tmp
+    # or $TMPDIR — never the home folder — which is what mktemp -d makes. The island creates the
+    # file in it, and never replaces one that is already there.
     # A folder that cannot be made is not a no: under `set -e` the failed assignment exited
     # 1, which is the answer no, for a question that was never asked.
     if ! ask_dir=$(mktemp -d /tmp/notchctl-ask.XXXXXX); then
       echo "notchctl ask: could not make a folder in /tmp for the answer" >&2
       exit 73
     fi
+    # A secret of this question's own, which the island asks for before it takes the question
+    # down unanswered (`notchisland://ask/cancel`). Without one the question is not cancelled
+    # by URL, and still comes down when the folder goes.
+    ask_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || ask_token=""
+    # Interrupted, the question is taken down rather than left holding the island, and
+    # Control-Y and Control-N, for the rest of its time with nobody waiting for the answer.
+    cancel_ask() {
+      if [ -n "$ask_token" ]; then open -g "notchisland://ask/cancel?token=$ask_token" >/dev/null 2>&1 || true; fi
+    }
     trap 'rm -rf "$ask_dir"' EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    trap 'cancel_ask; exit 130' INT
+    trap 'cancel_ask; exit 143' TERM
     reply="$ask_dir/answer"
     add reply "$reply"
+    if [ -n "$ask_token" ]; then add token "$ask_token"; fi
     open_url "ask"
     # Every fifth of a second until the answer is there, or until a few seconds past the
     # island's own timeout — an island that was quit, or never got the question, never writes.

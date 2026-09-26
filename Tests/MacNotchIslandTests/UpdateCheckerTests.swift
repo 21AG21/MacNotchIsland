@@ -260,4 +260,17 @@ final class UpdateCheckerTests: XCTestCase {
             XCTAssertFalse(checker.updateAvailable)
         }
     }
+
+    // MARK: - When an automatic check is due
+
+    func testACheckIsDueADayOnOrWhenItsStampIsFromTheFuture() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let day: TimeInterval = 24 * 3600
+        XCTAssertTrue(UpdateChecker.isDue(last: nil, now: now, interval: day), "never checked")
+        XCTAssertFalse(UpdateChecker.isDue(last: now.addingTimeInterval(-3600), now: now, interval: day))
+        XCTAssertTrue(UpdateChecker.isDue(last: now.addingTimeInterval(-day), now: now, interval: day))
+        // Stamped while the clock was a week ahead: it used to wait a week and a day.
+        XCTAssertTrue(UpdateChecker.isDue(last: now.addingTimeInterval(7 * day), now: now, interval: day))
+        XCTAssertTrue(UpdateChecker.isDue(last: now.addingTimeInterval(1), now: now, interval: day))
+    }
 }

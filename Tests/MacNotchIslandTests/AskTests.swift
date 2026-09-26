@@ -21,12 +21,23 @@ final class AskTests: XCTestCase {
         super.tearDown()
     }
 
-    /// A folder of the test's own in /tmp, where `notchctl` makes its own, and the reply path in it.
-    private func replyPath() throws -> String {
+    /// A folder of the test's own in /tmp, open to nobody else — what `mktemp -d` makes for
+    /// `notchctl` — and the reply path in it.
+    private func replyPath(mode: Int = 0o700) throws -> String {
         let folder = "/tmp/notchctl-ask-test.\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: mode])
+        // Whatever the umask made of it.
+        try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: folder)
         folders.append(folder)
         return folder + "/answer"
+    }
+
+    /// Lets the main queue run: the watches here hear their news there.
+    private func settle(_ seconds: TimeInterval) {
+        let exp = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { exp.fulfill() }
+        wait(for: [exp], timeout: seconds + 2)
     }
 
     private func contents(_ path: String) -> String? {
@@ -114,39 +125,70 @@ final class AskTests: XCTestCase {
         XCTAssertEqual(request.replyPath(isSafe: { _ in true }), "/tmp/b/answer")
     }
 
-    /// A Mac whose /tmp is a link to /private/tmp, as every Mac's is, with a link in /tmp that
-    /// points somewhere else entirely.
+    /// A Mac whose /tmp is a link to /private/tmp, as every Mac's is, whose temporary folder is
+    /// under /var/folders, with a link in /tmp that points somewhere else entirely — and user
+    /// 501, whose folders are 0700 unless they say otherwise.
     private func safe(_ path: String, existing: Set<String> = []) -> Bool {
-        let folders = ["/Users/me": "/Users/me", "/Users/me/Projects": "/Users/me/Projects",
-                       "/Users/meow": "/Users/meow", "/tmp": "/private/tmp", "/private/tmp": "/private/tmp",
-                       "/tmp/notchctl-ask.X": "/private/tmp/notchctl-ask.X", "/tmp/escape": "/etc",
-                       "/Users/me/link": "/Library", "/var/folders/T": "/private/var/folders/T"]
-        return AskRequest.isSafeReplyPath(path, home: "/Users/me", resolve: { folders[$0] },
-                                          exists: { existing.contains($0) })
+        let me: uid_t = 501
+        func mine(_ real: String, _ mode: mode_t = 0o700) -> AskRequest.Folder {
+            AskRequest.Folder(path: real, owner: me, mode: mode)
+        }
+        let folders: [String: AskRequest.Folder] = [
+            "/Users/me": mine("/Users/me"), "/Users/me/Projects": mine("/Users/me/Projects"),
+            "/Users/me/.config": mine("/Users/me/.config"),
+            "/tmp": AskRequest.Folder(path: "/private/tmp", owner: 0, mode: 0o1777),
+            "/private/tmp": AskRequest.Folder(path: "/private/tmp", owner: 0, mode: 0o1777),
+            "/tmp/notchctl-ask.X": mine("/private/tmp/notchctl-ask.X"),
+            "/private/tmp/notchctl-ask.X": mine("/private/tmp/notchctl-ask.X"),
+            "/tmp/notchctl-ask.X/deeper": mine("/private/tmp/notchctl-ask.X/deeper"),
+            "/tmp/open": mine("/private/tmp/open", 0o755),
+            "/tmp/theirs": AskRequest.Folder(path: "/private/tmp/theirs", owner: 502, mode: 0o700),
+            "/tmp/escape": mine("/etc"),
+            "/tmp/home": mine("/Users/me"),
+            "/var/folders/T": mine("/private/var/folders/T"),
+            "/var/folders/T/notchctl.Y": mine("/private/var/folders/T/notchctl.Y"),
+            "/var/folders/other": mine("/private/var/folders/other"),
+        ]
+        return AskRequest.isSafeReplyPath(path, home: "/Users/me", roots: ["/tmp", "/var/folders/T"], user: me,
+                                          folder: { folders[$0] }, exists: { existing.contains($0) })
     }
 
-    func testTheAnswerGoesInTheHomeFolderOrTmp() {
-        XCTAssertTrue(safe("/tmp/notchctl-ask.X/answer"))
-        XCTAssertTrue(safe("/tmp/answer"))
-        XCTAssertTrue(safe("/private/tmp/answer"))
-        XCTAssertTrue(safe("/Users/me/Projects/answer"))
-        XCTAssertTrue(safe("/Users/me/answer"))
-        XCTAssertFalse(safe("/Users/meow/answer"), "a neighbour whose name starts the same way")
-        XCTAssertFalse(safe("/var/folders/T/answer"), "somewhere else")
+    func testTheAnswerGoesOnlyInAPrivateFolderInTmp() {
+        XCTAssertTrue(safe("/tmp/notchctl-ask.X/answer"), "what notchctl makes")
+        XCTAssertTrue(safe("/private/tmp/notchctl-ask.X/answer"))
+        XCTAssertTrue(safe("/tmp/notchctl-ask.X/deeper/answer"))
+        XCTAssertTrue(safe("/var/folders/T/notchctl.Y/answer"), "or in the user's temporary folder")
+        XCTAssertFalse(safe("/tmp/answer"), "not /tmp itself, which is everybody's")
+        XCTAssertFalse(safe("/var/folders/T/answer"), "nor the temporary folder itself")
+        XCTAssertFalse(safe("/tmp/open/answer"), "a folder others can read or write into")
+        XCTAssertFalse(safe("/tmp/theirs/answer"), "a folder somebody else made")
+        XCTAssertFalse(safe("/var/folders/other/answer"), "somewhere else")
         XCTAssertFalse(safe("/tmp/missing/answer"), "a folder that is not there")
+    }
+
+    /// `reply=/Users/me/.zshenv` with a five-second timeout made a startup file the next shell
+    /// read, with no click at all: nothing was there yet, and the home folder was allowed.
+    func testNeverTheHomeFolderOrAnywhereInIt() {
+        XCTAssertFalse(safe("/Users/me/.zshenv"))
+        XCTAssertFalse(safe("/Users/me/answer"))
+        XCTAssertFalse(safe("/Users/me/Projects/answer"))
+        XCTAssertFalse(safe("/Users/me/.config/answer"))
+        XCTAssertFalse(safe("/tmp/home/.zshenv"), "not by way of a link in /tmp either")
     }
 
     func testALinkDoesNotCarryTheAnswerOut() {
         XCTAssertFalse(safe("/tmp/escape/answer"))
-        XCTAssertFalse(safe("/Users/me/link/answer"))
     }
 
     func testTheAnswerNeverReplacesAFile() {
-        XCTAssertFalse(safe("/Users/me/answer", existing: ["/Users/me/answer"]),
-                       "reply=~/.zshrc must not be a way to wipe one")
+        XCTAssertFalse(safe("/tmp/notchctl-ask.X/answer", existing: ["/tmp/notchctl-ask.X/answer"]),
+                       "an answer never goes over a file, or a link somebody left there")
     }
 
     func testTheRuleAgainstTheDisk() throws {
+        XCTAssertFalse(AskRequest.isSafeOnDisk(try replyPath(mode: 0o755)), "a folder anybody can look into")
+        XCTAssertFalse(AskRequest.isSafeOnDisk(FileManager.default.homeDirectoryForCurrentUser.path + "/.notchctl-ask-test-\(UUID().uuidString)"),
+                       "the home folder")
         let path = try replyPath()
         XCTAssertTrue(AskRequest.isSafeOnDisk(path))
         FileManager.default.createFile(atPath: path, contents: Data())
@@ -363,6 +405,9 @@ final class AskTests: XCTestCase {
     }
 
     func testAReplyFileTheIslandWillNotWriteMeansNoQuestion() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path + "/.notchctl-ask-test-\(UUID().uuidString)"
+        handle("notchisland://ask?title=Deploy%3F&timeout=5&reply=\(encoded(home))")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home), "nothing is made in the home folder")
         handle("notchisland://ask?title=Deploy%3F&reply=%2Fetc%2Fanswer")
         handle("notchisland://ask?title=Deploy%3F&reply=relative")
         handle("notchisland://ask?title=Deploy%3F")
@@ -375,5 +420,92 @@ final class AskTests: XCTestCase {
         handle("notchisland://ask?title=%20&reply=\(encoded(path))")
         XCTAssertEqual(contents(path), "timeout\n", "the script hears now rather than in a minute")
         XCTAssertNil(center.activity(id: IslandAsk.activityID))
+    }
+
+    // MARK: - Taken down when nobody is waiting
+
+    private let token = "9f86d081884c7d659a2feaa0c55ad015"
+
+    func testACancelTokenIsLongEnoughNotToBeGuessed() {
+        XCTAssertEqual(AskRequest.cancelToken(token), token)
+        XCTAssertEqual(AskRequest.cancelToken("0D6A1F5E-2C4B-4F1A-9E7D-3B8C6A5D4E21"), "0D6A1F5E-2C4B-4F1A-9E7D-3B8C6A5D4E21")
+        XCTAssertNil(AskRequest.cancelToken(nil))
+        XCTAssertNil(AskRequest.cancelToken("abc123"), "short enough to guess")
+        XCTAssertNil(AskRequest.cancelToken(String(repeating: "a", count: 129)))
+        XCTAssertNil(AskRequest.cancelToken("9f86d081884c7d65 9a2feaa0c55ad015"), "letters, digits and hyphens only")
+        XCTAssertEqual(AskRequest.parse(["title": "Q?", "token": token])?.cancelToken, token)
+        XCTAssertNil(AskRequest.parse(["title": "Q?"])?.cancelToken)
+    }
+
+    /// `notchctl ask` interrupted with Control-C: the question held the island, and Control-Y
+    /// and Control-N, for the rest of its ten minutes with nobody waiting.
+    func testTheScriptThatAskedCanTakeItsQuestionDown() throws {
+        let path = try replyPath()
+        ask(path, extra: "&token=\(token)")
+        handle("notchisland://ask/cancel")
+        handle("notchisland://ask/cancel?token=guess")
+        handle("notchisland://ask/cancel?token=\(token)0")
+        XCTAssertTrue(IslandAsk.shared.isAsking, "only with its own token")
+
+        handle("notchisland://ask/cancel?token=\(token)")
+        XCTAssertFalse(IslandAsk.shared.isAsking)
+        XCTAssertNil(center.activity(id: IslandAsk.activityID), "the card is gone")
+        XCTAssertNil(center.forcedExpandedID, "and its hold on the island")
+        XCTAssertNil(contents(path), "and nothing is written for a script that has gone")
+    }
+
+    func testAQuestionPutUpWithoutATokenCannotBeCancelledByURL() throws {
+        let path = try replyPath()
+        ask(path)
+        IslandAsk.shared.cancel(token: token)
+        XCTAssertTrue(IslandAsk.shared.isAsking)
+        IslandAsk.shared.answer(.no)
+        XCTAssertEqual(contents(path), "no\n")
+    }
+
+    func testAQuestionComesDownWhenItsReplyFolderGoes() throws {
+        let path = try replyPath()
+        ask(path)
+        try FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent)
+        settle(0.3)
+        XCTAssertFalse(IslandAsk.shared.isAsking, "the script that made the folder is not waiting any more")
+        XCTAssertNil(center.activity(id: IslandAsk.activityID))
+    }
+
+    // MARK: - Another card forced up over the question
+
+    func testTheQuestionTakesTheIslandBackOnlyWhenItIsFree() {
+        XCTAssertTrue(IslandAsk.reclaims(forcedID: nil, cardUp: true, remaining: 30))
+        XCTAssertFalse(IslandAsk.reclaims(forcedID: "timer", cardUp: true, remaining: 30), "a ringing timer has its turn")
+        XCTAssertFalse(IslandAsk.reclaims(forcedID: nil, cardUp: false, remaining: 30), "no card to put back")
+        XCTAssertFalse(IslandAsk.reclaims(forcedID: nil, cardUp: true, remaining: IslandAsk.minimumReclaim / 2),
+                       "not for a blink")
+    }
+
+    /// A timer ringing, or `notchctl activity x --expanded`, while a question was up took the
+    /// one forced slot, and the question waited out its time as a pill.
+    func testTheQuestionComesBackAfterAnotherCardsTurn() throws {
+        let path = try replyPath()
+        ask(path)
+        center.upsert(IslandActivity(id: "api-x", kind: .custom, content: .custom(CustomActivity(title: "Build")), priority: 70))
+        center.forceExpanded(id: "api-x", for: 0.2)
+        XCTAssertEqual(center.forcedExpandedID, "api-x", "the other card has its turn")
+        settle(0.6)
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID, "and the question has the island again")
+        guard case .card(let shown) = center.presentation else { return XCTFail("the question is not up as a card") }
+        XCTAssertEqual(shown.id, IslandAsk.activityID)
+        XCTAssertTrue(IslandAsk.shared.isAsking)
+        center.end(id: "api-x")
+    }
+
+    func testAClosedPanelDoesNotLeaveTheQuestionAPill() throws {
+        let path = try replyPath()
+        ask(path)
+        center.collapse()
+        settle(0.2)
+        XCTAssertEqual(center.forcedExpandedID, IslandAsk.activityID)
+        IslandAsk.shared.answer(.yes)
+        settle(0.2)
+        XCTAssertNil(center.forcedExpandedID, "an answered question takes nothing back")
     }
 }

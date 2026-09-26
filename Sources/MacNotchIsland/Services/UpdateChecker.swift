@@ -76,8 +76,18 @@ final class UpdateChecker: ObservableObject {
     // MARK: - Checking
 
     private func dueForCheck() -> Bool {
-        guard let last = UserDefaults.standard.object(forKey: Self.lastCheckKey) as? Date else { return true }
-        return Date().timeIntervalSince(last) >= Self.checkInterval
+        Self.isDue(last: UserDefaults.standard.object(forKey: Self.lastCheckKey) as? Date, now: Date(),
+                   interval: Self.checkInterval)
+    }
+
+    /// Whether an automatic check is due: never checked, a check `interval` or longer ago — or
+    /// one stamped in the future. A check made while the clock was ahead left a stamp that the
+    /// clock, once put right, took a whole interval past that moment to reach, and a clock set
+    /// a year ahead by mistake stopped the checks for a year. A stamp from the future is not a
+    /// time anything happened, so it is due now. Pure, so it is tested.
+    static func isDue(last: Date?, now: Date, interval: TimeInterval) -> Bool {
+        guard let last else { return true }
+        return last > now || now.timeIntervalSince(last) >= interval
     }
 
     private func performCheck(forced: Bool) {

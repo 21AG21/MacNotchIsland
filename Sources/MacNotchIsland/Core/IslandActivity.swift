@@ -74,13 +74,44 @@ struct ShelfState: Equatable {
 }
 
 struct StopwatchState: Equatable {
+    /// When the current run began, on the wall clock: what the views count up from, since
+    /// they draw from a `TimelineView`'s date. `IslandStopwatch` moves it whenever the wall
+    /// clock is set, so that it keeps agreeing with `startedUptime` (`reanchored`).
     var startedAt: Date
     var accumulated: TimeInterval = 0
     var isRunning = true
     var laps: [TimeInterval] = []
+    /// The same moment on a clock that is never set and goes on counting while the Mac sleeps
+    /// (`IslandStopwatch.uptime`). Nil for a state made without one, which counts on the wall
+    /// clock alone.
+    var startedUptime: TimeInterval? = nil
 
+    /// The time on the stopwatch at `date`, for the views. Never less than was counted before
+    /// this run: a clock set back an hour is not an hour running backwards.
     func elapsed(at date: Date) -> TimeInterval {
-        isRunning ? accumulated + date.timeIntervalSince(startedAt) : accumulated
+        isRunning ? accumulated + max(0, date.timeIntervalSince(startedAt)) : accumulated
+    }
+
+    /// The time on the stopwatch, measured on the monotonic clock where the state has a reading
+    /// of it, and on the wall clock at `date` where it has not. What a lap and a stop keep.
+    ///
+    /// Measured on the wall clock alone, the clock being set — by hand, or by the network time
+    /// catching up after a wake — jumped the reading and every lap taken after it, and a clock
+    /// set back far enough stored a time below nought.
+    func elapsed(uptime: TimeInterval, at date: Date) -> TimeInterval {
+        guard isRunning else { return accumulated }
+        guard let base = startedUptime else { return elapsed(at: date) }
+        return accumulated + max(0, uptime - base)
+    }
+
+    /// The same run, with `startedAt` moved to where the wall clock at `now` puts it: `now` less
+    /// what the monotonic clock says has gone by. Nothing to move when it is stopped, or has no
+    /// monotonic reading. Pure, so it is tested.
+    func reanchored(uptime: TimeInterval, now: Date) -> StopwatchState {
+        guard isRunning, let base = startedUptime else { return self }
+        var moved = self
+        moved.startedAt = now.addingTimeInterval(-max(0, uptime - base))
+        return moved
     }
 }
 
@@ -575,7 +606,10 @@ enum ActivityContent: Equatable {
         case .capture: return Self.cardRow
         case .custom(let c):
             let bar = c.progress != nil && !c.showsRing ? Self.cardBar : 0
-            return (c.body != nil ? Self.cardCustomBody : Self.cardRow) + bar
+            // The view's own test for a body (`CustomExpandedView`): an empty one is not drawn,
+            // and was sized for all the same.
+            let hasBody = !(c.body ?? "").isEmpty
+            return (hasBody ? Self.cardCustomBody : Self.cardRow) + bar
         case .unlock, .silent: return 40
         case .shelf: return Self.cardTwoRows
         default: return Self.cardRow

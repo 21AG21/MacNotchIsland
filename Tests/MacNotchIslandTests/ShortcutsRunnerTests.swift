@@ -90,4 +90,19 @@ final class ShortcutsRunnerTests: XCTestCase {
         let text = "Shortcut “Morning” was not found."
         XCTAssertEqual(ShortcutsRunner.reason(from: text), text)
     }
+
+    // MARK: - The command line
+
+    func testANameIsPassedAsItAlwaysWas() {
+        XCTAssertEqual(ShortcutsRunner.runArguments("Morning", inputPath: nil), ["run", "Morning"])
+        XCTAssertEqual(ShortcutsRunner.runArguments("Resize", inputPath: "/tmp/a.png"),
+                       ["run", "Resize", "--input-path", "/tmp/a.png"])
+    }
+
+    /// A Shortcut named "--help" was read by `shortcuts` as the option, not the name.
+    func testANameThatLooksLikeAnOptionComesAfterTheTerminator() {
+        XCTAssertEqual(ShortcutsRunner.runArguments("--help", inputPath: nil), ["run", "--", "--help"])
+        XCTAssertEqual(ShortcutsRunner.runArguments("-v", inputPath: "/tmp/a.png"),
+                       ["run", "--input-path", "/tmp/a.png", "--", "-v"])
+    }
 }

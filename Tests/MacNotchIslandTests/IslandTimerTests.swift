@@ -432,4 +432,65 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertEqual(IslandMenu.sleepTitle(90), "1 hour 30 minutes")
         XCTAssertEqual(IslandMenu.sleepTitle(120), "2 hours")
     }
+
+    // MARK: - The stopwatch's clock
+
+    /// Measured on the wall clock, the clock being set moved the reading and every lap after it,
+    /// and one set back far enough stored a time below nought.
+    func testTheStopwatchIsMeasuredOnAClockNobodySets() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let s = StopwatchState(startedAt: start, startedUptime: 100)
+        XCTAssertEqual(s.elapsed(uptime: 130, at: start.addingTimeInterval(30)), 30)
+        XCTAssertEqual(s.elapsed(uptime: 130, at: start.addingTimeInterval(-3600)), 30, "the clock set back an hour")
+        XCTAssertEqual(s.elapsed(uptime: 130, at: start.addingTimeInterval(7200)), 30, "or on two")
+        XCTAssertEqual(s.elapsed(uptime: 90, at: start), 0, "never below nought")
+
+        var stopped = s
+        stopped.isRunning = false
+        stopped.accumulated = 12
+        XCTAssertEqual(stopped.elapsed(uptime: 500, at: start), 12)
+
+        let wallOnly = StopwatchState(startedAt: start, accumulated: 5)
+        XCTAssertEqual(wallOnly.elapsed(uptime: 999, at: start.addingTimeInterval(10)), 15, "no monotonic reading: the wall clock")
+        XCTAssertEqual(wallOnly.elapsed(at: start.addingTimeInterval(-3600)), 5, "and never less than was counted")
+    }
+
+    func testTheViewsStartingPointMovesWithTheWallClock() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let s = StopwatchState(startedAt: start, startedUptime: 100)
+        // Thirty seconds on, and the clock has just been set back an hour.
+        let now = start.addingTimeInterval(30 - 3600)
+        let moved = s.reanchored(uptime: 130, now: now)
+        XCTAssertEqual(moved.elapsed(at: now), 30, "the views read what was measured")
+        XCTAssertEqual(moved.startedUptime, 100)
+        var stopped = s
+        stopped.isRunning = false
+        XCTAssertEqual(stopped.reanchored(uptime: 130, now: now), stopped, "nothing to move while it is stopped")
+    }
+
+    func testTheStopwatchLapsAndStopsOnItsOwnClock() {
+        let stopwatch = IslandStopwatch.shared
+        let saved = stopwatch.uptime
+        var ticks: TimeInterval = 1000
+        stopwatch.uptime = { ticks }
+        defer {
+            stopwatch.reset()
+            stopwatch.uptime = saved
+        }
+        stopwatch.reset()
+        stopwatch.start()
+        ticks += 12.5
+        stopwatch.lap()
+        XCTAssertEqual(stopwatch.state?.laps, [12.5])
+        ticks += 7.5
+        stopwatch.stop()
+        XCTAssertEqual(stopwatch.state?.accumulated, 20)
+        XCTAssertEqual(stopwatch.state?.isRunning, false)
+        ticks += 100
+        stopwatch.start()
+        ticks += 5
+        stopwatch.lap()
+        XCTAssertEqual(stopwatch.state?.laps, [12.5, 25], "the time it was stopped does not count")
+        XCTAssertGreaterThan(IslandStopwatch.continuousUptime(), 0)
+    }
 }

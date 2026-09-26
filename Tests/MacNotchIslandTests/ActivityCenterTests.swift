@@ -1335,4 +1335,31 @@ final class ActivityCenterTests: XCTestCase {
         settle(0.1)
         XCTAssertEqual(center.currentView, .home(tab: HomeSection.music.rawValue), "the peek opens on what is playing")
     }
+
+    // MARK: - Time that passed without the expiry timer
+
+    /// The expiry timer counts only time the Mac is awake, and a card with a `ttl` outlived its
+    /// time by as long as the Mac slept. Waking, or the clock being set, is a look straight away.
+    func testWakingPrunesWhatRanOutWhileTheMacSlept() {
+        var card = custom("api-ttl")
+        card.expiresAt = Date().addingTimeInterval(600)
+        center.upsert(card)
+        center.upsert(custom("api-stays"))
+        center.timeMoved(now: Date().addingTimeInterval(3600))
+        XCTAssertNil(center.activity(id: "api-ttl"), "its ten minutes went by while the lid was shut")
+        XCTAssertNotNil(center.activity(id: "api-stays"), "a card with no time of its own stays")
+        center.timeMoved()
+        XCTAssertNotNil(center.activity(id: "api-stays"))
+    }
+
+    func testTheWakeRuleStillNamesTheSoonestEnd() {
+        let now = Date()
+        var soon = custom("a")
+        soon.expiresAt = now.addingTimeInterval(60)
+        var late = custom("b")
+        late.expiresAt = now.addingTimeInterval(600)
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [late, soon], pausedUntil: 0, now: now), soon.expiresAt)
+        XCTAssertEqual(ActivityCenter.nextWake(activities: [late, soon], pausedUntil: 0, now: now.addingTimeInterval(3600)),
+                       now.addingTimeInterval(3600), "an end the clock has passed is due now")
+    }
 }
