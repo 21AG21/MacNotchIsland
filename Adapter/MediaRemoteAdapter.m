@@ -223,9 +223,15 @@ static void emit(void) {
         };
         // MediaRemote's own word on whether the player is playing, beside the playback rate the
         // payload carries: some players leave a rate standing across a pause.
-        if (info.count > 0 && sGetIsPlaying) {
+        //
+        // Asked for an empty payload too, and its answer left out of it. Every payload then waits
+        // on the same answers before its line is written, so the lines go out in the order the
+        // payloads came in. The empty one skipped this step and overtook the track before it:
+        // quitting a player, the "nothing playing" line was written first and the quit player's
+        // track after it, and the app put that track back up.
+        if (sGetIsPlaying) {
             sGetIsPlaying(dispatch_get_main_queue(), ^(Boolean playing) {
-                out[@"isPlaying"] = playing ? @YES : @NO;
+                if (info.count > 0) out[@"isPlaying"] = playing ? @YES : @NO;
                 finish();
             });
         } else {

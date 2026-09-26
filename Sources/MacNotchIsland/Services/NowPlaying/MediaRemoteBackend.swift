@@ -100,6 +100,17 @@ final class MediaRemoteBackend {
     /// was switched off is not passed on when it lands, as one that arrives after it is not.
     /// Main queue.
     private var generation = 0
+    /// Every report is numbered as it is parsed, and one goes out only if it is newer than the
+    /// last that did (`delivers`). Main queue.
+    ///
+    /// `inOrder` keeps reports in order as far as `passOn`, and no further: a track then waits on
+    /// two more answers from the framework, and `queued` is already back to nothing while it
+    /// does. Quitting a player sends the three notifications together, and the empty report they
+    /// bring went out at once, ahead of the older track still waiting — so the "nothing playing"
+    /// arrived first, the track landed on top of it, and the quit player's card came back for as
+    /// long as the service waits before clearing one.
+    private var reportsNumbered = 0
+    private var reportsDelivered = 0
     private var observers: [NSObjectProtocol] = []
 
     private let notifications = [
@@ -147,6 +158,8 @@ final class MediaRemoteBackend {
     func stop() {
         started = false
         generation += 1
+        // Whatever is still on its way out is speaking to a backend that has been switched off.
+        reportsDelivered = reportsNumbered
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
         unregister?()
@@ -196,7 +209,8 @@ final class MediaRemoteBackend {
             // macOS 15.4+ hands unentitled apps a payload with no usable fields; don't count that
             // as healthy. Where MediaRemote answers this app, "nothing is playing" is its word.
             if isHealthy || Self.answersThisApp {
-                inOrder(decoding: nil) { [weak self] _, current in if current { self?.onUpdate?(nil) } }
+                let number = nextReportNumber()
+                inOrder(decoding: nil) { [weak self] _, current in if current { self?.deliver(nil, number: number) } }
             }
             return
         }
@@ -231,6 +245,7 @@ final class MediaRemoteBackend {
         info.repeatMode = NowPlayingInfo.repeatMode(fromRemote: (d["kMRMediaRemoteNowPlayingInfoRepeatMode"] as? NSNumber)?.intValue)
 
         let report = info
+        let number = nextReportNumber()
         inOrder(decoding: step == .decode ? artwork : nil) { [weak self] decoded, current in
             guard let self else { return }
             switch step {
@@ -247,17 +262,37 @@ final class MediaRemoteBackend {
             var covered = report
             covered.artwork = self.lastArtwork
             covered.accent = self.lastAccent
-            self.passOn(covered, rate: rate)
+            self.passOn(covered, rate: rate, number: number)
         }
+    }
+
+    /// The number the next report goes out under. Main queue.
+    private func nextReportNumber() -> Int {
+        reportsNumbered &+= 1
+        return reportsNumbered
+    }
+
+    /// Hands report `number` on, unless a newer one has gone out already. Main queue.
+    private func deliver(_ info: NowPlayingInfo?, number: Int) {
+        guard Self.delivers(number, after: reportsDelivered) else { return }
+        reportsDelivered = number
+        onUpdate?(info)
+    }
+
+    /// Whether report number `report` goes out, `delivered` being the newest that has: only a
+    /// report parsed after it. An older one that took longer on its way out says what was playing
+    /// before the report that beat it. Pure, so it is tested.
+    static func delivers(_ report: Int, after delivered: Int) -> Bool {
+        report > delivered
     }
 
     /// The player's own word on whether it is playing, where the framework gives one, then the
     /// application that is playing it; each is a question answered on the main queue.
-    private func passOn(_ info: NowPlayingInfo, rate: Double?) {
-        let deliver: (NowPlayingInfo) -> Void = { [weak self] info in
+    private func passOn(_ info: NowPlayingInfo, rate: Double?, number: Int) {
+        let withApp: (NowPlayingInfo) -> Void = { [weak self] info in
             guard let self else { return }
             guard let getPIDFn = self.getPIDFn else {
-                self.onUpdate?(info)
+                self.deliver(info, number: number)
                 return
             }
             getPIDFn(DispatchQueue.main) { [weak self] pid in
@@ -265,17 +300,17 @@ final class MediaRemoteBackend {
                 if pid > 0, let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
                     info.bundleID = app.bundleIdentifier
                 }
-                self?.onUpdate?(info)
+                self?.deliver(info, number: number)
             }
         }
         if let isPlayingFn {
             isPlayingFn(DispatchQueue.main) { playing in
                 var info = info
                 info.isPlaying = NowPlayingInfo.isPlaying(rate: rate, flag: playing)
-                deliver(info)
+                withApp(info)
             }
         } else {
-            deliver(info)
+            withApp(info)
         }
     }
 

@@ -138,6 +138,9 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     private var timerInterval: TimeInterval = 0
     private var energyCancellable: AnyCancellable?
     private var task: URLSessionDataTask?
+    /// The number of the forecast `task` is fetching. Moved on by every fetch and by a refusal,
+    /// so an answer can tell whether it is still the one wanted (`takesForecast`).
+    private var forecastRequest = 0
     private var snapshot: Snapshot?
     private var lastCoordinate: CLLocationCoordinate2D?
     private var geocodedCoordinate: CLLocationCoordinate2D?
@@ -367,6 +370,13 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     /// and hid the "Allow Location" offer that is the only way to get the weather back.
     private func refused() {
         state = .denied
+        // What was asked for before the refusal is not ours to have any more. Left running, the
+        // forecast and the town landed within the request's twelve seconds, put the weather back
+        // over the "Allow Location" offer and cached it, so it came back at every launch too.
+        forecastRequest &+= 1
+        task?.cancel()
+        task = nil
+        geocoder.cancelGeocode()
         guard snapshot != nil || updatedAt != nil else { return }
         snapshot = nil
         temperatureC = nil
@@ -421,6 +431,12 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         locationRequestInFlight = false
         guard isRunning else { return }
+        // A fix that failed because Location has just been taken away is a refusal, not a
+        // failure: falling back to the last coordinate fetched the weather for it anyway.
+        if (error as? CLError)?.code == .denied {
+            refused()
+            return
+        }
         IslandLog.network.error("location request failed: \(error.localizedDescription, privacy: .public)")
         if let coordinate = lastCoordinate {
             // A fix from earlier in the session beats no weather at all.
@@ -444,6 +460,10 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
             let resolved = placemark?.locality ?? placemark?.subAdministrativeArea ?? placemark?.administrativeArea
             guard let self, let name = resolved, !name.isEmpty else { return }
             DispatchQueue.main.async {
+                // A town looked up before Location was refused is not shown, nor folded into a
+                // reading to be cached; `refused` cancels the lookup, and this is the one that
+                // had already answered.
+                guard self.state != .denied else { return }
                 // Only a successful lookup counts as "geocoded here"; a failed one must retry next time.
                 self.geocodedCoordinate = coordinate
                 self.applyPlaceName(name)
@@ -499,19 +519,31 @@ final class WeatherService: NSObject, ObservableObject, CLLocationManagerDelegat
         }
         if snapshot == nil { state = .loading }
         task?.cancel()
+        forecastRequest &+= 1
+        let number = forecastRequest
         var request = URLRequest(url: url, timeoutInterval: Self.requestTimeout)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         let dataTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                self?.handle(data: data, response: response, error: error)
+                self?.handle(data: data, response: response, error: error, request: number)
             }
         }
         task = dataTask
         dataTask.resume()
     }
 
-    private func handle(data: Data?, response: URLResponse?, error: Error?) {
-        task = nil
+    /// Whether the answer to forecast number `request` is shown, `current` being the one asked
+    /// for last: only that one, and never while Location stands refused. Pure, so it is tested.
+    static func takesForecast(request: Int, current: Int, state: State) -> Bool {
+        request == current && state != .denied
+    }
+
+    private func handle(data: Data?, response: URLResponse?, error: Error?, request number: Int) {
+        // Only the answer to the fetch in flight lets go of it. An older one, cancelled by a
+        // newer fetch, used to clear the reference to the newer task on its way out, and
+        // `stop()` then had nothing to cancel.
+        if number == forecastRequest { task = nil }
+        guard Self.takesForecast(request: number, current: forecastRequest, state: state) else { return }
         // `stop()` cancels in-flight work; that is not a failure worth reporting.
         if let urlError = error as? URLError, urlError.code == .cancelled { return }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

@@ -22,6 +22,8 @@ struct IslandMenu: View {
     @ObservedObject private var volumes = VolumeMonitor.shared
     @ObservedObject private var timers = IslandTimer.shared
     @ObservedObject private var recorder = ScreenRecorder.shared
+    /// The paired list, read off the main thread. See `bluetoothDevices`.
+    @ObservedObject private var paired = PairedDevices.shared
 
     var body: some View {
         if let activity, Self.hasCommands(activity.content) {
@@ -39,7 +41,7 @@ struct IslandMenu: View {
         // thing is a click somebody had to make for nothing.
         ejectable
         // And the other thing that is otherwise a trip to System Settings: putting a pair of
-        // headphones back on. Built when the menu opens, since nothing else needs the list.
+        // headphones back on.
         bluetoothDevices
         Divider()
         // The microphone, which is otherwise a different button in every call app; a picture
@@ -187,9 +189,15 @@ struct IslandMenu: View {
     /// Read only once the tour is done, as Controls reads it (`ControlsSectionView`): reading
     /// the list is a Bluetooth question, and a right-click on a new Mac put macOS's Bluetooth
     /// sheet up ahead of the welcome tour. Before it the menu has no Bluetooth item at all.
+    ///
+    /// The list is the one `PairedDevices` last read on its own queue. It was read here, on the
+    /// main thread, a round trip to the Bluetooth daemon for every paired device, each time the
+    /// menu's content was put together. Putting it together now asks for a fresh read behind the
+    /// list when that is older than a poll (`PairedDevices.refreshIfStale`), which starts a read
+    /// and publishes nothing until it lands, so it is safe to ask from here.
     @ViewBuilder
     private var bluetoothDevices: some View {
-        let devices: [BluetoothMonitor.Paired] = prefs.hasSeenWelcome ? BluetoothMonitor.paired() : []
+        let devices = pairedList
         if !devices.isEmpty {
             Menu("Bluetooth") {
                 ForEach(devices) { device in
@@ -205,6 +213,15 @@ struct IslandMenu: View {
                 }
             }
         }
+    }
+
+    /// What the Bluetooth item lists. The gallery has no radio and is handed its devices, as
+    /// Controls is (`ControlsSectionView`).
+    private var pairedList: [BluetoothMonitor.Paired] {
+        guard prefs.hasSeenWelcome else { return [] }
+        if RenderMode.isGallery { return paired.devices.isEmpty ? BluetoothMonitor.paired() : paired.devices }
+        PairedDevices.shared.refreshIfStale()
+        return paired.devices
     }
 
     /// Eject, for whatever is attached. Nothing at all when nothing is.

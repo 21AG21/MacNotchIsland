@@ -41,6 +41,10 @@ final class CameraPreview: ObservableObject {
     private var asleep = false
     /// Session queue only: whether an input has been wired up.
     private var configured = false
+    /// Moved on by every `beginSession` and `endSession`, so the list of cameras taken for one
+    /// start is acted on only while that start is still the latest word (`listingStillWanted`).
+    /// Main thread only.
+    private var sessionAsks = 0
     private var energyCancellable: AnyCancellable?
 
     private init() {
@@ -94,8 +98,37 @@ final class CameraPreview: ObservableObject {
 
     // MARK: - Session
 
+    /// Looks for a camera on `queue`, then takes the first step on the main thread.
+    ///
+    /// The look was made here, on the main thread, as the mirror appeared: a discovery session,
+    /// which the first time loads the system's camera plug-ins, and the mirror's opening hitched
+    /// on it. The state is left as it was until the answer comes, so a Mac with no camera still
+    /// goes straight to "No camera" without a "Starting camera…" on the way.
     private func beginSession() {
-        switch Self.firstStep(hasCamera: Self.anyCamera(), access: AVCaptureDevice.authorizationStatus(for: .video)) {
+        sessionAsks &+= 1
+        let asked = sessionAsks
+        queue.async { [weak self] in
+            let hasCamera = Self.anyCamera()
+            DispatchQueue.main.async {
+                guard let self,
+                      Self.listingStillWanted(asked: asked, current: self.sessionAsks,
+                                              clients: self.clients, asleep: self.asleep) else { return }
+                self.takeFirstStep(hasCamera: hasCamera)
+            }
+        }
+    }
+
+    /// Whether the list of cameras taken for start `asked` is acted on when it lands, `current`
+    /// being the latest start or stop: only when nothing has started or stopped the camera since,
+    /// and a view still wants it while the Mac is awake (`reclaims`). A tab switched away and
+    /// back while the list was being taken asks again, and that answer is the one acted on.
+    /// Pure, so it is tested.
+    static func listingStillWanted(asked: Int, current: Int, clients: Int, asleep: Bool) -> Bool {
+        asked == current && reclaims(clients: clients, asleep: asleep)
+    }
+
+    private func takeFirstStep(hasCamera: Bool) {
+        switch Self.firstStep(hasCamera: hasCamera, access: AVCaptureDevice.authorizationStatus(for: .video)) {
         case .unavailable:
             state = .unavailable
         case .start:
@@ -138,6 +171,7 @@ final class CameraPreview: ObservableObject {
     }
 
     private func endSession() {
+        sessionAsks &+= 1
         state = .idle
         teardown()
     }

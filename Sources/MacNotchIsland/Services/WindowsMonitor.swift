@@ -148,6 +148,9 @@ final class WindowsMonitor: ObservableObject {
     /// Where the windows are raised, moved, put away and closed: serial, so two clicks act in
     /// the order they were made, and never the main thread.
     private let axQueue = DispatchQueue(label: "com.macnotchisland.windows.ax", qos: .userInitiated)
+    /// One walk of the list at a time, and one more after it at most when it is asked for while
+    /// the first is out. Main thread.
+    private var pass = RadioPass()
     private var energyCancellable: AnyCancellable?
     private var icons: [pid_t: NSImage] = [:]
 
@@ -240,15 +243,30 @@ final class WindowsMonitor: ObservableObject {
 
     func refresh() {
         refreshPermissions()
+        guard pass.start() else { return }
         let allowed = canCapture
         let trusted = canMove
         // The window server's list is walked off the main thread, and so is Accessibility,
         // which answers at the speed of the slowest app it is asked about; what they say is
         // turned into tiles (and their app icons, which is AppKit's business) back on it.
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        //
+        // One walk at a time, on `axQueue`, behind whatever was done to a window before it was
+        // asked for. Each walk used to start on a concurrent queue of its own and be shown
+        // whenever it landed: the two walks after a Tile or a Snap could land the wrong way
+        // round and put the old frames back until the next beat, and with an app that had
+        // stopped answering every beat started one more walk to wait on it.
+        axQueue.async { [weak self] in
             let info = Self.windowServerList()
             let away = trusted ? Self.putAwayWindows(of: Self.appsWithWindowsOutOfSight(in: info)) : []
-            DispatchQueue.main.async { self?.apply(Self.list(now: info, putAway: away), capturing: allowed) }
+            let listed = Self.list(now: info, putAway: away)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let again = self.pass.finish()
+                self.apply(listed, capturing: allowed)
+                // Asked for again while this walk was out, by a beat or by a window that was just
+                // moved: the answer that is waiting is the next one.
+                if again, self.viewers > 0 { self.refresh() }
+            }
         }
     }
 

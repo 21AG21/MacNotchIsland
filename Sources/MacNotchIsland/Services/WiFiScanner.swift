@@ -88,7 +88,7 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate, 
     private let queue = DispatchQueue(label: "com.macnotchisland.wifi", qos: .utility)
     /// Main queue only, like the three published properties and the viewer count — the queue
     /// above touches nothing but the interface.
-    private var pass = RadioPass()
+    private var pass = SweepPass()
 
     private var viewers = 0
     private var timer: Timer?
@@ -268,21 +268,22 @@ final class WiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate, 
     /// `scan`, the interface is asked to sweep the band first — slower again, and the reason
     /// the list says "Looking…" while it happens.
     func refresh(scan: Bool = false) {
-        guard pass.start() else { return }
+        guard pass.start(scan: scan) else { return }
         if scan, !isScanning { isScanning = true }
         queue.async { [weak self] in
             let reading = Self.take(scan: scan)
             DispatchQueue.main.async {
                 guard let self else { return }
-                let asked = self.pass.finish()
+                let next = self.pass.finish()
                 if self.isScanning { self.isScanning = false }
                 // A Mac with no Wi-Fi interface has no list, which is what an empty one says.
                 let fresh = reading?.networks ?? []
                 if self.networks != fresh { self.networks = fresh }
                 if self.current != reading?.current { self.current = reading?.current }
                 // Somebody joined a network, or the timer came round, while this was in the
-                // air. Their answer is the one they are waiting on.
-                if asked { self.refresh() }
+                // air. Their answer is the one they are waiting on, a sweep if any of them
+                // asked for one (`SweepPass`).
+                if let sweep = next { self.refresh(scan: sweep) }
             }
         }
     }
@@ -431,5 +432,39 @@ struct RadioPass {
         guard isPending else { return false }
         isPending = false
         return true
+    }
+}
+
+/// A `RadioPass` for the network list, which also remembers whether an ask it stood down for
+/// wanted the band swept.
+///
+/// The one pass asked for behind the pass in the air was a plain read of the last scan, whatever
+/// the asks it stood for had wanted. The radio switched on, or the timer come round, while a pass
+/// for a change of network was out: the sweep they asked for became a read of the cache, and the
+/// list could say "Nothing in range" without ever having said "Looking…". Lives on the main queue
+/// with the pass it wraps.
+struct SweepPass {
+    private(set) var pass = RadioPass()
+    /// Whether any ask that stood down since the pass in the air set off wanted a sweep.
+    private(set) var pendingScan = false
+
+    init() {}
+
+    /// Whether the caller is the one that gets to go. One that stands down leaves its sweep
+    /// behind for the pass after, if it asked for one. Balanced by `finish()`.
+    mutating func start(scan: Bool) -> Bool {
+        guard pass.start() else {
+            pendingScan = pendingScan || scan
+            return false
+        }
+        return true
+    }
+
+    /// Ends this pass: nil when nobody asked for another while it ran, and otherwise whether
+    /// the one asked for sweeps the band.
+    mutating func finish() -> Bool? {
+        let scan = pendingScan
+        pendingScan = false
+        return pass.finish() ? scan : nil
     }
 }

@@ -8,16 +8,24 @@ final class BluetoothMonitor: NSObject {
     private var connectNotification: IOBluetoothUserNotification?
     private var disconnectNotifications: [String: IOBluetoothUserNotification] = [:]
     private var running = false
+    /// Moved on by every start and stop, so the card for a connection heard in one run is not
+    /// put up in another (`stillShows`). Main thread, with `running`.
+    private var run = 0
 
     func start() {
         guard !running else { return }
         running = true
+        run &+= 1
         connectNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
+        // The island's menu lists what `PairedDevices` last read, off the main thread, rather than
+        // asking the radio as it is built; read once here, its first opening has a list to show.
+        PairedDevices.shared.refreshIfStale()
     }
 
     func stop() {
         guard running else { return }
         running = false
+        run &+= 1
         connectNotification?.unregister()
         connectNotification = nil
         disconnectNotifications.values.forEach { $0.unregister() }
@@ -45,13 +53,17 @@ final class BluetoothMonitor: NSObject {
         // Battery levels appear in the IORegistry shortly after connection. Only what is a
         // charge is kept: an asleep or unasked bud or case leaves a 0 or a figure past full
         // behind, and the card drew it — "Case 0%", in red. See `BluetoothBattery.usable`.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.2) {
+        let heardIn = run
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.2) { [weak self] in
             let levels = BluetoothBattery.usable(BluetoothBattery.levels(forAddress: address))
             state.batteryLeft = levels.left
             state.batteryRight = levels.right
             state.batteryCase = levels.caseLevel
             state.batterySingle = levels.single
             DispatchQueue.main.async {
+                // The switch may have been turned off in the second and more this waited: a
+                // card after that is a card from a monitor that has been stopped.
+                guard let self, Self.stillShows(heardIn: heardIn, run: self.run, running: self.running) else { return }
                 // Asked here, on the main thread and once, because the card has to know how tall
                 // to be before it is up: a pair that is not the output yet gets no pills on it,
                 // and has them in the panel as soon as it is.
@@ -60,6 +72,13 @@ final class BluetoothMonitor: NSObject {
                 show(card)
             }
         }
+    }
+
+    /// Whether the card for a connection heard in run `heardIn` still goes up, `run` being the
+    /// run now: only while the monitor is running, and running the run that heard it. Pure, so
+    /// it is tested.
+    static func stillShows(heardIn: Int, run: Int, running: Bool) -> Bool {
+        running && heardIn == run
     }
 
     @objc private func deviceDisconnected(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
@@ -324,6 +343,8 @@ final class PairedDevices: ObservableObject {
     /// Main thread only, with the viewer count and the timer.
     private var pass = RadioPass()
     private var viewers = 0
+    /// When the last list landed, on the clock that only counts forwards. Main thread.
+    private var readAt = LocalWrite.never
     private var timer: Timer?
     private var energyCancellable: AnyCancellable?
 
@@ -365,6 +386,34 @@ final class PairedDevices: ObservableObject {
         guard Self.reads(hasSeenWelcome: Preferences.shared.hasSeenWelcome,
                          hasBluetooth: SystemToggles.shared.hasBluetooth,
                          bluetoothOn: SystemToggles.shared.bluetoothOn) else { return }
+        read()
+    }
+
+    /// The list for somebody who wants it once rather than watching it: the island's right-click
+    /// menu. That menu asked the radio itself, on the main thread — the paired list, and each
+    /// device's name, connection and class — every time its content was put together. It is shown
+    /// the list last read, and a read is asked for behind it when that list is older than a poll
+    /// and none is out already, so a menu built again and again asks the radio once a poll at
+    /// most, and never on the main thread.
+    ///
+    /// Gated only on the tour, as the menu always was, and not on the switch the poll goes by
+    /// (`reads`): the switch is read only while the rail is up, and the menu is there without it.
+    /// Main thread.
+    func refreshIfStale() {
+        guard Self.wantsOneShot(hasSeenWelcome: Preferences.shared.hasSeenWelcome, running: pass.isRunning,
+                                readAt: readAt, now: LocalWrite.now()) else { return }
+        read()
+    }
+
+    /// Whether `refreshIfStale` reads the list: after the tour, with no read out, and the last
+    /// list at least `lifetime` old. Pure, so it is tested.
+    static func wantsOneShot(hasSeenWelcome: Bool, running: Bool, readAt: TimeInterval, now: TimeInterval,
+                             lifetime: TimeInterval = pollInterval) -> Bool {
+        hasSeenWelcome && !running && now - readAt >= lifetime
+    }
+
+    /// One pass over the list on `queue`, shown when it lands. Main thread.
+    private func read() {
         guard pass.start() else { return }
         // The registry's levels come from its cache, which is read and written on the main
         // thread; the walk behind it is already off it (`BluetoothBattery.cachedLevels`).
@@ -374,6 +423,7 @@ final class PairedDevices: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 let again = self.pass.finish()
+                self.readAt = LocalWrite.now()
                 if self.devices != list { self.devices = list }
                 // A connection was made or dropped while this pass was out; the answer that
                 // counts is the next one.

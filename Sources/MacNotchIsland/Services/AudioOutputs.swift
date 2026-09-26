@@ -166,6 +166,15 @@ final class AudioOutputs: ObservableObject {
     /// One reading at a time, and an ask made while one is in the air answered by one more
     /// when it lands. Main thread.
     private var pass = RadioPass()
+    /// How many times the volume and the mute shown have been set here on the main thread, by the
+    /// output's own listener (`reloadLevel`) or by the island's own write, and the output each was
+    /// last set for. A reading carries the counts from when it was asked for, and a half of the
+    /// level set since for the output it found is not the reading's to put back
+    /// (`showsLevel(…movedSinceAsked:)`). Main thread.
+    private var volumeSets = 0
+    private var muteSets = 0
+    private var volumeSetFor: AudioDeviceID = 0
+    private var muteSetFor: AudioDeviceID = 0
 
     /// Where CoreAudio is read, where the output is switched, and where every listener is
     /// added and taken away.
@@ -252,9 +261,12 @@ final class AudioOutputs: ObservableObject {
         // Listeners are only left behind while something shows what they report: a reading
         // asked for with nothing on screen must not add ones nothing will take down.
         let watching = viewers > 0
+        let sets = (volume: volumeSets, mute: muteSets)
         reader.async { [weak self] in
             guard let self else { return }
             var reading = Self.read()
+            reading.volumeSetsAtAsk = sets.volume
+            reading.muteSetsAtAsk = sets.mute
             // The listeners first and the level last, so no change to it falls between the two:
             // one made after this read is heard by a listener, and one made before it is in it.
             // Read the other way round, a change landing between them was in neither.
@@ -284,6 +296,9 @@ final class AudioOutputs: ObservableObject {
         var muteSettable = false
         /// The listeners moved to another output with this reading. See `showsLevel`.
         var rebound = false
+        /// `volumeSets` and `muteSets` as they stood when this reading was asked for.
+        var volumeSetsAtAsk = 0
+        var muteSetsAtAsk = 0
     }
 
     /// Everything the rail and the menu show, in one pass over the device list. On `reader`.
@@ -409,9 +424,15 @@ final class AudioOutputs: ObservableObject {
         if input != currentInput { currentInput = input }
         if reading.airPlay != airPlay { airPlay = reading.airPlay }
         if reading.ticked != airPlayCurrent { airPlayCurrent = reading.ticked }
+        var moved: LevelParts = []
+        if Self.setSinceAsked(sets: volumeSets, atAsk: reading.volumeSetsAtAsk,
+                              setFor: volumeSetFor, output: reading.defaultOutput) { moved.insert(.volume) }
+        if Self.setSinceAsked(sets: muteSets, atAsk: reading.muteSetsAtAsk,
+                              setFor: muteSetFor, output: reading.defaultOutput) { moved.insert(.mute) }
         let parts = Self.showsLevel(rebound: reading.rebound, wroteRecently: Self.wroteRecently(),
                                     shownVolume: volume, shownHasMute: muteIsRead,
-                                    readVolume: reading.volume, readMute: reading.mute)
+                                    readVolume: reading.volume, readMute: reading.mute,
+                                    movedSinceAsked: moved)
         showLevel(volume: reading.volume, mute: reading.mute, muteSettable: reading.muteSettable, parts: parts)
         // Something changed while this reading was in the air; the answer it is waiting for is
         // the next one.
@@ -457,6 +478,36 @@ final class AudioOutputs: ObservableObject {
         return parts
     }
 
+    /// `showsLevel`, for a reading during whose flight the main thread set `moved` of the level
+    /// itself. Pure, so it is tested.
+    ///
+    /// A reading reads the level after `bind` on `reader`, and lands a moment later. A change
+    /// made in that moment is reported by the new output's listener, or was the island's own
+    /// write, and either is shown at once, on the main thread, ahead of the reading: taken whole
+    /// because it moved the listeners, the reading then put back the older level, and right after
+    /// switching output the slider jumped back until another change was heard. What was set since
+    /// the ask was read or written later than the reading could be, so of that half the reading
+    /// fills in only what is missing, as it would for the same output; the half nothing touched
+    /// is still the reading's to set.
+    static func showsLevel(rebound: Bool, wroteRecently: Bool, shownVolume: Float?, shownHasMute: Bool,
+                           readVolume: Float?, readMute: Bool?, movedSinceAsked moved: LevelParts) -> LevelParts {
+        let parts = showsLevel(rebound: rebound, wroteRecently: wroteRecently, shownVolume: shownVolume,
+                               shownHasMute: shownHasMute, readVolume: readVolume, readMute: readMute)
+        guard !moved.isEmpty else { return parts }
+        let missing = showsLevel(rebound: false, wroteRecently: wroteRecently, shownVolume: shownVolume,
+                                 shownHasMute: shownHasMute, readVolume: readVolume, readMute: readMute)
+        return parts.subtracting(moved).union(parts.intersection(missing))
+    }
+
+    /// Whether half of the level was set on the main thread since a reading was asked for, `sets`
+    /// times now against `atAsk` then, and set for the output the reading found. One set for the
+    /// output before it — a listener still on the old output, heard as the switch was made — is
+    /// older news than the reading, and holding the reading back for it would leave the old
+    /// output's level on the slider. Pure, so it is tested.
+    static func setSinceAsked(sets: Int, atAsk: Int, setFor: AudioDeviceID, output: AudioDeviceID) -> Bool {
+        sets != atAsk && setFor == output
+    }
+
     /// Which device a system-wide default points at.
     static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioDeviceID {
         var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
@@ -489,8 +540,22 @@ final class AudioOutputs: ObservableObject {
         // One output for all three questions, so a switch between them cannot mix two devices.
         let output = AudioMonitor.defaultOutputDevice()
         let mute = AudioMonitor.readOutputMute(device: output)
+        noteSet(.all, for: output)
         showLevel(volume: AudioMonitor.readOutputVolume(device: output), mute: mute,
                   muteSettable: mute != nil && AudioMonitor.outputHasMuteControl(device: output))
+    }
+
+    /// Counts the halves of the level set here on the main thread, for `output`. See
+    /// `volumeSets`. Main thread.
+    private func noteSet(_ parts: LevelParts, for output: AudioDeviceID) {
+        if parts.contains(.volume) {
+            volumeSets &+= 1
+            volumeSetFor = output
+        }
+        if parts.contains(.mute) {
+            muteSets &+= 1
+            muteSetFor = output
+        }
     }
 
     private func showLevel(volume v: Float?, mute m: Bool?, muteSettable: Bool, parts: LevelParts = .all) {
@@ -645,9 +710,16 @@ final class AudioOutputs: ObservableObject {
     private func writeLevel(_ level: Float) {
         let clamped = max(0, min(1, level))
         Self.markLocalWrite()
-        if AudioMonitor.writeOutputVolume(clamped) {
+        // The output asked for once and written to by name, so the write is counted against the
+        // output it went to (`noteSet`).
+        let output = AudioMonitor.defaultOutputDevice()
+        if AudioMonitor.writeOutputVolume(clamped, device: output) {
+            noteSet(.volume, for: output)
             volume = clamped
-            if clamped > 0, isMuted, AudioMonitor.writeOutputMute(false) { isMuted = false }
+            if clamped > 0, isMuted, AudioMonitor.writeOutputMute(false, device: output) {
+                noteSet(.mute, for: output)
+                isMuted = false
+            }
         }
     }
 
@@ -656,7 +728,11 @@ final class AudioOutputs: ObservableObject {
         // wait: written after the mute, a level above nothing would unmute again.
         flushSlide()
         Self.markLocalWrite()
-        if AudioMonitor.writeOutputMute(muted) { isMuted = muted }
+        let output = AudioMonitor.defaultOutputDevice()
+        if AudioMonitor.writeOutputMute(muted, device: output) {
+            noteSet(.mute, for: output)
+            isMuted = muted
+        }
     }
 
     // MARK: - The slider's writes

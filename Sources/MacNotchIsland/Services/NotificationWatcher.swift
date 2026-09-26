@@ -422,7 +422,15 @@ final class NotificationWatcher {
             }
             onScreen = seen
             guard !fresh.isEmpty else { return }
-            DispatchQueue.main.async { [weak watcher] in watcher?.record(fresh) }
+            let run = generation
+            DispatchQueue.main.async { [weak watcher] in
+                // Asked again on arrival. The walk above can take seconds, and the switch may
+                // have been turned off while it waited on Notification Centre: the banner read
+                // then was filed, and written to disk, after capture had stopped, and a stop and
+                // a start filed it twice, once from this run and once from the next.
+                guard let watcher, watcher.running, watcher.keepsRunning(run) else { return }
+                watcher.record(fresh)
+            }
         }
 
         /// Makes sure we are pointed at the Notification Centre that is running now.

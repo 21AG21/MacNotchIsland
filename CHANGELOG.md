@@ -278,6 +278,14 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- Turning notification capture off no longer files the banner that was being read at that moment, and turning it off and on again no longer files the same banner twice.
+- Taking Location away from the island takes the weather with it at once: a forecast or town name already on its way no longer comes back and gets cached.
+- After Tile or Snap, the Windows strip no longer briefly puts the old frames back, and a hung app no longer piles up window walks.
+- Quitting a music player no longer brings its track back onto the island for a few seconds.
+- Opening the Mirror no longer hitches while the Mac looks for a camera.
+- The network list shows "Looking…" for a scan asked for while another read was running, instead of "Nothing in range".
+- Right after switching sound output, the volume slider no longer jumps back to an older level.
+- Right-clicking the island no longer asks the Bluetooth radio on the main thread, the AirPods listening modes are never read from two threads at once, and switching screenshots or Bluetooth alerts off no longer lets one last card through.
 - An alert sent again unchanged, such as the volume key pressed at the top of the bar or a second "Copied", no longer redraws the whole island, and the HUD's card follows the level on its own.
 - A thumbnail made for a file on the shelf redraws that file's tile alone rather than every tile, the strip and the Home grid, and each file's icon is looked up once rather than on every redraw.
 - A picture's thumbnail in the clipboard list redraws its own row's glyph rather than every row in the list.

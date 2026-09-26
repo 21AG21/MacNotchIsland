@@ -61,9 +61,22 @@ final class ScreenshotMonitor {
     /// Heard on the main thread, which is where `start` and `stop` are called and the only
     /// place this is touched; what it hears is handed to the queue.
     private var activationObserver: NSObjectProtocol?
+    /// Whether the watch is on, and which run of it this is, as `start` and `stop` last said.
+    /// Main thread only, where they are called and where a capture is announced: `running` and
+    /// `generation` belong to the queue, and a stop reaches the queue only behind whatever it is
+    /// already doing. Checked as each capture arrives (`announces`).
+    private var announcing = false
+    private var announcingRun = 0
+    /// The run the queue is watching for, as the main thread numbered it. Queue only.
+    private var watchedRun = 0
 
     func start() {
-        queue.async { [weak self] in self?.beginWatching() }
+        if !announcing {
+            announcing = true
+            announcingRun &+= 1
+        }
+        let run = announcingRun
+        queue.async { [weak self] in self?.beginWatching(run: run) }
         // The folder can be changed without a single write to the old one — the Options menu in
         // the screenshot toolbar, a `defaults write` in Terminal — so the watcher's own events
         // cannot be the only time it is looked up again. Switching apps is cheap to hear and
@@ -77,12 +90,24 @@ final class ScreenshotMonitor {
     }
 
     func stop() {
+        announcing = false
+        announcingRun &+= 1
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
         activationObserver = nil
         queue.async { [weak self] in self?.endWatching() }
     }
 
-    private func beginWatching() {
+    /// Whether a capture read during run `run` is announced, `current` being the run the main
+    /// thread is on: only while the watch is on and it is still that run. A capture that had
+    /// settled as screenshots were switched off was read on the queue and handed to the main
+    /// thread all the same, and one more card and shelf item came after the switch. Pure, so it
+    /// is tested.
+    static func announces(run: Int, current: Int, announcing: Bool) -> Bool {
+        announcing && run == current
+    }
+
+    private func beginWatching(run: Int) {
+        watchedRun = run
         guard !running else { return }
         running = true
         generation += 1
@@ -241,7 +266,9 @@ final class ScreenshotMonitor {
         // Labelled on both sides, or the ternary settles on a plain pair and the names go.
         let picture: (thumbnail: NSImage?, pixels: CGSize?) =
             isRecording ? (thumbnail: nil, pixels: nil) : Self.picture(of: url)
-        DispatchQueue.main.async {
+        let run = watchedRun
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Self.announces(run: run, current: self.announcingRun, announcing: self.announcing) else { return }
             Self.announce(url, isRecording: isRecording, picture: picture)
         }
     }

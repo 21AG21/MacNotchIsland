@@ -337,6 +337,8 @@ final class AirPodsControl: ObservableObject {
     /// shown (`showsReading`). Main thread.
     private var readingsAsked = 0
     private var readingShown = 0
+    /// When the last reading was shown, on the clock that only counts forwards. Main thread.
+    private var readingShownAt = LocalWrite.never
 
     private init() {
         bridge = RenderMode.isGallery ? nil : Bridge.load()
@@ -375,13 +377,20 @@ final class AirPodsControl: ObservableObject {
 
     /// Reads the route here and now and shows it before returning, for `offers`, which has to
     /// answer there and then: once for each pair that connects, on the main thread, as it always
-    /// was. Not by waiting on `queue`, which would hold the main thread for a reading already out
-    /// as well as its own, and could never finish if AVFoundation ever wanted the main thread
-    /// for either. A reading out on the queue meanwhile lands afterwards, older, and is not shown.
+    /// was.
+    ///
+    /// The reading itself is made on `queue`, waited for. Made here, on the main thread, it went
+    /// through the same private context and devices as a reading the poll could have out on the
+    /// queue at that moment, from two threads at once, and nothing says those objects can take
+    /// that. The wait is for one reading at most ahead of this one, since the poll keeps one out at
+    /// a time (`pass`), and nothing on `queue` waits for the main thread: its readings come back
+    /// with `async`. The one that was out lands afterwards, older, and is not shown.
     private func refreshNow() {
         guard let bridge, !RenderMode.isGallery else { return publish(nil) }
         readingsAsked += 1
-        show(Self.read(bridge), ticket: readingsAsked)
+        let ticket = readingsAsked
+        let route = queue.sync { Self.read(bridge) }
+        show(route, ticket: ticket)
     }
 
     /// Whether a reading numbered `ticket` is shown, the last shown being `shown`: only when it
@@ -391,7 +400,18 @@ final class AirPodsControl: ObservableObject {
         ticket > shown
     }
 
-    /// One look at the route. On `queue`, or on the main thread for `offers`.
+    /// Whether `offers` can answer from the reading on screen rather than reading the route
+    /// again: only when that reading puts the pills on this very pair, and was shown less than a
+    /// beat of the poll ago. A pair that has just connected can be on the route a moment after
+    /// the last reading was taken, so a reading that does not have it is not believed; one that
+    /// has it is, and the card goes up without waiting on the route at all. Pure, so it is tested.
+    static func answersFromShown(drives: Bool, shownAt: TimeInterval, now: TimeInterval,
+                                 fresh: TimeInterval = pollInterval) -> Bool {
+        let age = now - shownAt
+        return drives && age >= 0 && age < fresh
+    }
+
+    /// One look at the route. On `queue`, and nowhere else: `offers` waits for its look there.
     private static func read(_ bridge: Bridge) -> Route {
         guard let context = bridge.context() else { return .noContext }
         guard let devices = object(context, "outputDevices") as? [NSObject] else { return .noDevices }
@@ -417,6 +437,7 @@ final class AirPodsControl: ObservableObject {
     private func show(_ route: Route, ticket: Int) {
         guard Self.showsReading(ticket: ticket, shown: readingShown) else { return }
         readingShown = ticket
+        readingShownAt = LocalWrite.now()
         var refusals = 0
         if case .noContext = route { refusals = min(contextRefusals + 1, Self.refusalsToStop) }
         let polled = Self.shouldPoll(hasBridge: true, refusals: contextRefusals, viewers: viewers)
@@ -485,6 +506,8 @@ final class AirPodsControl: ObservableObject {
     /// Reads the route now and says whether the pills would go on this device: for the card that
     /// announces a pair, which has to know how tall to be before anything is watching.
     func offers(name: String, address: String) -> Bool {
+        if Self.answersFromShown(drives: drives(name: name, address: address),
+                                 shownAt: readingShownAt, now: LocalWrite.now()) { return true }
         refreshNow()
         return drives(name: name, address: address)
     }
