@@ -114,10 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // every preference the island saved and never the one it was after. Switching the
         // setting changes the display's visible frame as well, which the path above hears, so
         // an announcement missed still rebuilds, a settle later.
+        // Delivered at once: distributed notifications are held back while an app is not
+        // active by default, and an accessory app with no Dock icon is never the active one
+        // while somebody is in System Settings.
         DistributedNotificationCenter.default().addObserver(self,
                                                             selector: #selector(menuBarSettingChanged),
                                                             name: Notification.Name("AppleInterfaceMenuBarHidingChangedNotification"),
-                                                            object: nil)
+                                                            object: nil,
+                                                            suspensionBehavior: .deliverImmediately)
         // The island belongs to the notch, not to a Space or an app: whenever the desktop
         // underneath changes, put every panel back on top and over its notch.
         let workspace = NSWorkspace.shared.notificationCenter

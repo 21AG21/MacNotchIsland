@@ -551,8 +551,8 @@ final class FullscreenMonitor {
     }
 
     /// What `isZoomed` answered, by window — its app, its number and its frame — so a window
-    /// that fills its display is asked about once rather than on every reading. Kept by the
-    /// event it was asked after (`epoch`, the monitor's count of events): the first answer
+    /// that fills its display is asked about once rather than on every reading. Kept for
+    /// `life` at most, and by the event it was asked after (`epoch`, the monitor's count of events): the first answer
     /// given after a newer event forgets every older one, and an answer from a reading that
     /// started before it is not kept. A window going full screen changes the Space, which is
     /// an event, so what it said while zoomed is never taken for what it says in full screen.
@@ -575,19 +575,29 @@ final class FullscreenMonitor {
 
         private let lock = NSLock()
         private var epoch = Int.min
-        private var answers: [Key: Bool] = [:]
+        private var answers: [Key: (answer: Bool, at: TimeInterval)] = [:]
 
-        /// The answer given for this window since event `epoch`, if there is one.
-        func answer(for window: Window, epoch: Int) -> Bool? {
+        /// How long an answer is kept, on `ProcessInfo.systemUptime`'s clock. Not until the
+        /// next event alone: a window the app called zoomed can go borderless or full screen
+        /// in place — the same number at the same frame, with no change of Space and no app
+        /// coming forward to say so — and remembered as zoomed it would keep the island over
+        /// it until some unrelated event. One idle poll's worth, so such a window is asked
+        /// about again within a poll or two.
+        static let life: TimeInterval = FullscreenMonitor.idlePoll
+
+        /// The answer given for this window since event `epoch` and within `life`, if there is one.
+        func answer(for window: Window, epoch: Int,
+                    now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool? {
             lock.lock()
             defer { lock.unlock() }
-            guard epoch == self.epoch else { return nil }
-            return answers[Key(window)]
+            guard epoch == self.epoch, let kept = answers[Key(window)], now - kept.at < Self.life else { return nil }
+            return kept.answer
         }
 
         /// Keeps an answer asked after event `epoch`. A window the list gave no number is not
         /// kept: nothing would tell it from the next window at that frame.
-        func remember(_ answer: Bool, for window: Window, epoch: Int) {
+        func remember(_ answer: Bool, for window: Window, epoch: Int,
+                      now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
             guard window.number != 0 else { return }
             lock.lock()
             defer { lock.unlock() }
@@ -596,7 +606,7 @@ final class FullscreenMonitor {
                 answers.removeAll()
             }
             guard epoch == self.epoch else { return }
-            answers[Key(window)] = answer
+            answers[Key(window)] = (answer: answer, at: now)
         }
     }
 }

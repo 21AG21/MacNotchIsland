@@ -295,7 +295,7 @@ final class MediaKeyInterceptor {
     /// (`probe(after:)`) stands down once another has taken its place and has looks of its own.
     private var outputChanges = 0
     /// When something that may be early was last asked about, see `reprobeWindow`. Set by
-    /// `start` and `probe(after:)`, and by nothing else.
+    /// `start`, `installTap` and `probe(after:)`, and by nothing else.
     private var askedAt = Date.distantPast
     private var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
                                                            mScope: kAudioObjectPropertyScopeGlobal,
@@ -716,6 +716,10 @@ final class MediaKeyInterceptor {
         // Switched on only once the island knows which keys it can answer, and only if this
         // is still the tap that exists — a probe started for a tap that has since been torn
         // down and rebuilt would otherwise enable the dead one and leave the live one unread.
+        // A tap going up may be the first look at an output still arriving — Accessibility
+        // granted a while after launch, or trust given back — so the watch timer's minute
+        // opens here as it does for a start (`reprobeWindow`).
+        askedAt = Date()
         refreshCapabilities { [weak self] in
             guard let self, self.running, self.isCurrent(generation) else { return }
             self.tapArmed = true

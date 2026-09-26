@@ -31,7 +31,7 @@ struct IslandPane: View {
             } header: {
                 Text("Keyboard")
             } footer: {
-                Text("The shortcut opens the panel on what is playing or running, or on the section you last had open when nothing is; press it again to close. Tab steps through the live activities and then every section, in the order Home Panel lists them; the arrows do the same without wrapping, and only while the panel is open. What you open stays open across desktops.")
+                Text(Self.keyboardFooter(stepsAreSafe: HotKeyService.stepsAreSafe(modifiers: HotKeyService.currentModifiers)))
             }
 
             // The keys that need nothing held down. Listed only while they are on, for the
@@ -131,6 +131,18 @@ struct IslandPane: View {
     /// and a switch found off on one Mac and on on the next with nothing said about it reads
     /// as a setting that was lost.
     static let pointerFooter = "What the pointer opens closes when it leaves. A click anywhere on the panel — its background or one of its controls — keeps it open until you click somewhere else, press Escape, or use the shortcut. On a Mac without a notch, opening from the empty island starts off until you set it: there the island floats over the top of your windows, where the pointer is usually on its way to a tab or a toolbar. Resting on something live still opens the panel, and so does a click."
+
+    /// The Keyboard section's footer. The Tab and arrow steps exist only where the shortcut's
+    /// modifiers hold two of ⌃⌥⌘ (`HotKeyService.stepsAreSafe`); with one, the footer used to
+    /// describe steps the recorder's note had just said were left to the app in front. Pure,
+    /// so it is tested.
+    static func keyboardFooter(stepsAreSafe: Bool) -> String {
+        let opening = "The shortcut opens the panel on what is playing or running, or on the section you last had open when nothing is; press it again to close. "
+        let steps = stepsAreSafe
+            ? "Tab steps through the live activities and then every section, in the order Home Panel lists them; the arrows do the same without wrapping, and only while the panel is open. "
+            : "With two of Control, Option and Command in the shortcut, Tab and the arrows step through every section while the panel is open. "
+        return opening + steps + "What you open stays open across desktops."
+    }
 
     /// The sections that take the letters, named from `PanelFind.sections` itself in the order
     /// the panel ships them, so a list that gains a find is named here without anybody having

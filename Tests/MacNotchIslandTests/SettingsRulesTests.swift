@@ -254,6 +254,18 @@ final class SettingsRulesTests: XCTestCase {
         }
     }
 
+    /// The Keyboard footer described Tab and arrow steps whatever the shortcut, and a shortcut
+    /// with one modifier has none (`HotKeyService.stepsAreSafe`).
+    func testTheKeyboardFooterNamesStepsOnlyWhereTheShortcutHasThem() {
+        XCTAssertTrue(IslandPane.keyboardFooter(stepsAreSafe: true).contains("Tab steps through"))
+        XCTAssertFalse(IslandPane.keyboardFooter(stepsAreSafe: false).contains("Tab steps through"))
+        XCTAssertTrue(IslandPane.keyboardFooter(stepsAreSafe: false).contains("two of Control, Option and Command"),
+                      "and says what would bring them")
+        for safe in [true, false] {
+            XCTAssertTrue(IslandPane.keyboardFooter(stepsAreSafe: safe).hasSuffix("What you open stays open across desktops."))
+        }
+    }
+
     /// The Island pane named the sections that take the letters by hand, and missed
     /// Notifications. It is read from `PanelFind.sections` now.
     func testTheLettersAreNamedForEverySectionThatTakesThem() {

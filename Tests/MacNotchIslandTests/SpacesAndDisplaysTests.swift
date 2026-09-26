@@ -383,6 +383,14 @@ final class SpacesAndDisplaysTests: XCTestCase {
         let unnumbered = FullscreenMonitor.Window(pid: 30, frame: externalScreen.rect)
         answers.remember(true, for: unnumbered, epoch: 2)
         XCTAssertNil(answers.answer(for: unnumbered, epoch: 2), "nothing tells a window without a number from the next one")
+
+        // Kept for a while, not for ever: a zoomed window that goes full screen in place, with
+        // no event to say so, is asked about again within a poll or two.
+        let life = FullscreenMonitor.ZoomAnswers.life
+        answers.remember(true, for: zoomedSafari, epoch: 3, now: 100)
+        XCTAssertEqual(answers.answer(for: zoomedSafari, epoch: 3, now: 100 + life - 1), true)
+        XCTAssertNil(answers.answer(for: zoomedSafari, epoch: 3, now: 100 + life), "as old as an idle poll: asked again")
+        XCTAssertEqual(life, FullscreenMonitor.idlePoll, "one idle poll's worth")
     }
 
     // MARK: - Full screen, and only at the front
