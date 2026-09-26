@@ -75,6 +75,12 @@ private final class SettingsWindowHost: NSObject, NSWindowDelegate {
             return
         }
         let w = NSWindow(contentViewController: Self.makeContent())
+        // That initialiser binds the window's title to the controller's, and a binding is held
+        // by the object bound — the window, which lives for the run. Left in place it kept the
+        // first hosting controller alive after the view was let go of on close, with its
+        // pane's timers ticking in a copy nobody could see. The title is set by hand here and
+        // on every reopen, so the binding has nothing to do.
+        w.unbind(NSBindingName.title)
         w.styleMask = [.titled, .closable, .miniaturizable]
         // Named for the pane it is about to show, the way System Settings names its window.
         // `navigationTitle` will say the same thing a moment later; without this the window

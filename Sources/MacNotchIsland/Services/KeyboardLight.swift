@@ -205,8 +205,22 @@ final class KeyboardLight: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeSettle, execute: look)
         case .drop:
             use(nil)
+            // One last look, well after the two that found nothing: a daemon slower than the
+            // second look allowed gave the keyboard back a moment later, and nothing asked again
+            // until the next wake or display change. The slot the second look used holds it,
+            // and a keyboard found by any other look calls it off (`use`).
+            let last = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.secondLook = nil
+                if self.bridge == nil { self.use(Bridge.load()) }
+            }
+            secondLook = last
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.lastLookSettle, execute: last)
         }
     }
+
+    /// How long after the backlight is given up a final look is made for it.
+    static let lastLookSettle: TimeInterval = 10
 
     /// Puts `fresh` in the bridge's place, and says so when the backlight came or went. Main
     /// thread.

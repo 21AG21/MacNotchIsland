@@ -278,6 +278,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- Closing Settings really lets its view go: the window's title binding kept the first one alive with its pane's timers ticking.
+- A keyboard backlight given up after a lid opening is looked for once more ten seconds later, rather than only at the next wake.
 - A press on the Now Playing card no longer waits behind a poll sent after it. Its six-second limit is checked when it actually starts, and a pause, including the sleep timer's, is never dropped as too late.
 - A stream that reports a timestamp but no position keeps its clock instead of going back to 0:00 each time the player stamps it.
 - AppleScript goes back to its full rate when a track plays from any source, the card changes hands or ends, or a button beside play is pressed. A poll with no player open no longer counts toward slowing it down, so a newly opened Music is picked up within seconds.
@@ -286,13 +288,13 @@ the unreleased section is what the next tag will ship.
 - The Dark Mode switch runs on the app's single script queue with a five-second timeout, and a switch that times out no longer opens the Automation pane.
 - The Join button only unwraps a Safe Links or Google redirect to a real web link; an inner `httpfoo://zoom.us/…` is no longer handed to whatever app claims that scheme.
 - A Teams meeting link that arrives through Outlook's Safe Links opens intact: the inner link is decoded a second time only when it was encoded as a whole, so its own `%26` and `%23` no longer split its query.
-- Bluetooth that goes away while Controls is open (access taken back in Privacy, a USB radio pulled out) now shows the switch off, and the paired list is no longer asked for every poll.
+- Bluetooth that goes away while Controls is open (access taken back in Privacy, a USB radio pulled out) now goes off in the column and on the rail, and the paired list is no longer asked for every poll.
 - A Mac whose Bluetooth access is restricted by a management profile is told Bluetooth access is off, not that it has no Bluetooth.
 - A shelf drop on a disk without hard links gets the same file permissions as on any other disk.
 - An alert's `duration=0`, or a card's `ttl=0`, is logged as "must be more than 0" instead of "is not a length".
 - The mute button is dimmed on an output whose mute can be read but not set, instead of doing nothing when pressed.
 - The keyboard backlight survives a lid opening: one empty answer from CoreBrightness no longer takes the disc away until the next wake. It looks again two seconds later and gives up only if the keyboard is still missing, and a keyboard that comes back under a new number is driven by that number.
-- The brightness slider on a second display's island starts on that display's own level rather than the MacBook's, and a display that misses one reading mid-drag keeps its slider.
+- The brightness slider on a second display's island starts on that display's own level, rather than the MacBook's, when a rail has been on it before, and a display that misses one reading mid-drag keeps its slider.
 - Wi-Fi event monitoring asks for every event even when the daemon refuses one.
 - The README's rule for where `ask` may write its answer was backwards: it is a folder of your own that only you can open, in /tmp or $TMPDIR, never your home folder.
 - `notchctl ask --timeout` takes a length the way every other flag does (90s, 2m), held to 5 to 600 seconds, as the island already did.
