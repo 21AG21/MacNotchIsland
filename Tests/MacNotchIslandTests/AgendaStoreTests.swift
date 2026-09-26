@@ -303,6 +303,43 @@ final class AgendaStoreTests: XCTestCase {
         XCTAssertNotNil(CalendarMonitor.meetingLink(in: "https://acme.webex.com/meet/pat"))
     }
 
+    /// The inner link's scheme only had to start with "http", so a wrapper around
+    /// "httpfoo://zoom.us/j/1" made Join open whatever app claims that scheme.
+    func testAWrappedLinkIsOnlyUnwrappedToAWebLink() {
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://x.example/?url=httpfoo://zoom.us/j/1"))
+        XCTAssertNil(CalendarMonitor.meetingLink(in: "Join https://x.example/?url=zoommtg://zoom.us/join?confno=1"))
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join https://x.example/?url=http://zoom.us/j/1")?.absoluteString,
+                       "http://zoom.us/j/1")
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join https://x.example/?url=HTTPS://zoom.us/j/1")?.host, "zoom.us",
+                       "the scheme in capitals is still the web's")
+    }
+
+    /// Any "%3A" in a wrapped link was taken for a second layer of encoding, so a Teams link —
+    /// whose own path and query are full of escapes — was decoded once too often and its query
+    /// split at its own "%26". Only a link encoded as a whole is decoded again.
+    func testAWrappedLinkIsDecodedAgainOnlyWhenItIsEncodedAsAWhole() throws {
+        let teams = "https://teams.microsoft.com/l/meetup-join/19%3Ameeting_abc%40thread.v2/0?context=%7B%22Tid%22%3A%22a%26b%22%7D"
+        let safe = "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fteams.microsoft.com%2Fl%2Fmeetup-join%2F19%253Ameeting_abc%2540thread.v2%2F0%3Fcontext%3D%257B%2522Tid%2522%253A%2522a%2526b%2522%257D&data=05"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: "Join: \(safe)")?.absoluteString, teams,
+                       "the meeting link comes back exactly as it was written")
+        let lower = teams.replacingOccurrences(of: "%3A", with: "%3a")
+        let wrapped = try XCTUnwrap(lower.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        let safeLower = "https://eur01.safelinks.protection.outlook.com/?url=\(wrapped)&data=05"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: safeLower)?.absoluteString, lower, "and so does one in small letters")
+
+        let twice = "https://www.google.com/url?q=https%253A%252F%252Fzoom.us%252Fj%252F1&sa=D"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: twice)?.absoluteString, "https://zoom.us/j/1",
+                       "a link encoded as a whole once more is decoded once more")
+        let twiceLower = "https://www.google.com/url?q=https%253a%252f%252fzoom.us%252fj%252f1&sa=D"
+        XCTAssertEqual(CalendarMonitor.meetingLink(in: twiceLower)?.absoluteString, "https://zoom.us/j/1")
+
+        XCTAssertTrue(CalendarMonitor.isEncodedOnceMore("https%3A%2F%2Fzoom.us%2Fj%2F1"))
+        XCTAssertTrue(CalendarMonitor.isEncodedOnceMore("HTTP%3a%2f%2fzoom.us"))
+        XCTAssertFalse(CalendarMonitor.isEncodedOnceMore(teams), "escapes inside a link are the link's own")
+        XCTAssertFalse(CalendarMonitor.isEncodedOnceMore("zoom.us%2Fj%2F1"), "not a link at all")
+        XCTAssertFalse(CalendarMonitor.isEncodedOnceMore("httpfoo%3A%2F%2Fzoom.us"))
+    }
+
     func testTheFirstRealMeetingLinkWinsOverADecoyBeforeIt() {
         let notes = "Agenda: https://evil.example/?next=zoom.us\nJoin: https://meet.google.com/abc-defg-hij"
         XCTAssertEqual(CalendarMonitor.meetingLink(in: notes)?.absoluteString, "https://meet.google.com/abc-defg-hij")

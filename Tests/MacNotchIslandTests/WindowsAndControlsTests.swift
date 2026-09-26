@@ -1,5 +1,6 @@
 import AppKit
 import CoreAudio
+import CoreBluetooth
 import CoreLocation
 import XCTest
 @testable import MacNotchIsland
@@ -1112,9 +1113,13 @@ final class WindowsAndControlsTests: XCTestCase {
     /// The paired list was read on the main thread every four seconds with the radio off, or
     /// with no radio at all.
     func testThePairedListIsOnlyReadWithTheRadioOnAndTheTourDone() {
-        XCTAssertTrue(PairedDevices.reads(hasSeenWelcome: true, bluetoothOn: true))
-        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: true, bluetoothOn: false), "the column says Off then")
-        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: false, bluetoothOn: true), "nothing Bluetooth before the tour")
+        XCTAssertTrue(PairedDevices.reads(hasSeenWelcome: true, hasBluetooth: true, bluetoothOn: true))
+        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: true, hasBluetooth: true, bluetoothOn: false),
+                       "the column says Off then")
+        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: false, hasBluetooth: true, bluetoothOn: true),
+                       "nothing Bluetooth before the tour")
+        XCTAssertFalse(PairedDevices.reads(hasSeenWelcome: true, hasBluetooth: false, bluetoothOn: true),
+                       "a switch left on by a radio that has since gone away is not a radio to ask")
     }
 
     // MARK: - The network you are on
@@ -1137,6 +1142,11 @@ final class WindowsAndControlsTests: XCTestCase {
                        "before the tour nothing was asked")
         XCTAssertFalse(SystemToggles.bluetoothAccessOff(reading: nil, asked: true, denied: false),
                        "no reading and no refusal is a Mac without Bluetooth")
+
+        XCTAssertTrue(SystemToggles.isRefusal(.denied))
+        XCTAssertTrue(SystemToggles.isRefusal(.restricted), "a managed Mac's no is a no too, not a Mac without Bluetooth")
+        XCTAssertFalse(SystemToggles.isRefusal(.allowedAlways))
+        XCTAssertFalse(SystemToggles.isRefusal(.notDetermined), "not asked yet is not refused")
 
         XCTAssertNil(ControlsSectionView.bluetoothNote(hasBluetooth: false, isOn: false, accessRefused: true),
                      "refused, the column offers the Privacy pane instead of a note")

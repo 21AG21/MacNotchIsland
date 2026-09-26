@@ -59,6 +59,15 @@ final class SystemToggles: ObservableObject {
         reading == nil && asked && denied
     }
 
+    /// Whether CoreBluetooth's answer for this app is a no. Restricted — a profile the Mac is
+    /// managed with saying no on the user's behalf — is as much a no as the user's own denial,
+    /// and without it such a Mac was told it had no Bluetooth at all; "access is off" is the
+    /// truth there too, even when the Privacy pane it opens is one the user cannot change.
+    /// Pure, so it is tested.
+    static func isRefusal(_ authorization: CBManagerAuthorization) -> Bool {
+        authorization == .denied || authorization == .restricted
+    }
+
     /// The poll's interval at a given energy multiplier. Pure, so it is tested.
     ///
     /// It was the one poller in the rail the policy did not reach: a panel pinned open on
@@ -146,10 +155,16 @@ final class SystemToggles: ObservableObject {
                 if self.hasWiFi != (wifi != nil) { self.hasWiFi = wifi != nil }
                 self.read(.wifi, as: wifi ?? false)
                 if self.hasBluetooth != (bluetooth != nil) { self.hasBluetooth = bluetooth != nil }
-                if let bluetooth { self.read(.bluetooth, as: bluetooth) }
+                // No reading is a switch that is off, as it is for Wi-Fi. Only a reading used to
+                // be shown, so a radio that went away while on (access taken back in Privacy
+                // with Controls open, a USB radio pulled out) stayed on here: the column stayed
+                // lit beside "Bluetooth access is off", and the paired list, which goes by this
+                // switch, went on being asked for every poll. A switch the user has just thrown
+                // is still held by `read` until its settle is up.
+                self.read(.bluetooth, as: bluetooth ?? false)
                 // A class property that asks nothing of anybody, read where it is shown.
                 let refused = Self.bluetoothAccessOff(reading: bluetooth, asked: ask,
-                                                      denied: CBManager.authorization == .denied)
+                                                      denied: Self.isRefusal(CBManager.authorization))
                 if self.bluetoothAccessRefused != refused { self.bluetoothAccessRefused = refused }
                 // A switch was thrown while this reading was in the air; the answer it is
                 // waiting for is the next one, not the one after the poll comes round again.

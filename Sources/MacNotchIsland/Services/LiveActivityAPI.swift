@@ -18,7 +18,7 @@ import AppKit
 ///   notchisland://ask/cancel?token=…              (the token the question was put up with)
 ///   Lengths are numbers, or numbers with a unit: minutes=45, minutes=45m, seconds=90s, ttl=10m
 ///   notchisland://home                            notchisland://settings/island
-///   Panes: general, island, activities, home, media, actions (or shortcuts), privacy, about
+///   Panes: general, island, motion, activities, home, media, actions (or shortcuts), privacy, about
 final class LiveActivityAPI {
     static let shared = LiveActivityAPI()
     static let notificationName = Notification.Name("com.macnotchisland.api")
@@ -266,6 +266,18 @@ final class LiveActivityAPI {
         return read
     }
 
+    /// What the log says is wrong with a length that has to be more than nothing — an alert's
+    /// `duration=`, a card's `ttl=` — and nil when it is fine or is not there. "0" and "-3" are
+    /// lengths `length` reads perfectly well, and the log called them "not a length", which
+    /// sends whoever reads it looking for a typo that is not there. Pure, so it is tested.
+    static func lengthRefusal(_ raw: String?) -> String? {
+        switch length(raw, per: 1) {
+        case .absent: return nil
+        case .unreadable: return "is not a length"
+        case .seconds(let value): return value > 0 ? nil : "must be more than 0"
+        }
+    }
+
     /// What a refused command was sent, for the log.
     private static func said(_ q: [String: String], _ keys: String...) -> String {
         keys.compactMap { key in q[key].map { "\(key)=\($0)" } }.joined(separator: " ")
@@ -315,7 +327,8 @@ final class LiveActivityAPI {
             // `length` reads one, and one that cannot be read is no card at all.
             let ttl = Self.ttl(q["ttl"])
             if ttl == .unreadable {
-                IslandLog.island.error("activity: \(Self.said(q, "ttl"), privacy: .public) is not a length")
+                let why = Self.lengthRefusal(q["ttl"]) ?? "is not a length"
+                IslandLog.island.error("activity: \(Self.said(q, "ttl"), privacy: .public) \(why, privacy: .public)")
                 return
             }
             var custom = CustomActivity(title: Self.text(q["title"]) ?? "Activity")
@@ -366,10 +379,10 @@ final class LiveActivityAPI {
             // A script's own figure is taken as it stands. The alert slider scales the island's
             // alerts against each other; it is not a licence to turn "three seconds" into ten.
             let seconds = Self.seconds(q["duration"])
-            if let raw = q["duration"], seconds == nil {
+            if let raw = q["duration"], let why = Self.lengthRefusal(raw) {
                 // Shown for its usual time rather than refused: the alert is the point, and a
                 // script that misspelt the length still meant to say something. Said in the log.
-                IslandLog.island.error("alert: duration=\(raw, privacy: .public) is not a length; shown for the usual time")
+                IslandLog.island.error("alert: duration=\(raw, privacy: .public) \(why, privacy: .public); shown for the usual time")
             }
             center.showAlert(activity, duration: seconds, exact: seconds != nil)
 

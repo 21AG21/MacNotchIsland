@@ -309,10 +309,14 @@ final class PairedDevices: ObservableObject {
     }
 
     /// Whether a pass is worth making: not before the tour, whose wait holds every Bluetooth
-    /// question back (`ServiceHub.wantsBluetooth`), and not while the radio is off — the column
-    /// says "Off" then, and there is no list on screen to fill. Pure.
-    static func reads(hasSeenWelcome: Bool, bluetoothOn: Bool) -> Bool {
-        hasSeenWelcome && bluetoothOn
+    /// question back (`ServiceHub.wantsBluetooth`), not while the radio is off — the column
+    /// says "Off" then, and there is no list on screen to fill — and not while there is no
+    /// radio to read at all. The switch is only ever as fresh as its last reading, and when the
+    /// reading went away (Bluetooth access taken back in Privacy with Controls open, a USB
+    /// radio pulled out) the list went on being asked for every poll beside a column saying
+    /// access was off. Pure.
+    static func reads(hasSeenWelcome: Bool, hasBluetooth: Bool, bluetoothOn: Bool) -> Bool {
+        hasSeenWelcome && hasBluetooth && bluetoothOn
     }
 
     /// Serial: one pass at a time, the next after it.
@@ -359,6 +363,7 @@ final class PairedDevices: ObservableObject {
     /// Asks for the list on `queue` and shows it when it comes. Main thread; returns at once.
     func refresh() {
         guard Self.reads(hasSeenWelcome: Preferences.shared.hasSeenWelcome,
+                         hasBluetooth: SystemToggles.shared.hasBluetooth,
                          bluetoothOn: SystemToggles.shared.bluetoothOn) else { return }
         guard pass.start() else { return }
         // The registry's levels come from its cache, which is read and written on the main

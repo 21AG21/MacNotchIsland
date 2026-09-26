@@ -112,10 +112,12 @@ final class KeyboardLight: ObservableObject {
                           writeAuto: CoreBrightness.method(client, "enableAutoBrightness:forKeyboard:", as: WriteAuto.self))
         }
 
-        /// Whether this client still names a backlit keyboard — asked again on wake and when
-        /// the displays change (`KeyboardLight.reprobe`).
-        func namesKeyboard() -> Bool {
-            KeyboardLight.keyboard(from: Self.backlightIDs(client)) != nil
+        /// The keyboard this client names now, or nil for none — asked again on wake and when
+        /// the displays change (`KeyboardLight.reprobe`). The keyboard itself and not only
+        /// whether there is one: a client that has come to name a different keyboard drives
+        /// that one, and a bridge kept for the old number set a light that was not there.
+        func namedKeyboard() -> UInt64? {
+            KeyboardLight.keyboard(from: Self.backlightIDs(client))
         }
 
         /// What the client says the backlit keyboards are, or nil when it cannot be asked — the
@@ -142,6 +144,10 @@ final class KeyboardLight: ObservableObject {
     private var pendingAutomatic: (value: Bool, until: TimeInterval)?
     /// Held for as long as the app runs, like the service itself.
     private var observers: [NSObjectProtocol] = []
+    /// The look that follows a look which found no keyboard where one had been working
+    /// (`recheck`), `wakeSettle` later. One at a time: another look in the meantime that finds
+    /// nothing leaves it as it is, and one that finds the keyboard calls it off. Main thread.
+    private var secondLook: DispatchWorkItem?
 
     private init() {
         bridge = Bridge.load()
@@ -158,34 +164,99 @@ final class KeyboardLight: ObservableObject {
         })
     }
 
+    /// How long the daemon behind the client is given to answer: after a wake, and before a
+    /// look that found no keyboard is taken as the keyboard's being gone (`recheck`).
     static let wakeSettle: TimeInterval = 2
 
     /// Looks for the backlight again: a lid opened, a keyboard's client that was not answering
-    /// at login. Two calls into CoreBrightness, and only on the events that can change the
-    /// answer. `isAvailable` is published only when it changes, which is what the service hub's
-    /// subscription and the rail are waiting to hear. Main thread.
-    private func reprobe() {
-        let fresh: Bridge?
-        if let bridge {
-            fresh = bridge.namesKeyboard() ? bridge : nil
-        } else {
-            fresh = Bridge.load()
+    /// at login. A couple of calls into CoreBrightness, and only on the events that can change
+    /// the answer. `isAvailable` is published only when it changes, which is what the service
+    /// hub's subscription and the rail are waiting to hear. Main thread.
+    ///
+    /// A working bridge is only given up on a second look (`recheck`): a lid opening changes
+    /// the screens before CoreBrightness has put the keyboard back, and one empty answer then
+    /// took the disc away and handed the keys back to macOS until the next wake.
+    private func reprobe(isTheSecondLook: Bool = false) {
+        guard let bridge else {
+            use(Bridge.load())
+            return
         }
-        let available = fresh != nil
+        var named = bridge.namedKeyboard()
+        var replacement: Bridge?
+        if let id = named, id != bridge.keyboard {
+            // Built again for the keyboard named now; one that cannot be built named nothing.
+            replacement = Bridge.load()
+            named = replacement?.keyboard
+        }
+        switch Self.recheck(of: bridge.keyboard, named: named, isTheSecondLook: isTheSecondLook) {
+        case .keep:
+            callOffSecondLook()
+        case .reload:
+            IslandLog.display.notice("the keyboard backlight is another keyboard now")
+            use(replacement)
+        case .lookAgain:
+            guard secondLook == nil else { return }
+            IslandLog.display.notice("the keyboard backlight did not answer; looking again")
+            let look = DispatchWorkItem { [weak self] in
+                self?.secondLook = nil
+                self?.reprobe(isTheSecondLook: true)
+            }
+            secondLook = look
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeSettle, execute: look)
+        case .drop:
+            use(nil)
+        }
+    }
+
+    /// Puts `fresh` in the bridge's place, and says so when the backlight came or went. Main
+    /// thread.
+    private func use(_ fresh: Bridge?) {
+        callOffSecondLook()
         bridge = fresh
-        guard isAvailable != available else { return }
-        IslandLog.display.notice("keyboard backlight \(available ? "found" : "gone", privacy: .public)")
-        isAvailable = available
+        let available = fresh != nil
+        let changed = isAvailable != available
+        if changed {
+            IslandLog.display.notice("keyboard backlight \(available ? "found" : "gone", privacy: .public)")
+            isAvailable = available
+        }
         if available {
+            // A keyboard found, or a different one: its level, not the last one's.
             refresh()
-            if viewers > 0 { schedule() }
+            if changed, viewers > 0 { schedule() }
         } else {
             timer?.invalidate()
             timer = nil
         }
     }
 
+    private func callOffSecondLook() {
+        secondLook?.cancel()
+        secondLook = nil
+    }
+
     // MARK: - Pure rules
+
+    /// What a look at a working bridge does with it.
+    enum Recheck: Equatable {
+        /// The same keyboard answered: nothing changes.
+        case keep
+        /// A different keyboard answered: the bridge drives that one from now on.
+        case reload
+        /// No keyboard answered, and this was the first look to say so: the bridge is kept and
+        /// looked at again once the daemon has had `wakeSettle` to come back.
+        case lookAgain
+        /// No keyboard on the second look either: the backlight is gone.
+        case drop
+    }
+
+    /// A working bridge is given up only when two looks in a row, `wakeSettle` apart, find no
+    /// keyboard. One empty answer used to be enough, and a lid opening asks at just the moment
+    /// CoreBrightness may not have put the keyboard back yet. A keyboard with a new number is
+    /// driven by that number. Pure, so it is tested.
+    static func recheck(of keyboard: UInt64, named: UInt64?, isTheSecondLook: Bool) -> Recheck {
+        guard let named else { return isTheSecondLook ? .drop : .lookAgain }
+        return named == keyboard ? .keep : .reload
+    }
 
     /// The keyboard to drive: the first the client names. A client that cannot be asked — the
     /// method has gone — gets the first keyboard's number, 1, which is the built-in one on every

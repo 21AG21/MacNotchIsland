@@ -187,11 +187,16 @@ enum IslandFiles {
 
     /// `writeNew` for a disk without hard links: the first free name from `first` to `last`,
     /// taken with an exclusive create, and the bytes written into it.
+    ///
+    /// Created 0666 and left to the umask, as `Data.write` makes the file that is linked into
+    /// place on every other disk. It was created 0600, so the same drop came out readable by
+    /// its owner alone on one disk and with the umask's usual 0644 on the next. What keeps a
+    /// drop to its owner is the folder around it (`makeFolder`), which is the same on both.
     private static func createNew(_ data: Data, in folder: URL, from first: Int, through last: Int,
                                   named: (Int) -> String) throws -> URL {
         for attempt in first...max(first, last) {
             let candidate = folder.appendingPathComponent(named(attempt))
-            let fd = Darwin.open(candidate.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            let fd = Darwin.open(candidate.path, O_WRONLY | O_CREAT | O_EXCL, 0o666)
             if fd < 0 {
                 let code = errno
                 guard code == EEXIST else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }

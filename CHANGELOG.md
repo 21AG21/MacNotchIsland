@@ -278,6 +278,14 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The Join button only unwraps a Safe Links or Google redirect to a real web link; an inner `httpfoo://zoom.us/…` is no longer handed to whatever app claims that scheme.
+- A Teams meeting link that arrives through Outlook's Safe Links opens intact: the inner link is decoded a second time only when it was encoded as a whole, so its own `%26` and `%23` no longer split its query.
+- Bluetooth that goes away while Controls is open (access taken back in Privacy, a USB radio pulled out) now shows the switch off, and the paired list is no longer asked for every poll.
+- A Mac whose Bluetooth access is restricted by a management profile is told Bluetooth access is off, not that it has no Bluetooth.
+- A shelf drop on a disk without hard links gets the same file permissions as on any other disk.
+- An alert's `duration=0`, or a card's `ttl=0`, is logged as "must be more than 0" instead of "is not a length".
+- The mute button is dimmed on an output whose mute can be read but not set, instead of doing nothing when pressed.
+- The keyboard backlight survives a lid opening: one empty answer from CoreBrightness no longer takes the disc away until the next wake. It looks again two seconds later and gives up only if the keyboard is still missing, and a keyboard that comes back under a new number is driven by that number.
 - The brightness slider on a second display's island starts on that display's own level rather than the MacBook's, and a display that misses one reading mid-drag keeps its slider.
 - Wi-Fi event monitoring asks for every event even when the daemon refuses one.
 - The README's rule for where `ask` may write its answer was backwards: it is a folder of your own that only you can open, in /tmp or $TMPDIR, never your home folder.

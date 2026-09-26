@@ -72,9 +72,15 @@ final class AudioOutputs: ObservableObject {
     /// 0...1, or nil when the device has no volume control (HDMI, some AirPlay targets).
     @Published private(set) var volume: Float?
     @Published private(set) var isMuted = false
-    /// Whether this output has a mute of its own. Some do not, and offering a switch that
-    /// cannot move is worse than offering none.
+    /// Whether this output has a mute of its own that the Mac can set. Some have none, and
+    /// some have one that can be read and not written; offering a switch that cannot move is
+    /// worse than offering none. It was only whether the mute could be read, so an output
+    /// whose mute is read-only kept a mute button that did nothing when pressed.
     @Published private(set) var hasMute = false
+    /// Whether the mute shown came from a reading at all, settable or not: the question
+    /// `showsLevel` asks of what is on screen, which `hasMute` no longer answers alone. Main
+    /// thread, with the rest of the level.
+    private var muteIsRead = false
 
     /// One AirPlay receiver — a HomePod, an Apple TV, a speaker — as the AirPlay device lists
     /// it: one of that device's data sources, by the id CoreAudio gave it and the name it
@@ -209,6 +215,7 @@ final class AudioOutputs: ObservableObject {
                                         airPlay: watching ? reading.airPlayDevice : 0)
             reading.volume = AudioMonitor.readOutputVolume(device: reading.defaultOutput)
             reading.mute = AudioMonitor.readOutputMute(device: reading.defaultOutput)
+            reading.muteSettable = reading.mute != nil && AudioMonitor.outputHasMuteControl(device: reading.defaultOutput)
             DispatchQueue.main.async { [weak self] in self?.show(reading) }
         }
     }
@@ -226,6 +233,8 @@ final class AudioOutputs: ObservableObject {
         /// Read last, after `bind`; see `reloadDevices`.
         var volume: Float? = nil
         var mute: Bool? = nil
+        /// Whether that mute can be set as well as read; see `hasMute`.
+        var muteSettable = false
         /// The listeners moved to another output with this reading. See `showsLevel`.
         var rebound = false
     }
@@ -354,9 +363,9 @@ final class AudioOutputs: ObservableObject {
         if reading.airPlay != airPlay { airPlay = reading.airPlay }
         if reading.ticked != airPlayCurrent { airPlayCurrent = reading.ticked }
         let parts = Self.showsLevel(rebound: reading.rebound, wroteRecently: Self.wroteRecently(),
-                                    shownVolume: volume, shownHasMute: hasMute,
+                                    shownVolume: volume, shownHasMute: muteIsRead,
                                     readVolume: reading.volume, readMute: reading.mute)
-        showLevel(volume: reading.volume, mute: reading.mute, parts: parts)
+        showLevel(volume: reading.volume, mute: reading.mute, muteSettable: reading.muteSettable, parts: parts)
         // Something changed while this reading was in the air; the answer it is waiting for is
         // the next one.
         if again { reloadDevices() }
@@ -430,13 +439,19 @@ final class AudioOutputs: ObservableObject {
     /// listeners, and exact: a reading that went round by the queue could land behind the
     /// slider's next write.
     private func reloadLevel() {
-        showLevel(volume: AudioMonitor.readOutputVolume(), mute: AudioMonitor.readOutputMute())
+        // One output for all three questions, so a switch between them cannot mix two devices.
+        let output = AudioMonitor.defaultOutputDevice()
+        let mute = AudioMonitor.readOutputMute(device: output)
+        showLevel(volume: AudioMonitor.readOutputVolume(device: output), mute: mute,
+                  muteSettable: mute != nil && AudioMonitor.outputHasMuteControl(device: output))
     }
 
-    private func showLevel(volume v: Float?, mute m: Bool?, parts: LevelParts = .all) {
+    private func showLevel(volume v: Float?, mute m: Bool?, muteSettable: Bool, parts: LevelParts = .all) {
         if parts.contains(.volume), v != volume { volume = v }
         guard parts.contains(.mute) else { return }
-        if (m != nil) != hasMute { hasMute = m != nil }
+        muteIsRead = m != nil
+        let settable = m != nil && muteSettable
+        if settable != hasMute { hasMute = settable }
         if (m ?? false) != isMuted { isMuted = m ?? false }
     }
 
@@ -452,6 +467,7 @@ final class AudioOutputs: ObservableObject {
         self.volume = volume
         self.isMuted = isMuted
         hasMute = !outputs.isEmpty
+        muteIsRead = hasMute
         airPlay = []
         airPlayCurrent = []
     }

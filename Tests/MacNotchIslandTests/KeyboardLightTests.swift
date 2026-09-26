@@ -66,6 +66,27 @@ final class KeyboardLightTests: XCTestCase {
         XCTAssertNil(KeyboardLight.keyboard(from: []))
     }
 
+    /// A lid opening changes the screens before CoreBrightness has put the keyboard back, and
+    /// one empty answer took the disc away until the next wake. A working bridge is given up
+    /// only when a second look, a moment later, finds nothing too.
+    func testABacklightIsOnlyGivenUpWhenASecondLookFindsNoKeyboardEither() {
+        XCTAssertEqual(KeyboardLight.recheck(of: 1, named: nil, isTheSecondLook: false), .lookAgain,
+                       "one empty answer is not the keyboard gone")
+        XCTAssertEqual(KeyboardLight.recheck(of: 1, named: nil, isTheSecondLook: true), .drop,
+                       "a second one is")
+        XCTAssertEqual(KeyboardLight.recheck(of: 1, named: 1, isTheSecondLook: false), .keep)
+        XCTAssertEqual(KeyboardLight.recheck(of: 1, named: 1, isTheSecondLook: true), .keep,
+                       "a keyboard that answers again in between is kept")
+        XCTAssertGreaterThan(KeyboardLight.wakeSettle, 0, "the second look waits for the daemon")
+    }
+
+    /// Only whether a keyboard was named used to be asked, so a client that came to name
+    /// another one kept driving the old number.
+    func testAKeyboardWithANewNumberIsDrivenByThatNumber() {
+        XCTAssertEqual(KeyboardLight.recheck(of: 1, named: 3, isTheSecondLook: false), .reload)
+        XCTAssertEqual(KeyboardLight.recheck(of: 1, named: 3, isTheSecondLook: true), .reload)
+    }
+
     func testAControlScrollMovesTheBacklight() {
         let up = GestureRouter.decide(dx: 0, dy: -40, context: .idle, wantsKeyboard: true)
         guard case .keyboard(let delta) = up else { return XCTFail("expected the keyboard, got \(up)") }

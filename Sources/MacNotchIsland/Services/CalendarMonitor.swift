@@ -173,17 +173,33 @@ final class CalendarMonitor: NSObject {
     /// host is nobody's meeting service, so the Join button went missing from every invitation
     /// that came through either. What comes back is the inner link, checked as any other, so
     /// the click goes to the meeting service and never through the wrapper. Pure.
+    ///
+    /// The inner link has to be a web link, "http" or "https" and nothing that merely starts
+    /// with them: "httpfoo://zoom.us/j/1" has a meeting service's host, and the Join button
+    /// handed it to whatever app claims that scheme.
     static func unwrapped(_ url: URL) -> URL? {
         guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
         for item in items where ["url", "q", "u", "target"].contains(item.name.lowercased()) {
             // Query items come back percent-decoded; a value encoded twice is decoded once more.
             guard let raw = item.value else { continue }
-            let text = raw.contains("%3A") || raw.contains("%2F") ? (raw.removingPercentEncoding ?? raw) : raw
-            guard let inner = URL(string: text), let scheme = inner.scheme?.lowercased(), scheme.hasPrefix("http"),
+            let text = isEncodedOnceMore(raw) ? (raw.removingPercentEncoding ?? raw) : raw
+            guard let inner = URL(string: text), let scheme = inner.scheme?.lowercased(), ["http", "https"].contains(scheme),
                   let host = inner.host, isMeetingHost(host) else { continue }
             return inner
         }
         return nil
+    }
+
+    /// Whether a wrapped link, already decoded once as a query value, is still encoded as a
+    /// whole: its scheme's colon is itself an escape ("https%3A%2F%2Fzoom.us…"), in either case.
+    /// Only then is it decoded again. The test was once any "%3A" or "%2F" anywhere in it,
+    /// which is how a Teams link looks after one decoding — its own path and query carry
+    /// "19%3Ameeting_…" and "context=%7B%22Tid%22%3A…" — and decoding that a second time turned
+    /// its own "%26" and "%23" into the "&" and "#" that split and end a query, so the Join
+    /// button opened a broken meeting link. The same link written with "%3a" was left alone.
+    /// Pure, so it is tested.
+    static func isEncodedOnceMore(_ value: String) -> Bool {
+        value.range(of: "^https?%3A", options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// The services whose links are a way into a call.

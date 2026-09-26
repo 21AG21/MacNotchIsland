@@ -254,6 +254,24 @@ final class LiveActivityAPITests: XCTestCase {
         XCTAssertEqual(LiveActivityAPI.seconds("86400"), LiveActivityAPI.maxSeconds, "a day is held to a minute")
     }
 
+    /// "duration=0" was logged as "not a length" — it is one, and the log sent whoever read it
+    /// looking for a typo. The log's word and the reading agree on every value.
+    func testALengthOfNoughtIsLoggedAsTooShortAndNotAsUnreadable() {
+        XCTAssertEqual(LiveActivityAPI.lengthRefusal("0"), "must be more than 0")
+        XCTAssertEqual(LiveActivityAPI.lengthRefusal("-3s"), "must be more than 0")
+        XCTAssertEqual(LiveActivityAPI.lengthRefusal("soon"), "is not a length")
+        XCTAssertEqual(LiveActivityAPI.lengthRefusal("inf"), "is not a length")
+        XCTAssertEqual(LiveActivityAPI.lengthRefusal(""), "is not a length")
+        XCTAssertNil(LiveActivityAPI.lengthRefusal(nil), "not there is nothing to say")
+        XCTAssertNil(LiveActivityAPI.lengthRefusal("3s"))
+        for raw in ["0", "-3", "0.5", "3s", "10m", "86400", "soon", "inf", "nan", ""] {
+            XCTAssertEqual(LiveActivityAPI.lengthRefusal(raw) == nil, LiveActivityAPI.seconds(raw) != nil,
+                           "an alert's \(raw) is logged exactly when it is not used")
+            XCTAssertEqual(LiveActivityAPI.lengthRefusal(raw) == nil, LiveActivityAPI.ttl(raw) != .unreadable,
+                           "and a card's \(raw) exactly when it is refused")
+        }
+    }
+
     func testAPushedCardCannotOutrankACall() {
         XCTAssertEqual(LiveActivityAPI.priority("500"), 99)
         XCTAssertEqual(LiveActivityAPI.priority("-5"), 0)
