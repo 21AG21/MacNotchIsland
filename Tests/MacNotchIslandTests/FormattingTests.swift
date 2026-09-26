@@ -26,7 +26,8 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(TimeInterval.infinity.timerString, "0:00")
         XCTAssertEqual(TimeInterval.nan.timerString, "0:00")
         XCTAssertEqual(TimeInterval(1e300).timerString, "99:59:59")
-        XCTAssertEqual(IslandAccessibility.playbackValue(position: .nan, duration: .infinity), "0:00 of 0:00")
+        XCTAssertEqual(IslandAccessibility.playbackValue(position: .nan, duration: .infinity), "0 seconds",
+                       "a stream with no length is its position alone")
     }
 
     func testTimerStateMath() {
@@ -82,6 +83,55 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(c.relativeStart(at: now), "in 5m")
         XCTAssertEqual(c.relativeStart(at: now.addingTimeInterval(6 * 60)), "Now")
         XCTAssertEqual(c.relativeStart(at: now.addingTimeInterval(70 * 60)), "Ended")
+    }
+
+    /// The pill's "in 5m" is "in 5 metres" read aloud, so the sentence VoiceOver gets has the
+    /// same figure in words, with its singulars right.
+    func testCalendarSpokenStart() {
+        let now = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        func meeting(in seconds: TimeInterval) -> CalendarState {
+            CalendarState(title: "t", start: now.addingTimeInterval(seconds), end: now.addingTimeInterval(seconds + 3600),
+                          location: nil, joinURL: nil, tint: "blue")
+        }
+        XCTAssertEqual(meeting(in: 5 * 60).spokenStart(at: now), "in 5 minutes")
+        XCTAssertEqual(meeting(in: 30).spokenStart(at: now), "in 1 minute")
+        XCTAssertEqual(meeting(in: 61 * 60).spokenStart(at: now), "in 1 hour")
+        XCTAssertEqual(meeting(in: 61 * 60).relativeStart(at: now), "in 1h", "the same figure as the pill's")
+        XCTAssertEqual(meeting(in: 150 * 60).spokenStart(at: now), "in 2 hours")
+        XCTAssertEqual(meeting(in: -60).spokenStart(at: now), "now")
+        XCTAssertEqual(meeting(in: -7200).spokenStart(at: now), "ended")
+        XCTAssertTrue(meeting(in: 1e300).relativeStart(at: now).hasPrefix("in "), "a start nobody could mean does not trap")
+    }
+
+    // MARK: - The region's decimal mark
+
+    private let english = Locale(identifier: "en_US")
+    private let german = Locale(identifier: "de_DE")
+
+    /// Settings wrote "0.35 s" on every Mac, and "150 %" where the island writes "82%".
+    func testSettingsFiguresUseTheRegionsMarkAndTheIslandsPercent() {
+        XCTAssertEqual(SettingsFormat.value(0.35, unit: "s", locale: english), "0.35 s")
+        XCTAssertEqual(SettingsFormat.value(0.35, unit: "s", locale: german), "0,35 s")
+        XCTAssertEqual(SettingsFormat.value(4, unit: "s", locale: german), "4,00 s")
+        XCTAssertEqual(SettingsFormat.value(150, unit: "%", locale: english), "150%")
+        XCTAssertEqual(SettingsFormat.value(149.6, unit: "%", locale: german), "150%")
+        XCTAssertEqual(SettingsFormat.value(185, unit: "pt", locale: english), "185 pt", "every other unit keeps its space")
+        XCTAssertEqual(SettingsFormat.value(3, unit: "", locale: english), "3")
+    }
+
+    func testTheMotionPanesFiguresUseTheRegionsMark() {
+        let faithful = IslandMotion.Preset.faithful.tuning
+        XCTAssertEqual(MotionPane.describe(.open, tuning: faithful, locale: english), "0.44 s, bounce 0.28")
+        XCTAssertEqual(MotionPane.describe(.open, tuning: faithful, locale: german), "0,44 s, bounce 0,28")
+        XCTAssertEqual(MotionPane.describe(.close, tuning: IslandMotion.Preset.instant.tuning, locale: german), "0,16 s, bounce 0,00")
+    }
+
+    /// The Clock app's stopwatch writes its tenths after the region's mark: "01:05,3" in German.
+    func testTheStopwatchsTenthsFollowTheRegionsMark() {
+        XCTAssertEqual(StopwatchExpandedView.format(65.34, locale: english), "01:05.3")
+        XCTAssertEqual(StopwatchExpandedView.format(65.34, locale: german), "01:05,3")
+        XCTAssertEqual(StopwatchExpandedView.format(3725.5, locale: german), "1:02:05,5")
+        XCTAssertEqual(StopwatchExpandedView.format(65.34, showTenths: false, locale: german), "01:05", "no mark without tenths")
     }
 
     func testNotchGeometryOverrides() {

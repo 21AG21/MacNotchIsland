@@ -193,8 +193,8 @@ final class MicrophoneAndRecordingTests: XCTestCase {
     func testAMutedCallSaysSo() {
         let call = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now.addingTimeInterval(-130))
         XCTAssertEqual(IslandAccessibility.compactLabel(for: .call(call), at: now, micMuted: true),
-                       "Call with FaceTime, 2:10, microphone muted")
-        XCTAssertEqual(IslandAccessibility.compactLabel(for: .call(call), at: now), "Call with FaceTime, 2:10")
+                       "Call with FaceTime, 2 minutes 10 seconds, microphone muted")
+        XCTAssertEqual(IslandAccessibility.compactLabel(for: .call(call), at: now), "Call with FaceTime, 2 minutes 10 seconds")
         // Anything else is not a call, and a muted microphone is not its news.
         XCTAssertEqual(IslandAccessibility.compactLabel(for: .custom(CustomActivity(title: "Build")), at: now, micMuted: true),
                        "Build")
@@ -320,7 +320,7 @@ final class MicrophoneAndRecordingTests: XCTestCase {
         XCTAssertTrue(recording.actions.first?.isUsable ?? false, "a button that only runs a command is a button")
         XCTAssertEqual(ActivityContent.custom(recording).compactWidths.trailing, 60, "the call's slot, for the call's digits")
         XCTAssertEqual(IslandAccessibility.compactLabel(for: .custom(recording), at: now.addingTimeInterval(65)),
-                       "Recording, 1:05")
+                       "Recording, 1 minute 5 seconds")
         XCTAssertEqual(ActivityContent.custom(recording).cardHeight, ActivityContent.cardRow)
     }
 

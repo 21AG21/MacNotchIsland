@@ -50,7 +50,7 @@ struct StatsView: View {
     /// rather than one column of gigabytes among four percentages; the gigabytes are the
     /// small print under the bar, where the disk's free space is.
     private var memoryCell: some View {
-        door(.memory, label: "Memory", value: "\(memoryValue), \(memoryDetail)") {
+        door(.memory, label: "Memory", value: Self.memorySpoken(stats.sample)) {
             cell(label: "Memory") {
                 Text(memoryValue)
                     .font(Self.valueFont)
@@ -160,24 +160,9 @@ struct StatsView: View {
         stats.sample.batteryPercent == nil ? nil : StatsDestination.battery
     }
 
-    /// "3 h 40 min left", "48 min to full", or "Plugged in" when there is no estimate.
-    private var batteryTime: String? {
-        guard stats.sample.batteryPercent != nil else { return nil }
-        guard let minutes = stats.sample.batteryMinutesRemaining else {
-            return stats.sample.batteryCharging ? "Charging" : nil
-        }
-        let duration = BatteryFormatting.formatMinutes(minutes)
-        return stats.sample.batteryCharging ? "\(duration) to full" : "\(duration) left"
-    }
-
-    /// "82 percent, 3 h 40 min left, 91 percent health", or "Not available" on a desktop.
-    private var batteryAccessibilityValue: String {
-        guard let percent = stats.sample.batteryPercent else { return "Not available" }
-        var parts = ["\(percent) percent"]
-        if let time = batteryTime { parts.append(time) }
-        if let detail = batteryDetail { parts.append(detail) }
-        return parts.joined(separator: ", ")
-    }
+    private var batteryTime: String? { Self.batteryTime(stats.sample) }
+    private var batteryAccessibilityValue: String { Self.batterySpoken(stats.sample) }
+    private var batteryDetail: String? { Self.batteryDetail(stats.sample) }
 
     /// How much charge is left, or an em dash on a Mac with no battery to ask.
     private var batteryValue: String {
@@ -185,13 +170,55 @@ struct StatsView: View {
         return "\(percent)%"
     }
 
+    /// "3 h 40 min left", "48 min to full", or "Charging" when there is no estimate; nothing on
+    /// a Mac with no battery. Pure, so the rule is tested.
+    static func batteryTime(_ sample: SystemStats.Sample) -> String? {
+        guard sample.batteryPercent != nil else { return nil }
+        guard let minutes = sample.batteryMinutesRemaining else {
+            return sample.batteryCharging ? "Charging" : nil
+        }
+        let duration = BatteryFormatting.formatMinutes(minutes)
+        return sample.batteryCharging ? "\(duration) to full" : "\(duration) left"
+    }
+
     /// "91% health · 214 cycles", dropping whatever the battery did not report. Health belongs
-    /// under the charge, not instead of it.
-    private var batteryDetail: String? {
+    /// under the charge, not instead of it. One cycle is "1 cycle", by the battery card's rule
+    /// (`BatteryFormatting.cycles`): a battery a day old said "1 cycles".
+    static func batteryDetail(_ sample: SystemStats.Sample) -> String? {
         var parts: [String] = []
-        if let health = stats.sample.batteryHealthPercent { parts.append("\(Int(health.rounded()))% health") }
-        if let cycles = stats.sample.cycleCount { parts.append("\(cycles) cycles") }
+        if let health = sample.batteryHealthPercent { parts.append("\(Int(health.rounded()))% health") }
+        if let cycles = sample.cycleCount { parts.append(BatteryFormatting.cycles(cycles)) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "82 percent, 3 hours 40 minutes left, 91 percent health, 214 cycles", or "Not available"
+    /// on a desktop.
+    ///
+    /// Said in words rather than by joining the two lines under the meter. Those are clipped to
+    /// fit a column, and VoiceOver read them as they stood: "3 h 40 min" letter by letter, and
+    /// the "·" between health and cycles as a symbol of its own.
+    static func batterySpoken(_ sample: SystemStats.Sample) -> String {
+        guard let percent = sample.batteryPercent else { return "Not available" }
+        var parts = ["\(percent) percent"]
+        if let minutes = sample.batteryMinutesRemaining {
+            let spoken = BatteryFormatting.spokenMinutes(minutes)
+            parts.append(sample.batteryCharging ? "\(spoken) to full" : "\(spoken) left")
+        } else if sample.batteryCharging {
+            parts.append("charging")
+        }
+        if let health = sample.batteryHealthPercent { parts.append("\(Int(health.rounded())) percent health") }
+        if let cycles = sample.cycleCount { parts.append(BatteryFormatting.cycles(cycles)) }
+        return parts.joined(separator: ", ")
+    }
+
+    /// "52 percent, 12.4 of 16 gigabytes", or "Not available" when the memory did not answer.
+    /// The cell's headline and the line under its bar, in words: joined as drawn, the pair was
+    /// read "52%, 12.4 slash 16 GB".
+    static func memorySpoken(_ sample: SystemStats.Sample, locale: Locale = .current) -> String {
+        guard sample.memoryTotalBytes > 0 else { return "Not available" }
+        let share = Double(min(sample.memoryUsedBytes, sample.memoryTotalBytes)) / Double(sample.memoryTotalBytes)
+        let used = SystemStats.spokenMemory(used: sample.memoryUsedBytes, total: sample.memoryTotalBytes, locale: locale)
+        return "\(Int((share * 100).rounded())) percent, \(used)"
     }
 
     /// How full the disk is, as a percentage: the number people actually watch.

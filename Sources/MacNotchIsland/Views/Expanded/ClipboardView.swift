@@ -12,13 +12,16 @@ struct ClipboardView: View {
     @State private var hoveredID: UUID? = nil
 
     var body: some View {
+        // Worked out once a pass. The emptiness check, the list and every row's hairline each
+        // asked for the whole ordered list again, and each time every item built its preview.
+        let rows = Self.ordered(store.items, query: query)
         Group {
             if store.items.isEmpty {
                 emptyState
-            } else if ordered.isEmpty {
+            } else if rows.isEmpty {
                 SectionEmptyState(symbol: "magnifyingglass", title: "No matches")
             } else {
-                list
+                list(rows)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -27,11 +30,15 @@ struct ClipboardView: View {
         .onAppear { store.refreshMissingFiles() }
     }
 
-    private var list: some View {
-        IslandScrollStrip(axis: .vertical) {
+    private func list(_ rows: [ClipboardItem]) -> some View {
+        // Asked once for the list rather than twice by every row it draws: `pickPastes` is a
+        // live Accessibility permission check, and a hover or the minute's tick redraws rows.
+        let pastes = ClipboardStore.pickPastes
+        let lastID = rows.last?.id
+        return IslandScrollStrip(axis: .vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(ordered) { item in
-                    ClipboardRowView(item: item, isHovered: hoveredID == item.id || found == item.id)
+                ForEach(rows) { item in
+                    ClipboardRowView(item: item, isHovered: hoveredID == item.id || found == item.id, pastes: pastes)
                         .onHover { hovering in
                             if hovering {
                                 hoveredID = item.id
@@ -39,7 +46,7 @@ struct ClipboardView: View {
                                 hoveredID = nil
                             }
                         }
-                    if item.id != ordered.last?.id {
+                    if item.id != lastID {
                         Rectangle()
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 0.5)
@@ -51,13 +58,13 @@ struct ClipboardView: View {
         }
     }
 
-    private var ordered: [ClipboardItem] { Self.ordered(store.items, query: query) }
-
     /// Pinned items first, then the rest, newest first; only what matches the search. Static
     /// so the header can count the matches and Return can pick the first of them without
     /// working the rule out a second time.
     static func ordered(_ items: [ClipboardItem], query: String?) -> [ClipboardItem] {
         let all = items.filter(\.pinned) + items.filter { !$0.pinned }
+        // Nothing typed matches everything, so no item is asked for its preview to find out.
+        guard PanelFind.needle(query) != nil else { return all }
         // The app it came from is searched too: "the link from Safari" is how people
         // remember a copy, far more often than by the words in it.
         return all.filter { PanelFind.matches([$0.preview, $0.app ?? ""], query: query) }
@@ -85,6 +92,9 @@ private extension ClipboardItem.Kind {
 private struct ClipboardRowView: View {
     let item: ClipboardItem
     var isHovered: Bool
+    /// Whether a click pastes (`ClipboardStore.pickPastes`), read once by the list for all of
+    /// its rows, for the hint and the tooltip that say what a click does.
+    var pastes: Bool
 
     @ObservedObject private var store = ClipboardStore.shared
 
@@ -129,10 +139,11 @@ private struct ClipboardRowView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.age(at: now))")
+            // The age in words: the column's "4m" is "4 metres" read aloud.
+            .accessibilityLabel("Copied \(item.kind.accessibilityName): \(item.preview), \(item.spokenAge(at: now))")
             // What a click does as things stand: with "Paste after picking an item" on and
             // Accessibility allowed, it closes the panel and pastes into the app in front.
-            .accessibilityHint(ClipboardStore.pickHint(pastes: ClipboardStore.pickPastes))
+            .accessibilityHint(ClipboardStore.pickHint(pastes: pastes))
             .accessibilityAction { copyBack() }
             .accessibilityAction(named: Text(item.pinned ? "Unpin" : "Pin")) { store.togglePin(item: item) }
             .accessibilityAction(named: Text("Delete")) { store.remove(item: item) }
@@ -146,7 +157,7 @@ private struct ClipboardRowView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { copyBack() }
-        .modifier(DragOut(item: item))
+        .modifier(DragOut(item: item, pastes: pastes))
         .animation(IslandMotion.hover, value: isHovered)
     }
 
@@ -215,13 +226,14 @@ private struct ClipboardRowView: View {
 /// get the gesture, so a drag never starts and then carries nothing.
 private struct DragOut: ViewModifier {
     let item: ClipboardItem
+    let pastes: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if item.canDrag {
             content
                 .onDrag { item.dragProvider() ?? NSItemProvider() }
-                .help(ClipboardStore.pickHelp(pastes: ClipboardStore.pickPastes))
+                .help(ClipboardStore.pickHelp(pastes: pastes))
         } else {
             content
         }

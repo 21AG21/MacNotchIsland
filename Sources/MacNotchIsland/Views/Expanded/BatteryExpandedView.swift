@@ -105,11 +105,20 @@ enum BatteryFormatting {
     }
 
     /// "+34.2 W" or "\u{2212}8.1 W" (a true minus sign); "0.0 W" when nothing measurable is flowing.
-    static func formatWattage(_ watts: Double) -> String {
-        guard watts.isFinite else { return "0.0 W" }
-        let magnitude = String(format: "%.1f", abs(watts))
-        guard magnitude != "0.0" else { return "0.0 W" }
+    ///
+    /// With the region's decimal mark, "+34,2 W" on a German Mac, as every other figure there
+    /// is written. Whether anything is flowing is asked of the number rather than of the text,
+    /// which is no longer "0.0" wherever the mark is a comma.
+    static func formatWattage(_ watts: Double, locale: Locale = .current) -> String {
+        let tenths = watts.isFinite ? (abs(watts) * 10).rounded() : 0
+        let magnitude = (tenths / 10).formatted(.number.precision(.fractionLength(1)).grouping(.never).locale(locale))
+        guard tenths > 0 else { return magnitude + " W" }
         return (watts < 0 ? "\u{2212}" : "+") + magnitude + " W"
+    }
+
+    /// "1 cycle", "312 cycles": the battery's charge cycles, for the card and the Stats cell alike.
+    static func cycles(_ count: Int) -> String {
+        count == 1 ? "1 cycle" : "\(count) cycles"
     }
 
     /// "2 h 14 min remaining" on battery or "1 h 5 min to full" while charging. Nil while macOS
@@ -121,13 +130,13 @@ enum BatteryFormatting {
     }
 
     /// "+34.2 W · 312 cycles · 91% health", dropping whatever the battery did not report.
-    static func detailLine(for state: BatteryState) -> String? {
+    static func detailLine(for state: BatteryState, locale: Locale = .current) -> String? {
         var parts: [String] = []
         if let watts = state.wattage, watts.isFinite, abs(watts) >= 0.05 {
-            parts.append(formatWattage(watts))
+            parts.append(formatWattage(watts, locale: locale))
         }
-        if let cycles = state.cycleCount {
-            parts.append(cycles == 1 ? "1 cycle" : "\(cycles) cycles")
+        if let count = state.cycleCount {
+            parts.append(cycles(count))
         }
         if let health = state.healthPercent {
             parts.append("\(health)% health")
@@ -164,8 +173,8 @@ enum BatteryFormatting {
             let unit = rounded == 1 ? "1 watt" : "\(rounded) watts"
             parts.append(watts > 0 ? "charging at \(unit)" : "using \(unit)")
         }
-        if let cycles = state.cycleCount {
-            parts.append(cycles == 1 ? "1 cycle" : "\(cycles) cycles")
+        if let count = state.cycleCount {
+            parts.append(cycles(count))
         }
         if let health = state.healthPercent {
             parts.append("\(health) percent health")

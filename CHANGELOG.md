@@ -278,6 +278,14 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- The Stats row, the battery card's watts, Settings' seconds and Motion figures, and the stopwatch's tenths use your region's decimal mark ("38,5 GB", "+34,2 W", "0,35 s", "01:05,3"), matching the network figures beside them.
+- Settings writes percentages as "150%", like the rest of the app.
+- VoiceOver hears ages and countdowns in words: "4 minutes ago" for clipboard, notification and shelf items, and "Standup, in 7 minutes" for the calendar pill, instead of "4m", which it read as metres.
+- The pill's timer, stopwatch, call, recording and scrubber are spoken as durations ("4 minutes 59 seconds remaining"), as the cards already were, instead of clock digits read as a time of day.
+- The Stats cells speak battery time, health, cycles and memory in words, without "h", "min", "·" or "slash", and a battery with one charge cycle says "1 cycle".
+- The pill's countdowns and running clocks turn over on the second the figure does, not whenever the pill appeared, and its spoken sentence turns with them.
+- Focus modes with accented or numbered names sort as Finder sorts them ("Écriture" among the E names, "Study 2" before "Study 10").
+- The clipboard list no longer checks the Accessibility permission twice per row on each redraw, and no longer splits long copies into lines just to show their first line.
 - Closing Settings really lets its view go: the window's title binding kept the first one alive with its pane's timers ticking.
 - A keyboard backlight given up after a lid opening is looked for once more ten seconds later, rather than only at the next wake.
 - A press on the Now Playing card no longer waits behind a poll sent after it. Its six-second limit is checked when it actually starts, and a pause, including the sleep timer's, is never dropped as too late.

@@ -237,20 +237,19 @@ private struct NotificationRowView: View {
     private var headline: String { lines.headline }
     private var detail: String? { lines.detail }
 
-    /// Compact relative age — "now", "4m", "3h", "2d" — the shorthand the clipboard's rows
-    /// use, so the two columns of times read as one thing rather than as two conventions.
+    /// Compact relative age — "now", "4m", "3h", "2d" — the clipboard rows' own rule
+    /// (`RelativeAge`), so the two columns of times read as one thing rather than as two
+    /// conventions.
     private func age(at now: Date) -> String {
-        let seconds = max(0, now.timeIntervalSince(entry.date))
-        if seconds < 60 { return "now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
-        return "\(Int(seconds / 86_400))d"
+        RelativeAge.clipped(since: entry.date, at: now)
     }
 
     /// What VoiceOver reads. Spelled out rather than clipped: the row truncates because it is
-    /// 34 points tall, which is no reason for somebody listening to be told less.
+    /// 34 points tall, which is no reason for somebody listening to be told less — and the age
+    /// is the words too, "4 minutes ago", where the column's "4m" was read as four metres.
     private func spoken(at now: Date) -> String {
-        [entry.appName, headline, detail ?? "", age(at: now)].filter { !$0.isEmpty }.joined(separator: ", ")
+        [entry.appName, headline, detail ?? "", RelativeAge.spoken(since: entry.date, at: now)]
+            .filter { !$0.isEmpty }.joined(separator: ", ")
     }
 }
 

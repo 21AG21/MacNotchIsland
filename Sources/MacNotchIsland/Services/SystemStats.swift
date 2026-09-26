@@ -448,15 +448,21 @@ final class SystemStats: ObservableObject {
     /// `ByteCountFormatter` gives gigabytes two decimal places, which made this "17.14 / 22.35
     /// GB": four digits of precision on a number that is only ever glanced at, and wide enough
     /// to be truncated by its own column.
-    static func memoryText(used: UInt64, total: UInt64) -> String {
-        "\(gigabytes(used)) / \(gigabytes(total)) GB"
+    static func memoryText(used: UInt64, total: UInt64, locale: Locale = .current) -> String {
+        "\(gigabytes(used, locale: locale)) / \(gigabytes(total, locale: locale)) GB"
+    }
+
+    /// "12.4 of 16 gigabytes": the memory line as VoiceOver should say it. Read as it is drawn,
+    /// the pair came out with a "slash" between its two figures.
+    static func spokenMemory(used: UInt64, total: UInt64, locale: Locale = .current) -> String {
+        "\(gigabytes(used, locale: locale)) of \(gigabytes(total, locale: locale)) gigabytes"
     }
 
     /// Memory's gigabytes, as a bare number, see `shortNumber`. Memory is counted in powers of
     /// two, the way Activity Monitor and About This Mac count it: 17,179,869,184 bytes is the
     /// 16 GB the Mac was sold with.
-    static func gigabytes(_ bytes: UInt64) -> String {
-        shortNumber(Double(bytes) / 1_073_741_824)
+    static func gigabytes(_ bytes: UInt64, locale: Locale = .current) -> String {
+        shortNumber(Double(bytes) / 1_073_741_824, locale: locale)
     }
 
     /// "412 GB", "38.5 GB", "1.2 TB": room on a disk, in the units Finder counts it in.
@@ -466,19 +472,25 @@ final class SystemStats: ObservableObject {
     /// `.file` style); the Stats cell divided by memory's 1,073,741,824 and said "GB" anyway,
     /// and read about 7% under Finder — "384 GB free" beside Finder's 412 GB available.
     /// A thousand gigabytes and more is terabytes, as Finder says it. Pure, so it is tested.
-    static func diskSize(_ bytes: UInt64) -> String {
+    static func diskSize(_ bytes: UInt64, locale: Locale = .current) -> String {
         let gb = Double(bytes) / 1_000_000_000
-        if gb.rounded() >= 1000 { return "\(shortNumber(gb / 1000)) TB" }
-        return "\(shortNumber(gb)) GB"
+        if gb.rounded() >= 1000 { return "\(shortNumber(gb / 1000, locale: locale)) TB" }
+        return "\(shortNumber(gb, locale: locale)) GB"
     }
 
     /// A reading as a bare number: whole above 100, one decimal below it, and never a
     /// trailing ".0".
-    static func shortNumber(_ value: Double) -> String {
+    ///
+    /// Written with the region's decimal mark. The network figures beside these come from
+    /// `ByteCountFormatter`, which already uses it, and a German Mac read "↓ 1,2 MB/s" in one
+    /// column and "12.4 / 16 GB" in the next. No thousands separator: a figure this short is
+    /// read at a glance, and "1,536" beside "1,5" would say two different things with one mark.
+    static func shortNumber(_ value: Double, locale: Locale = .current) -> String {
         guard value.isFinite else { return "0" }
-        if value >= 100 { return String(Int(value.rounded())) }
-        let rounded = (value * 10).rounded() / 10
-        return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
+        // Rounded here, half away from zero, rather than by the formatter, which rounds a half
+        // to even: 0.25 is "0.3" as it always was.
+        let rounded = value >= 100 ? value.rounded() : (value * 10).rounded() / 10
+        return rounded.formatted(.number.precision(.fractionLength(0...1)).grouping(.never).locale(locale))
     }
 }
 

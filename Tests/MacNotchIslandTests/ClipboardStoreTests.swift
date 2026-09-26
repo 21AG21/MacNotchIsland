@@ -207,6 +207,20 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(captured?.preview, "first line")
     }
 
+    /// The first line is found by walking to it rather than by splitting the whole copy, and it
+    /// is the line the split gave: blank lines before it skipped, any line break ending it, and
+    /// a first line of nothing but spaces falling back to the whole copy, trimmed.
+    func testThePreviewIsTheFirstLineWithAnythingOnIt() {
+        XCTAssertEqual(item("\n\nhello\nworld").preview, "hello")
+        XCTAssertEqual(item("one\rtwo").preview, "one")
+        XCTAssertEqual(item("\r\n  indented  \r\nnext").preview, "indented")
+        XCTAssertEqual(item("   \nsecond\nthird").preview, "second\nthird")
+        XCTAssertEqual(item("single").preview, "single")
+        XCTAssertEqual(item("").preview, "")
+        let long = String(repeating: "a", count: 100_000)
+        XCTAssertEqual(item(long + "\n" + long).preview, long)
+    }
+
     func testLinksAreCapturedAsURLs() {
         let captured = ClipboardStore.item(from: ClipboardSnapshot(types: ["public.url", "public.utf8-plain-text"],
                                                                    text: "https://example.com/a"))
@@ -282,6 +296,41 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(item("x", at: 200_000 - 7_200).age(at: now), "2h")
         XCTAssertEqual(item("x", at: 200_000 - 172_800).age(at: now), "2d")
     }
+
+    /// "4m" is "4 metres" to a speech synthesiser, and it was what VoiceOver was handed for the
+    /// clipboard's rows, the Notifications section's and the shelf's tiles. The row keeps the
+    /// short form; what is said is the same figure in words.
+    func testAgeIsSpokenInWords() {
+        let now = Date(timeIntervalSinceReferenceDate: 200_000)
+        XCTAssertEqual(item("x", at: 200_000 - 10).spokenAge(at: now), "just now")
+        XCTAssertEqual(item("x", at: 200_000 - 60).spokenAge(at: now), "1 minute ago")
+        XCTAssertEqual(item("x", at: 200_000 - 300).spokenAge(at: now), "5 minutes ago")
+        XCTAssertEqual(item("x", at: 200_000 - 3_600).spokenAge(at: now), "1 hour ago")
+        XCTAssertEqual(item("x", at: 200_000 - 7_200).spokenAge(at: now), "2 hours ago")
+        XCTAssertEqual(item("x", at: 200_000 - 86_400).spokenAge(at: now), "1 day ago")
+        XCTAssertEqual(item("x", at: 200_000 - 172_800).spokenAge(at: now), "2 days ago")
+    }
+
+    /// One rule for the two forms, so the figure said is always the figure shown.
+    func testTheSpokenAgeIsTheClippedOneSpelledOut() {
+        let now = Date(timeIntervalSinceReferenceDate: 200_000)
+        let pairs = [(59.0, "now", "just now"), (119, "1m", "1 minute ago"), (3_599, "59m", "59 minutes ago"),
+                     (5_400, "1h", "1 hour ago"), (86_399, "23h", "23 hours ago"), (1_000_000, "11d", "11 days ago")]
+        for (seconds, clipped, spoken) in pairs {
+            let then = now.addingTimeInterval(-seconds)
+            XCTAssertEqual(RelativeAge.clipped(since: then, at: now), clipped)
+            XCTAssertEqual(RelativeAge.spoken(since: then, at: now), spoken)
+        }
+    }
+
+    func testAnAgeFromTheFutureOrFromNowhereIsNow() {
+        let now = Date(timeIntervalSinceReferenceDate: 200_000)
+        XCTAssertEqual(RelativeAge.clipped(since: now.addingTimeInterval(600), at: now), "now", "a clock set back")
+        XCTAssertEqual(RelativeAge.spoken(since: now.addingTimeInterval(600), at: now), "just now")
+        XCTAssertTrue(RelativeAge.clipped(since: Date(timeIntervalSinceReferenceDate: -1e300), at: now).hasSuffix("d"),
+                      "a date too far back to count does not trap on its way into an Int")
+    }
+
     // MARK: - Where it is kept, and who may read it
 
     /// The clipboard, the notes and the lyrics cache all go through one door, and it shuts

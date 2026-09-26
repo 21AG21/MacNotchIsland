@@ -21,8 +21,8 @@ struct MotionPane: View {
         Form {
             Section {
                 MotionPreview(running: !reduceMotion && activeState != .inactive)
-                LabeledContent("Opening", value: describe(.open))
-                LabeledContent("Closing", value: describe(.close))
+                LabeledContent("Opening", value: Self.describe(.open, tuning: tuning))
+                LabeledContent("Closing", value: Self.describe(.close, tuning: tuning))
             } header: {
                 Text("Preview")
             } footer: {
@@ -68,10 +68,13 @@ struct MotionPane: View {
     private var isCustom: Bool { IslandMotion.Preset.matching(tuning) == nil }
 
     /// The numbers the island will actually give a spring, said plainly, so a report that it
-    /// looks wrong can carry the figures it looked wrong at.
-    private func describe(_ spring: IslandMotion.Spring) -> String {
+    /// looks wrong can carry the figures it looked wrong at: "0.44 s, bounce 0.28", or
+    /// "0,44 s, bounce 0,28" with the German decimal mark, as the sliders above write theirs.
+    /// Pure, so the rule is tested.
+    static func describe(_ spring: IslandMotion.Spring, tuning: IslandMotion.Tuning,
+                         locale: Locale = .current) -> String {
         let given = IslandMotion.scaled(duration: spring.base.duration, bounce: spring.base.bounce, by: tuning.clamped)
-        return String(format: "%.2f s, bounce %.2f", given.duration, given.bounce)
+        return "\(SettingsFormat.seconds(given.duration, locale: locale)) s, bounce \(SettingsFormat.decimal(given.bounce, places: 2, locale: locale))"
     }
 
     // MARK: Bindings

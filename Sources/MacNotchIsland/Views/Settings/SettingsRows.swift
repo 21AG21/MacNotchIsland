@@ -74,10 +74,26 @@ struct SettingsSlider: View {
 
 enum SettingsFormat {
     /// Seconds get two decimals; everything else rounds to whole units.
-    static func value(_ value: Double, unit: String) -> String {
-        if unit == "s" { return String(format: "%.2f s", value) }
+    ///
+    /// Seconds are written with the region's decimal mark, "0,35 s" on a German Mac, the way
+    /// the system's own panes write them. A percentage sits against its number, "150%", as
+    /// the island writes every other one ("82%"); every other unit keeps its space.
+    static func value(_ value: Double, unit: String, locale: Locale = .current) -> String {
+        if unit == "s" { return seconds(value, locale: locale) + " s" }
         let rounded = Int(value.rounded())
-        return unit.isEmpty ? "\(rounded)" : "\(rounded) \(unit)"
+        if unit.isEmpty { return "\(rounded)" }
+        return unit == "%" ? "\(rounded)%" : "\(rounded) \(unit)"
+    }
+
+    /// A number of seconds to two decimals, "0.35" or "0,35" by the region. Shared with the
+    /// Motion pane's figures, so the two panes cannot disagree on how a second is written.
+    static func seconds(_ value: Double, locale: Locale = .current) -> String {
+        decimal(value, places: 2, locale: locale)
+    }
+
+    /// `value` to exactly `places` decimals in `locale`'s own mark, with no thousands separator.
+    static func decimal(_ value: Double, places: Int, locale: Locale = .current) -> String {
+        value.formatted(.number.precision(.fractionLength(places)).grouping(.never).locale(locale))
     }
 
     /// The option a menu should show for a stored value that was set by an older build (or by

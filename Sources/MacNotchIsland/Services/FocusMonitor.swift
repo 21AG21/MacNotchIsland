@@ -72,9 +72,12 @@ struct FocusMode: Equatable, Hashable, Identifiable {
                                        tint: tint(from: mode["tintColorName"] as? String)))
             }
         }
+        // By name as Finder sorts names (`localizedStandardCompare`): "Écriture" with the Es
+        // rather than after "Work", where a comparison of bare code points put it, and
+        // "Study 2" before "Study 10".
         return modes.sorted { a, b in
             if a.isDoNotDisturb != b.isDoNotDisturb { return a.isDoNotDisturb }
-            let byName = a.name.caseInsensitiveCompare(b.name)
+            let byName = a.name.localizedStandardCompare(b.name)
             if byName != .orderedSame { return byName == .orderedAscending }
             return a.identifier < b.identifier
         }

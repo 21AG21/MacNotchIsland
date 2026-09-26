@@ -36,6 +36,19 @@ final class FocusPickerTests: XCTestCase {
                                               symbol: "moon.fill", tint: "indigo"))
     }
 
+    /// A Focus named in French sorts among the Es, as Finder and the Focus pane sort it, rather
+    /// than after "Work" where a comparison of bare code points put the É; and a number in a
+    /// name is counted, so "Study 2" comes before "Study 10".
+    func testTheModesAreSortedAsFinderSortsNames() {
+        func mode(_ name: String) -> String {
+            #""m.\#(name)":{"mode":{"name":"\#(name)","modeIdentifier":"m.\#(name)"}}"#
+        }
+        let names = ["Work", "Écriture", "Study 10", "Driving", "Study 2", "exercise"]
+        let json = #"{"data":[{"modeConfigurations":{"# + names.map(mode).joined(separator: ",") + "}}]}"
+        XCTAssertEqual(FocusMode.decode(Data(json.utf8)).map(\.name),
+                       ["Driving", "Écriture", "exercise", "Study 2", "Study 10", "Work"])
+    }
+
     func testEachModeKeepsItsGlyphAndColour() {
         let sleep = modes.first { $0.identifier == "com.apple.sleep.sleep-mode" }
         XCTAssertEqual(sleep?.name, "Sleep", "listed once, as it is first described")

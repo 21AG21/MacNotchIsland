@@ -25,24 +25,24 @@ final class AccessibilityLabelTests: XCTestCase {
 
     func testTimer() {
         var t = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
-        XCTAssertEqual(label(.timer(t)), "Timer, 4:59 remaining")
+        XCTAssertEqual(label(.timer(t)), "Timer, 4 minutes 59 seconds remaining")
         t.pausedRemaining = 60
-        XCTAssertEqual(label(.timer(t)), "Timer, 1:00 remaining, paused")
+        XCTAssertEqual(label(.timer(t)), "Timer, 1 minute remaining, paused")
         t.isFinished = true
         XCTAssertEqual(label(.timer(t)), "Timer, done")
     }
 
     func testStopwatch() {
         var s = StopwatchState(startedAt: now.addingTimeInterval(-130))
-        XCTAssertEqual(label(.stopwatch(s)), "Stopwatch, 2:10 elapsed")
+        XCTAssertEqual(label(.stopwatch(s)), "Stopwatch, 2 minutes 10 seconds elapsed")
         s.isRunning = false
         s.accumulated = 65
-        XCTAssertEqual(label(.stopwatch(s)), "Stopwatch, 1:05 elapsed, paused")
+        XCTAssertEqual(label(.stopwatch(s)), "Stopwatch, 1 minute 5 seconds elapsed, paused")
     }
 
     func testCall() {
         let c = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now.addingTimeInterval(-130))
-        XCTAssertEqual(label(.call(c)), "Call with FaceTime, 2:10")
+        XCTAssertEqual(label(.call(c)), "Call with FaceTime, 2 minutes 10 seconds")
     }
 
     func testBatteryAndBluetooth() {
@@ -119,7 +119,7 @@ final class AccessibilityLabelTests: XCTestCase {
     func testCalendarDownloadAndCustom() {
         let c = CalendarState(title: "Standup", start: now.addingTimeInterval(5 * 60), end: now.addingTimeInterval(20 * 60),
                               location: nil, joinURL: nil, tint: "blue")
-        XCTAssertEqual(label(.calendar(c)), "Standup, in 5m")
+        XCTAssertEqual(label(.calendar(c)), "Standup, in 5 minutes")
         XCTAssertEqual(label(.download(DownloadState(name: "Xcode.xip", bytes: 45, total: 100, app: "Safari"))),
                        "Downloading Xcode.xip, 45 percent")
         XCTAssertEqual(label(.download(DownloadState(name: "Xcode.xip", bytes: 100, total: 100, app: "Safari", isComplete: true))),
@@ -129,8 +129,8 @@ final class AccessibilityLabelTests: XCTestCase {
     }
 
     func testPlaybackValue() {
-        XCTAssertEqual(IslandAccessibility.playbackValue(position: 65, duration: 200), "1:05 of 3:20")
-        XCTAssertEqual(IslandAccessibility.playbackValue(position: 65, duration: 0), "1:05")
+        XCTAssertEqual(IslandAccessibility.playbackValue(position: 65, duration: 200), "1 minute 5 seconds of 3 minutes 20 seconds")
+        XCTAssertEqual(IslandAccessibility.playbackValue(position: 65, duration: 0), "1 minute 5 seconds")
     }
 
     func testSpokenDuration() {
@@ -215,9 +215,87 @@ final class AccessibilityLabelTests: XCTestCase {
     func testTheSentenceATurnLaterSaysTheTimeThen() {
         let running = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
         XCTAssertEqual(IslandAccessibility.compactLabel(for: .timer(running), at: now.addingTimeInterval(60)),
-                       "Timer, 3:59 remaining")
+                       "Timer, 3 minutes 59 seconds remaining")
         let call = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now)
         XCTAssertEqual(IslandAccessibility.compactLabel(for: .call(call), at: now.addingTimeInterval(125), micMuted: true),
-                       "Call with FaceTime, 2:05, microphone muted")
+                       "Call with FaceTime, 2 minutes 5 seconds, microphone muted")
+    }
+
+    /// The pill's clock digits are read as a time of day — "4:59" is one minute to five — and the
+    /// cards already said their figures in words. The pill now says them the way its card does.
+    func testThePillSaysItsFiguresTheWayItsCardDoes() {
+        let running = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299.4))
+        XCTAssertEqual(label(.timer(running)), "Timer, \(IslandAccessibility.spokenDuration(running.remaining(at: now).rounded(.up))) remaining",
+                       "the timer card's own words, rounded up to the second on the digits")
+        XCTAssertEqual(label(.timer(running)), "Timer, 5 minutes remaining")
+        let recording = CustomActivity(title: "Recording", countsUpFrom: now.addingTimeInterval(-3725))
+        XCTAssertEqual(label(.custom(recording)), "Recording, 1 hour 2 minutes 5 seconds")
+        let soon = CalendarState(title: "Standup", start: now.addingTimeInterval(45), end: now.addingTimeInterval(20 * 60),
+                                 location: nil, joinURL: nil, tint: "blue")
+        XCTAssertEqual(label(.calendar(soon)), "Standup, in 1 minute")
+        for spoken in [label(.timer(running)), label(.custom(recording)), label(.calendar(soon)),
+                       label(.stopwatch(StopwatchState(startedAt: now.addingTimeInterval(-65)))),
+                       IslandAccessibility.playbackValue(position: 65, duration: 200)] {
+            XCTAssertNil(spoken.range(of: #"\d:\d"#, options: .regularExpression), "no clock digits in \(spoken)")
+            XCTAssertNil(spoken.range(of: #"\d[mh]\b"#, options: .regularExpression), "no clipped units in \(spoken)")
+        }
+    }
+
+    // The pill's timelines count their beats from the moment the figure counts from, so it is
+    // redrawn as its digits change rather than up to a second later.
+
+    func testThePillsBeatIsCountedFromTheFigure() {
+        let timer = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299.3))
+        XCTAssertEqual(PillClock.origin(of: .timer(timer)), timer.endDate)
+        let stopwatch = StopwatchState(startedAt: now.addingTimeInterval(-10), accumulated: 65.4)
+        XCTAssertEqual(PillClock.origin(of: .stopwatch(stopwatch))?.timeIntervalSince(now) ?? 0, -75.4, accuracy: 0.0001,
+                       "where it would have started with nothing on it")
+        let call = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now.addingTimeInterval(-42.7))
+        XCTAssertEqual(PillClock.origin(of: .call(call)), call.startedAt)
+        let standup = CalendarState(title: "Standup", start: now.addingTimeInterval(415), end: now.addingTimeInterval(1200),
+                                    location: nil, joinURL: nil, tint: "blue")
+        XCTAssertEqual(PillClock.origin(of: .calendar(standup)), standup.start)
+        XCTAssertEqual(PillClock.origin(of: .custom(CustomActivity(title: "Recording", countsUpFrom: call.startedAt))), call.startedAt)
+    }
+
+    func testAFigureStandingStillKeepsNoBeat() {
+        var paused = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299))
+        paused.pausedRemaining = 60
+        XCTAssertNil(PillClock.origin(of: .timer(paused)))
+        var stopped = StopwatchState(startedAt: now)
+        stopped.isRunning = false
+        XCTAssertNil(PillClock.origin(of: .stopwatch(stopped)))
+        XCTAssertNil(PillClock.origin(of: .unlock))
+        XCTAssertEqual(PillClock.start(on: nil, every: 1, at: now), now, "no origin is the old schedule, from now")
+        XCTAssertEqual(PillClock.start(on: now.addingTimeInterval(5), every: 0, at: now), now)
+        XCTAssertEqual(PillClock.start(on: Date.distantFuture.addingTimeInterval(1e300), every: 1, at: now), now)
+    }
+
+    /// The schedule starts in the past, on a beat just after a turn of the figure, and every
+    /// beat after it draws the figure that holds until the next one.
+    func testEveryBeatLandsJustAfterTheFigureTurns() {
+        let timer = TimerState(label: "Pasta", total: 300, endDate: now.addingTimeInterval(299.3))
+        let start = PillClock.start(on: timer.endDate, every: 1, at: now)
+        XCTAssertLessThanOrEqual(start, now, "never a schedule that starts in the future")
+        XCTAssertGreaterThan(start, now.addingTimeInterval(-1))
+        for beat in 0..<5 {
+            let date = start.addingTimeInterval(Double(beat))
+            let drawn = timer.remaining(at: date).timerString
+            XCTAssertEqual(timer.remaining(at: date.addingTimeInterval(0.98)).timerString, drawn,
+                           "the figure drawn on a beat is the figure until the next")
+            XCTAssertNotEqual(timer.remaining(at: date.addingTimeInterval(-0.02)).timerString, drawn,
+                              "and it turned just before the beat")
+        }
+
+        let call = CallState(appName: "FaceTime", bundleID: "com.apple.FaceTime", startedAt: now.addingTimeInterval(-42.7))
+        let callStart = PillClock.start(on: call.startedAt, every: 1, at: now)
+        XCTAssertEqual(callStart.timeIntervalSince(call.startedAt), 42 + PillClock.lead, accuracy: 0.0001)
+
+        let standup = CalendarState(title: "Standup", start: now.addingTimeInterval(415), end: now.addingTimeInterval(1200),
+                                    location: nil, joinURL: nil, tint: "blue")
+        let meetingStart = PillClock.start(on: standup.start, every: 30, at: now)
+        XCTAssertEqual(standup.relativeStart(at: meetingStart), standup.relativeStart(at: meetingStart.addingTimeInterval(29.9)))
+        XCTAssertEqual(meetingStart.timeIntervalSince(standup.start).truncatingRemainder(dividingBy: 30), -30 + PillClock.lead,
+                       accuracy: 0.0001, "on the half-minute grid through the start")
     }
 }

@@ -421,10 +421,12 @@ struct ShelfItemView: View {
         .accessibilityAction(named: Text("Open")) { shelf.open([url]) }
     }
 
-    /// "2h" / "3d" / "just now" — the same age used on screen, spelled out for a reading
-    /// that never lands on an empty string.
+    /// "2 hours ago", "3 days ago", "just now": the tooltip's age in words (`RelativeAge`).
+    /// The tooltip's "2h" was said as it stood, and "added 2h" is not a sentence anybody
+    /// listening can use. Under the hour the tooltip says nothing, and this says the minutes
+    /// rather than "just now" for a file that has been there fifty of them.
     private var accessibilityAge: String {
-        ageText.isEmpty ? "just now" : ageText
+        RelativeAge.spoken(since: item.addedAt, at: Date())
     }
 
     private var thumbnail: some View {

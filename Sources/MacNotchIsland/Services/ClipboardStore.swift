@@ -92,7 +92,12 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
         case .image:
             return text.isEmpty ? "Image" : text
         case .text, .url:
-            let line = text.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? text
+            // The first line that has anything on it, found by walking to it rather than by
+            // splitting the whole copy into lines: an entry can be a hundred thousand
+            // characters, and the list asks for this on every pass. Blank lines before it are
+            // skipped and any kind of line break ends it, as splitting into lines had it.
+            let line = text.firstIndex(where: { !$0.isNewline })
+                .map { start in String(text[start...].prefix(while: { !$0.isNewline })) } ?? text
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             return trimmed.isEmpty ? text.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
         }
@@ -100,11 +105,48 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
 
     /// Compact relative age: "now", "4m", "3h", "2d".
     func age(at now: Date = Date()) -> String {
-        let seconds = max(0, now.timeIntervalSince(date))
-        if seconds < 60 { return "now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
-        return "\(Int(seconds / 86_400))d"
+        RelativeAge.clipped(since: date, at: now)
+    }
+
+    /// The same age for VoiceOver: "just now", "4 minutes ago", "1 hour ago".
+    func spokenAge(at now: Date = Date()) -> String {
+        RelativeAge.spoken(since: date, at: now)
+    }
+}
+
+/// How long ago something happened, in the two forms a row of the panel needs: clipped for a
+/// column a few characters wide, and in words for VoiceOver.
+///
+/// The clipped form was all there was, and it was read aloud as it stood: "4m" is "4 metres"
+/// to a speech synthesiser, and "2d" is a letter and a number. The clipboard's rows, the
+/// Notifications section's and the shelf's tiles all tell somebody listening how long ago
+/// with the spoken one, and the eye keeps the short one. Pure, so both are tested.
+enum RelativeAge {
+    /// "now", "4m", "3h", "2d": whole units, rounded down, the way the rows have always shown it.
+    static func clipped(since date: Date, at now: Date) -> String {
+        let (count, unit) = measure(since: date, at: now)
+        guard let unit else { return "now" }
+        return "\(count)\(unit.prefix(1))"
+    }
+
+    /// "just now", "1 minute ago", "4 minutes ago", "1 hour ago", "2 days ago": the clipped
+    /// form's figure, spelled out, with its singular right.
+    static func spoken(since date: Date, at now: Date) -> String {
+        let (count, unit) = measure(since: date, at: now)
+        guard let unit else { return "just now" }
+        return count == 1 ? "1 \(unit) ago" : "\(count) \(unit)s ago"
+    }
+
+    /// The one figure both forms say: a count and its unit, or no unit under a minute. A date
+    /// in the future is now; one too far back to count is held to what an `Int` can hold,
+    /// rather than trapping on the way into one.
+    private static func measure(since date: Date, at now: Date) -> (count: Int, unit: String?) {
+        let raw = now.timeIntervalSince(date)
+        let seconds = raw.isFinite ? min(max(0, raw), 1e15) : 0
+        if seconds < 60 { return (0, nil) }
+        if seconds < 3600 { return (Int(seconds / 60), "minute") }
+        if seconds < 86_400 { return (Int(seconds / 3600), "hour") }
+        return (Int(seconds / 86_400), "day")
     }
 }
 

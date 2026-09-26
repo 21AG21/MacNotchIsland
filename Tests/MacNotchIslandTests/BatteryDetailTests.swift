@@ -101,13 +101,40 @@ final class BatteryDetailTests: XCTestCase {
         XCTAssertEqual(BatteryFormatting.formatMinutes(-3), "Less than a minute")
     }
 
+    private let english = Locale(identifier: "en_US")
+    private let german = Locale(identifier: "de_DE")
+
     func testFormatWattageUsesATrueMinusSign() {
-        XCTAssertEqual(BatteryFormatting.formatWattage(34.24), "+34.2 W")
-        XCTAssertEqual(BatteryFormatting.formatWattage(-8.06), "\u{2212}8.1 W")
-        XCTAssertFalse(BatteryFormatting.formatWattage(-8.06).contains("-"), "never the ASCII hyphen-minus")
-        XCTAssertEqual(BatteryFormatting.formatWattage(0), "0.0 W")
-        XCTAssertEqual(BatteryFormatting.formatWattage(-0.04), "0.0 W", "no signed zero")
-        XCTAssertEqual(BatteryFormatting.formatWattage(.nan), "0.0 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(34.24, locale: english), "+34.2 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(-8.06, locale: english), "\u{2212}8.1 W")
+        XCTAssertFalse(BatteryFormatting.formatWattage(-8.06, locale: english).contains("-"), "never the ASCII hyphen-minus")
+        XCTAssertEqual(BatteryFormatting.formatWattage(0, locale: english), "0.0 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(-0.04, locale: english), "0.0 W", "no signed zero")
+        XCTAssertEqual(BatteryFormatting.formatWattage(.nan, locale: english), "0.0 W")
+    }
+
+    /// A German Mac writes its decimals with a comma, and the network figures in the Stats row
+    /// already did: the battery's watts were the odd ones out with a point.
+    func testFormatWattageWritesTheRegionsDecimalMark() {
+        XCTAssertEqual(BatteryFormatting.formatWattage(34.24, locale: german), "+34,2 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(-8.06, locale: german), "\u{2212}8,1 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(1234.5, locale: english), "+1234.5 W", "and no thousands separator")
+    }
+
+    /// Nothing flowing was "0.0 W" because the text read "0.0"; with a comma for the mark the
+    /// text is "0,0", and the check has to be of the number for the zero to stay unsigned.
+    func testNothingFlowingIsAnUnsignedZeroWhateverTheMark() {
+        XCTAssertEqual(BatteryFormatting.formatWattage(0, locale: german), "0,0 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(-0.04, locale: german), "0,0 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(0.04, locale: german), "0,0 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(.infinity, locale: german), "0,0 W")
+        XCTAssertEqual(BatteryFormatting.formatWattage(0.05, locale: german), "+0,1 W", "a tenth is something")
+    }
+
+    func testOneCycleIsSingular() {
+        XCTAssertEqual(BatteryFormatting.cycles(1), "1 cycle")
+        XCTAssertEqual(BatteryFormatting.cycles(0), "0 cycles")
+        XCTAssertEqual(BatteryFormatting.cycles(214), "214 cycles")
     }
 
     func testTimeLineWording() {
@@ -130,10 +157,11 @@ final class BatteryDetailTests: XCTestCase {
     func testDetailLineDropsUnknowns() {
         let full = BatteryState(percent: 63, isCharging: true, isPluggedIn: true, event: .pluggedIn,
                                 wattage: 34.24, cycleCount: 312, healthPercent: 91)
-        XCTAssertEqual(BatteryFormatting.detailLine(for: full), "+34.2 W · 312 cycles · 91% health")
+        XCTAssertEqual(BatteryFormatting.detailLine(for: full, locale: english), "+34.2 W · 312 cycles · 91% health")
+        XCTAssertEqual(BatteryFormatting.detailLine(for: full, locale: german), "+34,2 W · 312 cycles · 91% health")
 
         let draining = BatteryState(percent: 18, isCharging: false, isPluggedIn: false, event: .low, wattage: -8.06)
-        XCTAssertEqual(BatteryFormatting.detailLine(for: draining), "\u{2212}8.1 W")
+        XCTAssertEqual(BatteryFormatting.detailLine(for: draining, locale: english), "\u{2212}8.1 W")
 
         let idle = BatteryState(percent: 100, isCharging: false, isPluggedIn: true, event: .full, wattage: 0.01, cycleCount: 1)
         XCTAssertEqual(BatteryFormatting.detailLine(for: idle), "1 cycle", "a flow that rounds to zero is not worth a line")

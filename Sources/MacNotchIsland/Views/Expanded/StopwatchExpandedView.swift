@@ -96,13 +96,16 @@ struct StopwatchExpandedView: View {
         return "\(heading), \(elapsed), \(state.isRunning ? "running" : "paused")"
     }
 
-    private static func format(_ t: TimeInterval, showTenths: Bool = true) -> String {
+    /// "01:05.3", "1:02:05.3", or "01:05" without the tenths. Pure, so the rule is tested.
+    ///
+    /// The tenths follow the region's decimal mark, "01:05,3" on a German Mac, which is how the
+    /// Clock app's stopwatch writes them there; the colons are the same everywhere.
+    static func format(_ t: TimeInterval, showTenths: Bool = true, locale: Locale = .current) -> String {
         let total = Int(t)
         let h = total / 3600, m = (total % 3600) / 60, s = total % 60
-        guard showTenths else {
-            return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
-        }
+        let clock = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
+        guard showTenths else { return clock }
         let tenths = Int((t - Double(total)) * 10)
-        return h > 0 ? String(format: "%d:%02d:%02d.%d", h, m, s, tenths) : String(format: "%02d:%02d.%d", m, s, tenths)
+        return clock + (locale.decimalSeparator ?? ".") + String(tenths)
     }
 }

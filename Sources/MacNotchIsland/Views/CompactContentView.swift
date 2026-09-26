@@ -60,6 +60,8 @@ struct CompactContentView: View {
 /// again when the digits on it change — those are redrawn by the timelines inside it. Written
 /// once, at the body's time, VoiceOver read "Timer, 4:59 remaining" minutes after it was so.
 /// Content whose sentence does not move with the clock gets a timeline that ticks once an hour.
+/// The timeline turns on the beat the figure on the pill turns on (`PillClock`), so the
+/// sentence never says a second the digits have already left.
 private struct CompactSpeech: ViewModifier {
     let shown: ActivityContent
 
@@ -68,7 +70,7 @@ private struct CompactSpeech: ViewModifier {
         if case .call = shown {
             content.modifier(CallSpeech(shown: shown))
         } else {
-            TimelineView(.periodic(from: .now, by: IslandAccessibility.speechCadence(for: shown) ?? Self.still)) { context in
+            TimelineView(PillClock.schedule(for: shown, every: IslandAccessibility.speechCadence(for: shown) ?? Self.still)) { context in
                 content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown, at: context.date))
             }
         }
@@ -84,7 +86,7 @@ private struct CallSpeech: ViewModifier {
     @ObservedObject private var mic = MicrophoneControl.shared
 
     func body(content: Content) -> some View {
-        TimelineView(.periodic(from: .now, by: IslandAccessibility.speechCadence(for: shown) ?? CompactSpeech.still)) { context in
+        TimelineView(PillClock.schedule(for: shown, every: IslandAccessibility.speechCadence(for: shown) ?? CompactSpeech.still)) { context in
             content.accessibilityLabel(IslandAccessibility.compactLabel(for: shown, at: context.date, micMuted: mic.isMuted))
         }
     }
@@ -255,7 +257,7 @@ struct CompactTrailingView: View {
                                barCount: minimal ? 3 : 4, barWidth: 2.5, maxHeight: 12, minHeight: 3)
                     .islandMatched(IslandMatchedID.nowPlayingVisualizer)
             case .timer(let t):
-                TimelineView(.periodic(from: .now, by: TimerRing.cadence)) { ctx in
+                TimelineView(PillClock.schedule(for: activity.content, every: TimerRing.cadence)) { ctx in
                     if minimal {
                         TimerRing(state: t, date: ctx.date, diameter: height * 0.5)
                     } else {
@@ -273,7 +275,7 @@ struct CompactTrailingView: View {
                 }
                 .islandMatched(IslandMatchedID.timerTime)
             case .stopwatch(let s):
-                TimelineView(.periodic(from: .now, by: s.isRunning ? 1 : 3600)) { ctx in
+                TimelineView(PillClock.schedule(for: activity.content, every: s.isRunning ? 1 : 3600)) { ctx in
                     let elapsed = s.elapsed(at: ctx.date).mmss
                     Text(elapsed)
                         .font(numeralFont)
@@ -284,7 +286,7 @@ struct CompactTrailingView: View {
                 }
                 .islandMatched(IslandMatchedID.stopwatchTime)
             case .call(let c):
-                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                TimelineView(PillClock.schedule(for: activity.content, every: 1)) { ctx in
                     let running = ctx.date.timeIntervalSince(c.startedAt).mmss
                     Text(running)
                         .font(numeralFont)
@@ -340,7 +342,7 @@ struct CompactTrailingView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
             case .calendar(let c):
-                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                TimelineView(PillClock.schedule(for: activity.content, every: 30)) { ctx in
                     Text(c.relativeStart(at: ctx.date)).font(wordFont).foregroundStyle(.white).lineLimit(1)
                 }
             case .download(let d):
@@ -364,7 +366,7 @@ struct CompactTrailingView: View {
                         .frame(width: height * 0.5, height: height * 0.5)
                 } else if let since = c.countsUpFrom {
                     // Drawn the way the call's running time is, on the same beat.
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    TimelineView(PillClock.schedule(for: activity.content, every: 1)) { ctx in
                         let running = ctx.date.timeIntervalSince(since).mmss
                         Text(running)
                             .font(numeralFont)
@@ -391,14 +393,75 @@ struct CompactTrailingView: View {
     }
 }
 
+/// When the pill's running figures turn over, so that the timelines drawing them tick then.
+///
+/// Every timeline on the pill used to count its beats from the moment the pill appeared
+/// (`.periodic(from: .now, …)`), which is a moment that has nothing to do with the figure: a
+/// countdown that turns over at 0.3 s past each second was redrawn at 0.9 s past it, and read
+/// "4:59" for most of a second after the timer itself was at 4:58 — while the card it opens
+/// into, counting from its own appearance, could already say 4:58. Each beat is counted instead
+/// from the moment the figure is counted from — the end of a timer, the start of a call or a
+/// meeting — so the pill redraws just as its digits change, and the spoken sentence with them.
+/// Pure, so the rule is tested.
+enum PillClock {
+    /// How far past the turn each beat lands. A timeline's date is the beat's own, and a beat
+    /// exactly on the turn could come out a hair before it once the arithmetic is done: a timer
+    /// at 299.0000001 seconds rounds up to "5:00" and would say it for the whole second. A
+    /// hundredth of a second is far more than that error and far less than an eye can see.
+    static let lead: TimeInterval = 0.01
+
+    /// The moment the figure on `content` counts from or down to, or nil for content whose
+    /// figure is standing still or does not move with the clock at all.
+    static func origin(of content: ActivityContent) -> Date? {
+        switch content {
+        case .timer(let t):
+            return t.isAlarm || t.isFinished || t.isPaused ? nil : t.endDate
+        case .stopwatch(let s):
+            // Where a stopwatch started with nothing on it would have to have started.
+            return s.isRunning && s.accumulated.isFinite ? s.startedAt.addingTimeInterval(-s.accumulated) : nil
+        case .call(let c):
+            return c.startedAt
+        case .calendar(let c):
+            return c.start
+        case .custom(let c):
+            return c.countsUpFrom
+        default:
+            return nil
+        }
+    }
+
+    /// Where a timeline ticking every `interval` should start from: the last beat at or before
+    /// `now` on the grid through `origin`, `lead` past its turn. Always in the past, so nothing
+    /// rests on how a schedule that starts in the future would be treated, and `now` itself
+    /// when there is no origin to keep time with.
+    static func start(on origin: Date?, every interval: TimeInterval, at now: Date) -> Date {
+        guard let origin, interval > 0, interval.isFinite else { return now }
+        let since = now.timeIntervalSince(origin) - lead
+        // Past a few thousand years a Date has no hundredths left to land on.
+        guard since.isFinite, abs(since) < 1e11 else { return now }
+        let beats = (since / interval).rounded(.down)
+        return origin.addingTimeInterval(beats * interval + lead)
+    }
+
+    /// The periodic schedule for a timeline on the pill drawing `content`.
+    static func schedule(for content: ActivityContent, every interval: TimeInterval,
+                         at now: Date = Date()) -> PeriodicTimelineSchedule {
+        PeriodicTimelineSchedule(from: start(on: origin(of: content), every: interval, at: now), by: interval)
+    }
+}
+
 /// Spoken descriptions for island content.
 ///
 /// The compact pill is a pile of tiny glyphs and monospaced digits, so it is combined into a
 /// single accessibility element and given a sentence a screen reader can actually read out.
 enum IslandAccessibility {
-    /// e.g. "Now Playing, Alright by Kendrick Lamar", "Timer, 4:59 remaining",
-    /// "Call with FaceTime, 2:10". `micMuted` is read only for a call, which then ends
-    /// "microphone muted" — the red glyph on the pill, said out loud.
+    /// e.g. "Now Playing, Alright by Kendrick Lamar", "Timer, 4 minutes 59 seconds remaining",
+    /// "Call with FaceTime, 2 minutes 10 seconds". `micMuted` is read only for a call, which
+    /// then ends "microphone muted" — the red glyph on the pill, said out loud.
+    ///
+    /// Every running figure is said the way the cards say theirs (`spokenDuration`), not in the
+    /// pill's clock digits: "4:59" is read as a time of day, and the pill and the card it
+    /// opens into described one timer two ways.
     static func compactLabel(for content: ActivityContent, at date: Date = Date(), micMuted: Bool = false) -> String {
         switch content {
         case .nowPlaying(let info):
@@ -409,15 +472,16 @@ enum IslandAccessibility {
         case .timer(let t):
             if let alarmAt = t.alarmAt { return "\(t.label), \(IslandAlarm.clock(alarmAt))" }
             if t.isFinished { return "Timer, done" }
-            let remaining = t.remaining(at: date).timerString
+            // Rounded up, as the pill's figure is (`timerString`): the second on the digits.
+            let remaining = spokenDuration(t.remaining(at: date).rounded(.up))
             return t.isPaused ? "Timer, \(remaining) remaining, paused" : "Timer, \(remaining) remaining"
 
         case .stopwatch(let s):
-            let elapsed = s.elapsed(at: date).mmss
+            let elapsed = spokenDuration(s.elapsed(at: date))
             return s.isRunning ? "Stopwatch, \(elapsed) elapsed" : "Stopwatch, \(elapsed) elapsed, paused"
 
         case .call(let c):
-            let call = "Call with \(c.appName), \(date.timeIntervalSince(c.startedAt).mmss)"
+            let call = "Call with \(c.appName), \(spokenDuration(date.timeIntervalSince(c.startedAt)))"
             return micMuted ? call + ", microphone muted" : call
 
         case .battery(let b):
@@ -450,7 +514,7 @@ enum IslandAccessibility {
             return "Mac unlocked"
 
         case .calendar(let c):
-            return "\(c.title), \(c.relativeStart(at: date))"
+            return "\(c.title), \(c.spokenStart(at: date))"
 
         case .download(let d):
             if d.isComplete { return "\(d.name) downloaded" }
@@ -465,7 +529,7 @@ enum IslandAccessibility {
 
         case .custom(let c):
             // A running clock is what the pill shows, so it is what is said.
-            if let since = c.countsUpFrom { return "\(c.title), \(date.timeIntervalSince(since).mmss)" }
+            if let since = c.countsUpFrom { return "\(c.title), \(spokenDuration(date.timeIntervalSince(since)))" }
             if let sub = c.subtitle ?? c.trailingText, !sub.isEmpty { return "\(c.title), \(sub)" }
             return c.title
 
@@ -495,10 +559,12 @@ enum IslandAccessibility {
         }
     }
 
-    /// "1:05 of 3:20" — the scrubber's spoken value.
+    /// "1 minute 5 seconds of 3 minutes 20 seconds" — the scrubber's spoken value, for the
+    /// "1:05" and "3:20" either end of it. Just the position for a track with no length to be
+    /// a share of, which is also what a live stream's infinite one is.
     static func playbackValue(position: TimeInterval, duration: TimeInterval) -> String {
-        guard duration > 0 else { return position.mmss }
-        return "\(position.mmss) of \(duration.mmss)"
+        guard duration.isFinite, duration > 0 else { return spokenDuration(position) }
+        return "\(spokenDuration(position)) of \(spokenDuration(duration))"
     }
 
     private static func percent(_ fraction: Double) -> Int {
@@ -576,10 +642,27 @@ extension CalendarState {
         return minutes < 60 ? "in \(minutes) min" : "in \(minutes / 60) hr"
     }
 
+    /// The pill's "in 7m", "in 2h", "Now" or "Ended".
     func relativeStart(at date: Date) -> String {
-        let delta = start.timeIntervalSince(date)
-        if delta <= 0 { return end.timeIntervalSince(date) > 0 ? "Now" : "Ended" }
-        let m = Int((delta / 60).rounded(.up))
+        guard let m = minutesToStart(at: date) else { return end.timeIntervalSince(date) > 0 ? "Now" : "Ended" }
         return m < 60 ? "in \(m)m" : "in \(m / 60)h"
+    }
+
+    /// The pill's figure in words, for VoiceOver: "in 7 minutes", "in 1 hour", "now", "ended".
+    /// The same figure, whole hours rounded down as the pill has them; read as drawn, "in 7m"
+    /// was "in 7 metres".
+    func spokenStart(at date: Date) -> String {
+        guard let m = minutesToStart(at: date) else { return end.timeIntervalSince(date) > 0 ? "now" : "ended" }
+        if m < 60 { return m == 1 ? "in 1 minute" : "in \(m) minutes" }
+        let hours = m / 60
+        return hours == 1 ? "in 1 hour" : "in \(hours) hours"
+    }
+
+    /// Whole minutes until the start, rounded up, or nil once it has begun. Held to a hundred
+    /// years before it becomes an `Int`, so a start date nobody could mean does not trap.
+    private func minutesToStart(at date: Date) -> Int? {
+        let delta = start.timeIntervalSince(date)
+        guard delta > 0 else { return nil }
+        return Int((min(delta, 3_155_760_000) / 60).rounded(.up))
     }
 }

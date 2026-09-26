@@ -133,6 +133,75 @@ final class SystemStatsTests: XCTestCase {
         XCTAssertTrue(SystemStats.memoryText(used: 0, total: 0).contains("/"))
     }
 
+    // MARK: - What the Stats cells say
+
+    private let english = Locale(identifier: "en_US")
+    private let german = Locale(identifier: "de_DE")
+
+    private func laptop(percent: Int = 82, minutes: Int? = 220, charging: Bool = false,
+                        health: Double? = 91.4, cycles: Int? = 214) -> SystemStats.Sample {
+        var sample = SystemStats.Sample()
+        sample.batteryPercent = percent
+        sample.batteryMinutesRemaining = minutes
+        sample.batteryCharging = charging
+        sample.batteryHealthPercent = health
+        sample.cycleCount = cycles
+        return sample
+    }
+
+    /// The line under the battery's meter had "1 cycles" on a battery a day old; the card
+    /// beside it already said "1 cycle", and the two now share the rule.
+    func testTheBatteryDetailSaysOneCycle() {
+        XCTAssertEqual(StatsView.batteryDetail(laptop()), "91% health · 214 cycles")
+        XCTAssertEqual(StatsView.batteryDetail(laptop(cycles: 1)), "91% health · 1 cycle")
+        XCTAssertEqual(StatsView.batteryDetail(laptop(health: nil, cycles: 1)), "1 cycle")
+        XCTAssertNil(StatsView.batteryDetail(laptop(health: nil, cycles: nil)))
+    }
+
+    func testTheBatteryTimeIsTheClippedLineUnderTheMeter() {
+        XCTAssertEqual(StatsView.batteryTime(laptop()), "3 h 40 min left")
+        XCTAssertEqual(StatsView.batteryTime(laptop(minutes: 48, charging: true)), "48 min to full")
+        XCTAssertEqual(StatsView.batteryTime(laptop(minutes: nil, charging: true)), "Charging")
+        XCTAssertNil(StatsView.batteryTime(laptop(minutes: nil)))
+        XCTAssertNil(StatsView.batteryTime(SystemStats.Sample()), "a desktop has no battery to time")
+    }
+
+    /// VoiceOver was handed the two clipped lines as they are drawn, and read "3 h 40 min"
+    /// letter by letter and the "·" between health and cycles as a symbol.
+    func testTheBatteryCellIsSpokenInWords() {
+        XCTAssertEqual(StatsView.batterySpoken(laptop()),
+                       "82 percent, 3 hours 40 minutes left, 91 percent health, 214 cycles")
+        XCTAssertEqual(StatsView.batterySpoken(laptop(minutes: 1, charging: true, cycles: 1)),
+                       "82 percent, 1 minute to full, 91 percent health, 1 cycle")
+        XCTAssertEqual(StatsView.batterySpoken(laptop(minutes: nil, charging: true, health: nil, cycles: nil)),
+                       "82 percent, charging")
+        XCTAssertEqual(StatsView.batterySpoken(SystemStats.Sample()), "Not available")
+        for spoken in [StatsView.batterySpoken(laptop()), StatsView.batterySpoken(laptop(charging: true))] {
+            XCTAssertFalse(spoken.contains("·"), spoken)
+            XCTAssertFalse(spoken.contains("%"), spoken)
+            XCTAssertFalse(spoken.contains(" h "), spoken)
+            XCTAssertFalse(spoken.contains(" min"), spoken)
+        }
+    }
+
+    /// "52%, 12.4 / 16 GB" was read "12.4 slash 16"; the memory is said as a share and then as
+    /// so many of so many gigabytes, with the region's decimal mark like the figure on screen.
+    func testTheMemoryCellIsSpokenInWords() {
+        var sample = SystemStats.Sample()
+        sample.memoryUsedBytes = 13_314_398_618
+        sample.memoryTotalBytes = 17_179_869_184
+        XCTAssertEqual(StatsView.memorySpoken(sample, locale: english), "78 percent, 12.4 of 16 gigabytes")
+        XCTAssertEqual(StatsView.memorySpoken(sample, locale: german), "78 percent, 12,4 of 16 gigabytes")
+        XCTAssertFalse(StatsView.memorySpoken(sample, locale: english).contains("/"))
+        XCTAssertEqual(SystemStats.spokenMemory(used: 8_589_934_592, total: 17_179_869_184, locale: english),
+                       "8 of 16 gigabytes")
+
+        sample.memoryUsedBytes = 20_000_000_000
+        XCTAssertTrue(StatsView.memorySpoken(sample, locale: english).hasPrefix("100 percent"),
+                      "never more than all of it, as the bar is never more than full")
+        XCTAssertEqual(StatsView.memorySpoken(SystemStats.Sample(), locale: english), "Not available")
+    }
+
     // MARK: - Sampling lifecycle
 
     func testStartAndStopAreReferenceCounted() {
