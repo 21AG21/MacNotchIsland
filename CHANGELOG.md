@@ -279,13 +279,16 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **An alert that gives way hands over.** When starting a timer or cancelling an alarm took down the alert on screen, whatever waited behind it was never shown; it is shown now, as it would have been had the alert run out.
+- **Menus past the notch leave the left side its room.** An app with menus enough to run past the notch had the titles on its right counted against the left side, which came out with no room at all; only the titles on the left bound it.
+- **Ending a card that was never up is not held against the next start.** A script that ends a card to be safe and starts one without a title in the next breath is no longer refused.
+- **A question asked mid-recording gets its keys hint.** Control-Y and Control-N could not be taken while the shortcut recorder was listening; once the recording ends the card says they answer it.
 - **Recording a shortcut keeps Escape.** Opening the island or a `notchctl ask` question while the recorder said “Press keys…” claimed Escape, the arrows or Control-Y and Control-N through the recording; they wait until it is over.
 - **A volume drag ends on its own output.** The last level of a drag that was still waiting to be written went to whatever output was playing when the next drag began; it is written to the drag's own output before the next one starts.
 - **The find speaks every section's rows.** With VoiceOver on, the arrows in the clipboard, notifications and windows finds say the row the mark reaches, as the shelf's already did.
 - **Reduce Motion is honoured on the spot.** The find and timer fields, the lyrics, the timer ring, the welcome pages and the panel's sections read the setting once and kept the old transition until they were redrawn; they follow it as it changes.
 - **The notch sliders say when they apply to nothing.** With no display that has a notch, the Notch size footer says so instead of offering figures that change nothing.
 - **A ringing card gives the island back.** A timer or Pomodoro phase that rings during a call hands the island back to the call, muted microphone and all, once its card goes, and a sooner timer or music you start later can take the pill again.
-- **A ringing card waits for the scrubber.** A timer that rings while you drag the scrubber or a slider in the peek comes up the moment you let go, so the seek lands, and its eight seconds start when you can see it.
 - **Each question from a script is its own card.** A click or Control-Y already on its way to one `notchctl ask` question no longer answers the question that replaces it.
 - **`activity/update` updates.** `notchisland://activity/update` changes only what it carries on a card that is up and is refused for one that is not, and a title-less update arriving just after `notchctl end` no longer brings the card back as “Activity”.
 - **Starting a timer leaves other alerts alone.** A timer starting or an alarm ringing takes down only the alert on screen, never a low-battery warning, and a finished download or “Alarm set” waiting its turn still gets it.

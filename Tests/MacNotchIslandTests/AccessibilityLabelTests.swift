@@ -5,6 +5,16 @@ import SwiftUI
 /// The compact pill is combined into a single accessibility element, so its spoken label is the
 /// only description a screen reader gets for the whole activity.
 final class AccessibilityLabelTests: XCTestCase {
+    /// What the notifications find says as its mark reaches a row: the app and the headline.
+    func testTheNotificationsFindSpeaksTheAppAndTheHeadline() {
+        let titled = NotificationInbox.Entry(bundleID: "com.apple.mail", appName: "Mail", title: "Invoice", body: "Due Friday")
+        XCTAssertEqual(NotificationsSectionView.spokenRow(titled), "Mail, Invoice")
+        let bodyOnly = NotificationInbox.Entry(bundleID: "com.apple.mail", appName: "Mail", body: "Due Friday")
+        XCTAssertEqual(NotificationsSectionView.spokenRow(bodyOnly), "Mail, Due Friday", "the first line there is")
+        let thin = NotificationInbox.Entry(bundleID: "com.apple.mail", appName: "Mail")
+        XCTAssertEqual(NotificationsSectionView.spokenRow(thin), "Mail, Something arrived")
+    }
+
     private let now = Date(timeIntervalSinceReferenceDate: 700_000_000)
 
     private func info(title: String, artist: String) -> NowPlayingInfo {

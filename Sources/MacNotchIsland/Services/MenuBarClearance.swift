@@ -253,8 +253,12 @@ final class MenuBarClearance: ObservableObject {
     /// out as nothing (a display to the right) or as the width of the desk (one to the left).
     /// Titles that are somewhere else say nothing about this menu bar, so the answer is
     /// unknown, as it is without the permission.
+    ///
+    /// Only the titles to the left of the notch bound it. An app with menus enough to run past
+    /// the notch has titles on the right as well (`menuTrailingClearance`), and the rightmost
+    /// of those counted against the left side, whose room came out as none.
     static func menuClearance(itemFrames: [CGRect], menuBar: CGRect, notchMinX: CGFloat) -> CGFloat? {
-        let here = onMenuBar(itemFrames, menuBar)
+        let here = onMenuBar(itemFrames, menuBar).filter { $0.midX < notchMinX }
         guard let rightEdge = here.map(\.maxX).max() else { return nil }
         return max(0, notchMinX - rightEdge)
     }

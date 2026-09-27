@@ -114,7 +114,8 @@ struct GeneralPane: View {
                 // On a display with no notch the island floats as a pill of its own size, and
                 // these two do nothing to it: said here, rather than left for somebody to find
                 // out by dragging them.
-                Text(Self.notchSizeFooter(anyNotch: NSScreen.screens.contains { $0.safeAreaInsets.top > 0 }))
+                Text(Self.notchSizeFooter(anyNotch: NotchGeometry.simulatesNotch
+                                          || NSScreen.screens.contains { $0.safeAreaInsets.top > 0 }))
             }
 
             Section {

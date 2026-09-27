@@ -107,10 +107,6 @@ final class ActivityCenter: ObservableObject {
     /// during a call kept the island for good, the call and its muted microphone in the bubble
     /// behind it. Nil once the user pins something themselves (`promote`), whose pin stays.
     private var pinnedByForce: String? = nil
-    /// A card forced up while a slider or the scrubber was being dragged in a peek, waiting
-    /// for the drag to end (`forceWaitsForDrag`): which card, and how long it is up for once
-    /// it is.
-    private var heldForce: (id: String, seconds: TimeInterval)? = nil
     @Published var micInUse = false
     @Published var cameraInUse = false
     /// The islands whose display a full-screen app covers, while the user asked to hide
@@ -305,7 +301,6 @@ final class ActivityCenter: ObservableObject {
         closeReason = nil
         findQuery = nil
         findIndex = 0
-        heldForce = nil
         forcedExpandedID = nil
         pinnedByForce = nil
         pinnedID = nil
@@ -394,9 +389,6 @@ final class ActivityCenter: ObservableObject {
         if pressedPanel != nil { pressedPanel = nil }
         if openView == nil, peekView != nil { peekView = nil }
         navigationDirection = 0
-        // The drag went with the pointer, and a card forced up during it is not to wait for a
-        // button that is never coming up.
-        releaseHeldForce()
     }
 
     /// The same, for some islands only: a full-screen app has just covered their displays.
@@ -431,7 +423,6 @@ final class ActivityCenter: ObservableObject {
             dragPanel = nil
         }
         if let pressed = pressedPanel, panels.contains(pressed) { pressedPanel = nil }
-        releaseHeldForce()
     }
 
     /// `panels` were covered, and the panel goes with them: it was pinned on one of them, or
@@ -679,7 +670,6 @@ final class ActivityCenter: ObservableObject {
         let wasHeld = heldAlertIDs.remove(id) != nil
         if pinnedID == id { pinnedID = nil }
         if pinnedByForce == id { pinnedByForce = nil }
-        if heldForce?.id == id { heldForce = nil }
         let wasForced = forcedExpandedID == id
         if wasForced { forcedExpandedID = nil }
         if openView == .activity(id: id) {
@@ -716,39 +706,13 @@ final class ActivityCenter: ObservableObject {
         return nil
     }
 
-    /// Whether a card forced up waits for the drag to end before it goes up: a slider or the
-    /// scrubber is being dragged in a peek, which the card would take the place of under the
-    /// hand. The scrubber, gone from under the pointer, let go of its drag without seeking, and
-    /// the seek the hand was halfway through was lost. A panel pinned open is never replaced
-    /// by a card, and has nothing to wait for. Pure, so it is tested.
-    static func forceWaitsForDrag(dragging: Bool, peeking: Bool) -> Bool {
-        dragging && peeking
-    }
-
-    /// Whether the island under the pointer is showing its peek.
-    private var peekUnderPointer: Bool {
-        guard let hoverPanel else { return false }
-        return peeks(on: hoverPanel)
-    }
-
-    /// The drag is over, or was forgotten with the pointer: a card forced up during it goes up
-    /// now, for its whole time from now.
-    private func releaseHeldForce() {
-        guard !controlDragging, let held = heldForce else { return }
-        heldForce = nil
-        forceExpanded(id: held.id, for: held.seconds)
-    }
-
     /// Temporarily force an activity into its expanded view (e.g. a timer finishing).
+    ///
+    /// Never in place of a panel pinned open, a peek included once a press has pinned it
+    /// (`NotchPanel.sendEvent`, `pinPeek`): the panel stays, the card waits behind it, and a
+    /// close ends the card with the panel (`collapse`). So a drag of the scrubber or a slider,
+    /// which begins with such a press, is never taken from under the hand.
     func forceExpanded(id: String, for seconds: TimeInterval = 6) {
-        // In the middle of a drag in a peek it waits for the button to come up
-        // (`forceWaitsForDrag`), and its time starts then. A later force takes its place, as
-        // it would take the slot.
-        if Self.forceWaitsForDrag(dragging: controlDragging, peeking: peekUnderPointer) {
-            heldForce = (id, seconds)
-            return
-        }
-        heldForce = nil
         forcedWork?.cancel()
         // What each island showed, so the ones the card takes count as grown under a click.
         let before = shownOnIslands()
@@ -1371,6 +1335,16 @@ final class ActivityCenter: ObservableObject {
         alertWork?.cancel()
         if openView == .activity(id: shown.id), activity(id: shown.id) == nil { openView = nil }
         alert = nil
+        // What waited behind it has its turn, as it would have had the alert run out: the
+        // expiry that would have looked at the queue was cancelled with the alert, and nothing
+        // else looks until some other alert comes and goes, which the queue's patience did not
+        // wait for. After the caller's own change has landed, and only while nothing else has
+        // taken the slot meanwhile; a card forced up keeps the queue waiting
+        // (`showNextPendingAlert`).
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.alert == nil else { return }
+            self.showNextPendingAlert()
+        }
     }
 
     /// Whether an alert gives way to something the user has just started: every one but a
@@ -1459,11 +1433,7 @@ final class ActivityCenter: ObservableObject {
         guard controlDragging != active else { return }
         controlDragging = active
         lastInteraction = Date()
-        guard !active else { return }
-        // A card forced up during the drag goes up now it is over (`forceWaitsForDrag`), after
-        // the pointer's own exit, if it had one.
-        defer { releaseHeldForce() }
-        guard let deferred = deferredHoverExit else { return }
+        guard !active, let deferred = deferredHoverExit else { return }
         deferredHoverExit = nil
         // Straight away, not after another grace period: the pointer left a while ago.
         hoverWork?.cancel()
@@ -2075,8 +2045,6 @@ final class ActivityCenter: ObservableObject {
         if let current = openView { IslandLog.island.notice("closing \(String(describing: current), privacy: .public): \(reason, privacy: .public)") }
         let held = heldAlertIDs
         heldAlertIDs.removeAll()
-        // A card waiting for a drag to end goes the way a card already up does.
-        heldForce = nil
         let hovering = isHovering
         closedUnderPointer()
         withAnimation(IslandMotion.close) {

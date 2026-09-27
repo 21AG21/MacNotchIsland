@@ -454,11 +454,13 @@ final class LiveActivityAPI {
             // activities are `.custom` too (the screen recording's, with its Stop button), and
             // ending by kind took that one down while `screencapture` went on recording.
             // Each one is remembered for a moment, so a late update to it does not put it back
-            // (`arrival`).
+            // (`arrival`). Only a card that was up: a script that ends a card it never started,
+            // to be safe, and starts one without a title in the next breath, is not refused.
             let now = Date()
             if let id = q["id"] {
-                center.end(id: Self.pushedID(id))
-                endedAt[Self.pushedID(id)] = now
+                let pushed = Self.pushedID(id)
+                if center.activity(id: pushed) != nil { endedAt[pushed] = now }
+                center.end(id: pushed)
             } else {
                 for a in center.activities where a.id.hasPrefix(Self.pushedPrefix) {
                     center.end(id: a.id)

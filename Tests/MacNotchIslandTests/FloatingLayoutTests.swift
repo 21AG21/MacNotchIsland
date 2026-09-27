@@ -6,6 +6,13 @@ import SwiftUI
 /// There the island is the iPhone's free-floating pill: a small resting shape, rounded on all
 /// four corners, hanging a few points below the top edge, with no outward "ears".
 final class FloatingLayoutTests: XCTestCase {
+    /// The note under the notch sliders says when no display here has a notch for them to apply to.
+    func testTheNotchSizeFooterSaysWhenItAppliesToNothing() {
+        XCTAssertTrue(GeneralPane.notchSizeFooter(anyNotch: false).hasPrefix("None of the displays connected now has a notch"))
+        XCTAssertTrue(GeneralPane.notchSizeFooter(anyNotch: true).hasPrefix("Leave both automatic"))
+        XCTAssertNotEqual(GeneralPane.notchSizeFooter(anyNotch: true), GeneralPane.notchSizeFooter(anyNotch: false))
+    }
+
     /// What `NotchGeometry.detect` produces for a screen without a notch.
     private let external = NotchGeometry(screenFrame: CGRect(x: 0, y: 0, width: 2560, height: 1440),
                                          notchWidth: 190, notchHeight: 30, hasPhysicalNotch: false)

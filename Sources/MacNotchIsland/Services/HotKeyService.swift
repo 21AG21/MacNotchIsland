@@ -285,6 +285,11 @@ final class HotKeyService: ObservableObject {
         suspended = false
         guard handlerRef != nil else { return }
         register()
+        // A question asked during the recording went up without its hint, since its keys
+        // could not be taken then (`setAskKeysArmed`); with them on now, the card says so.
+        if askKeysArmed, hotKeyRefs[Slot.askYes.rawValue] != nil, hotKeyRefs[Slot.askNo.rawValue] != nil {
+            IslandAsk.shared.showKeyHint()
+        }
     }
 
     /// Whether a registration may go ahead: only with the handler installed, and not while the
@@ -517,7 +522,7 @@ final class HotKeyService: ObservableObject {
             }
         }
         // While suspended the two are not registered, so the card does not say they answer it
-        // until `resume` puts them on.
+        // until `resume` puts them on and tells the card (`IslandAsk.showKeyHint`).
         return armed && hotKeyRefs[Slot.askYes.rawValue] != nil && hotKeyRefs[Slot.askNo.rawValue] != nil
     }
 

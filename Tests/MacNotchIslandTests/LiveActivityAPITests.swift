@@ -68,6 +68,14 @@ final class LiveActivityAPITests: XCTestCase {
         XCTAssertNotNil(center.activity(id: "api-build"), "with a title it is the card started again")
     }
 
+    /// An end that ended nothing is not remembered against the next start.
+    func testEndingACardThatWasNeverUpDoesNotRefuseTheNextStart() {
+        handle("notchisland://activity/end?id=build")
+        handle("notchisland://activity?id=build&progress=0.5")
+        XCTAssertNotNil(ActivityCenter.shared.activity(id: LiveActivityAPI.pushedID("build")),
+                        "nothing was ended, so a start without a title is a start")
+    }
+
     func testAnUpdateForACardNeverStartedIsRefused() {
         handle("notchisland://activity/update?id=ghost&title=Boo&progress=0.5")
         XCTAssertTrue(center.activities.isEmpty)

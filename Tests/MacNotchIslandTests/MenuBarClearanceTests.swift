@@ -102,6 +102,10 @@ final class MenuBarClearanceTests: XCTestCase {
         XCTAssertNil(MenuBarClearance.menuClearance(itemFrames: left, menuBar: band, notchMinX: 755),
                      "unknown, rather than room for anything")
         XCTAssertNil(MenuBarClearance.menuClearance(itemFrames: [], menuBar: band, notchMinX: 755))
+        // Menus enough to run past the notch: the ones on its right bound the right side only.
+        let past = titles + [CGRect(x: 340, y: 0, width: 400, height: 24), CGRect(x: 960, y: 0, width: 120, height: 24)]
+        XCTAssertEqual(MenuBarClearance.menuClearance(itemFrames: past, menuBar: band, notchMinX: 755), 15,
+                       "the room on the left is to the last title on the left")
     }
 
     func testMenuTitlesAreFoundOnANotchedScreenBelowThePrimary() {

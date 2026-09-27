@@ -2,8 +2,8 @@ import XCTest
 @testable import MacNotchIsland
 
 /// A card forced up, and what it leaves behind when it goes: the pin that made it the main
-/// activity, a drag it arrived in the middle of, the alert on screen when the user starts a
-/// timer, and what VoiceOver is told meanwhile.
+/// activity, the alert on screen when the user starts a timer, and what VoiceOver is told
+/// meanwhile.
 final class ForcedCardRulesTests: XCTestCase {
     private var center: ActivityCenter { ActivityCenter.shared }
 
@@ -115,62 +115,6 @@ final class ForcedCardRulesTests: XCTestCase {
         XCTAssertEqual(center.primary?.id, "call")
     }
 
-    // MARK: - A card forced up in the middle of a drag
-
-    func testACardWaitsForADragInAPeekToEnd() {
-        XCTAssertTrue(ActivityCenter.forceWaitsForDrag(dragging: true, peeking: true))
-        XCTAssertFalse(ActivityCenter.forceWaitsForDrag(dragging: true, peeking: false),
-                       "a panel pinned open is never replaced by a card")
-        XCTAssertFalse(ActivityCenter.forceWaitsForDrag(dragging: false, peeking: true))
-    }
-
-    private func peekOnMain() {
-        center.upsert(custom("a"))
-        center.setHovering(true, panel: "main")
-        settle(0.2)
-    }
-
-    /// The card took the peek's place under the hand dragging the scrubber, which went with the
-    /// peek and let go of the drag without seeking.
-    func testACardForcedUpMidDragGoesUpWhenTheDragEnds() {
-        peekOnMain()
-        guard case .panel = center.presentation(for: "main") else { return XCTFail("the peek") }
-        // The peek's own growth over, so what the card does is what is read below.
-        settle(NotchPanel.growthGuard + 0.1)
-        center.upsert(rungTimer())
-        center.setControlDragging(true)
-        center.forceExpanded(id: "timer", for: 5)
-        XCTAssertNil(center.forcedExpandedID, "not while the scrubber is in the hand")
-        guard case .panel = center.presentation(for: "main") else { return XCTFail("still the peek under the drag") }
-        center.setControlDragging(false)
-        XCTAssertEqual(center.forcedExpandedID, "timer", "the moment the button comes up")
-        guard case .card(let shown) = center.presentation(for: "main") else { return XCTFail("the ringing card") }
-        XCTAssertEqual(shown.id, "timer")
-        XCTAssertTrue(NotchPanel.clickGoesToBody(sinceGrew: center.sinceGrew(on: "main"), clickCount: 1,
-                                                 sinceOpened: .infinity),
-                      "and it counts as grown under the pointer")
-    }
-
-    func testACardHeldForADragCountsItsTimeFromWhenItShows() {
-        peekOnMain()
-        center.upsert(rungTimer())
-        center.setControlDragging(true)
-        center.forceExpanded(id: "timer", for: 0.2)
-        settle(0.4)
-        center.setControlDragging(false)
-        XCTAssertEqual(center.forcedExpandedID, "timer", "its time had not started while it waited")
-    }
-
-    func testACardEndedDuringTheDragDoesNotComeUpAfter() {
-        peekOnMain()
-        center.upsert(rungTimer())
-        center.setControlDragging(true)
-        center.forceExpanded(id: "timer", for: 5)
-        center.end(id: "timer")
-        center.setControlDragging(false)
-        XCTAssertNil(center.forcedExpandedID)
-    }
-
     // MARK: - The alert on screen, when the user starts a timer
 
     func testOnlyABatteryAboutToRunOutKeepsTheIslandFromATimer() {
@@ -189,6 +133,20 @@ final class ForcedCardRulesTests: XCTestCase {
         IslandTimer.shared.start(seconds: 600, label: "Tea")
         XCTAssertNil(center.alert, "the alert on screen gives way to the timer")
         XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"], "what waited keeps its place")
+    }
+
+    /// The alert that gave way was the one whose expiry would have looked at the queue: with it
+    /// cancelled, what waited behind it was never shown, and was pruned unseen.
+    func testWhatWaitedBehindAYieldedAlertGetsItsTurn() {
+        center.showAlert(charging(), duration: 5, haptic: false)
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        XCTAssertEqual(center.alert?.id, "battery")
+        XCTAssertEqual(center.pendingAlerts.map(\.activity.id), ["download-done"])
+        center.yieldAlert()
+        XCTAssertNil(center.alert, "the alert on screen gives way at once")
+        settle(0.1)
+        XCTAssertEqual(center.alert?.id, "download-done", "and what waited behind it is shown")
+        XCTAssertTrue(center.pendingAlerts.isEmpty)
     }
 
     func testStartingATimerLeavesALowBatteryWarningUp() {
