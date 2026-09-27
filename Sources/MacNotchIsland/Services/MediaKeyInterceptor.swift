@@ -282,13 +282,13 @@ final class MediaKeyInterceptor {
 
     /// `islandCanShow` for the centre as it is now. Hidden is `isSuppressed(panel:)`'s to say, so
     /// there is one answer to what hides an island; a card forced up with nothing open over it
-    /// is exactly what `showAlert` queues a key's display behind. Main thread, where all of it
-    /// lives.
+    /// is the centre's own `forcedCardShowing`, which is exactly what `showAlert` queues a key's
+    /// display behind. Main thread, where all of it lives.
     static func islandCanShow(in center: ActivityCenter) -> Bool {
         let islands = center.livePanels
         return islandCanShow(islands: islands,
                              hidden: islands.filter { center.isSuppressed(panel: $0) },
-                             cardForcedUp: center.forcedCard != nil && !center.isOpen)
+                             cardForcedUp: center.forcedCardShowing)
     }
 
     /// `NSEvent.EventType.systemDefined`, which CGEventType has no case for.

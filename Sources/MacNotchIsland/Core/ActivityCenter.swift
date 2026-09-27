@@ -553,7 +553,10 @@ final class ActivityCenter: ObservableObject {
 
     /// Whether a forced card is what the islands show: it is up, and no panel is open over it.
     /// With a panel open an alert is a banner in the panel as ever, and needs no queue.
-    private var forcedCardShowing: Bool { forcedCard != nil && openView == nil }
+    /// Whether a card forced up is what the islands show: one is forced, and no panel is open
+    /// over it. The alert queue waits behind it, and so do the media keys
+    /// (`MediaKeyInterceptor.islandCanShow`).
+    var forcedCardShowing: Bool { forcedCard != nil && openView == nil }
 
     /// Whether the island under the pointer is showing this card, an alert's or a forced one.
     /// Not merely whether the pointer is somewhere: a banner in a pinned panel's rail is under
