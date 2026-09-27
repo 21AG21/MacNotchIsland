@@ -1058,6 +1058,9 @@ final class ActivityCenter: ObservableObject {
         // and counts as grown where it does (`noteCardArrival`). Quieter ones yield to a peek
         // and are banners in it, so they are left out.
         let before: [(island: String?, shown: IslandPresentation)] = Self.alertRank(activity) >= 6 ? shownOnIslands() : []
+        // Going up now, so an older copy of it waiting in the queue is stale news: "Unplugged"
+        // queued behind a card came back after the "Critical" that replaced it.
+        pendingAlerts.removeAll { $0.activity.id == activity.id }
         alertWork?.cancel()
         MenuBarClearance.shared.refresh()
         // The user may have opened the alert being replaced; unless a live activity carries the
@@ -1373,6 +1376,16 @@ final class ActivityCenter: ObservableObject {
     /// or "Alarm set" waiting behind a question from a script was never shown.
     func yieldAlert() {
         guard let shown = alert, Self.alertYields(shown) else { return }
+        retireAlert()
+    }
+
+    /// Takes the alert on screen down, whatever it is, and leaves what waits behind it to have
+    /// its turn: a banner the user tapped, or a "Copied" confirmation retiring itself. These
+    /// used `dismissAlert`, which empties the queue as well, so a finished download waiting
+    /// behind a question or a ringing card was dropped unseen the moment somebody copied a
+    /// line from the clipboard.
+    func retireAlert() {
+        guard let shown = alert else { return }
         alertWork?.cancel()
         if openView == .activity(id: shown.id), activity(id: shown.id) == nil { openView = nil }
         alert = nil

@@ -737,7 +737,7 @@ final class ClipboardStore: ObservableObject {
         // Alerts linger while the pointer is on the island, and the pointer is by definition
         // still here after a click, so retire this one ourselves.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
-            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.dismissAlert() }
+            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.retireAlert() }
         }
     }
 

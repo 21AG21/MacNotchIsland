@@ -971,7 +971,7 @@ final class ShelfStore: ObservableObject {
                                       priority: 80)
         ActivityCenter.shared.showAlert(activity, duration: 1.0, haptic: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
-            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.dismissAlert() }
+            if ActivityCenter.shared.alert?.id == activity.id { ActivityCenter.shared.retireAlert() }
         }
     }
 

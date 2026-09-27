@@ -97,15 +97,16 @@ struct AlertBanner: View {
     private var title: String { Self.title(for: activity) }
 
     private func act() {
+        // `retireAlert`, not `dismissAlert`: a tap answers this banner, not the ones waiting.
         if case .hud = activity.content {
-            center.dismissAlert()
+            center.retireAlert()
         } else if activity.content.hasExpandedView {
             center.open(ActivityCenter.view(for: activity))
         } else if let action = activity.openAction {
             action.perform()
-            center.dismissAlert()
+            center.retireAlert()
         } else {
-            center.dismissAlert()
+            center.retireAlert()
         }
     }
 }

@@ -37,7 +37,9 @@ final class CameraPreview: ObservableObject {
 
     /// How many views currently want a picture. Main thread only.
     private var clients = 0
-    /// Mirrors `EnergyPolicy.shared.isAsleep`; the camera stays off while it is true.
+    /// Mirrors `EnergyPolicy.shared.nobodyLooking`; the camera stays off while it is true. Not
+    /// sleep alone: a pinned Mirror kept the camera, and its green light, on at the lock screen,
+    /// with the display asleep, and through another user's session.
     private var asleep = false
     /// Session queue only: whether an input has been wired up.
     private var configured = false
@@ -50,7 +52,7 @@ final class CameraPreview: ObservableObject {
     private init() {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
-        asleep = EnergyPolicy.shared.isAsleep
+        asleep = EnergyPolicy.shared.nobodyLooking
         // EnergyPolicy publishes *will*-change, so let the value settle before reading it
         // — same debounce CameraMonitor uses.
         energyCancellable = EnergyPolicy.shared.objectWillChange
@@ -85,7 +87,7 @@ final class CameraPreview: ObservableObject {
     }
 
     private func energyChanged() {
-        let sleeping = EnergyPolicy.shared.isAsleep
+        let sleeping = EnergyPolicy.shared.nobodyLooking
         guard sleeping != asleep else { return }
         asleep = sleeping
         if sleeping {

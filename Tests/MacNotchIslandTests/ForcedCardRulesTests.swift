@@ -178,6 +178,16 @@ final class ForcedCardRulesTests: XCTestCase {
         XCTAssertTrue(center.pendingAlerts.isEmpty)
     }
 
+    /// A tapped banner or a "Copied" confirmation retiring itself used to empty the queue.
+    func testRetiringAnAlertLeavesTheQueueItsTurn() {
+        center.showAlert(charging(), duration: 5, haptic: false)
+        center.showAlert(finishedDownload(), duration: 5, haptic: false)
+        center.retireAlert()
+        XCTAssertNil(center.alert)
+        settle(0.1)
+        XCTAssertEqual(center.alert?.id, "download-done", "what waited is shown, not dropped")
+    }
+
     func testStartingATimerLeavesALowBatteryWarningUp() {
         center.showAlert(lowBattery(), duration: 5, haptic: false)
         IslandTimer.shared.start(seconds: 600, label: "Tea")
