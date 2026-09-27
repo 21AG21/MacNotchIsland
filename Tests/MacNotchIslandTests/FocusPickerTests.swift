@@ -4,6 +4,26 @@ import XCTest
 /// The rail's Focus popover: reading this Mac's modes out of the Focus database, what the popover
 /// lists from them, and how a pick is handed to the "Set Focus" shortcut.
 final class FocusPickerTests: XCTestCase {
+    /// A Focus quietens the island only with the switch on, Focus watched, and a Focus on.
+    func testWhenAFocusQuietensTheIsland() {
+        XCTAssertTrue(FocusMonitor.quietens(quietDuringFocus: true, focusEnabled: true, focusOn: true))
+        XCTAssertFalse(FocusMonitor.quietens(quietDuringFocus: false, focusEnabled: true, focusOn: true))
+        XCTAssertFalse(FocusMonitor.quietens(quietDuringFocus: true, focusEnabled: false, focusOn: true))
+        XCTAssertFalse(FocusMonitor.quietens(quietDuringFocus: true, focusEnabled: true, focusOn: false))
+    }
+
+    /// An event coming up is a card that never went through the alert queue, so it asks the
+    /// Focus itself; a pushed card asked to open does the same.
+    func testAFocusHoldsBackTheEventCardAndAPushedCardOpening() {
+        XCTAssertTrue(CalendarMonitor.shows(authorized: true, quiet: false))
+        XCTAssertFalse(CalendarMonitor.shows(authorized: true, quiet: true), "held back while a Focus quietens")
+        XCTAssertFalse(CalendarMonitor.shows(authorized: false, quiet: false), "and never without access")
+        XCTAssertTrue(LiveActivityAPI.opensOnArrival("1", quiet: false))
+        XCTAssertTrue(LiveActivityAPI.opensOnArrival("YES", quiet: false))
+        XCTAssertFalse(LiveActivityAPI.opensOnArrival("1", quiet: true), "the card is up as a pill, not opened")
+        XCTAssertFalse(LiveActivityAPI.opensOnArrival(nil, quiet: false))
+    }
+
     /// `~/Library/DoNotDisturb/DB/ModeConfigurations.json`, cut down to what is read, in the
     /// shape macOS writes it: a dictionary of configurations keyed by identifier, so in no
     /// order at all. Work's name is missing its colour; the second entry repeats Sleep; one mode

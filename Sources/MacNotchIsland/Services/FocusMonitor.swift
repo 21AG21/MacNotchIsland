@@ -135,6 +135,20 @@ final class FocusMonitor {
     /// what a view that shows it should observe.
     static var isOn: Bool { FocusStatus.shared.isOn }
 
+    /// Whether a Focus is quietening the island right now: one is on, the island watches
+    /// Focus, and "Quieten alerts during a Focus" is on. The alert queue holds back what can
+    /// wait (`ActivityCenter.focusHolds`), and what never goes through the queue — the card
+    /// for an event coming up, a pushed card asking to open — asks here (`quietens`).
+    static var quietensAlerts: Bool {
+        let p = Preferences.shared
+        return quietens(quietDuringFocus: p.quietDuringFocus, focusEnabled: p.focusEnabled, focusOn: isOn)
+    }
+
+    /// The rule behind `quietensAlerts`. Pure, so it is tested.
+    static func quietens(quietDuringFocus: Bool, focusEnabled: Bool, focusOn: Bool) -> Bool {
+        quietDuringFocus && focusEnabled && focusOn
+    }
+
     private var dbDirectory: URL { Self.dbDirectory }
 
     static var dbDirectory: URL {

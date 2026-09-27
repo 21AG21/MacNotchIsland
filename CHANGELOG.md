@@ -279,6 +279,8 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A Focus holds back the event card too.** With “Quieten alerts during a Focus” on, an event coming up no longer takes the island in the middle of a Do Not Disturb, and a pushed card asked to open arrives as a pill instead; both come back when the Focus ends.
+- **A clock change no longer stalls a scrolling title.** The clock set back, or the network clock catching up after a wake, held a long title still until the clock caught up with where it had been.
 - **An alert that gives way hands over.** When starting a timer or cancelling an alarm took down the alert on screen, whatever waited behind it was never shown; it is shown now, as it would have been had the alert run out.
 - **Menus past the notch leave the left side its room.** An app with menus enough to run past the notch had the titles on its right counted against the left side, which came out with no room at all; only the titles on the left bound it.
 - **Ending a card that was never up is not held against the next start.** A script that ends a card to be safe and starts one without a title in the next breath is no longer refused.

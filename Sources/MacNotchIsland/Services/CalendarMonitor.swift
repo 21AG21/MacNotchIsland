@@ -98,14 +98,24 @@ final class CalendarMonitor: NSObject {
         }
     }
 
+    /// Whether a reading with an event in it is shown as a card: with access, and not while a
+    /// Focus quietens the island. Pure, so it is tested.
+    static func shows(authorized: Bool, quiet: Bool) -> Bool {
+        authorized && !quiet
+    }
+
     /// Where every reading lands, and the only place the card is touched.
     private func show(_ next: CalendarState?, answering: Int) {
         // An answer to a reading nobody wants any more is not shown, and the gate it would
         // hand back was taken from it when it was given up.
         guard Self.answers(answering, current: reading) else { return }
         let again = pass.finish()
-        // Access taken away while this was being read is as good as no event at all.
-        if let state = next, authorized {
+        // Access taken away while this was being read is as good as no event at all. Nor is
+        // an event shown while a Focus quietens the island: the queue holds back an event
+        // coming up (`focusHolds`), as the Activities pane says, but this card never went
+        // through the queue, and took the island in the middle of a Do Not Disturb. The
+        // minute's reading after the Focus ends puts it back.
+        if let state = next, Self.shows(authorized: authorized, quiet: FocusMonitor.quietensAlerts) {
             var activity = IslandActivity(id: "calendar", kind: .calendar, content: .calendar(state), priority: 60)
             activity.expiresAt = state.start.addingTimeInterval(Self.linger)
             activity.openAction = state.joinURL.map { .url($0) } ?? .app(bundleID: "com.apple.iCal")

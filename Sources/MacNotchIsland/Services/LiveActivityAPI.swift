@@ -281,6 +281,12 @@ final class LiveActivityAPI {
         }
     }
 
+    /// Whether a card asked to open (`expanded=1`) does so as it arrives: not while a Focus
+    /// quietens the island. Pure, so it is tested.
+    static func opensOnArrival(_ expanded: String?, quiet: Bool) -> Bool {
+        ["1", "true", "yes"].contains((expanded ?? "").lowercased()) && !quiet
+    }
+
     // MARK: - Updating a card
 
     /// How long a card a script ended stays ended against a message that only updates it
@@ -445,7 +451,10 @@ final class LiveActivityAPI {
                 endedAt[id] = nil
             }
             center.upsert(activity)
-            if ["1", "true", "yes"].contains((q["expanded"] ?? "").lowercased()) {
+            // `expanded=1` opens the card on the island, which a Focus that quietens alerts
+            // holds back as it holds back a script's alert: the card is up as a pill, and is
+            // not forced open in the middle of a Do Not Disturb.
+            if Self.opensOnArrival(q["expanded"], quiet: FocusMonitor.quietensAlerts) {
                 center.forceExpanded(id: activity.id, for: Self.seconds(q["duration"]) ?? 4)
             }
 

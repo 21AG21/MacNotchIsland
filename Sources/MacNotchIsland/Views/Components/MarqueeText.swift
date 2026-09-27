@@ -83,6 +83,11 @@ struct MarqueeText: View {
         .onChange(of: energy.animationsPaused) { _, paused in
             if Self.restartsScroll(on: .animationsPaused(paused)) { epoch = Date() }
         }
+        // And when the clock itself moves: the network clock catching up after a wake, or a
+        // time zone set by hand, moved `epoch`'s distance from now with it.
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemClockDidChange)) { _ in
+            if Self.restartsScroll(on: .clockChanged) { epoch = Date() }
+        }
         .background(
             label.fixedSize().hidden().background(
                 GeometryReader { g in
@@ -106,6 +111,10 @@ struct MarqueeText: View {
         case playing(Bool)
         /// The energy policy began (`true`) or stopped holding every animation still.
         case animationsPaused(Bool)
+        /// The system clock was set. The scroll is timed on the wall clock from `epoch`, so a
+        /// clock set back held the title still until the clock caught up with where it had
+        /// been, and one set forward jumped it.
+        case clockChanged
     }
 
     /// Whether `event` sets the scroll off again from the first letter, after its pause: a new
@@ -117,6 +126,7 @@ struct MarqueeText: View {
         case .newText, .measured: return true
         case .playing(let playing): return playing
         case .animationsPaused(let paused): return !paused
+        case .clockChanged: return true
         }
     }
 

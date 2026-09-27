@@ -349,6 +349,7 @@ final class MotionTests: XCTestCase {
     }
 
     func testANewTitleOrOnePlayedAgainStartsFromItsFirstLetterToo() {
+        XCTAssertTrue(MarqueeText.restartsScroll(on: .clockChanged), "a clock set back would hold the title still")
         XCTAssertTrue(MarqueeText.restartsScroll(on: .newText))
         XCTAssertTrue(MarqueeText.restartsScroll(on: .measured), "the width is known a frame after the text")
         XCTAssertTrue(MarqueeText.restartsScroll(on: .playing(true)))
