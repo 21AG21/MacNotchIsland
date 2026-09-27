@@ -22,7 +22,8 @@ struct IslandMenu: View {
     @ObservedObject private var volumes = VolumeMonitor.shared
     @ObservedObject private var timers = IslandTimer.shared
     @ObservedObject private var recorder = ScreenRecorder.shared
-    /// The paired list, read off the main thread. See `bluetoothDevices`.
+    /// The paired list, and the radio's switch read beside it, off the main thread. See
+    /// `bluetoothDevices`.
     @ObservedObject private var paired = PairedDevices.shared
 
     var body: some View {
@@ -195,10 +196,18 @@ struct IslandMenu: View {
     /// menu's content was put together. Putting it together now asks for a fresh read behind the
     /// list when that is older than a poll (`PairedDevices.refreshIfStale`), which starts a read
     /// and publishes nothing until it lands, so it is safe to ask from here.
+    ///
+    /// With the radio off it says so, where the list would be (`bluetoothMenu`).
     @ViewBuilder
     private var bluetoothDevices: some View {
-        let devices = pairedList
-        if !devices.isEmpty {
+        switch Self.bluetoothMenu(radioOn: radioReading, devices: pairedList) {
+        case .hidden:
+            EmptyView()
+        case .off:
+            // A line rather than a submenu holding one line: there is nothing in it to choose.
+            Button("Bluetooth Is Off") {}
+                .disabled(true)
+        case .devices(let devices):
             Menu("Bluetooth") {
                 ForEach(devices) { device in
                     Button(action: { BluetoothMonitor.setConnected(!device.isConnected, address: device.address) }) {
@@ -215,6 +224,36 @@ struct IslandMenu: View {
         }
     }
 
+    /// What the menu's Bluetooth item is.
+    enum BluetoothMenuState: Equatable {
+        /// No item: nothing is paired, or the tour is not done.
+        case hidden
+        /// A line saying the radio is off, which can be clicked for nothing.
+        case off
+        /// A submenu of the paired devices, each a click that connects or disconnects it.
+        case devices([BluetoothMonitor.Paired])
+    }
+
+    /// The Bluetooth item for a radio reading and a paired list. Pure, so it is tested.
+    ///
+    /// With the radio off the menu went on listing every device as one click from connecting,
+    /// sometimes with a tick left on the one that had been connected, and a click did nothing
+    /// and said nothing — while the Controls column, in the same moment, said "Off". Off, it
+    /// says so, as that column does. A radio not read yet (nil) lists the devices as the menu
+    /// always did, since a guess of off would hide them from somebody whose radio is on. With
+    /// nothing paired there is nothing to reconnect whatever the radio says, and no item.
+    static func bluetoothMenu(radioOn: Bool?, devices: [BluetoothMonitor.Paired]) -> BluetoothMenuState {
+        guard !devices.isEmpty else { return .hidden }
+        return radioOn == false ? .off : .devices(devices)
+    }
+
+    /// The radio's switch as the menu goes by it: the one read beside the list
+    /// (`PairedDevices.radioOn`). The gallery has no radio, and is shown the devices it is handed
+    /// whatever the Mac it is drawn on has its radio set to.
+    private var radioReading: Bool? {
+        RenderMode.isGallery ? nil : paired.radioOn
+    }
+
     /// What the Bluetooth item lists. The gallery has no radio and is handed its devices, as
     /// Controls is (`ControlsSectionView`).
     private var pairedList: [BluetoothMonitor.Paired] {
@@ -223,7 +262,8 @@ struct IslandMenu: View {
         PairedDevices.shared.refreshIfStale()
         // Before any list has landed — Bluetooth alerts off, and Controls never opened — the menu
         // asks the radio itself this once, as it always did, rather than offer no Bluetooth item
-        // at all; from the next opening the list read off the main thread is there.
+        // at all; from the next opening the list read off the main thread is there, and the
+        // switch read with it. Until then `radioOn` is nil and this list is shown as it is.
         if paired.devices.isEmpty, !paired.hasRead { return BluetoothMonitor.paired() }
         return paired.devices
     }

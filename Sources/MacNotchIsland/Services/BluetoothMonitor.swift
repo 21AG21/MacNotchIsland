@@ -311,12 +311,23 @@ enum BluetoothBattery {
 /// with the radio off, or with no radio at all. Now a pass runs on `queue`, one at a time
 /// (`RadioPass`), only after the tour and while the radio is on, at an interval the energy
 /// policy stretches; the list is shown from the main thread.
+///
+/// Each pass reads the radio's switch as well as the list (`radioOn`), for the island's menu,
+/// which has no rail beside it to say "Off" and listed every device as one click from connecting
+/// with the radio off.
 final class PairedDevices: ObservableObject {
     static let shared = PairedDevices()
 
     /// Connected first, then by name. Kept between visits, so the column opens on the last
     /// list rather than on nothing while the first pass is out.
     @Published private(set) var devices: [BluetoothMonitor.Paired] = []
+
+    /// Whether the radio was on when `devices` was read: read in the same pass, so the two are
+    /// never from different moments. Nil until a pass has landed, and after one on a Mac with
+    /// no controller to ask (`SystemToggles.bluetoothReading`). The island's menu goes by it,
+    /// and not by `SystemToggles.bluetoothOn`, which is read only while the rail is on screen
+    /// and is as old as the last time it was. Main thread.
+    @Published private(set) var radioOn: Bool? = nil
 
     static let pollInterval: TimeInterval = 4
 
@@ -400,7 +411,8 @@ final class PairedDevices: ObservableObject {
     ///
     /// Gated only on the tour, as the menu always was, and not on the switch the poll goes by
     /// (`reads`): the switch is read only while the rail is up, and the menu is there without it.
-    /// Main thread.
+    /// This read is how the menu learns the radio is off (`radioOn`), and how it learns the
+    /// radio is back, so it goes on while the radio is off. Main thread.
     func refreshIfStale() {
         guard Self.wantsOneShot(hasSeenWelcome: Preferences.shared.hasSeenWelcome, running: pass.isRunning,
                                 readAt: readAt, now: LocalWrite.now()) else { return }
@@ -414,18 +426,23 @@ final class PairedDevices: ObservableObject {
         hasSeenWelcome && !running && now - readAt >= lifetime
     }
 
-    /// One pass over the list on `queue`, shown when it lands. Main thread.
+    /// One pass over the switch and the list on `queue`, shown when it lands. Main thread.
     private func read() {
         guard pass.start() else { return }
         // The registry's levels come from its cache, which is read and written on the main
         // thread; the walk behind it is already off it (`BluetoothBattery.cachedLevels`).
         let levels = BluetoothBattery.cachedLevels()
         queue.async { [weak self] in
+            // The rail's own reading, which waits on the controller and so is asked here, on the
+            // queue, as the rail asks it on its own. Asked unconditionally: both roads here have
+            // been through the tour already (`reads`, `wantsOneShot`).
+            let radio = SystemToggles.bluetoothReading(ask: true)
             let list = BluetoothMonitor.paired(levels: levels)
             DispatchQueue.main.async {
                 guard let self else { return }
                 let again = self.pass.finish()
                 self.readAt = LocalWrite.now()
+                if self.radioOn != radio { self.radioOn = radio }
                 if self.devices != list { self.devices = list }
                 // A connection was made or dropped while this pass was out; the answer that
                 // counts is the next one.
