@@ -589,7 +589,8 @@ final class GestureRouter {
         guard seconds.isFinite, seconds != 0,
               let entry = IslandTimer.shared.entry(id: id), !entry.state.isFinished else { return 0 }
         let now = Date()
-        let change = IslandTimer.adjustment(seconds, remaining: entry.state.remaining(at: now))
+        // On the clock `add` clamps by, so what is undone is what was done.
+        let change = IslandTimer.adjustment(seconds, remaining: entry.state.remaining(uptime: IslandTimer.shared.uptime(), at: now))
         guard change != 0 else { return 0 }
         IslandTimer.shared.add(seconds: seconds, id: id, now: now)
         return change

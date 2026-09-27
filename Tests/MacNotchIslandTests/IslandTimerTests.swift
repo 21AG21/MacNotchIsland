@@ -493,4 +493,82 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertEqual(stopwatch.state?.laps, [12.5, 25], "the time it was stopped does not count")
         XCTAssertGreaterThan(IslandStopwatch.continuousUptime(), 0)
     }
+
+    // MARK: - The timers' clock
+
+    /// Counted down on the wall clock, the clock set forward an hour rang every timer at once,
+    /// and set back an hour ran each of them an hour long.
+    func testATimerIsMeasuredOnAClockNobodySets() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let s = TimerState(label: "Tea", total: 300, endDate: start.addingTimeInterval(60), endUptime: 1060)
+        XCTAssertEqual(s.remaining(uptime: 1000, at: start), 60)
+        XCTAssertEqual(s.remaining(uptime: 1000, at: start.addingTimeInterval(3600)), 60, "the clock set forward an hour")
+        XCTAssertEqual(s.remaining(uptime: 1000, at: start.addingTimeInterval(-3600)), 60, "or back an hour")
+        XCTAssertEqual(s.remaining(at: start.addingTimeInterval(3600)), 0, "which the wall clock alone would have rung")
+        XCTAssertEqual(s.remaining(uptime: 1045, at: start), 15)
+        XCTAssertEqual(s.remaining(uptime: 2000, at: start), 0, "never below nought")
+
+        var paused = s
+        paused.pausedRemaining = 42
+        XCTAssertEqual(paused.remaining(uptime: 5000, at: start.addingTimeInterval(3600)), 42)
+
+        let wallOnly = TimerState(label: "Tea", total: 300, endDate: start.addingTimeInterval(60))
+        XCTAssertEqual(wallOnly.remaining(uptime: 99_999, at: start.addingTimeInterval(20)), 40,
+                       "no monotonic reading: the wall clock")
+    }
+
+    func testTheCardsEndMovesWithTheWallClock() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let s = TimerState(label: "Tea", total: 300, endDate: start.addingTimeInterval(60), endUptime: 1060)
+        // The clock has just been set forward an hour, and no time has gone by.
+        let now = start.addingTimeInterval(3600)
+        let moved = s.reanchored(uptime: 1000, now: now)
+        XCTAssertEqual(moved.remaining(at: now), 60, "the card reads what is measured")
+        XCTAssertEqual(moved.endDate, now.addingTimeInterval(60))
+        XCTAssertEqual(moved.endUptime, 1060)
+
+        var paused = s
+        paused.pausedRemaining = 42
+        XCTAssertEqual(paused.reanchored(uptime: 1000, now: now), paused, "nothing to move while it is paused")
+        var rung = s
+        rung.isFinished = true
+        XCTAssertEqual(rung.reanchored(uptime: 1000, now: now), rung, "or once it has rung")
+        let wallOnly = TimerState(label: "Tea", total: 300, endDate: start.addingTimeInterval(60))
+        XCTAssertEqual(wallOnly.reanchored(uptime: 1000, now: now), wallOnly, "or with no monotonic reading")
+    }
+
+    /// The look is set by the clock `tick` rings by. Set by `endDate` with the wall clock ahead,
+    /// it found nothing done and set itself again at once, until the two clocks agreed.
+    func testTheTickerLooksWhereTheMonotonicClockPutsTheEnd() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let tea = TimerEntry(id: "tea", label: "Tea",
+                             state: TimerState(label: "Tea", total: 300, endDate: start.addingTimeInterval(60),
+                                               endUptime: 1060))
+        // Set forward an hour: `endDate` has gone by, and a minute is still left.
+        let now = start.addingTimeInterval(3600)
+        XCTAssertEqual(IslandTimer.nextTick(for: [tea], now: now, uptime: 1000), now.addingTimeInterval(60))
+        XCTAssertEqual(IslandTimer.nextTick(for: [tea], now: now), tea.state.endDate,
+                       "with no reading, the end as it stands")
+    }
+
+    func testTheTimersCountOnTheirOwnClock() {
+        let saved = timer.uptime
+        var ticks: TimeInterval = 1000
+        timer.uptime = { ticks }
+        defer {
+            timer.cancelAll()
+            timer.uptime = saved
+        }
+        timer.start(seconds: 60, label: "Tea")
+        XCTAssertEqual(timer.state?.endUptime, 1060)
+        ticks += 20
+        timer.pause()
+        XCTAssertEqual(timer.state?.pausedRemaining, 40, "what the clock nobody sets says is left")
+        XCTAssertNil(timer.state?.endUptime, "nothing counts while it is paused")
+        ticks += 500
+        timer.resume()
+        XCTAssertEqual(timer.state?.endUptime, 1560, "forty seconds from the resume")
+        timer.add(seconds: 60)
+        XCTAssertEqual(timer.state?.endUptime, 1620, "and a minute more is a minute more on it")
+    }
 }

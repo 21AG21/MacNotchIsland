@@ -95,9 +95,21 @@ final class IslandTimer: ObservableObject {
     private var alarmCheck: Timer?
     private var alarmObservers: [NSObjectProtocol] = []
     /// Missed alarms whose report waits for somebody at the Mac, see `missedWaitsForUnlock`,
-    /// and what is listening for them.
+    /// alarms that rang with nobody there (`ringUnderLock`), and what is listening for them.
     private var missedAtUnlock: [IslandAlarm] = []
+    private var rangAtUnlock: [RangUnderLock] = []
     private var unlockObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+
+    /// An alarm that rang at the lock screen, or with the display asleep, and the timer it rang
+    /// as. Its minute on the island is counted from when somebody is back, and `saysSo` is
+    /// whether a card says it rang then: where no banner could be left for them
+    /// (`RingRoute.atUnlock`).
+    private struct RangUnderLock {
+        var alarm: IslandAlarm
+        var entry: TimerEntry
+        var saysSo = false
+    }
+
     /// Whether the last run's alarms have been read back yet, see `restoreAlarms`.
     private var alarmsLoaded = false
 
@@ -134,6 +146,12 @@ final class IslandTimer: ObservableObject {
     /// run can tell that it is stale.
     private var pomodoroGeneration = 0
     private var askedForNotifications = false
+
+    /// Seconds on the clock the countdowns are measured on: `mach_continuous_time`, as the
+    /// stopwatch's are (`IslandStopwatch.uptime`), which nobody sets and which goes on counting
+    /// while the Mac sleeps. Alarms stay on the wall clock, since an alarm is a time of day.
+    /// Swapped for a hand-wound clock by the tests.
+    var uptime: () -> TimeInterval = IslandStopwatch.continuousUptime
 
     private init() {}
 
@@ -211,7 +229,8 @@ final class IslandTimer: ObservableObject {
         }
         let label = timers[i].label
         let total = max(timers[i].state.total, Self.minimumRemaining)
-        timers[i].state = TimerState(label: label, total: total, endDate: now.addingTimeInterval(total))
+        timers[i].state = TimerState(label: label, total: total, endDate: now.addingTimeInterval(total),
+                                     endUptime: uptime() + total)
         // A new start, so the tidy-up queued for the ring that came before finds a different
         // timer here and leaves it alone.
         timers[i].createdAt = now
@@ -255,10 +274,11 @@ final class IslandTimer: ObservableObject {
         }
         guard timers.count < Self.maxTimers else { return nil }
         let id = freeID()
+        let now = Date()
         timers.append(TimerEntry(id: id, label: label,
-                                 state: TimerState(label: label, total: seconds,
-                                                   endDate: Date().addingTimeInterval(seconds)),
-                                 priority: Self.basePriority, createdAt: Date()))
+                                 state: TimerState(label: label, total: seconds, endDate: now.addingTimeInterval(seconds),
+                                                   endUptime: uptime() + seconds),
+                                 priority: Self.basePriority, createdAt: now))
         reprioritize()
         // The alert on screen gives way to the timer; what waits behind it, and a battery
         // about to run out, do not (`ActivityCenter.yieldAlert`).
@@ -306,7 +326,9 @@ final class IslandTimer: ObservableObject {
         guard let i = index(of: id) else { return }
         var s = timers[i].state
         guard !s.isFinished, !s.isPaused else { return }
-        s.pausedRemaining = s.remaining(at: Date())
+        s.pausedRemaining = s.remaining(uptime: uptime(), at: Date())
+        // Nothing counts while it is paused, and `resume` takes a reading of its own.
+        s.endUptime = nil
         timers[i].state = s
         reprioritize()
         publishAll()
@@ -320,6 +342,7 @@ final class IslandTimer: ObservableObject {
         var s = timers[i].state
         guard let remaining = s.pausedRemaining else { return }
         s.endDate = Date().addingTimeInterval(remaining)
+        s.endUptime = uptime() + remaining
         s.pausedRemaining = nil
         timers[i].state = s
         reprioritize()
@@ -343,7 +366,7 @@ final class IslandTimer: ObservableObject {
         guard seconds.isFinite, seconds != 0, let i = index(of: id) else { return }
         var s = timers[i].state
         guard !s.isFinished else { return }
-        let change = Self.adjustment(seconds, remaining: s.remaining(at: now))
+        let change = Self.adjustment(seconds, remaining: s.remaining(uptime: uptime(), at: now))
         guard change != 0 else { return }
         // The total moves with the end, so the ring keeps its place either way.
         s.total = max(s.total + change, Self.minimumRemaining)
@@ -351,6 +374,7 @@ final class IslandTimer: ObservableObject {
             s.pausedRemaining = paused + change
         } else {
             s.endDate = s.endDate.addingTimeInterval(change)
+            s.endUptime = s.endUptime.map { $0 + change }
         }
         timers[i].state = s
         reprioritize()
@@ -409,10 +433,10 @@ final class IslandTimer: ObservableObject {
     /// the newest wins ties, which is what starting a timer feels like.
     @discardableResult
     private func reprioritize() -> Bool {
-        let now = Date()
+        let now = Date(), ticks = uptime()
         let order = timers.sorted { a, b in
             if a.state.isFinished != b.state.isFinished { return a.state.isFinished }
-            let ra = a.state.remaining(at: now), rb = b.state.remaining(at: now)
+            let ra = a.state.remaining(uptime: ticks, at: now), rb = b.state.remaining(uptime: ticks, at: now)
             if ra != rb { return ra < rb }
             return a.createdAt > b.createdAt
         }
@@ -463,7 +487,8 @@ final class IslandTimer: ObservableObject {
             // Same live activity, next phase: the island never blinks between focus and break.
             timers[i].label = phase.label
             timers[i].state = TimerState(label: phase.label, total: phase.duration,
-                                         endDate: Date().addingTimeInterval(phase.duration))
+                                         endDate: Date().addingTimeInterval(phase.duration),
+                                         endUptime: uptime() + phase.duration)
             reprioritize()
             publishAll()
             syncTicker()
@@ -628,7 +653,7 @@ final class IslandTimer: ObservableObject {
         reprioritize()
         ActivityCenter.shared.yieldAlert()
         publishAll()
-        finish(entry)
+        finish(entry, alarm: alarm)
         syncTicker()
     }
 
@@ -701,12 +726,16 @@ final class IslandTimer: ObservableObject {
         locked && !authorized
     }
 
-    /// Keeps `alarm` for the unlock, see `missedWaitsForUnlock`. The display waking with no
-    /// lock to get past counts as well: a display that was only asleep has no unlock to wait
-    /// for.
+    /// Keeps `alarm` for the unlock, see `missedWaitsForUnlock`.
     private func reportAtUnlock(_ alarm: IslandAlarm) {
         missedAtUnlock.removeAll { $0.id == alarm.id }
         missedAtUnlock.append(alarm)
+        waitForSomebody()
+    }
+
+    /// Listens for somebody at the Mac: the unlock, or the display waking with no lock to get
+    /// past, since a display that was only asleep has no unlock to wait for.
+    private func waitForSomebody() {
         guard unlockObservers.isEmpty else { return }
         let distributed: NotificationCenter = DistributedNotificationCenter.default()
         let unlock = distributed.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"),
@@ -720,15 +749,20 @@ final class IslandTimer: ObservableObject {
         unlockObservers = [(distributed, unlock), (workspace, wake)]
     }
 
-    /// The screen was unlocked, or the display woke. Missed alarms kept for this are reported
-    /// now — a moment after, so the unlock's own tick on the island is not cut short by them.
+    /// The screen was unlocked, or the display woke. An alarm that rang to nobody has its
+    /// minute on the island from now. Missed alarms kept for this are reported, and alarms that
+    /// rang with no banner to show for it say so — a moment after, so the unlock's own tick on
+    /// the island is not cut short by them.
     private func somebodyIsBack(unlocked: Bool) {
         guard unlocked || !ScreenLockMonitor.screenIsLockedOrAsleep else { return }
         for (center, token) in unlockObservers { center.removeObserver(token) }
         unlockObservers.removeAll()
-        let waiting = missedAtUnlock
+        let waiting = missedAtUnlock, rang = rangAtUnlock
         missedAtUnlock.removeAll()
+        rangAtUnlock.removeAll()
+        for ringing in rang { clearWhenIgnored(ringing.entry) }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.afterUnlock) { [weak self] in
+            for ringing in rang where ringing.saysSo { self?.reportRang(ringing.alarm, now: Date()) }
             for alarm in waiting { self?.reportMissed(alarm, now: Date()) }
         }
     }
@@ -864,7 +898,7 @@ final class IslandTimer: ObservableObject {
     private func syncTicker(now: Date = Date()) {
         ticker?.invalidate()
         ticker = nil
-        guard let next = Self.nextTick(for: timers, now: now) else {
+        guard let next = Self.nextTick(for: timers, now: now, uptime: uptime()) else {
             stopWatchingTheClockForTimers()
             return
         }
@@ -880,13 +914,22 @@ final class IslandTimer: ObservableObject {
     /// changes which of them has the island (`reprioritize`). The overtaking is looked at a
     /// hair after the moment, so the look finds the order already changed. Nil with nothing
     /// running, which is no look at all. Pure, so it is tested.
-    static func nextTick(for timers: [TimerEntry], now: Date) -> Date? {
-        let running = timers.filter { !$0.state.isFinished && !$0.state.isPaused }
-        guard var next = running.map(\.state.endDate).min() else { return nil }
-        let paused = timers.compactMap { $0.state.isFinished ? nil : $0.state.pausedRemaining }
+    ///
+    /// Given `uptime`, each end is where the monotonic clock puts it, read on the wall clock at
+    /// `now` (`TimerState.reanchored`), which is the clock `tick` rings by. Read off `endDate`
+    /// alone, a wall clock running a moment ahead of the monotonic one set a look that found
+    /// nothing done, and set the next one at once, over and over until the two agreed.
+    static func nextTick(for timers: [TimerEntry], now: Date, uptime: TimeInterval? = nil) -> Date? {
+        let states = timers.map { entry -> TimerState in
+            guard let uptime else { return entry.state }
+            return entry.state.reanchored(uptime: uptime, now: now)
+        }
+        let running = states.filter { !$0.isFinished && !$0.isPaused }
+        guard var next = running.map(\.endDate).min() else { return nil }
+        let paused = states.compactMap { $0.isFinished ? nil : $0.pausedRemaining }
         for timer in running {
             for waiting in paused {
-                let overtakes = timer.state.endDate.addingTimeInterval(-waiting + overtakeMargin)
+                let overtakes = timer.endDate.addingTimeInterval(-waiting + overtakeMargin)
                 if overtakes > now, overtakes < next { next = overtakes }
             }
         }
@@ -898,18 +941,38 @@ final class IslandTimer: ObservableObject {
     /// A timer's clock stops while the Mac sleeps, and knows nothing of the wall clock being
     /// set, and a one-shot set for a countdown's end would ring as late as the sleep was long.
     /// Both are heard here instead, for as long as a timer runs, and each is a look straight
-    /// away — as the alarm check does for alarms (`watchTheClock`).
+    /// away — as the alarm check does for alarms (`watchTheClock`) — once the ends the views
+    /// count down to are back in line with the wall clock (`clockMoved`).
     private func watchTheClockForTimers() {
         guard tickerObservers.isEmpty else { return }
         let workspace = NSWorkspace.shared.notificationCenter
         tickerObservers.append((workspace, workspace.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.tick() }))
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.clockMoved() }))
         let local = NotificationCenter.default
         for name in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
             tickerObservers.append((local, local.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.tick()
+                self?.clockMoved()
             }))
         }
+    }
+
+    /// The wall clock was set, or the zone changed, or the Mac woke. The countdowns have not
+    /// moved, since they are measured on `uptime`; what has is where the wall clock puts their
+    /// ends, which is what the card's digits and the pill's clock count down to. Every running
+    /// timer's `endDate` is moved there (`TimerState.reanchored`), and then the look.
+    ///
+    /// Counted down on the wall clock, the clock set forward an hour rang every timer at once,
+    /// and set back an hour ran each of them an hour long.
+    private func clockMoved() {
+        let now = Date(), ticks = uptime()
+        var moved = false
+        for i in timers.indices {
+            let anchored = timers[i].state.reanchored(uptime: ticks, now: now)
+            guard anchored != timers[i].state else { continue }
+            timers[i].state = anchored
+            moved = true
+        }
+        tick(moved: moved)
     }
 
     private func stopWatchingTheClockForTimers() {
@@ -917,24 +980,28 @@ final class IslandTimer: ObservableObject {
         tickerObservers.removeAll()
     }
 
-    private func tick() {
-        let now = Date()
+    /// Rings whatever has run out, on `uptime`. `moved` is whether `clockMoved` has just moved
+    /// the ends, which the island has to be told of even when nothing else has changed: a card
+    /// finds its timer by its state (`TimerExpandedView.shownID`).
+    private func tick(moved: Bool = false) {
+        let now = Date(), ticks = uptime()
         var justFinished: [TimerEntry] = []
         for i in timers.indices where !timers[i].state.isFinished && !timers[i].state.isPaused {
-            guard timers[i].state.remaining(at: now) <= 0 else { continue }
+            guard timers[i].state.remaining(uptime: ticks, at: now) <= 0 else { continue }
             timers[i].state.isFinished = true
             justFinished.append(timers[i])
         }
         // A paused timer can be overtaken by a running one, so the island order is worth
         // re-checking even when nothing has finished.
         let reordered = reprioritize()
-        if reordered || !justFinished.isEmpty { publishAll() }
+        if moved || reordered || !justFinished.isEmpty { publishAll() }
         for entry in justFinished { finish(entry) }
         // The look is spent: the next one, if anything is still running.
         syncTicker()
     }
 
-    private func finish(_ entry: TimerEntry) {
+    /// The end of a countdown, or an alarm going off (`alarm`, the one `ring` rang).
+    private func finish(_ entry: TimerEntry, alarm: IslandAlarm? = nil) {
         // A sleep timer's job is the silence at the end of it, so it does not ring: waking
         // somebody to tell them the music has stopped is the opposite of what they asked for.
         if entry.whenDone == .pausePlayback {
@@ -958,7 +1025,21 @@ final class IslandTimer: ObservableObject {
         // over it, or the screen locked or asleep with nobody at it — which is what Privacy
         // says it is for. Posted every time, it doubled every timer with a banner, and asked
         // for Notifications the first time any timer rang.
-        if ActivityCenter.shared.isSuppressed || ScreenLockMonitor.screenIsLockedOrAsleep { notify(entry) }
+        let locked = ScreenLockMonitor.screenIsLockedOrAsleep
+        // An alarm with nobody at the Mac goes its own way: nothing asked at the lock screen,
+        // and its minute on the island counted from the unlock (`ringUnderLock`).
+        if let alarm, locked {
+            ringUnderLock(alarm, entry: entry)
+            return
+        }
+        if locked {
+            // A timer, to nobody: its banner waits on the lock screen where Notifications are
+            // allowed already, and nothing is asked there where they are not — the first banner
+            // asks, and a question put to a locked screen is put to nobody.
+            notificationsAllowed { [weak self] allowed in if allowed { self?.notify(entry) } }
+        } else if ActivityCenter.shared.isSuppressed {
+            notify(entry)
+        }
 
         if entry.id == pomodoroTimerID, let phase = pomodoro, let next = Self.nextPhase(after: phase) {
             // Let the finished phase sit on screen for a beat, then roll into the next one.
@@ -970,10 +1051,16 @@ final class IslandTimer: ObservableObject {
             return
         }
         if entry.id == pomodoroTimerID { stopPomodoro() }
+        clearWhenIgnored(entry)
+    }
 
-        // Auto-clear a finished timer after a minute if nobody stops it. Ids can be reused, so
-        // only clear the very timer that finished.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+    /// How long a timer that has rung stays on the island when nobody stops it.
+    static let ringingFor: TimeInterval = 60
+
+    /// Takes a timer that has rung off the island `ringingFor` from now, if nobody has stopped
+    /// it by then. Ids can be reused, so only the very timer that finished is cleared.
+    private func clearWhenIgnored(_ entry: TimerEntry) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ringingFor) { [weak self] in
             guard let self, let current = self.entry(id: entry.id),
                   current.createdAt == entry.createdAt, current.state.isFinished else { return }
             self.cancel(id: entry.id)
@@ -1032,6 +1119,98 @@ final class IslandTimer: ObservableObject {
             guard granted else { return }
             DispatchQueue.main.async(execute: deliver)
         }
+    }
+
+    // MARK: - An alarm with nobody at the Mac
+
+    /// An alarm gone off with the screen locked or the display asleep. Its card went up where
+    /// nobody could see it, so the minute a ringing card stays is counted from when somebody is
+    /// back rather than from now, and whoever unlocks finds it still ringing. Whether a banner
+    /// is left for them, or a card at the unlock says it rang, is `ringingUnderLock`.
+    ///
+    /// It went the way every timer goes, and the first banner asks for Notifications: the
+    /// question was put at the lock screen, to nobody. Not allowed, no banner was posted, the
+    /// card cleared itself a minute later behind the lock screen, and nothing was left to say
+    /// the alarm had rung at all.
+    private func ringUnderLock(_ alarm: IslandAlarm, entry: TimerEntry) {
+        rangAtUnlock.removeAll { $0.alarm.id == alarm.id }
+        rangAtUnlock.append(RangUnderLock(alarm: alarm, entry: entry))
+        waitForSomebody()
+        notificationsAllowed { [weak self] authorized in
+            guard let self else { return }
+            // Looked at again: the answer can come after the unlock.
+            switch Self.ringingUnderLock(locked: ScreenLockMonitor.screenIsLockedOrAsleep, authorized: authorized) {
+            case .banner:
+                self.notify(entry)
+            case .atUnlock:
+                IslandLog.island.notice("ringing alarm kept for the unlock: Notifications are not allowed yet")
+                self.sayRangAtUnlock(alarm, entry: entry)
+            case .asUsual:
+                // Somebody is back already, and the card is there to be seen unless the island
+                // is hidden.
+                if ActivityCenter.shared.isSuppressed { self.notify(entry) }
+            }
+        }
+    }
+
+    /// Where an alarm that goes off reaches somebody, beyond its sound and its card.
+    enum RingRoute: Equatable {
+        /// Somebody may be at the Mac: the rule every timer follows, a banner only where the
+        /// island is hidden, which asks for Notifications as any first banner does.
+        case asUsual
+        /// Nobody at the Mac, and Notifications allowed already: the banner, which waits on the
+        /// lock screen and in Notification Centre for whoever comes back.
+        case banner
+        /// Nobody at the Mac, and Notifications not allowed: nothing asked at the lock screen,
+        /// and a card at the unlock that says it rang (`reportRang`).
+        case atUnlock
+    }
+
+    /// The route for an alarm going off with the screen `locked` or asleep, or not, and
+    /// Notifications `authorized` or not. The rule a missed alarm keeps (`missedNeedsBanner`,
+    /// `missedWaitsForUnlock`): nothing is asked at the lock screen, and what cannot be said
+    /// there is said at the unlock. Pure, so it is tested.
+    static func ringingUnderLock(locked: Bool, authorized: Bool) -> RingRoute {
+        guard locked else { return .asUsual }
+        return authorized ? .banner : .atUnlock
+    }
+
+    /// Marks `alarm` for a card at the unlock that says it rang.
+    private func sayRangAtUnlock(_ alarm: IslandAlarm, entry: TimerEntry) {
+        if let i = rangAtUnlock.firstIndex(where: { $0.alarm.id == alarm.id }) {
+            rangAtUnlock[i].saysSo = true
+            return
+        }
+        // Unlocked and locked again before the answer came: the next unlock, then.
+        rangAtUnlock.append(RangUnderLock(alarm: alarm, entry: entry, saysSo: true))
+        waitForSomebody()
+    }
+
+    static let alarmRangAlertID = "alarm-rang"
+    static let rangNote = "It went off while the screen was locked or asleep."
+
+    /// The card that says an alarm rang with nobody at the Mac: "Alarm rang at 7:30 AM", with
+    /// the day when it was not today, and the alarm's name under that when it has one of its
+    /// own. Pure, so it is tested.
+    static func rangCard(for alarm: IslandAlarm, now: Date) -> CustomActivity {
+        var card = CustomActivity(title: "Alarm rang at \(IslandAlarm.describe(alarm.fireDate, now: now))")
+        card.subtitle = alarm.hasOwnLabel ? alarm.label : nil
+        card.symbol = "alarm.fill"
+        card.tint = "orange"
+        card.body = rangNote
+        return card
+    }
+
+    /// Shows `rangCard`, once somebody is at the Mac, and a banner as well where the island is
+    /// hidden even then: somebody is there to answer the question the first one asks. Never at
+    /// the lock screen, should it have locked again already.
+    private func reportRang(_ alarm: IslandAlarm, now: Date) {
+        let card = Self.rangCard(for: alarm, now: now)
+        ActivityCenter.shared.showAlert(IslandActivity(id: Self.alarmRangAlertID, kind: .custom, content: .custom(card),
+                                                       priority: 85, presentation: .expanded), duration: 8)
+        guard ActivityCenter.shared.isSuppressed, !ScreenLockMonitor.screenIsLockedOrAsleep else { return }
+        let body = alarm.hasOwnLabel ? alarm.label + ". " + Self.rangNote : Self.rangNote
+        postBanner(title: card.title, body: body, id: "alarm-rang.\(alarm.id)")
     }
 
     // MARK: - Live activities

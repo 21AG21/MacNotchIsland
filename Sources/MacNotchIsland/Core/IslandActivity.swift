@@ -50,13 +50,43 @@ struct TimerState: Equatable {
     /// Set on an alarm that is ringing: the time the clock read when it went off, which is what
     /// its card shows in place of a countdown. Nil on every ordinary timer.
     var alarmAt: Date? = nil
+    /// The same end as `endDate`, on a clock that is never set and goes on counting while the
+    /// Mac sleeps (`IslandTimer.uptime`). Nil while the timer is paused, when nothing counts; on
+    /// an alarm, which is a time of day and belongs to the wall clock; and on a state made
+    /// without one, which counts down on the wall clock alone.
+    var endUptime: TimeInterval? = nil
 
     var isPaused: Bool { pausedRemaining != nil }
     var isAlarm: Bool { alarmAt != nil }
 
+    /// The time left at `date` on the wall clock, for the views, which draw from a
+    /// `TimelineView`'s date. `IslandTimer` moves `endDate` whenever the wall clock is set, so
+    /// that it keeps agreeing with `endUptime` (`reanchored`).
     func remaining(at date: Date) -> TimeInterval {
         if let p = pausedRemaining { return max(0, p) }
         return max(0, endDate.timeIntervalSince(date))
+    }
+
+    /// The time left, measured on the monotonic clock where the state has a reading of it, and
+    /// on the wall clock at `date` where it has not. What `IslandTimer` rings by, pauses at and
+    /// orders the island by.
+    ///
+    /// Measured on the wall clock alone, the clock being set forward an hour rang every timer
+    /// at once, and set back an hour ran each of them an hour long.
+    func remaining(uptime: TimeInterval, at date: Date) -> TimeInterval {
+        if let p = pausedRemaining { return max(0, p) }
+        guard let end = endUptime else { return remaining(at: date) }
+        return max(0, end - uptime)
+    }
+
+    /// The same countdown, with `endDate` moved to where the wall clock at `now` puts its end:
+    /// `now` plus what the monotonic clock says is left. Nothing to move when it is paused, has
+    /// rung, or has no monotonic reading. Pure, so it is tested.
+    func reanchored(uptime: TimeInterval, now: Date) -> TimerState {
+        guard !isPaused, !isFinished, let end = endUptime else { return self }
+        var moved = self
+        moved.endDate = now.addingTimeInterval(end - uptime)
+        return moved
     }
 
     func progress(at date: Date) -> Double {

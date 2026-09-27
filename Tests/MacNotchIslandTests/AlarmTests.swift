@@ -297,6 +297,38 @@ final class AlarmTests: XCTestCase {
         XCTAssertTrue(timer.alarms.isEmpty)
     }
 
+    // MARK: - Ringing with nobody at the Mac
+
+    /// A ringing alarm's first banner asked for Notifications at the lock screen, to nobody.
+    /// Not allowed, nothing was left to say it had rung, and its card went a minute later
+    /// behind the lock screen.
+    func testAnAlarmRingingAtTheLockScreenAsksNothing() {
+        XCTAssertEqual(IslandTimer.ringingUnderLock(locked: true, authorized: true), .banner,
+                       "allowed already: the banner waits on the lock screen for whoever unlocks")
+        XCTAssertEqual(IslandTimer.ringingUnderLock(locked: true, authorized: false), .atUnlock,
+                       "not allowed: no question, and a card at the unlock instead")
+        for authorized in [false, true] {
+            XCTAssertEqual(IslandTimer.ringingUnderLock(locked: false, authorized: authorized), .asUsual,
+                           "somebody is there: the rule every timer follows")
+            for locked in [false, true] {
+                XCTAssertEqual(IslandTimer.ringingUnderLock(locked: locked, authorized: authorized) == .atUnlock,
+                               IslandTimer.missedWaitsForUnlock(locked: locked, authorized: authorized),
+                               "what waits for the unlock is what a missed alarm waits for")
+            }
+        }
+    }
+
+    func testTheCardAtTheUnlockSaysWhenItRang() {
+        let now = Date()
+        let wake = IslandAlarm(label: "Wake", fireDate: now.addingTimeInterval(-120))
+        let card = IslandTimer.rangCard(for: wake, now: now)
+        XCTAssertEqual(card.title, "Alarm rang at " + IslandAlarm.describe(wake.fireDate, now: now))
+        XCTAssertEqual(card.subtitle, "Wake")
+        XCTAssertEqual(card.body, IslandTimer.rangNote)
+        XCTAssertNil(IslandTimer.rangCard(for: IslandAlarm(fireDate: wake.fireDate), now: now).subtitle,
+                     "no name of its own, nothing under the time")
+    }
+
     // MARK: - From a script
 
     func testTheURLSetsAnAlarmForTheNextTimeTheClockReadsIt() {
