@@ -279,6 +279,9 @@ the unreleased section is what the next tag will ship.
   ordinary alert's, and everything else stretches or shortens in step — and the pane says so.
 
 ### Fixed
+- **A Focus that comes on doesn't strand what was waiting.** If a Focus came on while alerts were queued, the loudest one was turned away and nothing behind it was shown until some other alert came and went. What the Focus holds back leaves the queue, and the next alert it lets through is shown.
+- **Stop under the pointer doesn't open Home.** Pressing Stop, Snooze or a question's answer on a card with the pointer on it, or the card running out its time there, used to turn the island into the Home panel right under the pointer, so a quick second click landed in the switcher. The island now stays closed until the pointer leaves and comes back.
+- **Escape works with the Welcome window open.** If the shortcut opened the panel while the Welcome window was in front, Escape did nothing and the panel stayed open. Escape now closes it; Settings or Quick Look opened from the panel still get their own Escape first.
 - **The island's menu knows when Bluetooth is off.** With the radio off, a right-click on the island listed every paired device as one click from connecting, sometimes with a tick still on the one that had been connected, and a click did nothing. It now says “Bluetooth Is Off”, as the Controls column does, and lists the devices again once the radio is back on.
 - **A Focus holds back the event card too.** With “Quieten alerts during a Focus” on, an event coming up no longer takes the island in the middle of a Do Not Disturb, and a pushed card asked to open arrives as a pill instead; both come back when the Focus ends.
 - **A clock change no longer stalls a scrolling title.** The clock set back, or the network clock catching up after a wake, held a long title still until the clock caught up with where it had been.

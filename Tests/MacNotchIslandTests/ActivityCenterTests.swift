@@ -107,6 +107,24 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertTrue(holds(.battery(plugged)), "the charger going in can wait")
     }
 
+    /// A Focus that came on while alerts waited stranded the queue: the loudest of them, a
+    /// finished download, was taken off it for its turn and turned away, nothing was shown, and
+    /// nothing looked at the queue again until some other alert came and went.
+    func testAFocusThatCameOnWhileAlertsWaitedLetsThroughWhatItDoesNotHold() {
+        let queue = [pending(finishedDownload(), at: 0), pending(custom("note"), at: 1)]
+        let quiet = ActivityCenter.nextPending(in: queue, focusQuiet: true)
+        XCTAssertEqual(quiet.next?.activity.id, "note", "what the Focus lets through is shown")
+        XCTAssertTrue(quiet.waiting.isEmpty, "and what it holds back leaves the queue, as it would arriving now")
+
+        let loud = ActivityCenter.nextPending(in: queue, focusQuiet: false)
+        XCTAssertEqual(loud.next?.activity.id, "download-done", "with no Focus, the loudest first")
+        XCTAssertEqual(loud.waiting.map(\.activity.id), ["note"])
+
+        let held = ActivityCenter.nextPending(in: [pending(finishedDownload(), at: 0)], focusQuiet: true)
+        XCTAssertNil(held.next, "nothing the Focus lets through: nothing is shown")
+        XCTAssertTrue(held.waiting.isEmpty)
+    }
+
     // MARK: - Whether the bare notch answers the pointer
 
     func testTheSwitchForHoveringAnEmptyNotchActuallyGovernsIt() {

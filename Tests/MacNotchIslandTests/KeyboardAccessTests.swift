@@ -2,8 +2,9 @@ import XCTest
 @testable import MacNotchIsland
 
 /// The island from the keyboard and to VoiceOver: where the panel's own keys go first with
-/// Full Keyboard Access on, which of them go on answering when held, and what VoiceOver is told
-/// when a timer rings or a script asks a question.
+/// Full Keyboard Access on, which of them go on answering when held, whose Escape it is while
+/// another of our windows is up, and what VoiceOver is told when a timer rings or a script
+/// asks a question.
 final class KeyboardAccessTests: XCTestCase {
     private typealias Key = HotKeyService.PanelKey
 
@@ -50,6 +51,34 @@ final class KeyboardAccessTests: XCTestCase {
         for key in [Key.left, .right, .playPause, typingKey] {
             XCTAssertFalse(key.repeats, "\(key) held down is one press")
         }
+    }
+
+    // MARK: - Whose Escape it is
+
+    /// With the Welcome window up, the panel the shortcut opened could not be closed from the
+    /// keyboard: the window that was key before the panel opened counted as another of ours
+    /// holding the keyboard, and Escape was never the island's.
+    func testTheWindowThatWasKeyWhenThePanelOpenedDoesNotKeepEscape() {
+        let welcome = (isKey: true, isPanel: false, keyAtOpen: true)
+        XCTAssertFalse(PanelKeyboard.takenByAnotherOfOurs([welcome]), "the panel was opened over it")
+        XCTAssertTrue(PanelKeyboard.heldByAnotherOfOurs([(isKey: true, isPanel: false)]),
+                      "though it is still a window of ours with the keyboard, which the panel leaves it")
+        XCTAssertTrue(ActivityCenter.armsEscape(isOpen: true, invited: true, holdsKeyboard: false,
+                                                heldByAnotherOfOurs: PanelKeyboard.takenByAnotherOfOurs([welcome])),
+                      "so the shortcut's panel closes on Escape")
+    }
+
+    /// Settings or Quick Look, opened once the panel is up, has the keyboard and Escape with it:
+    /// one Escape closes that window, not the island behind it.
+    func testAWindowOfOursThatTookTheKeyboardSinceThePanelOpenedKeepsEscape() {
+        XCTAssertTrue(PanelKeyboard.takenByAnotherOfOurs([(isKey: false, isPanel: false, keyAtOpen: true),
+                                                          (isKey: true, isPanel: false, keyAtOpen: false)]),
+                      "Settings, opened from the rail over the Welcome window")
+        XCTAssertTrue(PanelKeyboard.takenByAnotherOfOurs([(isKey: true, isPanel: false, keyAtOpen: false)]),
+                      "Quick Look, opened from the shelf with another app in front")
+        XCTAssertFalse(PanelKeyboard.takenByAnotherOfOurs([(isKey: true, isPanel: true, keyAtOpen: false)]),
+                       "the island itself")
+        XCTAssertFalse(PanelKeyboard.takenByAnotherOfOurs([]), "no windows, nobody holding anything")
     }
 
     // MARK: - What VoiceOver is told

@@ -666,6 +666,9 @@ final class ActivityCenter: ObservableObject {
 
     func end(id: String) {
         guard activities.contains(where: { $0.id == id }) else { return }
+        // Asked while the card is still there to be asked about: once it has gone, the island
+        // under the pointer is whatever stood behind it.
+        let cardWasUnderPointer = cardUnderPointer(id: id)
         activities.removeAll { $0.id == id }
         let wasHeld = heldAlertIDs.remove(id) != nil
         if pinnedID == id { pinnedID = nil }
@@ -677,6 +680,16 @@ final class ActivityCenter: ObservableObject {
             closedUnderPointer()
             openView = nil
             if openPanel != nil { openPanel = nil }
+        }
+        // A card forced up ended with the pointer on it — its Stop, Snooze, a question's
+        // answer, its `ttl`. That is a close under the pointer too: the peek stays down until
+        // the pointer has left and come back. The card was never an open view, so nothing
+        // closed, and the peek behind it grew under the pointer at once without counting as
+        // growth (`noteGrowth`): the second click of a quick pair, meant for the card, landed
+        // on a slot of the switcher. The peek goes with the pointer, as on a hover exit.
+        if cardWasUnderPointer {
+            closedUnderPointer()
+            if hoverPanel == nil, peekView != nil { peekView = nil }
         }
         // An alert the user was holding, or a card forced up, ended before its time — its own
         // close button, a Stop. What waited behind it gets its turn now, as it does when the
@@ -816,11 +829,18 @@ final class ActivityCenter: ObservableObject {
     private func scheduleForcedExpiry(id: String, after seconds: TimeInterval, heldFor: TimeInterval) {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.forcedExpandedID == id else { return }
-            if Self.forcedCardHolds(underPointer: self.cardUnderPointer(id: id), heldFor: heldFor) {
+            let underPointer = self.cardUnderPointer(id: id)
+            if Self.forcedCardHolds(underPointer: underPointer, heldFor: heldFor) {
                 self.scheduleForcedExpiry(id: id, after: 1, heldFor: heldFor + 1)
                 return
             }
             self.forcedExpandedID = nil
+            // Held under the pointer to the hold's limit, and gone from under it: a close under
+            // the pointer, as its Stop would be (`end`), so the peek does not grow there.
+            if underPointer {
+                self.closedUnderPointer()
+                if self.hoverPanel == nil, self.peekView != nil { self.peekView = nil }
+            }
             // What waited behind the card gets its turn now.
             if self.alert == nil { self.showNextPendingAlertAfterForcedCard() }
         }
@@ -1311,10 +1331,28 @@ final class ActivityCenter: ObservableObject {
         // which would restart every waiting alert's patience. Its expiry drains the queue.
         guard !forcedCardShowing else { return }
         pruneOutwaitedAlerts(now: Date())
-        pendingAlerts.sort { Self.alertRank($0.activity) > Self.alertRank($1.activity) }
-        guard !pendingAlerts.isEmpty else { return }
-        let next = pendingAlerts.removeFirst()
+        let turn = Self.nextPending(in: pendingAlerts, focusQuiet: focusIsQuiet)
+        pendingAlerts = turn.waiting
+        guard let next = turn.next else { return }
         showAlert(next.activity, duration: next.duration, exact: next.exact, haptic: false)
+    }
+
+    /// Whose turn it is in the queue, and what goes on waiting behind it: the loudest alert
+    /// waiting, of those a Focus quietening the island (`focusQuiet`) does not hold back
+    /// (`focusHolds`). What it holds back leaves the queue, as it would have been turned away
+    /// arriving now (`showAlert`). Pure, so it is tested.
+    ///
+    /// A Focus that came on while alerts waited stranded the queue. The loudest of them — a
+    /// finished download, a device connecting — was taken off it for its turn and turned away
+    /// by `showAlert`, which then showed nothing, and nothing looked at the queue again until
+    /// some other alert came and went. By then what waited behind it had usually run out of
+    /// patience, and was dropped unseen although the Focus would have let it through.
+    static func nextPending(in queue: [PendingAlert], focusQuiet: Bool) -> (next: PendingAlert?, waiting: [PendingAlert]) {
+        var waiting = focusQuiet ? queue.filter { !focusHolds($0.activity) } : queue
+        waiting.sort { alertRank($0.activity) > alertRank($1.activity) }
+        guard !waiting.isEmpty else { return (nil, waiting) }
+        let next = waiting.removeFirst()
+        return (next, waiting)
     }
 
     func dismissAlert() {
@@ -1857,15 +1895,32 @@ final class ActivityCenter: ObservableObject {
     }
 
     /// Escape closes the panel from anywhere, as a global key — except while another of this
-    /// app's own windows has the keyboard. Quick Look opened from the shelf, or Settings from
-    /// the rail, took the key from the panel: the island closed and the window the key was
-    /// meant for stayed, and a second Escape was needed. See `armsEscape`.
+    /// app's own windows has taken the keyboard since the panel opened. Quick Look opened from
+    /// the shelf, or Settings from the rail, took the key from the panel: the island closed and
+    /// the window the key was meant for stayed, and a second Escape was needed. The window that
+    /// was key when the panel opened (`keyWindowAtOpen`) does not count: the panel was opened
+    /// over it, as over any other app's. See `armsEscape` and `PanelKeyboard.takenByAnotherOfOurs`.
     var escapeArmed: Bool {
         guard openView != nil else { return false }
-        let windows = (NSApp?.windows ?? []).map { (isKey: $0.isKeyWindow, isPanel: $0 is NotchPanel) }
+        let atOpen = keyWindowAtOpen
+        let windows = (NSApp?.windows ?? []).map { window in
+            (isKey: window.isKeyWindow, isPanel: window is NotchPanel, keyAtOpen: window === atOpen)
+        }
         return Self.armsEscape(isOpen: true, invited: keyboardInvited, holdsKeyboard: holdsKeyboard,
-                               heldByAnotherOfOurs: PanelKeyboard.heldByAnotherOfOurs(windows))
+                               heldByAnotherOfOurs: PanelKeyboard.takenByAnotherOfOurs(windows))
     }
+
+    /// The window of ours that had the keyboard when the panel opened — the Welcome window,
+    /// most likely, or Settings — for as long as the panel stays open. Nil when none of ours
+    /// had it, and once the panel closes. Weak: the window can close while the panel is open.
+    ///
+    /// With the Welcome window up, the panel the shortcut opened could not be closed from the
+    /// keyboard: the Welcome window counted as another of ours holding the keyboard, so Escape
+    /// was never the island's. Nor was a click: one in our own window is no click outside (the
+    /// global monitor never sees it), and our own app coming forward is not leaving
+    /// (`isSomebodyElse`). The panel still does not take the keyboard off that window
+    /// (`NotchPanel.syncKeyboard`): if it did, it would take it back after every click into it.
+    private weak var keyWindowAtOpen: NSWindow?
 
     /// Whether Escape is the island's: something is open, and the keyboard was asked for — a
     /// click on the island, the shortcut, Tab — or the island holds it anyway. Not for a panel
@@ -2164,6 +2219,10 @@ final class ActivityCenter: ObservableObject {
         if openView != nil {
             openedAt = Date()
             closeReason = nil
+            // Before the keys are settled below, which read it (`escapeArmed`).
+            keyWindowAtOpen = NSApp?.keyWindow
+        } else {
+            keyWindowAtOpen = nil
         }
         keyboardControlChanged()
         if openView != nil {

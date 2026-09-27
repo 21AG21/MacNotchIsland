@@ -115,6 +115,35 @@ final class ForcedCardRulesTests: XCTestCase {
         XCTAssertEqual(center.primary?.id, "call")
     }
 
+    // MARK: - The pointer on the card when it goes
+
+    /// Stop pressed on a ringing card with the pointer on it: the Home peek grew under the
+    /// pointer at once, and nothing counted it as growth, so the second click of a quick pair
+    /// landed on a slot of the switcher. It goes as a close under the pointer does.
+    func testACardEndedUnderThePointerLeavesNoPeekUntilThePointerComesBack() {
+        center.upsert(rungTimer())
+        center.setHovering(true, panel: "main")
+        settle(0.1)
+        center.forceExpanded(id: "timer", for: 5)
+        guard case .card(let card) = center.presentation(for: "main") else { return XCTFail("the ringing card, under the pointer") }
+        XCTAssertEqual(card.id, "timer")
+
+        center.end(id: "timer")
+        if case .panel = center.presentation(for: "main") { XCTFail("no peek grows where the card was") }
+        XCTAssertNil(center.peekView, "and none is kept for later")
+
+        // The pointer, still there, reports itself again: nothing opens.
+        center.setHovering(true, panel: "main")
+        settle(0.1)
+        if case .panel = center.presentation(for: "main") { XCTFail("nor while the pointer stays") }
+
+        center.setHovering(false, panel: "main")
+        settle(ActivityCenter.hoverExitGrace + 0.1)
+        center.setHovering(true, panel: "main")
+        settle(0.1)
+        guard case .panel = center.presentation(for: "main") else { return XCTFail("the peek, once it has left and come back") }
+    }
+
     // MARK: - The alert on screen, when the user starts a timer
 
     func testOnlyABatteryAboutToRunOutKeepsTheIslandFromATimer() {

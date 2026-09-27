@@ -963,13 +963,23 @@ final class NotchPanel: NSPanel {
 /// Who among this app's own windows is holding the keyboard.
 ///
 /// The decision on its own, away from `NSApp`, so it can be asked with a list of windows
-/// rather than with an application running. `NotchPanel.anotherOfOursHasIt` reads the live
-/// list and hands it in; nothing here decides anything that call does not.
+/// rather than with an application running. `NotchPanel.anotherOfOursHasIt` and
+/// `ActivityCenter.escapeArmed` read the live list and hand it in; nothing here decides
+/// anything those calls do not.
 enum PanelKeyboard {
     /// Whether one of our windows that is not an island panel — Settings, a Quick Look panel —
     /// is the key window, in which case the island leaves the keyboard where it is.
     static func heldByAnotherOfOurs(_ windows: [(isKey: Bool, isPanel: Bool)]) -> Bool {
         windows.contains { $0.isKey && !$0.isPanel }
+    }
+
+    /// Whether Escape belongs to another of our windows rather than to the panel: one has the
+    /// keyboard (`heldByAnotherOfOurs`), and it is not the window that had it when the panel
+    /// opened (`keyAtOpen`). Settings or Quick Look opened from the panel keeps its Escape. The
+    /// Welcome window the panel was opened over does not: with it up, the panel the shortcut
+    /// opened could not be closed from the keyboard at all.
+    static func takenByAnotherOfOurs(_ windows: [(isKey: Bool, isPanel: Bool, keyAtOpen: Bool)]) -> Bool {
+        heldByAnotherOfOurs(windows.filter { !$0.keyAtOpen }.map { (isKey: $0.isKey, isPanel: $0.isPanel) })
     }
 
     /// One island on screen, as the choice of who types reads it.
