@@ -9,9 +9,10 @@ import CoreGraphics
 /// A CGEventTap on `NSEvent.EventType.systemDefined` (raw value 14) sees the media keys
 /// before OSDUIHelper does. For the keys we own we apply the change ourselves, show the
 /// island HUD and swallow the event, so the system bezel never appears; every other event
-/// is passed straight through. The keyboard illumination keys are taken the same way, but only
-/// while CoreBrightness's keyboard client answers (`KeyboardLight`) — on a Mac or a macOS where
-/// it does not, those keys keep their system behaviour.
+/// is passed straight through, and so is every key while no island is on screen to answer
+/// it (`MediaKeyInterceptor.swallows`). The keyboard illumination keys are taken the same
+/// way, but only while CoreBrightness's keyboard client answers (`KeyboardLight`) — on a Mac
+/// or a macOS where it does not, those keys keep their system behaviour.
 ///
 /// The tap needs Accessibility trust. Without it `CGEvent.tapCreate` returns nil, so we
 /// prompt once and then poll until the user grants it, at which point the tap is installed.
@@ -26,7 +27,8 @@ import CoreGraphics
 final class SystemHUDReplacement: ObservableObject {
     static let shared = SystemHUDReplacement()
 
-    /// The tap is up, so every media key reaches the island and none reaches OSDUIHelper.
+    /// The tap is up, so the media keys reach the island and not OSDUIHelper — each one this
+    /// Mac can answer, while an island is on screen to show it (`canShowKeyDisplay`).
     @Published private(set) var isActive = false
 
     /// What this Mac can actually be asked for.
@@ -49,6 +51,14 @@ final class SystemHUDReplacement: ObservableObject {
 
     private let lock = NSLock()
     private var capabilities = Capabilities()
+    /// Whether an island is on screen to answer a key with its display, as the running
+    /// interceptor last worked it out on the main thread (`MediaKeyInterceptor.islandCanShow`).
+    ///
+    /// Beside the capabilities and behind the same lock, because the tap thread asks both before
+    /// it takes a key and cannot ask the main thread anything: what hides an island lives there.
+    /// False until the first look, like them, and again once the interceptor stops. A key handed
+    /// back to macOS gets macOS's bezel; a key taken with no island to show it gets nothing.
+    private var keyDisplayShowable = false
 
     private init() {}
 
@@ -71,6 +81,21 @@ final class SystemHUDReplacement: ObservableObject {
         lock.lock()
         defer { lock.unlock() }
         return capabilities
+    }
+
+    /// Whether an island is on screen to show a key's display this moment. Safe from any thread.
+    func canShowKeyDisplay() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return keyDisplayShowable
+    }
+
+    /// Written on the main thread by a running `MediaKeyInterceptor`, and put back to false when
+    /// it stops.
+    func setCanShowKeyDisplay(_ showable: Bool) {
+        lock.lock()
+        keyDisplayShowable = showable
+        lock.unlock()
     }
 
     /// Whether a change of this kind is the island's to announce. Main thread.
@@ -98,9 +123,15 @@ final class SystemHUDReplacement: ObservableObject {
     /// system has switched off and the island has not yet switched back on. A key pressed then
     /// goes to macOS, which draws its own bezel, and announcing the change it made would be the
     /// second display for one press. Both questions are cheap and asked only when something is
-    /// about to be said, so nothing more is polled. Main thread.
+    /// about to be said, so nothing more is polled.
+    ///
+    /// A key pressed while no island is on screen to show its display goes to macOS as well
+    /// (`MediaKeyInterceptor.swallows`), and the change it made is not the island's to announce
+    /// either: under a hidden island the display was drawn nowhere, or late, when the island
+    /// came back inside its second and a half; behind a card forced up it waited for the card,
+    /// and could go up beside a bezel of macOS's still on screen. Main thread.
     func keysReachIsland() -> Bool {
-        guard isActive, MediaKeyInterceptor.isTrusted, let tapCheck else { return false }
+        guard isActive, canShowKeyDisplay(), MediaKeyInterceptor.isTrusted, let tapCheck else { return false }
         return tapCheck()
     }
 
@@ -219,6 +250,47 @@ final class MediaKeyInterceptor {
         }
     }
 
+    /// Whether a key is taken from macOS: this Mac can do what it asks (`canAnswer`), and an
+    /// island is on screen to say it was done (`islandCanShow`).
+    ///
+    /// Both, because taking a key is a promise to answer it. One taken while every island was
+    /// hidden — a full-screen app where the island hides there, a pause, an app on the hide
+    /// list — changed the level with nothing on screen to say so: the island drew no display,
+    /// its window had shrunk to the notch, and macOS never saw the key to draw its own. So did
+    /// one taken under a card forced up, whose display waited behind the card for longer than a
+    /// key's feedback is kept and was dropped unseen. Handed back, the key is macOS's to answer
+    /// with its own bezel, which is better than no answer at all. Pure, so it is tested.
+    static func swallows(canAnswer: Bool, islandCanShow: Bool) -> Bool {
+        canAnswer && islandCanShow
+    }
+
+    /// Whether an island is on screen to show a key's display: one of the islands there are is
+    /// not hidden, and no card is forced up with nothing open over it (`cardForcedUp`).
+    ///
+    /// Any island, not every one: a key's display goes to every island, so a film full screen
+    /// on the external display leaves the MacBook's island to show it. No island at all is none
+    /// to show it on — before the first is built, or with no display to carry one. A card forced
+    /// up — a timer that has rung, a call arriving, a question from `notchctl ask` — keeps the
+    /// island from a key's display, which waits behind it with two seconds' patience and is
+    /// dropped (`ActivityCenter.showAlert`): eight seconds of silent keys for a ringing timer,
+    /// up to ten minutes for a question. With a panel open the display is a banner in it as
+    /// ever, and the key stays the island's. Pure, so it is tested.
+    static func islandCanShow(islands: Set<String>, hidden: Set<String>, cardForcedUp: Bool) -> Bool {
+        guard !cardForcedUp else { return false }
+        return !islands.subtracting(hidden).isEmpty
+    }
+
+    /// `islandCanShow` for the centre as it is now. Hidden is `isSuppressed(panel:)`'s to say, so
+    /// there is one answer to what hides an island; a card forced up with nothing open over it
+    /// is exactly what `showAlert` queues a key's display behind. Main thread, where all of it
+    /// lives.
+    static func islandCanShow(in center: ActivityCenter) -> Bool {
+        let islands = center.livePanels
+        return islandCanShow(islands: islands,
+                             hidden: islands.filter { center.isSuppressed(panel: $0) },
+                             cardForcedUp: center.forcedCard != nil && !center.isOpen)
+    }
+
     /// `NSEvent.EventType.systemDefined`, which CGEventType has no case for.
     static let systemDefinedEventType: UInt32 = 14
     /// `NX_SUBTYPE_AUX_CONTROL_BUTTONS`.
@@ -309,6 +381,10 @@ final class MediaKeyInterceptor {
     private var promptedForTrust = false
     private var trustTimer: Timer?
     private var energyCancellable: AnyCancellable?
+    /// Keeps `SystemHUDReplacement.canShowKeyDisplay` current, see `watchIslands`.
+    private var islandWatch: AnyCancellable?
+    /// A look at the islands is already on the main queue, so a burst of changes is one look.
+    private var islandLookScheduled = false
     /// What announces a change in what the Mac can answer, see `watchForChanges`.
     private var changeObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var outputListener: AudioObjectPropertyListenerBlock?
@@ -383,6 +459,8 @@ final class MediaKeyInterceptor {
         running = true
         askedAt = Date()
         SystemHUDReplacement.shared.setTapCheck { [weak self] in self?.tapCarriesKeys() ?? false }
+        // Before the tap goes in, so its first key already knows whether an island can show it.
+        watchIslands()
         // Switching the feature off and on again is the user's way of saying "try again", and
         // it has to actually try: without this a run of failures would be permanent for the
         // life of the process, with nothing but a relaunch to clear it.
@@ -417,6 +495,8 @@ final class MediaKeyInterceptor {
         running = false
         SystemHUDReplacement.shared.forgetCapabilities()
         SystemHUDReplacement.shared.setTapCheck(nil)
+        islandWatch = nil
+        SystemHUDReplacement.shared.setCanShowKeyDisplay(false)
         trustTimer?.invalidate()
         trustTimer = nil
         energyCancellable = nil
@@ -686,6 +766,56 @@ final class MediaKeyInterceptor {
                                         duration: 5)
     }
 
+    // MARK: - Whether an island can show a key
+
+    /// Works out `islandCanShow` now, and again after every change the islands redraw on, so the
+    /// tap thread has an answer to read without asking the main thread anything.
+    ///
+    /// The centre's own announcement rather than a property of it: what hides an island is
+    /// spread over a pause, the app in front, which displays are full screen and which islands
+    /// there are; what keeps a key's display off one is the card forced up and whether anything
+    /// is open — and a pause runs out with no property changing at all, which the centre
+    /// announces itself (`pruneExpired`). Heard as the islands hear it, so the answer cannot say
+    /// an island is showing that they have not drawn, or the other way about. The preferences
+    /// are heard directly as well, as `NotchPanel` hears them: the centre passes them on through
+    /// a `RunLoop.main` hop, which waits while a menu is being tracked. Each look is a handful of
+    /// set operations, and a burst of changes is one look (`scheduleIslandLook`). Main thread.
+    private func watchIslands() {
+        refreshIslandCanShow()
+        guard islandWatch == nil else { return }
+        islandWatch = Publishers.Merge(ActivityCenter.shared.objectWillChange, Preferences.shared.objectWillChange)
+            .sink { [weak self] _ in self?.scheduleIslandLook() }
+    }
+
+    /// One look per burst, on the main queue after the change: `objectWillChange` announces a
+    /// change before it is made, and a look taken then would read the state being left. Called
+    /// from whatever wrote the value.
+    private func scheduleIslandLook() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.scheduleIslandLook() }
+            return
+        }
+        guard !islandLookScheduled else { return }
+        islandLookScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.islandLookScheduled = false
+            guard self.running else { return }
+            self.refreshIslandCanShow()
+        }
+    }
+
+    /// Writes `islandCanShow` where the tap thread reads it, and says so in the log when it
+    /// changes: a volume key that brings up macOS's bezel instead of the island's is otherwise
+    /// indistinguishable, in a report, from a tap that has stopped. Main thread.
+    private func refreshIslandCanShow() {
+        let hud = SystemHUDReplacement.shared
+        let showable = Self.islandCanShow(in: ActivityCenter.shared)
+        guard hud.canShowKeyDisplay() != showable else { return }
+        hud.setCanShowKeyDisplay(showable)
+        IslandLog.keys.notice("an island can show a key's display: \(showable, privacy: .public)")
+    }
+
     // MARK: - Event tap
 
     private func installTap() {
@@ -819,8 +949,10 @@ final class MediaKeyInterceptor {
             guard Self.interceptedKeyCodes.contains(decoded.keyCode) else { return }
             // A key this Mac cannot answer goes back to macOS, which still has its own bezel
             // for it. Swallowing it here would make it a dead key: no change, no display,
-            // nothing at all.
-            guard canAnswer(decoded.keyCode) else { return }
+            // nothing at all. A key pressed while no island is on screen to show it goes back
+            // too (`swallows`): the change would be made and nothing would say so.
+            guard Self.swallows(canAnswer: canAnswer(decoded.keyCode),
+                                islandCanShow: SystemHUDReplacement.shared.canShowKeyDisplay()) else { return }
             swallow = true
             guard decoded.isDown else { return }
             let flags = event.flags

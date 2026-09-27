@@ -164,3 +164,127 @@ final class MediaKeyDecodingTests: XCTestCase {
         XCTAssertEqual(CopyRetirement.next(stillRunning: 2, secondsLeft: -0.3), .force)
     }
 }
+
+/// A media key is taken from macOS only while an island is on screen to answer it. Taken while
+/// every island was hidden, or under a card forced up, it changed the level and nothing said
+/// so: the island drew nothing and macOS never saw the key to draw its own bezel.
+final class MediaKeySuppressionTests: XCTestCase {
+    private var center: ActivityCenter { ActivityCenter.shared }
+
+    override func setUp() {
+        super.setUp()
+        center.resetForTesting()
+        // Neither is put back by `resetForTesting`, and both hide every island.
+        center.appSuppressed = false
+        center.pause(for: 0)
+    }
+
+    override func tearDown() {
+        center.appSuppressed = false
+        center.pause(for: 0)
+        center.resetForTesting()
+        super.tearDown()
+    }
+
+    private func rungTimer() -> IslandActivity {
+        IslandActivity(id: "timer", kind: .timer,
+                       content: .timer(TimerState(label: "Tea", total: 60, endDate: Date(), isFinished: true)), priority: 90)
+    }
+
+    // MARK: The rule
+
+    func testAKeyIsTakenOnlyWhenTheMacCanDoItAndAnIslandCanSayItWasDone() {
+        XCTAssertTrue(MediaKeyInterceptor.swallows(canAnswer: true, islandCanShow: true))
+        XCTAssertFalse(MediaKeyInterceptor.swallows(canAnswer: true, islandCanShow: false),
+                       "no island to show it: macOS's bezel rather than no answer at all")
+        XCTAssertFalse(MediaKeyInterceptor.swallows(canAnswer: false, islandCanShow: true),
+                       "a key the Mac cannot answer is macOS's, as it always was")
+        XCTAssertFalse(MediaKeyInterceptor.swallows(canAnswer: false, islandCanShow: false))
+    }
+
+    func testAnIslandUnderAFullScreenAppCannotShowAKey() {
+        XCTAssertTrue(MediaKeyInterceptor.islandCanShow(islands: ["a"], hidden: [], cardForcedUp: false))
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(islands: ["a"], hidden: ["a"], cardForcedUp: false))
+    }
+
+    func testAnyIslandStillShowingIsEnough() {
+        XCTAssertTrue(MediaKeyInterceptor.islandCanShow(islands: ["a", "b"], hidden: ["b"], cardForcedUp: false),
+                      "a film on the external display leaves the MacBook's island to show it")
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(islands: ["a", "b"], hidden: ["a", "b"], cardForcedUp: false))
+    }
+
+    func testNoIslandAtAllIsNoneToShowItOn() {
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(islands: [], hidden: [], cardForcedUp: false))
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(islands: [], hidden: ["gone"], cardForcedUp: false),
+                       "a hidden display with no island on it is not an island left showing")
+    }
+
+    func testACardForcedUpKeepsAKeysDisplayOffTheIsland() {
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(islands: ["a"], hidden: [], cardForcedUp: true))
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(islands: ["a", "b"], hidden: ["b"], cardForcedUp: true))
+    }
+
+    // MARK: Read from the centre
+
+    func testAnIslandShowingAndNothingInTheWayTakesTheKeys() {
+        center.panelsRebuilt(["a"])
+        XCTAssertTrue(MediaKeyInterceptor.islandCanShow(in: center))
+    }
+
+    func testBeforeAnyIslandIsBuiltTheKeysAreMacOSs() {
+        XCTAssertTrue(center.livePanels.isEmpty)
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(in: center))
+    }
+
+    func testTheOnlyDisplayFullScreenHandsTheKeysBack() {
+        center.panelsRebuilt(["a"])
+        center.fullscreenPanels = ["a"]
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(in: center))
+    }
+
+    func testTheOtherDisplayFullScreenLeavesTheKeysWithTheIsland() {
+        center.panelsRebuilt(["a", "b"])
+        center.fullscreenPanels = ["b"]
+        XCTAssertTrue(MediaKeyInterceptor.islandCanShow(in: center))
+        center.fullscreenPanels = ["a", "b"]
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(in: center))
+    }
+
+    func testAPauseHandsTheKeysBackUntilItIsTakenBack() {
+        center.panelsRebuilt(["a"])
+        center.pause(for: 60)
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(in: center), "a pause, as Hide Island for 1 Hour sets")
+        center.pause(for: 0)
+        XCTAssertTrue(MediaKeyInterceptor.islandCanShow(in: center))
+    }
+
+    func testAnAppOnTheHideListHandsTheKeysBack() {
+        center.panelsRebuilt(["a", "b"])
+        center.appSuppressed = true
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(in: center), "every island hides for that app")
+    }
+
+    func testARingingTimerHandsTheKeysBackUnlessAPanelIsOpenOverIt() {
+        center.panelsRebuilt(["a"])
+        center.upsert(rungTimer())
+        center.forceExpanded(id: "timer", for: 5)
+        XCTAssertNotNil(center.forcedCard)
+        XCTAssertFalse(MediaKeyInterceptor.islandCanShow(in: center),
+                       "a key's display would wait behind the card and be dropped")
+        center.open(.activity(id: "timer"))
+        XCTAssertTrue(center.isOpen)
+        XCTAssertTrue(MediaKeyInterceptor.islandCanShow(in: center), "with a panel open it is a banner there")
+    }
+
+    // MARK: Where the tap thread reads it
+
+    func testTheAnswerIsReadableFromTheTapThread() {
+        let hud = SystemHUDReplacement.shared
+        let saved = hud.canShowKeyDisplay()
+        defer { hud.setCanShowKeyDisplay(saved) }
+        hud.setCanShowKeyDisplay(true)
+        XCTAssertTrue(DispatchQueue.global(qos: .userInteractive).sync { hud.canShowKeyDisplay() })
+        hud.setCanShowKeyDisplay(false)
+        XCTAssertFalse(DispatchQueue.global(qos: .userInteractive).sync { hud.canShowKeyDisplay() })
+    }
+}
