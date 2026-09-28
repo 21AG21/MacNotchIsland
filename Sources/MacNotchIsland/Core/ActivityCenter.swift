@@ -58,6 +58,7 @@ final class ActivityCenter: ObservableObject {
                 if openView == nil {
                     navigationDirection = 0
                     keyboardInvited = false
+                    keyboardTakenElsewhere = false
                     // With no pointer on any island there is no peek, and one kept past the
                     // close is the view the next peek opens on. `collapse` let it go; an
                     // activity ending, a timed Home and an island hidden did not.
@@ -195,7 +196,24 @@ final class ActivityCenter: ObservableObject {
     /// clicked pause in a peek while typing in Pages is going back to Pages, and the island
     /// taking the keyboard on that click sent every letter after it into nothing.
     private(set) var keyboardInvited = false {
-        didSet { if keyboardInvited != oldValue { objectWillChange.send(); keyboardControlChanged() } }
+        didSet {
+            if keyboardInvited != oldValue { objectWillChange.send(); keyboardControlChanged() }
+            if keyboardInvited { keyboardTakenElsewhere = false }
+        }
+    }
+    /// Whether the keyboard was taken by another app's window since the panel last held it, and
+    /// not asked for again since.
+    ///
+    /// Cmd-Tab, Spotlight and a swiped-open Notification Centre all move key status to a window
+    /// that is none of ours, without the panel closing or `keyboardInvited` ever going false —
+    /// so `wantsPanelKeyboard` still said yes, and `syncKeyboard` saw no window of its own in
+    /// the way and took the keyboard straight back. Every letter typed into what the user just
+    /// switched to went to the island instead, and Escape closed the island rather than the
+    /// thing it was pressed for. Set by `panelKeyChanged`; cleared by the next explicit invite
+    /// — a click, the shortcut, Tab — and by the panel closing. See `wantsPanelKeyboard` and
+    /// `escapeArmed`.
+    private(set) var keyboardTakenElsewhere = false {
+        didSet { if keyboardTakenElsewhere != oldValue { keyboardControlChanged() } }
     }
     /// When the panel last opened, for the guards against the tail of the click that opened
     /// it. Not `lastInteraction`, which every slider and every step moves as well: a click
@@ -294,6 +312,7 @@ final class ActivityCenter: ObservableObject {
         pendingHover = nil
         peekSuppressed = nil
         keyboardInvited = false
+        keyboardTakenElsewhere = false
         openedAt = .distantPast
         grewAt = .distantPast
         grewOn = nil
@@ -1863,10 +1882,18 @@ final class ActivityCenter: ObservableObject {
     func panelKeyChanged() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let holds = NSApp.windows.contains { ($0 as? NotchPanel)?.isKeyWindow == true }
-            guard holds != self.holdsKeyboard else { return }
-            self.holdsKeyboard = holds
-            self.keyboardControlChanged()
+            let keyWindow = NSApp.windows.first { $0.isKeyWindow }
+            let holds = keyWindow is NotchPanel
+            if holds != self.holdsKeyboard {
+                self.holdsKeyboard = holds
+                self.keyboardControlChanged()
+            }
+            // No window of ours holds the keyboard at all. Harmless once the panel has already
+            // closed — nothing wants the keyboard then, flag or no flag — but while it is still
+            // open this is a foreign window taking key status, not the panel handing it back:
+            // `releaseKey` only ever cycles the panel out and back in, which does not make any
+            // window of ours key. See `keyboardTakenElsewhere`.
+            if keyWindow == nil { self.keyboardTakenElsewhere = true }
         }
     }
 
@@ -1881,6 +1908,12 @@ final class ActivityCenter: ObservableObject {
     var wantsPanelKeyboard: Bool {
         // A hidden island has nothing to type into.
         if isSuppressed(panel: openPanel) { return false }
+        // Taken by something else since the panel last held it — Cmd-Tab, Spotlight, a
+        // swiped-open Notification Centre — and not asked for again: the panel stays open, but
+        // the keyboard is not its to take back until the next explicit invite. Ahead of
+        // `wantsKeyboard` too, so a theft while the Notes field was up does not get answered by
+        // taking the keyboard straight back off whatever it went to.
+        if keyboardTakenElsewhere { return false }
         if wantsKeyboard { return true }
         return openView != nil && keyboardInvited && Preferences.shared.panelKeysEnabled
     }
@@ -1911,13 +1944,17 @@ final class ActivityCenter: ObservableObject {
     }
 
     /// Escape closes the panel from anywhere, as a global key — except while another of this
-    /// app's own windows has taken the keyboard since the panel opened. Quick Look opened from
-    /// the shelf, or Settings from the rail, took the key from the panel: the island closed and
-    /// the window the key was meant for stayed, and a second Escape was needed. The window that
-    /// was key when the panel opened (`keyWindowAtOpen`) does not count: the panel was opened
-    /// over it, as over any other app's. See `armsEscape` and `PanelKeyboard.takenByAnotherOfOurs`.
+    /// app's own windows has taken the keyboard since the panel opened, or while something
+    /// outside the app has taken it and not been invited back. Quick Look opened from the
+    /// shelf, or Settings from the rail, took the key from the panel: the island closed and the
+    /// window the key was meant for stayed, and a second Escape was needed. Cmd-Tab, Spotlight
+    /// and a swiped-open Notification Centre did the same from outside the app: Escape closed
+    /// the island instead of dismissing them, and needed a second press once it was theirs to
+    /// answer. The window that was key when the panel opened (`keyWindowAtOpen`) does not
+    /// count: the panel was opened over it, as over any other app's. See `armsEscape`,
+    /// `keyboardTakenElsewhere` and `PanelKeyboard.takenByAnotherOfOurs`.
     var escapeArmed: Bool {
-        guard openView != nil else { return false }
+        guard openView != nil, !keyboardTakenElsewhere else { return false }
         let atOpen = keyWindowAtOpen
         let windows = (NSApp?.windows ?? []).map { window in
             (isKey: window.isKeyWindow, isPanel: window is NotchPanel, keyAtOpen: window === atOpen)

@@ -455,6 +455,32 @@ final class ActivityCenterTests: XCTestCase {
         XCTAssertFalse(center.wantsKeyboard, "a closed panel hands the keyboard straight back")
     }
 
+    /// Cmd-Tab, Spotlight and a swiped-open Notification Centre all move key status to a window
+    /// that is none of ours without closing the panel or un-inviting the keyboard, so
+    /// `panelKeyChanged` is what has to notice: nothing of ours left holding it means it was
+    /// taken, not handed back. Before this, `NotchPanel.syncKeyboard` saw no window of ours in
+    /// the way and took the keyboard straight back off whatever it had just gone to, and Escape
+    /// closed the island instead of answering the thing it was pressed for.
+    func testTheKeyboardGoingToNoWindowOfOursIsTakenNotHandedBack() {
+        Preferences.shared.panelKeysEnabled = true
+        center.open(.home(tab: HomeSection.home.rawValue))
+        XCTAssertTrue(center.wantsPanelKeyboard, "an open invited by a click or the shortcut")
+        XCTAssertTrue(center.escapeArmed)
+
+        let exp = expectation(description: "panelKeyChanged runs on the next turn")
+        center.panelKeyChanged()
+        DispatchQueue.main.async { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+
+        XCTAssertFalse(center.wantsPanelKeyboard, "no window of ours is key, so something else took it")
+        XCTAssertFalse(center.escapeArmed, "Escape is whatever holds the keyboard now, not the island")
+        XCTAssertTrue(center.isOpen, "taking the keyboard away does not close the panel by itself")
+
+        center.select(.home(tab: HomeSection.home.rawValue))
+        XCTAssertTrue(center.wantsPanelKeyboard, "an explicit invite takes it back")
+        XCTAssertTrue(center.escapeArmed)
+    }
+
     func testAPeekedNotesSectionDoesNotTakeTheKeyboard() {
         let exp = expectation(description: "peeking")
         center.setHovering(true)
