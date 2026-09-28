@@ -1882,7 +1882,9 @@ final class ActivityCenter: ObservableObject {
     func panelKeyChanged() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let keyWindow = NSApp.windows.first { $0.isKeyWindow }
+            // `NSApp` itself, not only its windows: the test host never touches
+            // `NSApplication.shared`, and reads none of ours as key rather than crash.
+            let keyWindow = (NSApp?.windows ?? []).first { $0.isKeyWindow }
             let holds = keyWindow is NotchPanel
             if holds != self.holdsKeyboard {
                 self.holdsKeyboard = holds
